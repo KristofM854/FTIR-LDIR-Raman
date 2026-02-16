@@ -156,10 +156,13 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
 
   ftir_from_image <- extract_particles_from_image(
     config$ftir_image,
-    scan_bounds   = ftir_scan_bounds,
-    threshold_pct = 0.92,
-    min_pixels    = 6,
-    instrument    = "FTIR"
+    scan_bounds     = ftir_scan_bounds,
+    adaptive_radius = 75L,
+    adaptive_offset = 0.02,
+    min_pixels      = 4,
+    min_size_um     = 20,
+    expected_count  = nrow(ftir_raw),
+    instrument      = "FTIR"
   )
 
   log_message("Image extraction: ", nrow(ftir_from_image),
@@ -207,7 +210,20 @@ if (!is.null(min_size) && min_size > 0 && any(!is.na(raman_for_align$feret_max_u
   log_message("Raman alignment: removed ", n_before - nrow(raman_for_align),
               " particles < ", min_size, " um")
 }
-log_message("Raman alignment target particles: ", nrow(raman_for_align))
+# Apply HQI threshold to material alignment anchors (only reliably
+# identified particles should drive material-based alignment)
+if (!is.null(config$raman_hqi_threshold) && config$raman_hqi_threshold > 0 &&
+    any(!is.na(raman_for_align$quality))) {
+  hqi_mask <- !is.na(raman_for_align$quality) &
+              raman_for_align$quality >= config$raman_hqi_threshold
+  n_before_hqi <- nrow(raman_for_align)
+  raman_for_align <- raman_for_align[hqi_mask, ]
+  log_message("Raman alignment: HQI filter (>= ", config$raman_hqi_threshold,
+              "): kept ", nrow(raman_for_align), " of ", n_before_hqi)
+}
+log_message("Raman alignment target particles: ", nrow(raman_for_align),
+            " (material + >= ", min_size, " um + HQI >= ",
+            config$raman_hqi_threshold, ")")
 
 # Quality-filtered sets for matching (applied after alignment)
 # FTIR: apply quality filter as usual
@@ -249,15 +265,20 @@ ftir_clean$y_norm  <- ftir_clean$y_um - norm_result$ftir_centroid[2]
 raman_clean$x_norm <- raman_clean$x_um - norm_result$raman_centroid[1]
 raman_clean$y_norm <- raman_clean$y_um - norm_result$raman_centroid[2]
 
-# Build ICP sets: all Raman particles >= size threshold (visible to FTIR)
-min_size_icp <- config$align_raman_min_size_um
-raman_for_icp <- raman_clean
-if (!is.null(min_size_icp) && min_size_icp > 0 && any(!is.na(raman_clean$feret_max_um))) {
-  raman_for_icp <- raman_clean[
-    is.na(raman_clean$feret_max_um) | raman_clean$feret_max_um >= min_size_icp, ]
+# Build spatial transform set: all Raman >= 20 um (visible to FTIR).
+# This set is used for ALL spatial transform steps (landmarks, ICP)
+# regardless of material or HQI — only size matters for geometry.
+min_size_spatial <- config$align_raman_min_size_um
+raman_for_transform <- raman_clean
+if (!is.null(min_size_spatial) && min_size_spatial > 0 &&
+    any(!is.na(raman_clean$feret_max_um))) {
+  raman_for_transform <- raman_clean[
+    is.na(raman_clean$feret_max_um) | raman_clean$feret_max_um >= min_size_spatial, ]
 }
+log_message("Raman for spatial transform (>= ", min_size_spatial, " um): ",
+            nrow(raman_for_transform), " particles")
 log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
-            ", Raman ", nrow(raman_for_icp), " (>= ", min_size_icp, " um)")
+            ", Raman ", nrow(raman_for_transform))
 
 # ---------------------------------------------------------------------------
 # 5. Tiered alignment (FTIR ↔ Raman)
@@ -270,7 +291,8 @@ log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
 # ---------------------------------------------------------------------------
 
 # --- Tier 1: Landmark alignment ---
-landmark_result <- landmark_align(ftir_clean, raman_clean, config)
+# Use size-filtered Raman (>= 20 um) — landmarks are selected by size inside
+landmark_result <- landmark_align(ftir_clean, raman_for_transform, config)
 
 use_landmark_transform <- landmark_result$confident && config$landmark_skip_full_ransac
 
@@ -295,7 +317,7 @@ if (use_landmark_transform) {
 }
 
 # --- ICP refinement (always runs to polish the transform) ---
-icp_result <- icp_refine(ftir_clean, raman_for_icp, alignment_transform, config)
+icp_result <- icp_refine(ftir_clean, raman_for_transform, alignment_transform, config)
 
 log_message("ICP refined transform: scale = ", round(icp_result$params$scale, 4),
             ", rotation = ", round(icp_result$params$rotation_deg, 2), " deg",
