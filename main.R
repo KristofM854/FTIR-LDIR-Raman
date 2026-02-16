@@ -34,6 +34,7 @@ source("R/00_config.R")
 source("R/01_ingest.R")
 source("R/02_prefilter.R")
 source("R/03_normalize.R")
+source("R/03b_landmark_align.R")
 source("R/04_ransac.R")
 source("R/05_transform.R")
 source("R/06_icp_refine.R")
@@ -168,24 +169,42 @@ log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
             ", Raman ", nrow(raman_for_icp), " (>= ", min_size_icp, " um)")
 
 # ---------------------------------------------------------------------------
-# 5. RANSAC alignment estimation (plastic anchors only)
-# ---------------------------------------------------------------------------
-
-ransac_result <- ransac_align(ftir_norm_align, raman_norm_align, config)
-
-log_message("RANSAC transform: scale = ", round(ransac_result$params$scale, 4),
-            ", rotation = ", round(ransac_result$params$rotation_deg, 2), " deg",
-            ", reflected = ", ransac_result$params$reflected,
-            ", inliers = ", ransac_result$n_inliers)
-
-# ---------------------------------------------------------------------------
-# 6. ICP refinement (all particles >= size threshold)
+# 5. Tiered alignment
 #
-# RANSAC found the correct rotation from plastic anchors. Now refine using
-# ALL particles large enough to be detected by both instruments.
+# Tier 1 — Landmark alignment: use large particles & fibers to quickly
+#   determine the spatial transform. If confident, skip Tier 2.
+# Tier 2 — Full RANSAC: exhaustive grid search on material-filtered anchors.
+#   Only runs if Tier 1 was not confident enough.
+# ICP refinement always runs to polish the transform.
 # ---------------------------------------------------------------------------
 
-icp_result <- icp_refine(ftir_clean, raman_for_icp, ransac_result$transform, config)
+# --- Tier 1: Landmark alignment ---
+landmark_result <- landmark_align(ftir_clean, raman_clean, config)
+
+use_landmark_transform <- landmark_result$confident && config$landmark_skip_full_ransac
+
+if (use_landmark_transform) {
+  log_message("Using landmark transform (Tier 1) — skipping full RANSAC")
+  alignment_transform <- landmark_result$transform
+  alignment_method    <- "landmark"
+} else {
+  # --- Tier 2: Full material-based RANSAC ---
+  log_message(strrep("-", 50))
+  log_message("Tier 2: Full RANSAC alignment (material-based anchors)")
+
+  ransac_result <- ransac_align(ftir_norm_align, raman_norm_align, config)
+
+  log_message("RANSAC transform: scale = ", round(ransac_result$params$scale, 4),
+              ", rotation = ", round(ransac_result$params$rotation_deg, 2), " deg",
+              ", reflected = ", ransac_result$params$reflected,
+              ", inliers = ", ransac_result$n_inliers)
+
+  alignment_transform <- ransac_result$transform
+  alignment_method    <- "ransac"
+}
+
+# --- ICP refinement (always runs to polish the transform) ---
+icp_result <- icp_refine(ftir_clean, raman_for_icp, alignment_transform, config)
 
 log_message("ICP refined transform: scale = ", round(icp_result$params$scale, 4),
             ", rotation = ", round(icp_result$params$rotation_deg, 2), " deg",
@@ -250,6 +269,13 @@ export_results(
 log_message(strrep("=", 60))
 log_message("Pipeline complete!")
 log_message(strrep("=", 60))
+log_message("  Alignment method:  ", alignment_method,
+            if (alignment_method == "landmark")
+              paste0(" (", landmark_result$n_inliers, " landmark inliers, ",
+                     round(landmark_result$mean_residual, 1), " µm mean residual)")
+            else "")
+log_message("  FTIR landmarks:    ", landmark_result$n_ftir_landmarks,
+            " (confident: ", landmark_result$confident, ")")
 log_message("  FTIR plastic anchors (alignment): ", nrow(ftir_for_align))
 log_message("  Raman targets (alignment):       ", nrow(raman_for_align))
 log_message("  FTIR particles (matching):       ", nrow(ftir_for_match))
