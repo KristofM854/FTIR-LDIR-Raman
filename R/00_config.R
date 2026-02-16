@@ -41,6 +41,18 @@ make_config <- function(ftir_path  = NULL,
     align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
     align_raman_min_size_um = 20,  # exclude Raman particles below FTIR detection limit
 
+    # --- Landmark-first alignment (Tier 1) ---
+    # Large particles and fibers are used as high-confidence anchors.
+    # If enough landmarks match with tight residuals, the expensive full
+    # RANSAC grid search (Tier 2) is skipped entirely.
+    landmark_min_size_um       = 50,   # particles >= this size are landmarks
+    landmark_fiber_aspect_ratio = 3.0, # major/minor >= this → fiber (landmark even if smaller)
+    landmark_fiber_min_size_um  = 20,  # minimum size for fiber landmarks
+    landmark_min_count          = 4,   # need at least this many landmarks per dataset
+    landmark_confidence_min_inlier_ratio = 0.5,  # >= 50% landmarks must be inliers
+    landmark_confidence_max_residual_um  = 50,   # mean residual must be below this (µm)
+    landmark_skip_full_ransac  = TRUE, # if TRUE, skip Tier 2 when landmarks are confident
+
     # --- RANSAC alignment ---
     ransac_coarse_step_deg = 1,     # rotation grid step for coarse search (degrees)
     ransac_n_iterations    = 2000,  # number of RANSAC iterations for refinement
