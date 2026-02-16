@@ -1,14 +1,16 @@
 # =============================================================================
-# main.R — FTIR–Raman particle matching pipeline
+# main.R — Multi-instrument particle matching pipeline
 # =============================================================================
 #
 # Orchestrates the full pipeline for aligning and matching particles
-# detected by FTIR and Raman microspectroscopy on the same physical filter.
+# detected by FTIR, Raman, and LDIR microspectroscopy on the same filter.
+#
+# Input modes:
+#   Mode 1 (Hardcoded): Set ftir_file / raman_file / ldir_file before sourcing
+#   Mode 2 (Interactive): Set input_mode <- "interactive" to get file pickers
 #
 # Usage:
-#   1. Set ftir_path and raman_path below to your paired data files
-#   2. Adjust config parameters as needed
-#   3. Source this script:  source("main.R")
+#   source("main.R")
 #
 # =============================================================================
 
@@ -31,7 +33,10 @@ library(ggplot2)
 # Source all modules (relative to project root)
 source("R/utils.R")
 source("R/00_config.R")
+source("R/00b_file_input.R")
 source("R/01_ingest.R")
+source("R/01b_ingest_image.R")
+source("R/01c_ingest_ldir.R")
 source("R/02_prefilter.R")
 source("R/03_normalize.R")
 source("R/03b_landmark_align.R")
@@ -40,33 +45,57 @@ source("R/05_transform.R")
 source("R/06_icp_refine.R")
 source("R/07_match.R")
 source("R/08_agreement.R")
+source("R/08b_material_map.R")
 source("R/09_diagnostics.R")
 source("R/10_export.R")
 
 # ---------------------------------------------------------------------------
-# 1. Configuration
+# 1. File input and configuration
 # ---------------------------------------------------------------------------
 
-# File paths — set to NULL to get a file-picker dialog at runtime,
-# or pre-set ftir_file / raman_file before sourcing this script.
-if (!exists("ftir_file"))  ftir_file  <- NULL
-if (!exists("raman_file")) raman_file <- NULL
+# --- Input mode selection ---
+# Set input_mode <- "interactive" before sourcing for file picker dialogs.
+# Default: "hardcoded" — uses ftir_file / raman_file / ldir_file variables.
+if (!exists("input_mode")) input_mode <- "hardcoded"
 
-if (is.null(ftir_file)) {
-  if (interactive()) {
-    message("Please select the FTIR data file (.csv or .xlsx) ...")
-    ftir_file <- file.choose()
-  } else {
-    stop("ftir_file must be set before running in non-interactive mode")
+if (input_mode == "interactive") {
+  # ------ Mode 2: Interactive file picker ------
+  file_manifest <- collect_files_interactive()
+  grouped       <- group_files_by_instrument(file_manifest)
+
+  ftir_file      <- grouped$FTIR$tabular
+  ftir_image     <- grouped$FTIR$image
+  raman_file     <- grouped$Raman$tabular
+  ldir_file      <- grouped$LDIR$tabular
+  ldir_image     <- grouped$LDIR$image
+
+} else {
+  # ------ Mode 1: Hardcoded paths ------
+  # Defaults for test data (set these before sourcing, or leave for defaults)
+  if (!exists("ftir_file"))  ftir_file  <- NULL
+  if (!exists("raman_file")) raman_file <- NULL
+  if (!exists("ldir_file"))  ldir_file  <- NULL
+  if (!exists("ftir_image")) ftir_image <- NULL
+  if (!exists("ldir_image")) ldir_image <- NULL
+
+  # Prompt for mandatory files if not set
+  if (is.null(ftir_file)) {
+    if (interactive()) {
+      message("Please select the FTIR data file (.csv or .xlsx) ...")
+      ftir_file <- file.choose()
+    } else {
+      stop("ftir_file must be set before running in non-interactive mode")
+    }
   }
-}
-if (is.null(raman_file)) {
-  if (interactive()) {
-    message("Please select the Raman data file (.csv or .xlsx) ...")
-    raman_file <- file.choose()
-  } else {
-    stop("raman_file must be set before running in non-interactive mode")
+  if (is.null(raman_file)) {
+    if (interactive()) {
+      message("Please select the Raman data file (.csv or .xlsx) ...")
+      raman_file <- file.choose()
+    } else {
+      stop("raman_file must be set before running in non-interactive mode")
+    }
   }
+  # ldir_file is optional — NULL means skip LDIR
 }
 
 config <- make_config(
@@ -74,6 +103,11 @@ config <- make_config(
   raman_path = raman_file,
   output_dir = "output"
 )
+
+# Store LDIR path in config
+config$ldir_path  <- if (exists("ldir_file"))  ldir_file  else NULL
+config$ftir_image <- if (exists("ftir_image")) ftir_image else NULL
+config$ldir_image <- if (exists("ldir_image")) ldir_image else NULL
 
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
@@ -88,11 +122,49 @@ config$output_dir <- make_run_dir(config$output_dir)
 # ---------------------------------------------------------------------------
 
 log_message(strrep("=", 60))
-log_message("FTIR-Raman Particle Matching Pipeline")
+log_message("Multi-Instrument Particle Matching Pipeline")
 log_message(strrep("=", 60))
 
+# --- FTIR ---
 ftir_raw  <- ingest_ftir(config$ftir_path, sheet = config$ftir_sheet)
+
+# --- Raman ---
 raman_raw <- ingest_raman(config$raman_path, sheet = config$raman_sheet)
+
+# --- LDIR (optional) ---
+ldir_raw <- NULL
+has_ldir <- !is.null(config$ldir_path) && nzchar(config$ldir_path)
+if (has_ldir) {
+  ldir_raw <- ingest_ldir(config$ldir_path)
+  log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
+} else {
+  log_message("LDIR: not provided — skipping LDIR analysis")
+}
+
+# --- FTIR image-based coordinate extraction (if image provided) ---
+if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
+  log_message(strrep("-", 50))
+  log_message("FTIR image-based particle extraction")
+
+  # Estimate scan bounds from tabular FTIR data
+  ftir_scan_bounds <- list(
+    x_min = 0,
+    x_max = max(ftir_raw$x_um, na.rm = TRUE) * 1.05,
+    y_min = 0,
+    y_max = max(ftir_raw$y_um, na.rm = TRUE) * 1.05
+  )
+
+  ftir_from_image <- extract_particles_from_image(
+    config$ftir_image,
+    scan_bounds   = ftir_scan_bounds,
+    threshold_pct = 0.92,
+    min_pixels    = 6,
+    instrument    = "FTIR"
+  )
+
+  log_message("Image extraction: ", nrow(ftir_from_image),
+              " particles from FTIR image")
+}
 
 # ---------------------------------------------------------------------------
 # 3. Pre-filtering
@@ -138,16 +210,23 @@ if (!is.null(min_size) && min_size > 0 && any(!is.na(raman_for_align$feret_max_u
 log_message("Raman alignment target particles: ", nrow(raman_for_align))
 
 # Quality-filtered sets for matching (applied after alignment)
+# FTIR: apply quality filter as usual
 ftir_for_match <- prefilter_ftir(
   ftir_raw,
   min_quality = config$ftir_quality_threshold,
   min_size_um = config$min_particle_size_um
 )
+# Raman: use ALL particles for spatial matching (no HQI filter here).
+# HQI filtering is applied only inside analyze_agreement() so that
+# spatial matching has maximum coverage while agreement scoring
+# only considers particles with reliable Raman identifications.
 raman_for_match <- prefilter_raman(
   raman_raw,
-  min_hqi     = config$raman_hqi_threshold,
+  min_hqi     = 0,
   min_size_um = config$min_particle_size_um
 )
+log_message("Raman for matching: ", nrow(raman_for_match),
+            " particles (all HQI, spatial only; HQI filter applied in agreement)")
 
 # ---------------------------------------------------------------------------
 # 4. Coordinate normalization
@@ -181,7 +260,7 @@ log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
             ", Raman ", nrow(raman_for_icp), " (>= ", min_size_icp, " um)")
 
 # ---------------------------------------------------------------------------
-# 5. Tiered alignment
+# 5. Tiered alignment (FTIR ↔ Raman)
 #
 # Tier 1 — Landmark alignment: use large particles & fibers to quickly
 #   determine the spatial transform. If confident, skip Tier 2.
@@ -244,19 +323,57 @@ ftir_aligned <- apply_ftir_transform(ftir_for_match, icp_result$transform)
 ftir_aligned_all <- apply_ftir_transform(ftir_clean, icp_result$transform)
 
 # ---------------------------------------------------------------------------
-# 8. Particle matching (quality-filtered datasets only)
+# 8. Particle matching (FTIR ↔ Raman, spatial)
 # ---------------------------------------------------------------------------
 
 match_result <- match_particles(ftir_aligned, raman_for_match, config)
 
 # ---------------------------------------------------------------------------
-# 9. Agreement analysis
+# 9. Agreement analysis (FTIR ↔ Raman)
 # ---------------------------------------------------------------------------
 
-agreement <- analyze_agreement(match_result)
+agreement <- analyze_agreement(match_result, config)
 
 # ---------------------------------------------------------------------------
-# 10. Diagnostics (use full datasets for overlay, matched pairs for detail)
+# 10. LDIR comparison (non-spatial, material composition)
+# ---------------------------------------------------------------------------
+
+ldir_comparison <- NULL
+if (has_ldir && !is.null(ldir_raw)) {
+  log_message(strrep("-", 50))
+  log_message("LDIR comparison (non-spatial: material composition)")
+
+  ldir_clean <- prefilter_ldir(ldir_raw, min_quality = 0.6, min_size_um = 0)
+
+  # Compare material distributions across all three instruments
+  ftir_mats  <- table(ftir_clean$material)
+  raman_mats <- table(raman_for_match$material)
+  ldir_mats  <- table(ldir_clean$material)
+
+  log_message("  FTIR material distribution (top 5):")
+  for (m in names(head(sort(ftir_mats, decreasing = TRUE), 5))) {
+    log_message("    ", m, ": ", ftir_mats[m])
+  }
+  log_message("  Raman material distribution (top 5):")
+  for (m in names(head(sort(raman_mats, decreasing = TRUE), 5))) {
+    log_message("    ", m, ": ", raman_mats[m])
+  }
+  log_message("  LDIR material distribution (top 5):")
+  for (m in names(head(sort(ldir_mats, decreasing = TRUE), 5))) {
+    log_message("    ", m, ": ", ldir_mats[m])
+  }
+
+  ldir_comparison <- list(
+    ldir_particles = ldir_clean,
+    ftir_material_dist  = ftir_mats,
+    raman_material_dist = raman_mats,
+    ldir_material_dist  = ldir_mats,
+    n_ldir = nrow(ldir_clean)
+  )
+}
+
+# ---------------------------------------------------------------------------
+# 11. Diagnostics (use full datasets for overlay, matched pairs for detail)
 # ---------------------------------------------------------------------------
 
 diagnostics <- generate_diagnostics(
@@ -266,7 +383,7 @@ diagnostics <- generate_diagnostics(
 )
 
 # ---------------------------------------------------------------------------
-# 11. Export
+# 12. Export
 # ---------------------------------------------------------------------------
 
 export_results(
@@ -274,8 +391,20 @@ export_results(
   icp_result, norm_result, config
 )
 
+# Export LDIR comparison if available
+if (!is.null(ldir_comparison)) {
+  ldir_out <- file.path(config$output_dir, "ldir_material_distribution.csv")
+  ldir_df <- data.frame(
+    material = names(ldir_comparison$ldir_material_dist),
+    count    = as.integer(ldir_comparison$ldir_material_dist),
+    stringsAsFactors = FALSE
+  )
+  write.csv(ldir_df, ldir_out, row.names = FALSE)
+  log_message("  Wrote LDIR material distribution to: ", basename(ldir_out))
+}
+
 # ---------------------------------------------------------------------------
-# 12. Summary
+# 13. Summary
 # ---------------------------------------------------------------------------
 
 log_message(strrep("=", 60))
@@ -299,5 +428,8 @@ log_message("  FTIR match rate:    ",
             round(match_result$match_stats$match_rate_ftir * 100, 1), "%")
 if (!is.na(agreement$agreement_rate)) {
   log_message("  Material agreement: ", round(agreement$agreement_rate * 100, 1), "%")
+}
+if (has_ldir) {
+  log_message("  LDIR particles:     ", ldir_comparison$n_ldir)
 }
 log_message("  Results in: ", config$output_dir)

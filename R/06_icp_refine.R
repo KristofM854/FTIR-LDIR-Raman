@@ -29,11 +29,21 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config) {
   conv_thresh    <- config$icp_convergence_thresh
   max_pair_dist  <- config$icp_max_pair_dist_um
   allow_mirror   <- config$ransac_allow_mirror
+  use_reciprocal <- isTRUE(config$icp_reciprocal)
+  trim_pct       <- if (!is.null(config$icp_trim_pct)) config$icp_trim_pct else 0
 
   ftir_x  <- ftir_df$x_norm
   ftir_y  <- ftir_df$y_norm
   raman_x <- raman_df$x_norm
   raman_y <- raman_df$y_norm
+  n_ftir  <- length(ftir_x)
+  n_raman <- length(raman_x)
+
+  ftir_mat  <- cbind(ftir_x, ftir_y)
+  raman_mat <- cbind(raman_x, raman_y)
+
+  if (use_reciprocal) log_message("  Reciprocal nearest-neighbor filtering: ON")
+  if (trim_pct > 0)   log_message("  Trimming worst ", trim_pct * 100, "% of pairs each iteration")
 
   current_M   <- initial_transform
   rms_history <- numeric()
@@ -45,18 +55,48 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config) {
     transformed <- apply_transform_points(ftir_x, ftir_y, current_M)
     tx <- transformed$x_transformed
     ty <- transformed$y_transformed
+    transformed_mat <- cbind(tx, ty)
 
-    # Find nearest Raman neighbor for each transformed FTIR particle
-    nn <- RANN::nn2(cbind(raman_x, raman_y), cbind(tx, ty), k = 1)
-    dists     <- nn$nn.dists[, 1]
-    raman_idx <- nn$nn.idx[, 1]
+    # Forward: for each FTIR particle, find nearest Raman
+    nn_fwd <- RANN::nn2(raman_mat, transformed_mat, k = 1)
+    dists     <- nn_fwd$nn.dists[, 1]
+    raman_idx <- nn_fwd$nn.idx[, 1]
 
     # Filter by max distance
     keep <- dists <= max_pair_dist
+
+    # Reciprocal filter: only keep pairs where Raman→FTIR also agrees
+    if (use_reciprocal && sum(keep) > 3) {
+      nn_rev <- RANN::nn2(transformed_mat, raman_mat, k = 1)
+      # For each FTIR[i] → Raman[j] pair, check that Raman[j] → FTIR[i]
+      reciprocal <- logical(n_ftir)
+      for (fi in which(keep)) {
+        ri <- raman_idx[fi]
+        reciprocal[fi] <- (nn_rev$nn.idx[ri, 1] == fi)
+      }
+      n_before_recip <- sum(keep)
+      keep <- keep & reciprocal
+      if (iter == 1) {
+        log_message("  Reciprocal filter: ", n_before_recip, " → ", sum(keep), " pairs")
+      }
+    }
+
     if (sum(keep) < 3) {
       log_message("  ICP iteration ", iter, ": too few pairs (", sum(keep),
                   "). Stopping.", level = "WARN")
       break
+    }
+
+    # Trim the worst N% of remaining pairs (by distance)
+    if (trim_pct > 0 && sum(keep) > 5) {
+      keep_idx <- which(keep)
+      keep_dists <- dists[keep_idx]
+      n_keep <- length(keep_idx)
+      n_trim <- max(0, floor(n_keep * trim_pct))
+      if (n_trim > 0 && (n_keep - n_trim) >= 3) {
+        cutoff <- sort(keep_dists)[n_keep - n_trim]
+        keep[keep_idx[keep_dists > cutoff]] <- FALSE
+      }
     }
 
     # Current RMS
