@@ -47,17 +47,26 @@ source("R/10_export.R")
 # 1. Configuration
 # ---------------------------------------------------------------------------
 
-# File paths — leave as NULL to get a file-picker dialog at runtime
-ftir_file  <- NULL   # e.g. "Comparstic Spotlight F2Ba Au 240926.csv"
-raman_file <- NULL   # e.g. "Comparstic Raman F2Ba Au IAEA 240930.csv"
+# File paths — set to NULL to get a file-picker dialog at runtime,
+# or pre-set ftir_file / raman_file before sourcing this script.
+if (!exists("ftir_file"))  ftir_file  <- NULL
+if (!exists("raman_file")) raman_file <- NULL
 
 if (is.null(ftir_file)) {
-  message("Please select the FTIR data file (.csv or .xlsx) ...")
-  ftir_file <- file.choose()
+  if (interactive()) {
+    message("Please select the FTIR data file (.csv or .xlsx) ...")
+    ftir_file <- file.choose()
+  } else {
+    stop("ftir_file must be set before running in non-interactive mode")
+  }
 }
 if (is.null(raman_file)) {
-  message("Please select the Raman data file (.csv or .xlsx) ...")
-  raman_file <- file.choose()
+  if (interactive()) {
+    message("Please select the Raman data file (.csv or .xlsx) ...")
+    raman_file <- file.choose()
+  } else {
+    stop("raman_file must be set before running in non-interactive mode")
+  }
 }
 
 config <- make_config(
@@ -65,6 +74,9 @@ config <- make_config(
   raman_path = raman_file,
   output_dir = "output"
 )
+
+# Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
+config$output_dir <- make_run_dir(config$output_dir)
 
 # Override any defaults as needed:
 # config$raman_hqi_threshold     <- 75
