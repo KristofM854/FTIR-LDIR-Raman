@@ -3,6 +3,39 @@
 # =============================================================================
 
 # ---------------------------------------------------------------------------
+# Output directory with timestamped subfolders
+# ---------------------------------------------------------------------------
+
+#' Create a timestamped run subfolder inside the base output directory
+#'
+#' Format: output/YYYY-MM-DD_1, output/YYYY-MM-DD_2, etc.
+#' Automatically increments the run number for multiple runs on the same day.
+#'
+#' @param base_dir Base output directory (e.g., "output")
+#' @return Path to the new run-specific subfolder (already created)
+make_run_dir <- function(base_dir = "output") {
+  if (!dir.exists(base_dir)) dir.create(base_dir, recursive = TRUE)
+
+  today <- format(Sys.Date(), "%Y-%m-%d")
+  existing <- list.dirs(base_dir, full.names = FALSE, recursive = FALSE)
+
+  # Find existing run numbers for today
+  pattern <- paste0("^", gsub("-", "\\\\-", today), "_(\\d+)$")
+  matches <- regmatches(existing, regexec(pattern, existing))
+  run_numbers <- as.integer(vapply(matches, function(m) {
+    if (length(m) == 2) m[2] else NA_character_
+  }, character(1)))
+  run_numbers <- run_numbers[!is.na(run_numbers)]
+
+  next_run <- if (length(run_numbers) == 0) 1L else max(run_numbers) + 1L
+  run_dir <- file.path(base_dir, paste0(today, "_", next_run))
+  dir.create(run_dir, recursive = TRUE)
+
+  log_message("Run output directory: ", run_dir)
+  run_dir
+}
+
+# ---------------------------------------------------------------------------
 # Coordinate parsing
 # ---------------------------------------------------------------------------
 
