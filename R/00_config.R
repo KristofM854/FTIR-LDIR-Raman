@@ -33,20 +33,27 @@ make_config <- function(ftir_path  = NULL,
     # --- Coordinate normalization ---
     normalize_scale = FALSE,  # scale both clouds to unit variance (usually not needed)
 
+    # --- Material-based alignment anchors ---
+    # Only particles matching these patterns (case-insensitive regex) are used
+    # for spatial alignment. This ensures the transform is driven by particles
+    # that genuinely overlap between instruments.
+    align_ftir_materials = c("PET", "Polypropylene", "PP"),
+    align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
+
     # --- RANSAC alignment ---
-    ransac_coarse_step_deg = 2,     # rotation grid step for coarse search (degrees)
-    ransac_n_iterations    = 1000,  # number of RANSAC iterations for refinement
+    ransac_coarse_step_deg = 1,     # rotation grid step for coarse search (degrees)
+    ransac_n_iterations    = 2000,  # number of RANSAC iterations for refinement
     ransac_min_samples     = 3,     # minimum point pairs per RANSAC sample
-    ransac_inlier_dist_um  = 100,   # distance threshold to count as inlier (µm)
+    ransac_inlier_dist_um  = 200,   # distance threshold to count as inlier (µm)
     ransac_allow_mirror    = TRUE,  # also search over reflections
 
     # --- ICP refinement ---
-    icp_max_iterations      = 50,   # maximum ICP iterations
+    icp_max_iterations      = 100,  # maximum ICP iterations
     icp_convergence_thresh  = 0.01, # stop when RMS improvement < this (µm)
-    icp_max_pair_dist_um    = 200,  # max distance for ICP correspondences (µm)
+    icp_max_pair_dist_um    = 500,  # max distance for ICP correspondences (µm)
 
     # --- Particle matching ---
-    match_dist_threshold_um = 50,   # max distance between matched particles (µm)
+    match_dist_threshold_um = 100,  # max distance between matched particles (µm)
     match_size_weight       = 0,    # weight for size similarity (0 = spatial only)
     match_size_metric       = "feret_max_um",  # which size metric to compare
 

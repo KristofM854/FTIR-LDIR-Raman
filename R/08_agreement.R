@@ -2,16 +2,50 @@
 # 08_agreement.R — Agreement analysis between FTIR and Raman identifications
 # =============================================================================
 
+#' Normalize a material name to a canonical short form
+#'
+#' Maps verbose instrument-specific names to a common short abbreviation.
+#' E.g., "Polyethylene terephtalate (PET)" -> "PET",
+#'       "Polypropylene (PP) Lab bench" -> "PP"
+#'
+#' @param x Character vector of material names
+#' @return Character vector of normalized names
+normalize_material <- function(x) {
+  x <- trimws(x)
+  result <- character(length(x))
+
+  for (i in seq_along(x)) {
+    name <- x[i]
+
+    # Try to extract abbreviation from parentheses, e.g., "Polycarbonate (PC)" -> "PC"
+    m <- regmatches(name, regexpr("\\(([A-Za-z0-9 ]+)\\)", name))
+    if (length(m) == 1 && nchar(m) > 0) {
+      result[i] <- gsub("[()]", "", m)
+    } else {
+      result[i] <- name
+    }
+  }
+
+  # Normalize common FTIR short names
+  result <- gsub("^Polypro$", "PP", result)
+
+  # Strip suffixes like "Lab bench", "Nylon 12" for broader matching
+  result <- gsub("\\s+(Lab bench|Nylon \\d+)$", "", result, ignore.case = TRUE)
+
+  toupper(trimws(result))
+}
+
+
 #' Analyze agreement between FTIR and Raman material identifications
 #'
 #' For matched particle pairs, compares the material/polymer labels from
-#' both instruments. Generates confusion matrix, match statistics, and
-#' size-dependent disagreement analysis.
+#' both instruments. Material names are normalized to canonical abbreviations
+#' (e.g., "Polyethylene terephtalate (PET)" and "PET" both become "PET").
 #'
 #' @param match_result List returned by match_particles()
 #' @return List with:
 #'   confusion_matrix — table of FTIR material vs Raman material
-#'   agreement_rate   — fraction of matched pairs with identical material
+#'   agreement_rate   — fraction of matched pairs with matching material
 #'   agreement_detail — per-material agreement rates
 #'   size_analysis    — disagreement broken down by particle size class
 #'   summary_df       — tidy data frame of pair-level agreement
@@ -32,17 +66,21 @@ analyze_agreement <- function(match_result) {
   }
 
   # Extract material labels
-  ftir_mat  <- matched$ftir_material
-  raman_mat <- matched$raman_material
+  ftir_mat_raw  <- matched$ftir_material
+  raman_mat_raw <- matched$raman_material
 
   # Handle NAs
-  ftir_mat[is.na(ftir_mat)]   <- "Unknown"
-  raman_mat[is.na(raman_mat)] <- "Unknown"
+  ftir_mat_raw[is.na(ftir_mat_raw)]   <- "Unknown"
+  raman_mat_raw[is.na(raman_mat_raw)] <- "Unknown"
 
-  # Confusion matrix
+  # Normalize to canonical abbreviations for comparison
+  ftir_mat  <- normalize_material(ftir_mat_raw)
+  raman_mat <- normalize_material(raman_mat_raw)
+
+  # Confusion matrix (use normalized names)
   conf_mat <- table(FTIR = ftir_mat, Raman = raman_mat)
 
-  # Overall agreement
+  # Overall agreement (normalized comparison)
   agree_mask     <- ftir_mat == raman_mat
   agreement_rate <- mean(agree_mask)
   log_message("  Overall agreement rate: ", round(agreement_rate * 100, 1), "%")
@@ -104,11 +142,13 @@ analyze_agreement <- function(match_result) {
 
   # Pair-level summary
   summary_df <- data.frame(
-    match_id       = matched$match_id,
-    ftir_material  = ftir_mat,
-    raman_material = raman_mat,
-    agree          = agree_mask,
-    match_distance = matched$match_distance,
+    match_id             = matched$match_id,
+    ftir_material_raw    = ftir_mat_raw,
+    raman_material_raw   = raman_mat_raw,
+    ftir_material_norm   = ftir_mat,
+    raman_material_norm  = raman_mat,
+    agree                = agree_mask,
+    match_distance       = matched$match_distance,
     stringsAsFactors = FALSE
   )
 

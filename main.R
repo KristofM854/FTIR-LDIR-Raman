@@ -72,14 +72,35 @@ raman_raw <- ingest_raman(config$raman_path, sheet = config$raman_sheet)
 # ---------------------------------------------------------------------------
 # 3. Pre-filtering
 #
-# Strategy: use ALL particles (with valid coords) for spatial alignment,
-# then apply quality filters only for the final matching & agreement steps.
-# This maximizes the number of spatial reference points for alignment.
+# Strategy: use only PLASTIC particles for spatial alignment (they are the
+# ones that genuinely overlap between instruments). Then apply quality
+# filters for the final matching & agreement steps.
 # ---------------------------------------------------------------------------
 
-# Minimal filtering for alignment (just remove invalid coords)
-ftir_for_align  <- prefilter_ftir(ftir_raw, min_quality = 0, min_size_um = 0)
-raman_for_align <- prefilter_raman(raman_raw, min_hqi = 0, min_size_um = 0)
+# Minimal filtering (just remove invalid coords)
+ftir_clean  <- prefilter_ftir(ftir_raw, min_quality = 0, min_size_um = 0)
+raman_clean <- prefilter_raman(raman_raw, min_hqi = 0, min_size_um = 0)
+
+# Extract PLASTIC particles from FTIR for alignment anchoring
+ftir_plastic_mask <- grepl(
+  paste(config$align_ftir_materials, collapse = "|"),
+  ftir_clean$material, ignore.case = TRUE
+)
+ftir_for_align <- ftir_clean[ftir_plastic_mask, ]
+log_message("FTIR plastic anchor particles: ", nrow(ftir_for_align),
+            " (materials: ", paste(unique(ftir_for_align$material), collapse = ", "), ")")
+
+# Use all Raman particles as alignment target (or filter if configured)
+if (!is.null(config$align_raman_materials)) {
+  raman_plastic_mask <- grepl(
+    paste(config$align_raman_materials, collapse = "|"),
+    raman_clean$material, ignore.case = TRUE
+  )
+  raman_for_align <- raman_clean[raman_plastic_mask, ]
+} else {
+  raman_for_align <- raman_clean
+}
+log_message("Raman alignment target particles: ", nrow(raman_for_align))
 
 # Quality-filtered sets for matching (applied after alignment)
 ftir_for_match <- prefilter_ftir(
@@ -94,7 +115,10 @@ raman_for_match <- prefilter_raman(
 )
 
 # ---------------------------------------------------------------------------
-# 4. Coordinate normalization (using ALL particles for robust centering)
+# 4. Coordinate normalization
+#
+# Compute centroids from the PLASTIC alignment subsets so that centering
+# reflects the particle population that actually overlaps.
 # ---------------------------------------------------------------------------
 
 norm_result <- normalize_coordinates(
@@ -102,14 +126,20 @@ norm_result <- normalize_coordinates(
   normalize_scale = config$normalize_scale
 )
 
-ftir_norm_all  <- norm_result$ftir
-raman_norm_all <- norm_result$raman
+ftir_norm_align  <- norm_result$ftir
+raman_norm_align <- norm_result$raman
+
+# Also normalize ALL clean particles using the SAME centroids (for diagnostics)
+ftir_clean$x_norm  <- ftir_clean$x_um - norm_result$ftir_centroid[1]
+ftir_clean$y_norm  <- ftir_clean$y_um - norm_result$ftir_centroid[2]
+raman_clean$x_norm <- raman_clean$x_um - norm_result$raman_centroid[1]
+raman_clean$y_norm <- raman_clean$y_um - norm_result$raman_centroid[2]
 
 # ---------------------------------------------------------------------------
-# 5. RANSAC alignment estimation (using ALL particles)
+# 5. RANSAC alignment estimation (plastic anchors only)
 # ---------------------------------------------------------------------------
 
-ransac_result <- ransac_align(ftir_norm_all, raman_norm_all, config)
+ransac_result <- ransac_align(ftir_norm_align, raman_norm_align, config)
 
 log_message("RANSAC transform: scale = ", round(ransac_result$params$scale, 4),
             ", rotation = ", round(ransac_result$params$rotation_deg, 2), " deg",
@@ -117,19 +147,19 @@ log_message("RANSAC transform: scale = ", round(ransac_result$params$scale, 4),
             ", inliers = ", ransac_result$n_inliers)
 
 # ---------------------------------------------------------------------------
-# 6. ICP refinement (using ALL particles)
+# 6. ICP refinement (plastic anchors only)
 # ---------------------------------------------------------------------------
 
-icp_result <- icp_refine(ftir_norm_all, raman_norm_all, ransac_result$transform, config)
+icp_result <- icp_refine(ftir_norm_align, raman_norm_align, ransac_result$transform, config)
 
 log_message("ICP refined transform: scale = ", round(icp_result$params$scale, 4),
             ", rotation = ", round(icp_result$params$rotation_deg, 2), " deg",
             ", converged = ", icp_result$converged)
 
 # ---------------------------------------------------------------------------
-# 7. Apply transform to QUALITY-FILTERED particles for matching
+# 7. Apply transform to particles for matching
 #
-# Normalize the filtered datasets using the SAME centroids from step 4,
+# Normalize using the SAME centroids from step 4 (plastic-based),
 # then apply the ICP-refined transform.
 # ---------------------------------------------------------------------------
 
@@ -145,7 +175,7 @@ raman_for_match$y_norm <- raman_for_match$y_um - norm_result$raman_centroid[2]
 ftir_aligned <- apply_ftir_transform(ftir_for_match, icp_result$transform)
 
 # Also align the full FTIR set for diagnostics
-ftir_aligned_all <- apply_ftir_transform(ftir_norm_all, icp_result$transform)
+ftir_aligned_all <- apply_ftir_transform(ftir_clean, icp_result$transform)
 
 # ---------------------------------------------------------------------------
 # 8. Particle matching (quality-filtered datasets only)
@@ -164,7 +194,7 @@ agreement <- analyze_agreement(match_result)
 # ---------------------------------------------------------------------------
 
 diagnostics <- generate_diagnostics(
-  ftir_aligned_all, raman_norm_all,
+  ftir_aligned_all, raman_clean,
   match_result, icp_result, agreement,
   config
 )
@@ -185,10 +215,10 @@ export_results(
 log_message(strrep("=", 60))
 log_message("Pipeline complete!")
 log_message(strrep("=", 60))
-log_message("  FTIR particles (alignment): ", nrow(ftir_for_align))
-log_message("  Raman particles (alignment):", nrow(raman_for_align))
-log_message("  FTIR particles (matching):  ", nrow(ftir_for_match))
-log_message("  Raman particles (matching): ", nrow(raman_for_match))
+log_message("  FTIR plastic anchors (alignment): ", nrow(ftir_for_align))
+log_message("  Raman targets (alignment):       ", nrow(raman_for_align))
+log_message("  FTIR particles (matching):       ", nrow(ftir_for_match))
+log_message("  Raman particles (matching):      ", nrow(raman_for_match))
 log_message("  Matched pairs:      ", match_result$match_stats$n_matched)
 log_message("  Unmatched FTIR:     ", match_result$match_stats$n_unmatched_ftir)
 log_message("  Unmatched Raman:    ", match_result$match_stats$n_unmatched_raman)
