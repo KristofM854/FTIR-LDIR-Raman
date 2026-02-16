@@ -49,7 +49,7 @@ normalize_material <- function(x) {
 #'   agreement_detail — per-material agreement rates
 #'   size_analysis    — disagreement broken down by particle size class
 #'   summary_df       — tidy data frame of pair-level agreement
-analyze_agreement <- function(match_result) {
+analyze_agreement <- function(match_result, config = NULL) {
   log_message("Analyzing material agreement")
 
   matched <- match_result$matched
@@ -65,17 +65,44 @@ analyze_agreement <- function(match_result) {
     ))
   }
 
+  # Only evaluate agreement for pairs where Raman HQI is trusted
+  hqi_threshold <- if (!is.null(config)) config$raman_hqi_threshold else 0
+  raman_hqi <- matched$raman_quality
+  if (!is.null(raman_hqi) && hqi_threshold > 0) {
+    hqi_ok <- !is.na(raman_hqi) & raman_hqi >= hqi_threshold
+    n_excluded <- sum(!hqi_ok)
+    if (n_excluded > 0) {
+      log_message("  Excluding ", n_excluded, " pairs with Raman HQI < ",
+                  hqi_threshold, " from agreement scoring")
+    }
+    matched_for_agree <- matched[hqi_ok, ]
+  } else {
+    matched_for_agree <- matched
+  }
+
+  if (nrow(matched_for_agree) == 0) {
+    log_message("  No pairs with sufficient HQI for agreement analysis.")
+    return(list(
+      confusion_matrix = table(NULL),
+      agreement_rate   = NA_real_,
+      agreement_detail = data.frame(),
+      size_analysis    = data.frame(),
+      summary_df       = data.frame()
+    ))
+  }
+
   # Extract material labels
-  ftir_mat_raw  <- matched$ftir_material
-  raman_mat_raw <- matched$raman_material
+  ftir_mat_raw  <- matched_for_agree$ftir_material
+  raman_mat_raw <- matched_for_agree$raman_material
 
   # Handle NAs
   ftir_mat_raw[is.na(ftir_mat_raw)]   <- "Unknown"
   raman_mat_raw[is.na(raman_mat_raw)] <- "Unknown"
 
-  # Normalize to canonical abbreviations for comparison
-  ftir_mat  <- normalize_material(ftir_mat_raw)
-  raman_mat <- normalize_material(raman_mat_raw)
+  # Use material equivalence mapping if configured, else abbreviation normalization
+  mapped <- map_paired_materials(ftir_mat_raw, raman_mat_raw, config)
+  ftir_mat  <- mapped$ftir_canonical
+  raman_mat <- mapped$raman_canonical
 
   # Confusion matrix (use normalized names)
   conf_mat <- table(FTIR = ftir_mat, Raman = raman_mat)
@@ -111,8 +138,8 @@ analyze_agreement <- function(match_result) {
   # Size-dependent disagreement analysis
   # Use FTIR feret_max_um for size classes
   size_col <- "ftir_feret_max_um"
-  if (size_col %in% names(matched) && any(!is.na(matched[[size_col]]))) {
-    size_vals <- matched[[size_col]]
+  if (size_col %in% names(matched_for_agree) && any(!is.na(matched_for_agree[[size_col]]))) {
+    size_vals <- matched_for_agree[[size_col]]
     size_class <- cut(
       size_vals,
       breaks = c(0, 50, 100, 200, 300, Inf),
@@ -142,13 +169,13 @@ analyze_agreement <- function(match_result) {
 
   # Pair-level summary
   summary_df <- data.frame(
-    match_id             = matched$match_id,
+    match_id             = matched_for_agree$match_id,
     ftir_material_raw    = ftir_mat_raw,
     raman_material_raw   = raman_mat_raw,
     ftir_material_norm   = ftir_mat,
     raman_material_norm  = raman_mat,
     agree                = agree_mask,
-    match_distance       = matched$match_distance,
+    match_distance       = matched_for_agree$match_distance,
     stringsAsFactors = FALSE
   )
 

@@ -23,13 +23,12 @@ export_results <- function(match_result, agreement, diagnostics,
   out_dir <- config$output_dir
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
-  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
   log_message("Exporting results to: ", out_dir)
 
   # --- 1. Matched particle table ---
   if (nrow(match_result$matched) > 0) {
     write.csv(match_result$matched,
-              file.path(out_dir, paste0("matched_particles_", timestamp, ".csv")),
+              file.path(out_dir, "matched_particles.csv"),
               row.names = FALSE)
     log_message("  Wrote matched_particles.csv (", nrow(match_result$matched), " pairs)")
   }
@@ -37,12 +36,12 @@ export_results <- function(match_result, agreement, diagnostics,
   # --- 2. Unmatched particles ---
   if (nrow(match_result$unmatched_ftir) > 0) {
     write.csv(match_result$unmatched_ftir,
-              file.path(out_dir, paste0("unmatched_ftir_", timestamp, ".csv")),
+              file.path(out_dir, "unmatched_ftir.csv"),
               row.names = FALSE)
   }
   if (nrow(match_result$unmatched_raman) > 0) {
     write.csv(match_result$unmatched_raman,
-              file.path(out_dir, paste0("unmatched_raman_", timestamp, ".csv")),
+              file.path(out_dir, "unmatched_raman.csv"),
               row.names = FALSE)
   }
 
@@ -78,18 +77,18 @@ export_results <- function(match_result, agreement, diagnostics,
     paste0("matrix_row3: ", paste(round(icp_result$transform[3, ], 8), collapse = ", "))
   )
   writeLines(param_lines,
-             file.path(out_dir, paste0("transform_params_", timestamp, ".txt")))
+             file.path(out_dir, "transform_params.txt"))
   log_message("  Wrote transform_params.txt")
 
   # --- 4. Agreement summary ---
   if (!is.null(agreement) && !is.null(agreement$agreement_detail) &&
       nrow(agreement$agreement_detail) > 0) {
     write.csv(agreement$agreement_detail,
-              file.path(out_dir, paste0("agreement_summary_", timestamp, ".csv")),
+              file.path(out_dir, "agreement_summary.csv"),
               row.names = FALSE)
 
     write.csv(agreement$summary_df,
-              file.path(out_dir, paste0("agreement_pairwise_", timestamp, ".csv")),
+              file.path(out_dir, "agreement_pairwise.csv"),
               row.names = FALSE)
     log_message("  Wrote agreement CSVs")
   }
@@ -112,7 +111,7 @@ export_results <- function(match_result, agreement, diagnostics,
     paste0("max_distance_um:   ", round(stats$max_distance, 3))
   )
   writeLines(stats_lines,
-             file.path(out_dir, paste0("match_statistics_", timestamp, ".txt")))
+             file.path(out_dir, "match_statistics.txt"))
   log_message("  Wrote match_statistics.txt")
 
   # --- 6. Diagnostic plots ---
@@ -124,7 +123,7 @@ export_results <- function(match_result, agreement, diagnostics,
       tryCatch({
         ggplot2::ggsave(
           filename = file.path(plot_dir,
-                               paste0(plot_name, "_", timestamp, ".png")),
+                               paste0(plot_name, ".png")),
           plot     = diagnostics[[plot_name]],
           width    = config$plot_width,
           height   = config$plot_height,
@@ -138,7 +137,7 @@ export_results <- function(match_result, agreement, diagnostics,
 
     # Also save all plots as a single PDF
     tryCatch({
-      pdf_path <- file.path(plot_dir, paste0("all_diagnostics_", timestamp, ".pdf"))
+      pdf_path <- file.path(plot_dir, "all_diagnostics.pdf")
       grDevices::pdf(pdf_path,
                      width = config$plot_width, height = config$plot_height)
       for (plot_name in names(diagnostics)) {
