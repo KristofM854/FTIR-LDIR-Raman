@@ -46,10 +46,22 @@ source("R/10_export.R")
 # 1. Configuration
 # ---------------------------------------------------------------------------
 
-# Set your file paths here
+# File paths — leave as NULL to get a file-picker dialog at runtime
+ftir_file  <- NULL   # e.g. "Comparstic Spotlight F2Ba Au 240926.csv"
+raman_file <- NULL   # e.g. "Comparstic Raman F2Ba Au IAEA 240930.csv"
+
+if (is.null(ftir_file)) {
+  message("Please select the FTIR data file (.csv or .xlsx) ...")
+  ftir_file <- file.choose()
+}
+if (is.null(raman_file)) {
+  message("Please select the Raman data file (.csv or .xlsx) ...")
+  raman_file <- file.choose()
+}
+
 config <- make_config(
-  ftir_path  = "Comparstic Spotlight F2Ba Au 240926.csv",
-  raman_path = "Comparstic Raman F2Ba Au IAEA 240930.csv",
+  ftir_path  = ftir_file,
+  raman_path = raman_file,
   output_dir = "output"
 )
 
