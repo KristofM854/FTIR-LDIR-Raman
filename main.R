@@ -90,7 +90,7 @@ ftir_for_align <- ftir_clean[ftir_plastic_mask, ]
 log_message("FTIR plastic anchor particles: ", nrow(ftir_for_align),
             " (materials: ", paste(unique(ftir_for_align$material), collapse = ", "), ")")
 
-# Use all Raman particles as alignment target (or filter if configured)
+# Filter Raman alignment targets by material (if configured)
 if (!is.null(config$align_raman_materials)) {
   raman_plastic_mask <- grepl(
     paste(config$align_raman_materials, collapse = "|"),
@@ -99,6 +99,16 @@ if (!is.null(config$align_raman_materials)) {
   raman_for_align <- raman_clean[raman_plastic_mask, ]
 } else {
   raman_for_align <- raman_clean
+}
+
+# Remove Raman particles below FTIR detection limit
+min_size <- config$align_raman_min_size_um
+if (!is.null(min_size) && min_size > 0 && any(!is.na(raman_for_align$feret_max_um))) {
+  size_mask <- is.na(raman_for_align$feret_max_um) | raman_for_align$feret_max_um >= min_size
+  n_before <- nrow(raman_for_align)
+  raman_for_align <- raman_for_align[size_mask, ]
+  log_message("Raman alignment: removed ", n_before - nrow(raman_for_align),
+              " particles < ", min_size, " um")
 }
 log_message("Raman alignment target particles: ", nrow(raman_for_align))
 
@@ -129,11 +139,21 @@ norm_result <- normalize_coordinates(
 ftir_norm_align  <- norm_result$ftir
 raman_norm_align <- norm_result$raman
 
-# Also normalize ALL clean particles using the SAME centroids (for diagnostics)
+# Also normalize ALL clean particles using the SAME centroids (for ICP & diagnostics)
 ftir_clean$x_norm  <- ftir_clean$x_um - norm_result$ftir_centroid[1]
 ftir_clean$y_norm  <- ftir_clean$y_um - norm_result$ftir_centroid[2]
 raman_clean$x_norm <- raman_clean$x_um - norm_result$raman_centroid[1]
 raman_clean$y_norm <- raman_clean$y_um - norm_result$raman_centroid[2]
+
+# Build ICP sets: all Raman particles >= size threshold (visible to FTIR)
+min_size_icp <- config$align_raman_min_size_um
+raman_for_icp <- raman_clean
+if (!is.null(min_size_icp) && min_size_icp > 0 && any(!is.na(raman_clean$feret_max_um))) {
+  raman_for_icp <- raman_clean[
+    is.na(raman_clean$feret_max_um) | raman_clean$feret_max_um >= min_size_icp, ]
+}
+log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
+            ", Raman ", nrow(raman_for_icp), " (>= ", min_size_icp, " um)")
 
 # ---------------------------------------------------------------------------
 # 5. RANSAC alignment estimation (plastic anchors only)
@@ -147,10 +167,13 @@ log_message("RANSAC transform: scale = ", round(ransac_result$params$scale, 4),
             ", inliers = ", ransac_result$n_inliers)
 
 # ---------------------------------------------------------------------------
-# 6. ICP refinement (plastic anchors only)
+# 6. ICP refinement (all particles >= size threshold)
+#
+# RANSAC found the correct rotation from plastic anchors. Now refine using
+# ALL particles large enough to be detected by both instruments.
 # ---------------------------------------------------------------------------
 
-icp_result <- icp_refine(ftir_norm_align, raman_norm_align, ransac_result$transform, config)
+icp_result <- icp_refine(ftir_clean, raman_for_icp, ransac_result$transform, config)
 
 log_message("ICP refined transform: scale = ", round(icp_result$params$scale, 4),
             ", rotation = ", round(icp_result$params$rotation_deg, 2), " deg",

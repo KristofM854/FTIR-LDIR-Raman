@@ -39,6 +39,7 @@ make_config <- function(ftir_path  = NULL,
     # that genuinely overlap between instruments.
     align_ftir_materials = c("PET", "Polypropylene", "PP"),
     align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
+    align_raman_min_size_um = 20,  # exclude Raman particles below FTIR detection limit
 
     # --- RANSAC alignment ---
     ransac_coarse_step_deg = 1,     # rotation grid step for coarse search (degrees)
