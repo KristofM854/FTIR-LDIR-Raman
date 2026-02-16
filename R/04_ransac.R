@@ -5,8 +5,10 @@
 #' Estimate the geometric transform from FTIR to Raman coordinate frame
 #'
 #' Two-phase approach:
-#'   1. Coarse grid search over rotation angles (± mirror) to find the
-#'      approximate alignment by counting spatially overlapping particles.
+#'   1. Coarse grid search over rotation angles (+/- mirror). For each candidate,
+#'      estimate the residual translation from nearest-neighbor pairs, then count
+#'      inliers. This handles centroid mismatch between different particle
+#'      populations.
 #'   2. RANSAC refinement: from tentative nearest-neighbor correspondences,
 #'      robustly estimate the optimal similarity transform.
 #'
@@ -40,39 +42,60 @@ ransac_align <- function(ftir_df, raman_df, config) {
          "FTIR: ", n_ftir, ", Raman: ", n_raman)
   }
 
+  raman_mat <- cbind(raman_x, raman_y)
+
   # =========================================================================
-  # Phase 1: Coarse grid search
+  # Phase 1: Coarse grid search with translation estimation
   # =========================================================================
-  log_message("  Phase 1: Coarse rotation grid search (step = ", step_deg, "°)")
+  log_message("  Phase 1: Coarse rotation grid search (step = ", step_deg, "deg)")
 
   angles <- seq(0, 360 - step_deg, by = step_deg)
   mirror_opts <- if (allow_mirror) c(FALSE, TRUE) else FALSE
 
-  best_score <- 0
-  best_angle <- 0
+  best_score  <- 0
+  best_angle  <- 0
   best_mirror <- FALSE
+  best_tx     <- 0
+  best_ty     <- 0
   coarse_scores <- data.frame(angle = numeric(), mirror = logical(),
                               n_inliers = integer())
 
   for (mirror in mirror_opts) {
     for (angle in angles) {
-      # Build rotation (+ optional mirror) matrix
       theta <- angle * pi / 180
       ct <- cos(theta)
       st <- sin(theta)
 
+      # Apply rotation (+ optional mirror) to FTIR points
       if (!mirror) {
-        tx <- ct * ftir_x - st * ftir_y
-        ty <- st * ftir_x + ct * ftir_y
+        rx <- ct * ftir_x - st * ftir_y
+        ry <- st * ftir_x + ct * ftir_y
       } else {
-        # y-flip then rotate: reflect y, then rotate
-        tx <- ct * ftir_x + st * ftir_y
-        ty <- st * ftir_x - ct * ftir_y
+        rx <- ct * ftir_x + st * ftir_y
+        ry <- st * ftir_x - ct * ftir_y
       }
 
-      # Count inliers (FTIR points with a Raman neighbor within threshold)
-      nn <- RANN::nn2(cbind(raman_x, raman_y), cbind(tx, ty), k = 1)
-      n_inliers <- sum(nn$nn.dists[, 1] <= inlier_dist)
+      # Find nearest Raman neighbor for each rotated FTIR point
+      nn <- RANN::nn2(raman_mat, cbind(rx, ry), k = 1)
+
+      # Use close pairs to estimate residual translation
+      close_mask <- nn$nn.dists[, 1] <= inlier_dist * 3
+      if (sum(close_mask) >= 5) {
+        dx <- raman_x[nn$nn.idx[close_mask, 1]] - rx[close_mask]
+        dy <- raman_y[nn$nn.idx[close_mask, 1]] - ry[close_mask]
+        # Use median for robustness to outliers
+        est_tx <- median(dx)
+        est_ty <- median(dy)
+      } else {
+        est_tx <- 0
+        est_ty <- 0
+      }
+
+      # Apply rotation + translation, count inliers
+      shifted_x <- rx + est_tx
+      shifted_y <- ry + est_ty
+      nn2 <- RANN::nn2(raman_mat, cbind(shifted_x, shifted_y), k = 1)
+      n_inliers <- sum(nn2$nn.dists[, 1] <= inlier_dist)
 
       coarse_scores <- rbind(coarse_scores,
                              data.frame(angle = angle, mirror = mirror,
@@ -82,13 +105,24 @@ ransac_align <- function(ftir_df, raman_df, config) {
         best_score  <- n_inliers
         best_angle  <- angle
         best_mirror <- mirror
+        best_tx     <- est_tx
+        best_ty     <- est_ty
       }
     }
   }
 
   log_message("  Coarse search best: angle = ", best_angle,
-              "°, mirror = ", best_mirror,
-              ", inliers = ", best_score, " / ", n_ftir)
+              " deg, mirror = ", best_mirror,
+              ", inliers = ", best_score, " / ", n_ftir,
+              ", translation = (", round(best_tx, 1), ", ", round(best_ty, 1), ")")
+
+  # Log top 5 candidates for diagnostics
+  top5 <- coarse_scores[order(-coarse_scores$n_inliers), ][1:min(5, nrow(coarse_scores)), ]
+  for (i in seq_len(nrow(top5))) {
+    log_message("    #", i, ": angle=", top5$angle[i],
+                " deg, mirror=", top5$mirror[i],
+                ", inliers=", top5$n_inliers[i])
+  }
 
   if (best_score < min_samples) {
     warning("Coarse alignment found very few inliers (", best_score,
@@ -101,21 +135,21 @@ ransac_align <- function(ftir_df, raman_df, config) {
   # =========================================================================
   log_message("  Phase 2: RANSAC refinement (", n_ransac, " iterations)")
 
-  # Apply coarse alignment to get tentative correspondences
+  # Apply coarse alignment (rotation + mirror + translation) to get tentative correspondences
   theta_best <- best_angle * pi / 180
   ct <- cos(theta_best)
   st <- sin(theta_best)
   if (!best_mirror) {
-    coarse_x <- ct * ftir_x - st * ftir_y
-    coarse_y <- st * ftir_x + ct * ftir_y
+    coarse_x <- ct * ftir_x - st * ftir_y + best_tx
+    coarse_y <- st * ftir_x + ct * ftir_y + best_ty
   } else {
-    coarse_x <- ct * ftir_x + st * ftir_y
-    coarse_y <- st * ftir_x - ct * ftir_y
+    coarse_x <- ct * ftir_x + st * ftir_y + best_tx
+    coarse_y <- st * ftir_x - ct * ftir_y + best_ty
   }
 
-  # Find tentative nearest-neighbor correspondences
-  nn_coarse <- RANN::nn2(cbind(raman_x, raman_y), cbind(coarse_x, coarse_y), k = 1)
-  tent_mask <- nn_coarse$nn.dists[, 1] <= inlier_dist * 2  # generous threshold for candidates
+  # Find tentative nearest-neighbor correspondences with generous threshold
+  nn_coarse <- RANN::nn2(raman_mat, cbind(coarse_x, coarse_y), k = 1)
+  tent_mask <- nn_coarse$nn.dists[, 1] <= inlier_dist * 2
   tent_ftir_idx  <- which(tent_mask)
   tent_raman_idx <- nn_coarse$nn.idx[tent_mask, 1]
   n_tentative <- length(tent_ftir_idx)
@@ -123,9 +157,8 @@ ransac_align <- function(ftir_df, raman_df, config) {
   log_message("  Tentative correspondences: ", n_tentative)
 
   if (n_tentative < min_samples) {
-    # Fall back to coarse alignment only
     log_message("  Too few tentative correspondences for RANSAC. Using coarse alignment.", level = "WARN")
-    M_coarse <- build_coarse_transform(best_angle, best_mirror)
+    M_coarse <- build_coarse_transform_with_translation(best_angle, best_mirror, best_tx, best_ty)
     params <- extract_transform_params(M_coarse)
     return(list(
       transform    = M_coarse,
@@ -133,8 +166,7 @@ ransac_align <- function(ftir_df, raman_df, config) {
       n_inliers    = best_score,
       inlier_pairs = data.frame(ftir_idx = tent_ftir_idx,
                                 raman_idx = tent_raman_idx),
-      diagnostics  = list(coarse_scores = coarse_scores,
-                          method = "coarse_only")
+      diagnostics  = list(coarse_scores = coarse_scores, method = "coarse_only")
     ))
   }
 
@@ -144,12 +176,10 @@ ransac_align <- function(ftir_df, raman_df, config) {
   best_ransac_pairs   <- NULL
 
   for (iter in seq_len(n_ransac)) {
-    # Sample min_samples random correspondences from tentative set
     sample_idx <- sample(n_tentative, min(min_samples, n_tentative))
     s_ftir_idx  <- tent_ftir_idx[sample_idx]
     s_raman_idx <- tent_raman_idx[sample_idx]
 
-    # Estimate similarity transform from these pairs
     tryCatch({
       tf <- estimate_similarity_transform(
         src_x = ftir_x[s_ftir_idx],
@@ -159,9 +189,11 @@ ransac_align <- function(ftir_df, raman_df, config) {
         allow_reflection = allow_mirror
       )
 
-      # Apply to all FTIR points and count inliers
+      # Reject unreasonable transforms
+      if (tf$scale < 0.8 || tf$scale > 1.2) next
+
       transformed <- apply_transform_points(ftir_x, ftir_y, tf$matrix)
-      nn_check <- RANN::nn2(cbind(raman_x, raman_y),
+      nn_check <- RANN::nn2(raman_mat,
                             cbind(transformed$x_transformed, transformed$y_transformed),
                             k = 1)
       inlier_mask <- nn_check$nn.dists[, 1] <= inlier_dist
@@ -176,7 +208,7 @@ ransac_align <- function(ftir_df, raman_df, config) {
         )
       }
     }, error = function(e) {
-      # Skip degenerate samples (e.g., collinear points)
+      # Skip degenerate samples
     })
   }
 
@@ -192,7 +224,7 @@ ransac_align <- function(ftir_df, raman_df, config) {
 
     # Re-evaluate inliers with the refined transform
     transformed <- apply_transform_points(ftir_x, ftir_y, final_tf$matrix)
-    nn_final <- RANN::nn2(cbind(raman_x, raman_y),
+    nn_final <- RANN::nn2(raman_mat,
                           cbind(transformed$x_transformed, transformed$y_transformed),
                           k = 1)
     inlier_mask <- nn_final$nn.dists[, 1] <= inlier_dist
@@ -203,7 +235,7 @@ ransac_align <- function(ftir_df, raman_df, config) {
 
     log_message("  RANSAC result: ", sum(inlier_mask), " inliers, ",
                 "scale = ", round(final_tf$scale, 4),
-                ", rotation = ", round(final_tf$rotation_deg, 2), "°",
+                ", rotation = ", round(final_tf$rotation_deg, 2), " deg",
                 ", reflected = ", final_tf$reflected)
 
     params <- extract_transform_params(final_tf$matrix)
@@ -221,7 +253,7 @@ ransac_align <- function(ftir_df, raman_df, config) {
 
   # Fallback: use coarse alignment
   log_message("  RANSAC did not improve over coarse. Using coarse alignment.", level = "WARN")
-  M_coarse <- build_coarse_transform(best_angle, best_mirror)
+  M_coarse <- build_coarse_transform_with_translation(best_angle, best_mirror, best_tx, best_ty)
   params <- extract_transform_params(M_coarse)
 
   list(
@@ -230,16 +262,15 @@ ransac_align <- function(ftir_df, raman_df, config) {
     n_inliers    = best_score,
     inlier_pairs = data.frame(ftir_idx = tent_ftir_idx,
                               raman_idx = tent_raman_idx),
-    diagnostics  = list(coarse_scores = coarse_scores,
-                        method = "coarse_fallback")
+    diagnostics  = list(coarse_scores = coarse_scores, method = "coarse_fallback")
   )
 }
 
 
-#' Build a 3x3 transform matrix from coarse rotation + optional mirror
-build_coarse_transform <- function(angle_deg, mirror) {
+#' Build a 3x3 transform matrix from coarse rotation + optional mirror + translation
+build_coarse_transform_with_translation <- function(angle_deg, mirror, tx, ty) {
   theta <- angle_deg * pi / 180
   a <- cos(theta)
   b <- sin(theta)
-  build_transform_matrix(a, b, tx = 0, ty = 0, reflect = mirror)
+  build_transform_matrix(a, b, tx = tx, ty = ty, reflect = mirror)
 }
