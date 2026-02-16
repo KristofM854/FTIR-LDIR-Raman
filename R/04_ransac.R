@@ -60,6 +60,10 @@ ransac_align <- function(ftir_df, raman_df, config) {
   coarse_scores <- data.frame(angle = numeric(), mirror = logical(),
                               n_inliers = integer())
 
+  # Pick a subset of FTIR indices to use as translation anchors
+  # (use all if small, sample if large)
+  anchor_indices <- if (n_ftir <= 30) seq_len(n_ftir) else sample(n_ftir, 30)
+
   for (mirror in mirror_opts) {
     for (angle in angles) {
       theta <- angle * pi / 180
@@ -75,38 +79,45 @@ ransac_align <- function(ftir_df, raman_df, config) {
         ry <- st * ftir_x - ct * ftir_y
       }
 
-      # Find nearest Raman neighbor for each rotated FTIR point
+      # Anchor-based translation estimation:
+      # For each FTIR anchor particle, use its nearest Raman neighbor to
+      # define a translation hypothesis, then count inliers. This handles
+      # arbitrary centroid offsets between datasets.
       nn <- RANN::nn2(raman_mat, cbind(rx, ry), k = 1)
 
-      # Use close pairs to estimate residual translation
-      close_mask <- nn$nn.dists[, 1] <= inlier_dist * 3
-      if (sum(close_mask) >= 5) {
-        dx <- raman_x[nn$nn.idx[close_mask, 1]] - rx[close_mask]
-        dy <- raman_y[nn$nn.idx[close_mask, 1]] - ry[close_mask]
-        # Use median for robustness to outliers
-        est_tx <- median(dx)
-        est_ty <- median(dy)
-      } else {
-        est_tx <- 0
-        est_ty <- 0
-      }
+      angle_best_n <- 0
+      angle_best_tx <- 0
+      angle_best_ty <- 0
 
-      # Apply rotation + translation, count inliers
-      shifted_x <- rx + est_tx
-      shifted_y <- ry + est_ty
-      nn2 <- RANN::nn2(raman_mat, cbind(shifted_x, shifted_y), k = 1)
-      n_inliers <- sum(nn2$nn.dists[, 1] <= inlier_dist)
+      for (ai in anchor_indices) {
+        # Translation that maps rotated FTIR[ai] onto its nearest Raman neighbor
+        ri <- nn$nn.idx[ai, 1]
+        est_tx <- raman_x[ri] - rx[ai]
+        est_ty <- raman_y[ri] - ry[ai]
+
+        # Quick inlier count with this translation
+        shifted_x <- rx + est_tx
+        shifted_y <- ry + est_ty
+        nn2 <- RANN::nn2(raman_mat, cbind(shifted_x, shifted_y), k = 1)
+        n_inliers <- sum(nn2$nn.dists[, 1] <= inlier_dist)
+
+        if (n_inliers > angle_best_n) {
+          angle_best_n  <- n_inliers
+          angle_best_tx <- est_tx
+          angle_best_ty <- est_ty
+        }
+      }
 
       coarse_scores <- rbind(coarse_scores,
                              data.frame(angle = angle, mirror = mirror,
-                                        n_inliers = n_inliers))
+                                        n_inliers = angle_best_n))
 
-      if (n_inliers > best_score) {
-        best_score  <- n_inliers
+      if (angle_best_n > best_score) {
+        best_score  <- angle_best_n
         best_angle  <- angle
         best_mirror <- mirror
-        best_tx     <- est_tx
-        best_ty     <- est_ty
+        best_tx     <- angle_best_tx
+        best_ty     <- angle_best_ty
       }
     }
   }
@@ -189,8 +200,8 @@ ransac_align <- function(ftir_df, raman_df, config) {
         allow_reflection = allow_mirror
       )
 
-      # Reject unreasonable transforms
-      if (tf$scale < 0.8 || tf$scale > 1.2) next
+      # Reject unreasonable transforms (both instruments measure in µm)
+      if (tf$scale < 0.9 || tf$scale > 1.1) next
 
       transformed <- apply_transform_points(ftir_x, ftir_y, tf$matrix)
       nn_check <- RANN::nn2(raman_mat,

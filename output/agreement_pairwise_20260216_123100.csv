@@ -1,0 +1,29 @@
+"match_id","ftir_material","raman_material","agree","match_distance"
+1,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,11.360033903765
+2,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,34.7048668982424
+3,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,43.1717106250262
+4,"Cellulose","Cellulose Acetate Butyrate (CAB)",FALSE,47.3784634236521
+5,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,53.9010624679344
+6,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,67.221231236789
+7,"Protein","Polyacrylamide/acrylate",FALSE,67.7163341882151
+8,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,68.126485111941
+9,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,68.5592560542113
+10,"Protein","Polyethylene terephtalate (PET)",FALSE,70.856257029788
+11,"Cellulose","Polyamide (PA)",FALSE,72.795119069898
+12,"PET","Polyethylene terephtalate (PET)",FALSE,74.9603231313138
+13,"Protein","Polyamide (PA)",FALSE,75.680362033696
+14,"Cellulose","Polyamide (PA)",FALSE,76.349306542508
+15,"Protein","Polyethylene terephtalate (PET)",FALSE,76.413881721353
+16,"Protein","Polyacrylamide/acrylate",FALSE,77.0564879472184
+17,"Protein","Polyamide (PA)",FALSE,80.1467553170753
+18,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,82.4820781982735
+19,"PET","Polyamide (PA)",FALSE,85.6309685100698
+20,"Cellulose","Cellulose Acetate Butyrate (CAB)",FALSE,88.3423010766281
+21,"Protein","Polyacrylamide/acrylate",FALSE,88.9503228206552
+22,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,89.3012418411326
+23,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,90.7887121539337
+24,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,95.0876656965806
+25,"Protein","Cellulose Acetate Butyrate (CAB)",FALSE,95.3225216334129
+26,"Protein","Polyacrylamide/acrylate",FALSE,95.3774501900985
+27,"Protein","Polyamide (PA)",FALSE,96.5709234009974
+28,"Protein","Polyethylene terephtalate (PET)",FALSE,97.9577244886045

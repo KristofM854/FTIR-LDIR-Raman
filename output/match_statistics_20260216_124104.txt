@@ -1,0 +1,13 @@
+# Match Statistics
+# Generated: 2026-02-16 12:41:04.982483
+
+n_ftir:            360
+n_raman:           312
+n_matched:         184
+n_unmatched_ftir:  176
+n_unmatched_raman: 128
+match_rate_ftir:   51.1%
+match_rate_raman:  59%
+mean_distance_um:  20.169
+median_distance_um:15.827
+max_distance_um:   94.899
