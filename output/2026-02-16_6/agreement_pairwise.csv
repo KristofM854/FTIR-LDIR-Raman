@@ -1,0 +1,175 @@
+"match_id","ftir_material_raw","raman_material_raw","ftir_material_norm","raman_material_norm","agree","match_distance"
+1,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,0.703110944004998
+2,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,1.8679202725845
+3,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,2.82702525730941
+4,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,2.94944438670751
+5,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,3.06397617234351
+7,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,3.17902133821039
+8,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,3.21877965623543
+9,"Protein","Polyamide (PA)","PROTEIN","PA",FALSE,3.65088563949291
+11,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,3.85983445356939
+13,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,4.31159459161821
+15,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,4.35899801306559
+17,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,4.59065774936237
+19,"Cellulose","Polyethylene terephtalate (PET)","CELLULOSE","PET",FALSE,4.71505969509434
+21,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,4.94560135829881
+22,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,4.98163476788816
+24,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,5.12101965975901
+26,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,5.50690484774857
+27,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,5.53106431668498
+30,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,5.73269654535871
+32,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,5.892335217031
+34,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,5.98873035929064
+35,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,6.07269493480132
+37,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,6.18332988913659
+41,"Polypro","Polypropylene (PP)","PP","PP",TRUE,6.53972373507468
+42,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,6.65304624614676
+43,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,6.87801749680991
+45,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,7.23087244440621
+47,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,7.3031456807978
+54,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,7.45830683827929
+56,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,7.59144788067483
+57,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,7.61090200161951
+59,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,7.65339963590584
+64,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,8.06954472578349
+65,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,8.08522313093416
+66,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,8.1381452442667
+68,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,8.21477309101806
+71,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,8.35466125895883
+73,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,8.57153010102601
+75,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,8.74250651337828
+79,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,9.04791557434272
+80,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,9.08732093985339
+81,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,9.19606833601089
+82,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,9.20561461489619
+84,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,9.43251148327578
+86,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,9.63107614960874
+87,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,9.86884022146663
+88,"Protein","Polyamide (PA)","PROTEIN","PA",FALSE,9.89170269768118
+89,"Protein","Polyamide (PA)","PROTEIN","PA",FALSE,10.2744545569281
+90,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,10.3452183888296
+91,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,10.4280725585089
+92,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,10.5299361477579
+96,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,10.8144091808442
+97,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,10.8542571696394
+99,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,10.898246732029
+100,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,10.9540710025856
+101,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,11.0488538311533
+102,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,11.0730220027859
+105,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,11.2190490869475
+106,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,11.2403444190026
+107,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,11.267330497432
+111,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,11.5067525625585
+112,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,11.5512190725557
+114,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,11.7165593252976
+116,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,11.9293041862508
+117,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,11.9331190915692
+119,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,12.0708127213446
+121,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,12.1563740062265
+124,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,12.1881042200613
+126,"Protein","Polyamide (PA)","PROTEIN","PA",FALSE,12.3149739460005
+127,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,12.4303529759676
+128,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,12.4943652011227
+131,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,12.7466443341331
+132,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,12.9025689013569
+133,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,13.0483714351359
+137,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,13.252962912405
+138,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,13.3147246022642
+140,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,13.6053553816812
+141,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,13.6193906324192
+142,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,13.6366500163181
+143,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,13.7008759960355
+145,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,13.8505005457966
+146,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,13.8689736945334
+147,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,14.0104877874651
+150,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,14.5475479261034
+152,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,14.5797296582028
+153,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,14.6044115298017
+154,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,14.71167686349
+155,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,14.7790513064155
+156,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,14.8764769890363
+157,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,14.9676464000282
+158,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,14.9976487705253
+161,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,15.3501353419082
+162,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,15.3946596937954
+163,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,15.4804830256127
+166,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,15.5904975900187
+167,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,15.7813219497535
+168,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,15.9709294718288
+169,"Protein","Polyamide (PA)","PROTEIN","PA",FALSE,16.037360093065
+172,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,16.118911633058
+175,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,16.308732401521
+176,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,16.317814681536
+177,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,16.3637159915808
+178,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,16.3823907605341
+179,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,16.4056525977225
+187,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,16.9902138721485
+189,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,17.1486087124479
+190,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,17.3165153334891
+191,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,17.3248781042253
+193,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,17.5820405478255
+196,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,17.8956714011287
+197,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,17.924108927507
+198,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,17.9286716453575
+206,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,18.6376643647185
+207,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,18.6857814212017
+209,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,18.810721442823
+211,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,18.8677297412649
+214,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,19.3523839254787
+215,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,19.4039309007454
+216,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,19.4590670191101
+217,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,19.4843168126193
+218,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,19.6022151031598
+220,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,19.7422783213424
+223,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,19.8754776910942
+224,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,19.895959922086
+226,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,19.9910205530647
+228,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,20.0557777384648
+229,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,20.0980881864697
+230,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,20.2655117918963
+232,"Protein","Polyamide (PA)","PROTEIN","PA",FALSE,20.398845381593
+233,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,20.4203899666586
+235,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,20.612469563927
+237,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,20.6366830271009
+241,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,21.1307587604554
+243,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,21.7121007750382
+246,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,21.8794644522218
+247,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,21.9038626907111
+248,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,22.1457447162972
+249,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,22.1614073831839
+250,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,22.3112661909213
+251,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,22.4820861805641
+252,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,22.8348127969992
+255,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,23.2312713958696
+256,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,23.7723186722539
+257,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,23.7998005575205
+258,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,23.9785480378742
+259,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,24.1669440918061
+260,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,24.1954941086891
+270,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,25.7246492376312
+272,"Protein","Polyamide (PA)","PROTEIN","PA",FALSE,25.9382085315248
+274,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,26.1490043131756
+276,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,26.5475698546334
+277,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,26.9326962936193
+279,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,27.2655908051304
+280,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,27.354317842452
+286,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,28.1251405793551
+288,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,28.3763589038854
+290,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,28.6337387073255
+292,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,29.1171424370904
+294,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,30.0081054307181
+298,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,31.183854332525
+299,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,31.5576955655389
+304,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,33.0110476870489
+305,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,33.0838233361678
+306,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,33.1815915091548
+308,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,34.6885151261997
+311,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,37.5946715744735
+312,"Protein","Polyacrylamide/acrylate","PROTEIN","POLYACRYLAMIDE/ACRYLATE",FALSE,38.0225948511814
+313,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,53.6858701494793
+314,"Protein","Polyethylene terephtalate (PET)","PROTEIN","PET",FALSE,56.9305387677916
+315,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,59.4345140451412
+316,"Cellulose","Polyamide (PA)","CELLULOSE","PA",FALSE,70.4510620299348
+317,"PET","Polyethylene terephtalate (PET)","PET","PET",TRUE,73.1032676718129
+318,"Cellulose","Polyethylene terephtalate (PET)","CELLULOSE","PET",FALSE,80.2567074893297
+320,"Protein","Cellulose Acetate Butyrate (CAB)","PROTEIN","CAB",FALSE,85.8058835144566

@@ -1,0 +1,26 @@
+# FTIR-to-Raman Transform Parameters
+# Generated: 2026-02-16 22:19:07.046319
+
+scale:        0.997907
+rotation_deg: 175.7277
+tx:           -637.656
+ty:           105.625
+reflected:    FALSE
+
+# Normalization parameters (applied before transform)
+ftir_centroid_x:  6744.7917
+ftir_centroid_y:  4976.0417
+raman_centroid_x: 6060.2309
+raman_centroid_y: 1838.3161
+ftir_scale:       1
+raman_scale:      1
+
+# ICP refinement info
+icp_converged:    TRUE
+icp_iterations:   4
+icp_final_rms:    16.5936 µm
+
+# 3x3 Transform matrix (homogeneous, FTIR_norm -> Raman_norm)
+matrix_row1: -0.99513399, -0.0743407, -637.65599606
+matrix_row2: 0.0743407, -0.99513399, 105.62501724
+matrix_row3: 0, 0, 1

@@ -37,7 +37,7 @@ make_config <- function(ftir_path  = NULL,
     # Only particles matching these patterns (case-insensitive regex) are used
     # for spatial alignment. This ensures the transform is driven by particles
     # that genuinely overlap between instruments.
-    align_ftir_materials = c("PET", "Polypropylene", "PP"),
+    align_ftir_materials = c("PET", "Polypro"),
     align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
     align_raman_min_size_um = 20,  # exclude Raman particles below FTIR detection limit
 
@@ -45,7 +45,7 @@ make_config <- function(ftir_path  = NULL,
     # Large particles and fibers are used as high-confidence anchors.
     # If enough landmarks match with tight residuals, the expensive full
     # RANSAC grid search (Tier 2) is skipped entirely.
-    landmark_min_size_um       = 200,  # particles >= this size are landmarks
+    landmark_min_size_um       = 100,  # particles >= this size are landmarks
     landmark_fiber_aspect_ratio = 3.0, # major/minor >= this → fiber (landmark even if smaller)
     landmark_fiber_min_size_um  = 100, # minimum size for fiber landmarks
     landmark_min_count          = 4,   # need at least this many landmarks per dataset
