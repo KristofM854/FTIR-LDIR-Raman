@@ -4,23 +4,19 @@
 
 #' Export all pipeline outputs
 #'
-#' Writes:
-#'   - matched particle table (CSV)
-#'   - unmatched particle tables (CSV)
-#'   - transform parameters (JSON-like text)
-#'   - agreement summary (CSV)
-#'   - diagnostic plots (PDF/PNG)
-#'
 #' @param match_result Result from match_particles()
 #' @param agreement Result from analyze_agreement()
 #' @param diagnostics List of ggplot objects from generate_diagnostics()
 #' @param icp_result Result from icp_refine()
 #' @param norm_result Result from normalize_coordinates()
 #' @param config Configuration list
+#' @param ftir_scan_bounds Optional scan bounds
+#' @param ldir_results Optional list of LDIR pipeline results
 #' @return Invisible NULL
 export_results <- function(match_result, agreement, diagnostics,
                            icp_result, norm_result, config,
-                           ftir_scan_bounds = NULL) {
+                           ftir_scan_bounds = NULL,
+                           ldir_results = NULL) {
   out_dir <- config$output_dir
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -70,11 +66,10 @@ export_results <- function(match_result, agreement, diagnostics,
     paste0("icp_converged:    ", icp_result$converged),
     paste0("icp_iterations:   ", icp_result$n_iterations),
     paste0("icp_final_rms:    ",
-           round(tail(icp_result$rms_history, 1), 4), " µm"),
+           round(tail(icp_result$rms_history, 1), 4), " um"),
     ""
   )
 
-  # Add scan bounds if available
   if (!is.null(ftir_scan_bounds)) {
     param_lines <- c(param_lines,
       "# FTIR scan area (physical extent of the background image)",
@@ -96,17 +91,24 @@ export_results <- function(match_result, agreement, diagnostics,
              file.path(out_dir, "transform_params.txt"))
   log_message("  Wrote transform_params.txt")
 
-  # --- 4. Agreement summary ---
+  # --- 4. Agreement summary (tiered) ---
   if (!is.null(agreement) && !is.null(agreement$agreement_detail) &&
       nrow(agreement$agreement_detail) > 0) {
     write.csv(agreement$agreement_detail,
               file.path(out_dir, "agreement_summary.csv"),
               row.names = FALSE)
-
     write.csv(agreement$summary_df,
               file.path(out_dir, "agreement_pairwise.csv"),
               row.names = FALSE)
     log_message("  Wrote agreement CSVs")
+  }
+
+  # Category summary
+  if (!is.null(agreement$category_summary) && nrow(agreement$category_summary) > 0) {
+    write.csv(agreement$category_summary,
+              file.path(out_dir, "agreement_by_category.csv"),
+              row.names = FALSE)
+    log_message("  Wrote agreement_by_category.csv")
   }
 
   # --- 5. Match statistics ---
@@ -126,11 +128,32 @@ export_results <- function(match_result, agreement, diagnostics,
     paste0("median_distance_um:", round(stats$median_distance, 3)),
     paste0("max_distance_um:   ", round(stats$max_distance, 3))
   )
+
+  # Tiered agreement rates
+  if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
+    tr <- agreement$tiered_rates
+    stats_lines <- c(stats_lines, "",
+      "# Tiered agreement",
+      paste0("agreement_n_pairs:       ", tr$n_total),
+      paste0("agreement_exact_pct:     ", tr$exact_pct, "%"),
+      paste0("agreement_family_pct:    ", tr$family_pct, "%"),
+      paste0("agreement_family_or_better_pct: ", tr$family_or_better_pct, "%")
+    )
+  }
+
   writeLines(stats_lines,
              file.path(out_dir, "match_statistics.txt"))
   log_message("  Wrote match_statistics.txt")
 
-  # --- 6. Diagnostic plots ---
+  # --- 6. Triage export: top mismatched/high-risk pairs ---
+  export_triage(match_result, agreement, out_dir)
+
+  # --- 7. LDIR results ---
+  if (!is.null(ldir_results)) {
+    export_ldir_results(ldir_results, out_dir)
+  }
+
+  # --- 8. Diagnostic plots ---
   if (length(diagnostics) > 0) {
     plot_dir <- file.path(out_dir, "plots")
     if (!dir.exists(plot_dir)) dir.create(plot_dir)
@@ -138,8 +161,7 @@ export_results <- function(match_result, agreement, diagnostics,
     for (plot_name in names(diagnostics)) {
       tryCatch({
         ggplot2::ggsave(
-          filename = file.path(plot_dir,
-                               paste0(plot_name, ".png")),
+          filename = file.path(plot_dir, paste0(plot_name, ".png")),
           plot     = diagnostics[[plot_name]],
           width    = config$plot_width,
           height   = config$plot_height,
@@ -151,7 +173,7 @@ export_results <- function(match_result, agreement, diagnostics,
       })
     }
 
-    # Also save all plots as a single PDF
+    # Combined PDF
     tryCatch({
       pdf_path <- file.path(plot_dir, "all_diagnostics.pdf")
       grDevices::pdf(pdf_path,
@@ -168,5 +190,121 @@ export_results <- function(match_result, agreement, diagnostics,
   }
 
   log_message("Export complete.")
+  invisible(NULL)
+}
+
+
+#' Export triage list: top mismatched and high-risk pairs
+export_triage <- function(match_result, agreement, out_dir, n_top = 50) {
+  if (is.null(agreement) || nrow(agreement$summary_df) == 0) return(invisible(NULL))
+  if (nrow(match_result$matched) == 0) return(invisible(NULL))
+
+  matched <- match_result$matched
+  summary <- agreement$summary_df
+
+  triage_df <- data.frame(match_id = summary$match_id, stringsAsFactors = FALSE)
+
+  amb_score <- if ("ambiguity_score" %in% names(matched)) {
+    matched$ambiguity_score[match(triage_df$match_id, matched$match_id)]
+  } else {
+    rep(0, nrow(triage_df))
+  }
+  amb_score[is.na(amb_score)] <- 0
+
+  disagree_score <- ifelse(summary$tier == "Disagree", 1, 0)
+  dist_score <- summary$match_distance / 100
+
+  triage_df$triage_score <- amb_score * 2 + disagree_score + dist_score
+  triage_df$tier <- summary$tier
+  triage_df$material_a <- summary$material_a_raw
+  triage_df$material_b <- summary$material_b_raw
+  triage_df$family_a <- summary$family_a
+  triage_df$family_b <- summary$family_b
+  triage_df$match_distance <- summary$match_distance
+  triage_df$ambiguity_score <- amb_score
+
+  idx <- match(triage_df$match_id, matched$match_id)
+  for (coord_col in c("ftir_x_um", "ftir_y_um", "raman_x_um", "raman_y_um",
+                       "ftir_x_aligned", "ftir_y_aligned")) {
+    if (coord_col %in% names(matched)) {
+      triage_df[[coord_col]] <- matched[[coord_col]][idx]
+    }
+  }
+
+  triage_df <- triage_df[order(-triage_df$triage_score), ]
+  triage_df <- head(triage_df, n_top)
+
+  if (nrow(triage_df) > 0) {
+    write.csv(triage_df, file.path(out_dir, "triage_top_pairs.csv"), row.names = FALSE)
+    log_message("  Wrote triage_top_pairs.csv (", nrow(triage_df), " pairs)")
+  }
+  invisible(NULL)
+}
+
+
+#' Export LDIR-specific results
+export_ldir_results <- function(ldir_results, out_dir) {
+  log_message("  Exporting LDIR results")
+
+  if (!is.null(ldir_results$ldir_raman_match) &&
+      nrow(ldir_results$ldir_raman_match$matched) > 0) {
+    write.csv(ldir_results$ldir_raman_match$matched,
+              file.path(out_dir, "ldir_raman_matched.csv"), row.names = FALSE)
+    log_message("    LDIR-Raman matched: ", nrow(ldir_results$ldir_raman_match$matched))
+  }
+
+  if (!is.null(ldir_results$ldir_ftir_match) &&
+      nrow(ldir_results$ldir_ftir_match$matched) > 0) {
+    write.csv(ldir_results$ldir_ftir_match$matched,
+              file.path(out_dir, "ldir_ftir_matched.csv"), row.names = FALSE)
+    log_message("    LDIR-FTIR matched: ", nrow(ldir_results$ldir_ftir_match$matched))
+  }
+
+  if (!is.null(ldir_results$triplets) && nrow(ldir_results$triplets) > 0) {
+    write.csv(ldir_results$triplets,
+              file.path(out_dir, "triplets_3way.csv"), row.names = FALSE)
+    log_message("    Three-way triplets: ", nrow(ldir_results$triplets))
+  }
+
+  if (!is.null(ldir_results$ldir_icp)) {
+    lp <- ldir_results$ldir_icp$params
+    writeLines(c(
+      "# LDIR-to-Raman Transform Parameters",
+      paste0("scale:        ", round(lp$scale, 6)),
+      paste0("rotation_deg: ", round(lp$rotation_deg, 4)),
+      paste0("tx:           ", round(lp$tx, 4)),
+      paste0("ty:           ", round(lp$ty, 4)),
+      paste0("reflected:    ", lp$reflected),
+      paste0("icp_converged:  ", ldir_results$ldir_icp$converged),
+      paste0("icp_final_rms:  ",
+             round(tail(ldir_results$ldir_icp$rms_history, 1), 4), " um")
+    ), file.path(out_dir, "ldir_transform_params.txt"))
+  }
+
+  if (!is.null(ldir_results$ldir_raman_agreement) &&
+      nrow(ldir_results$ldir_raman_agreement$agreement_detail) > 0) {
+    write.csv(ldir_results$ldir_raman_agreement$agreement_detail,
+              file.path(out_dir, "ldir_raman_agreement.csv"), row.names = FALSE)
+  }
+
+  if (!is.null(ldir_results$ldir_clean)) {
+    ldir_df <- data.frame(
+      material = names(table(ldir_results$ldir_clean$material)),
+      count    = as.integer(table(ldir_results$ldir_clean$material)),
+      stringsAsFactors = FALSE
+    )
+    write.csv(ldir_df, file.path(out_dir, "ldir_material_distribution.csv"),
+              row.names = FALSE)
+  }
+
+  if (!is.null(ldir_results$ldir_with_coords) &&
+      "coord_match_cost" %in% names(ldir_results$ldir_with_coords)) {
+    cols <- intersect(c("particle_id", "x_um", "y_um", "coord_match_cost",
+                        "coord_source", "material", "quality", "feret_max_um"),
+                      names(ldir_results$ldir_with_coords))
+    write.csv(ldir_results$ldir_with_coords[, cols],
+              file.path(out_dir, "ldir_coord_quality.csv"), row.names = FALSE)
+  }
+
   invisible(NULL)
 }
