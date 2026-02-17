@@ -1,5 +1,5 @@
 # =============================================================================
-# 00_config.R — Configurable parameters for FTIR–Raman particle matching
+# 00_config.R — Configurable parameters for multi-instrument particle matching
 # =============================================================================
 
 #' Create default configuration
@@ -28,63 +28,69 @@ make_config <- function(ftir_path  = NULL,
     # --- Pre-filtering ---
     raman_hqi_threshold   = 70,    # minimum HQI score for Raman particles
     ftir_quality_threshold = 0,    # minimum AAU score for FTIR (0 = keep all)
-    min_particle_size_um  = 0,     # minimum Feret size in µm (0 = keep all)
+    min_particle_size_um  = 0,     # minimum Feret size in um (0 = keep all)
 
     # --- Coordinate normalization ---
     normalize_scale = FALSE,  # scale both clouds to unit variance (usually not needed)
 
     # --- Material-based alignment anchors ---
-    # Only particles matching these patterns (case-insensitive regex) are used
-    # for spatial alignment. This ensures the transform is driven by particles
-    # that genuinely overlap between instruments.
     align_ftir_materials = c("PET", "Polypro"),
     align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
     align_raman_min_size_um = 20,  # exclude Raman particles below FTIR detection limit
 
+    # --- LDIR-specific settings ---
+    align_ldir_materials = c("Polyethylene terephthalate", "Polypropylene",
+                             "Polycarbonate"),
+    ldir_quality_threshold = 0.6,  # Agilent quality score (0-1)
+    ldir_scan_diameter_um  = 13000, # 13mm filter diameter
+
     # --- Landmark-first alignment (Tier 1) ---
-    # Large particles and fibers are used as high-confidence anchors.
-    # If enough landmarks match with tight residuals, the expensive full
-    # RANSAC grid search (Tier 2) is skipped entirely.
-    landmark_min_size_um       = 100,  # particles >= this size are landmarks
-    landmark_fiber_aspect_ratio = 3.0, # major/minor >= this → fiber (landmark even if smaller)
-    landmark_fiber_min_size_um  = 100, # minimum size for fiber landmarks
-    landmark_min_count          = 4,   # need at least this many landmarks per dataset
-    landmark_confidence_min_inlier_ratio = 0.5,  # >= 50% landmarks must be inliers
-    landmark_confidence_max_residual_um  = 50,   # mean residual must be below this (µm)
-    landmark_skip_full_ransac  = TRUE, # if TRUE, skip Tier 2 when landmarks are confident
+    landmark_min_size_um       = 100,
+    landmark_fiber_aspect_ratio = 3.0,
+    landmark_fiber_min_size_um  = 100,
+    landmark_min_count          = 4,
+    landmark_confidence_min_inlier_ratio = 0.5,
+    landmark_confidence_max_residual_um  = 50,
+    landmark_skip_full_ransac  = TRUE,
 
     # --- RANSAC alignment ---
-    ransac_coarse_step_deg = 1,     # rotation grid step for coarse search (degrees)
-    ransac_n_iterations    = 2000,  # number of RANSAC iterations for refinement
-    ransac_min_samples     = 3,     # minimum point pairs per RANSAC sample
-    ransac_inlier_dist_um  = 200,   # distance threshold to count as inlier (µm)
-    ransac_allow_mirror    = TRUE,  # also search over reflections
+    ransac_coarse_step_deg = 1,
+    ransac_n_iterations    = 2000,
+    ransac_min_samples     = 3,
+    ransac_inlier_dist_um  = 200,
+    ransac_allow_mirror    = TRUE,
 
     # --- ICP refinement ---
-    icp_max_iterations      = 100,  # maximum ICP iterations
-    icp_convergence_thresh  = 0.01, # stop when RMS improvement < this (µm)
-    icp_max_pair_dist_um    = 500,  # max distance for ICP correspondences (µm)
-    icp_reciprocal          = TRUE, # only keep mutual nearest-neighbor pairs
-    icp_trim_pct            = 0.10, # discard worst 10% of pairs each iteration
-    icp_elongation_downweight = TRUE,  # down-weight elongated particles in ICP
-    icp_elongation_alpha    = 0.5,     # weight = 1 / (1 + alpha * (aspect - 1))
+    icp_max_iterations      = 100,
+    icp_convergence_thresh  = 0.01,
+    icp_max_pair_dist_um    = 500,
+    icp_reciprocal          = TRUE,
+    icp_trim_pct            = 0.10,
+    icp_elongation_downweight = TRUE,
+    icp_elongation_alpha    = 0.5,
 
     # --- Particle matching ---
-    match_dist_threshold_um    = 100,   # base max distance between matched particles (µm)
-    match_adaptive_dist_factor = 0.15,  # adaptive: max(base, factor * major_um)
-    match_size_weight          = 0.2,   # weight for size similarity (0 = spatial only)
-    match_size_metric          = "feret_max_um",  # which size metric to compare
+    match_method               = "hungarian",  # "hungarian" or "greedy"
+    match_dist_threshold_um    = 100,
+    match_adaptive_dist_factor = 0.15,
+    match_size_weight          = 0.2,    # (used by greedy only)
+    match_size_metric          = "feret_max_um",
 
-    # --- Material equivalence mapping (for agreement scoring) ---
-    # User-defined mapping of FTIR material names → canonical types.
-    # Will be populated with actual mapping next session.
-    # Format: named list where names are canonical types, values are regex
-    # patterns matching instrument-specific material names.
-    material_map_ftir  = NULL,  # e.g., list(PET = "PET", PP = "Polypro|PP", ...)
-    material_map_raman = NULL,  # e.g., list(PET = "Polyethylene terephtalate|PET", ...)
+    # Hungarian cost function weights
+    match_lambda_area          = 0.3,   # weight for |log(area ratio)| penalty
+    match_lambda_feret         = 0.3,   # weight for |log(feret ratio)| penalty
+    match_lambda_aspect        = 0.1,   # weight for aspect ratio difference
+
+    # Ambiguity detection
+    ambiguity_radius_um        = 50,    # radius for counting nearby candidates
+
+    # --- Material equivalence mapping ---
+    material_map_ftir  = NULL,
+    material_map_raman = NULL,
+    material_map_ldir  = NULL,
 
     # --- Diagnostics ---
-    plot_width  = 10,   # plot width in inches
-    plot_height = 8     # plot height in inches
+    plot_width  = 10,
+    plot_height = 8
   )
 }
