@@ -160,28 +160,103 @@ server <- function(input, output, session) {
     build_instrument_dfs(run_data())
   })
 
+  # Full transform matrix (FTIR original -> Raman coords)
+  M_full <- reactive({
+    tr <- run_data()$transform
+    req(tr, tr$M)
+    build_full_transform(tr)
+  })
+
+  # FTIR image bounds in original coordinates
+  # The image covers [0, max_x*1.05] x [0, max_y*1.05] (from pipeline scan_bounds)
+  ftir_img_bounds <- reactive({
+    dfs <- instrument_dfs()
+    req(dfs$ftir)
+    list(
+      xmin = 0,
+      xmax = max(dfs$ftir$x_orig, na.rm = TRUE) * 1.05,
+      ymin = 0,
+      ymax = max(dfs$ftir$y_orig, na.rm = TRUE) * 1.05
+    )
+  })
+
   # ------------------------------------------------------------------
-  # Image state
+  # Image state: each entry is either NULL or a list(raster, xmin, xmax, ymin, ymax)
   # ------------------------------------------------------------------
   images <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
 
+  # Auto-load default FTIR image from project root (transformed to aligned coords)
   observe({
     default_img <- file.path("..", "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png")
-    if (file.exists(default_img)) {
-      img <- load_image_raster(default_img)
-      images$ftir <- img
-      images$overlay <- img
+    if (!file.exists(default_img)) return()
+
+    raw <- load_image_raster(default_img)
+    if (is.null(raw)) return()
+
+    tr <- run_data()$transform
+    mf <- tryCatch(M_full(), error = function(e) NULL)
+    bounds <- tryCatch(ftir_img_bounds(), error = function(e) NULL)
+
+    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
+      transformed <- transform_image_for_display(raw, bounds, mf, tr$rotation_deg)
+      images$ftir <- transformed
+      images$overlay <- transformed
+    } else {
+      # Fallback: use raw image with particle-based bounds
+      pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+      images$ftir <- list(raster = raw,
+                           xmin = pb$x[1], xmax = pb$x[2],
+                           ymin = pb$y[1], ymax = pb$y[2])
+      images$overlay <- images$ftir
     }
   })
 
+  # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
-    images$ftir <- load_image_raster(input$ftir_image_upload$datapath)
+    raw <- load_image_raster(input$ftir_image_upload$datapath)
+    req(raw)
+    tr <- run_data()$transform
+    mf <- tryCatch(M_full(), error = function(e) NULL)
+    bounds <- tryCatch(ftir_img_bounds(), error = function(e) NULL)
+    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
+      images$ftir <- transform_image_for_display(raw, bounds, mf, tr$rotation_deg)
+    } else {
+      pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+      images$ftir <- list(raster = raw,
+                           xmin = pb$x[1], xmax = pb$x[2],
+                           ymin = pb$y[1], ymax = pb$y[2])
+    }
   })
+
   observeEvent(input$raman_image_upload, {
-    images$raman <- load_image_raster(input$raman_image_upload$datapath)
+    raw <- load_image_raster(input$raman_image_upload$datapath)
+    req(raw)
+    # Raman is the reference frame — no transform needed.
+    # Place at Raman particle extent.
+    raman_df <- instrument_dfs()$raman
+    images$raman <- list(
+      raster = raw,
+      xmin = min(raman_df$x, na.rm = TRUE) - 200,
+      xmax = max(raman_df$x, na.rm = TRUE) + 200,
+      ymin = min(raman_df$y, na.rm = TRUE) - 200,
+      ymax = max(raman_df$y, na.rm = TRUE) + 200
+    )
   })
+
   observeEvent(input$overlay_image_upload, {
-    images$overlay <- load_image_raster(input$overlay_image_upload$datapath)
+    raw <- load_image_raster(input$overlay_image_upload$datapath)
+    req(raw)
+    tr <- run_data()$transform
+    mf <- tryCatch(M_full(), error = function(e) NULL)
+    bounds <- tryCatch(ftir_img_bounds(), error = function(e) NULL)
+    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
+      images$overlay <- transform_image_for_display(raw, bounds, mf, tr$rotation_deg)
+    } else {
+      pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+      images$overlay <- list(raster = raw,
+                              xmin = pb$x[1], xmax = pb$x[2],
+                              ymin = pb$y[1], ymax = pb$y[2])
+    }
   })
 
   # ------------------------------------------------------------------
@@ -247,35 +322,30 @@ server <- function(input, output, session) {
   }
 
   # ==================================================================
+  # Helper: add image background to a ggplot
+  # ==================================================================
+  add_image_bg <- function(p, img_info, alpha = 0.4) {
+    if (is.null(img_info)) return(p)
+    p + annotation_raster(img_info$raster,
+          xmin = img_info$xmin, xmax = img_info$xmax,
+          ymin = img_info$ymin, ymax = img_info$ymax,
+          interpolate = TRUE)
+  }
+
+  # ==================================================================
   # Helper: ggplot scatter with optional image background
   # ==================================================================
-  make_scatter <- function(df, img_raster, bounds, title,
-                            colour_by = "match_status",
-                            match_colours = NULL,
-                            shape_by = NULL, shapes = NULL) {
+  make_scatter <- function(df, img_info, bounds, title,
+                            match_colours = NULL) {
 
     p <- ggplot(df, aes(x = x, y = y))
 
-    # Background image
-    if (!is.null(img_raster)) {
-      p <- p + annotation_raster(img_raster,
-               xmin = bounds$x[1], xmax = bounds$x[2],
-               ymin = bounds$y[1], ymax = bounds$y[2],
-               interpolate = TRUE)
-    }
+    # Background image (with per-image bounds)
+    p <- add_image_bg(p, img_info)
 
     # Points
-    if (!is.null(shape_by)) {
-      p <- p + geom_point(aes(colour = .data[[colour_by]],
-                               shape = .data[[shape_by]],
-                               size = feret_max),
-                           alpha = 0.7)
-      if (!is.null(shapes)) p <- p + scale_shape_manual(values = shapes)
-    } else {
-      p <- p + geom_point(aes(colour = .data[[colour_by]],
-                               size = feret_max),
-                           alpha = 0.7)
-    }
+    p <- p + geom_point(aes(colour = match_status, size = feret_max),
+                         alpha = 0.7)
 
     if (!is.null(match_colours))
       p <- p + scale_colour_manual(values = match_colours)
@@ -446,19 +516,14 @@ server <- function(input, output, session) {
         legend.position  = "bottom"
       )
 
-    # Background image
-    if (!is.null(images$overlay)) {
-      p <- p + annotation_raster(images$overlay,
-               xmin = bounds$x[1], xmax = bounds$x[2],
-               ymin = bounds$y[1], ymax = bounds$y[2],
-               interpolate = TRUE)
-    }
+    # Background image (transformed FTIR image)
+    p <- add_image_bg(p, images$overlay)
 
     # Match lines
     if ("match_lines" %in% layers && nrow(matched) > 0) {
       seg_df <- data.frame(
         x    = matched$ftir_x_aligned, y    = matched$ftir_y_aligned,
-        xend = matched$raman_x_um,     yend = matched$raman_y_um
+        xend = matched$raman_x_norm,     yend = matched$raman_y_norm
       )
       p <- p + geom_segment(data = seg_df,
                               aes(x = x, y = y, xend = xend, yend = yend),
@@ -491,7 +556,7 @@ server <- function(input, output, session) {
         feret_max = matched$ftir_feret_max_um, instrument = "FTIR"
       )
       raman_pts <- data.frame(
-        x = matched$raman_x_um, y = matched$raman_y_um,
+        x = matched$raman_x_norm, y = matched$raman_y_norm,
         feret_max = matched$raman_feret_max_um, instrument = "Raman"
       )
       both <- rbind(ftir_pts, raman_pts)
@@ -528,14 +593,14 @@ server <- function(input, output, session) {
     dy_f <- matched$ftir_y_aligned - hover$y
     dist_f <- sqrt(dx_f^2 + dy_f^2)
 
-    dx_r <- matched$raman_x_um - hover$x
-    dy_r <- matched$raman_y_um - hover$y
+    dx_r <- matched$raman_x_norm - hover$x
+    dy_r <- matched$raman_y_norm - hover$y
     dist_r <- sqrt(dx_r^2 + dy_r^2)
 
     min_f <- min(dist_f)
     min_r <- min(dist_r)
 
-    if (min(min_f, min_r) > 200) {
+    if (min(min_f, min_r) > 300) {
       return(tags$p(class = "text-muted",
                     "Hover over a matched particle for the comparison table"))
     }
