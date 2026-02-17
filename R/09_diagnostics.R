@@ -60,7 +60,8 @@ generate_diagnostics <- function(ftir_df, raman_df, match_result,
 
 #' Overlay plot of aligned particles from two instruments
 plot_overlay <- function(ftir_df, raman_df, match_result,
-                         ftir_color = "tomato", raman_color = "steelblue") {
+                         ftir_color = "tomato", raman_color = "steelblue",
+                         src_label = "ftir") {
   matched <- match_result$matched
 
   p <- ggplot2::ggplot() +
@@ -75,19 +76,25 @@ plot_overlay <- function(ftir_df, raman_df, match_result,
       color = ftir_color, alpha = 0.6, size = 2, shape = 17
     )
 
-  # Draw lines connecting matched pairs
+  # Draw lines connecting matched pairs (instrument-generic column names)
   if (nrow(matched) > 0) {
-    segments_df <- data.frame(
-      x    = matched$ftir_x_aligned,
-      y    = matched$ftir_y_aligned,
-      xend = matched$raman_x_norm,
-      yend = matched$raman_y_norm
-    )
-    p <- p + ggplot2::geom_segment(
-      data = segments_df,
-      ggplot2::aes(x = x, y = y, xend = xend, yend = yend),
-      color = "grey40", alpha = 0.3, linewidth = 0.3
-    )
+    src_x_col <- paste0(src_label, "_x_aligned")
+    src_y_col <- paste0(src_label, "_y_aligned")
+    ref_x_col <- "raman_x_norm"
+    ref_y_col <- "raman_y_norm"
+    if (all(c(src_x_col, src_y_col, ref_x_col, ref_y_col) %in% names(matched))) {
+      segments_df <- data.frame(
+        x    = matched[[src_x_col]],
+        y    = matched[[src_y_col]],
+        xend = matched[[ref_x_col]],
+        yend = matched[[ref_y_col]]
+      )
+      p <- p + ggplot2::geom_segment(
+        data = segments_df,
+        ggplot2::aes(x = x, y = y, xend = xend, yend = yend),
+        color = "grey40", alpha = 0.3, linewidth = 0.3
+      )
+    }
   }
 
   p <- p +
@@ -439,7 +446,8 @@ generate_ldir_diagnostics <- function(ldir_aligned, raman_df,
   if (nrow(ldir_aligned) > 0 && nrow(raman_df) > 0) {
     plots$ldir_overlay <- plot_overlay(
       ldir_aligned, raman_df, ldir_raman_match,
-      ftir_color = "darkgreen", raman_color = "steelblue"
+      ftir_color = "darkgreen", raman_color = "steelblue",
+      src_label = "ldir"
     )
     plots$ldir_overlay <- plots$ldir_overlay +
       ggplot2::labs(
