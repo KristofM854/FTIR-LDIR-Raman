@@ -298,10 +298,11 @@ server <- function(input, output, session) {
   })
 
   # ------------------------------------------------------------------
-  # Raw image rasters (Y-flipped by load_image_raster)
+  # Raw image rasters
   # ------------------------------------------------------------------
-  ftir_raw_image  <- reactiveVal(NULL)   # FTIR "Average Abs" image
-  raman_raw_image <- reactiveVal(NULL)   # Raman overview image (raman_resized.jpg)
+  ftir_raw_image    <- reactiveVal(NULL)   # FTIR "Average Abs" image
+  raman_tab_image   <- reactiveVal(NULL)   # Raman tab: user-uploaded image only
+  overlay_raw_image <- reactiveVal(NULL)   # Overlay tab: raman_resized.jpg (auto-loaded)
 
   # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
   # Particles on the FTIR tab are shown at x_orig/y_orig (FTIR instrument frame),
@@ -315,9 +316,10 @@ server <- function(input, output, session) {
          ymin = b$ymin, ymax = b$ymax)
   })
 
-  # Raman tab: raw image placed at native Raman bounds (x_orig, y_orig = raman_x_um, raman_y_um).
+  # Raman tab: user-uploaded image placed at native Raman particle bounds.
+  # No image is auto-loaded for the Raman tab (raman_resized.jpg is for overlay only).
   raman_native_image_info <- reactive({
-    raw <- raman_raw_image()
+    raw <- raman_tab_image()
     if (is.null(raw)) return(NULL)
     raman_df <- instrument_dfs()$raman
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
@@ -335,7 +337,7 @@ server <- function(input, output, session) {
   # The overlay shows both instruments in Raman-norm space (x = raman_x_norm),
   # and raman_resized.jpg was exported to match that coordinate frame.
   overlay_image_info <- reactive({
-    raw <- raman_raw_image()
+    raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
     raman_df <- instrument_dfs()$raman
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
@@ -363,7 +365,7 @@ server <- function(input, output, session) {
     default_raman <- file.path("..", "raman_resized.jpg")
     if (!file.exists(default_raman)) return()
     raw <- load_image_raster(default_raman)
-    if (!is.null(raw)) raman_raw_image(raw)
+    if (!is.null(raw)) overlay_raw_image(raw)
   })
 
   # Handle uploaded images
@@ -374,12 +376,12 @@ server <- function(input, output, session) {
 
   observeEvent(input$raman_image_upload, {
     raw <- load_image_raster(input$raman_image_upload$datapath)
-    if (!is.null(raw)) raman_raw_image(raw)
+    if (!is.null(raw)) raman_tab_image(raw)
   })
 
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
-    if (!is.null(raw)) raman_raw_image(raw)
+    if (!is.null(raw)) overlay_raw_image(raw)
   })
 
   # ------------------------------------------------------------------
@@ -408,7 +410,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "raman_material_filter",
                         choices = c("All", sort(unique(raman$material))), selected = "All")
       q_range <- range(raman$quality, na.rm = TRUE)
-      updateSliderInput(session, "raman_hqi_range",
+      updateSliderInput(session, "raman_quality_range",
                         min = floor(q_range[1]), max = ceiling(q_range[2]),
                         value = c(floor(q_range[1]), ceiling(q_range[2])))
       s_max <- ceiling(max(raman$feret_max, na.rm = TRUE) / 10) * 10
@@ -618,7 +620,7 @@ server <- function(input, output, session) {
   raman_filtered <- reactive({
     dfs <- instrument_dfs()
     if (is.null(dfs$raman) || nrow(dfs$raman) == 0) return(data.frame())
-    filter_instrument(dfs$raman, input$raman_hqi_range, input$raman_size_range,
+    filter_instrument(dfs$raman, input$raman_quality_range, input$raman_size_range,
                       input$raman_material_filter, input$raman_match_filter)
   })
 
