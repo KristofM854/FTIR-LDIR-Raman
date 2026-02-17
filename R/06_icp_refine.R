@@ -32,6 +32,9 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config) {
   use_reciprocal <- isTRUE(config$icp_reciprocal)
   trim_pct       <- if (!is.null(config$icp_trim_pct)) config$icp_trim_pct else 0
 
+  use_elong_weight <- isTRUE(config$icp_elongation_downweight)
+  elong_alpha      <- if (!is.null(config$icp_elongation_alpha)) config$icp_elongation_alpha else 0.5
+
   ftir_x  <- ftir_df$x_norm
   ftir_y  <- ftir_df$y_norm
   raman_x <- raman_df$x_norm
@@ -41,6 +44,20 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config) {
 
   ftir_mat  <- cbind(ftir_x, ftir_y)
   raman_mat <- cbind(raman_x, raman_y)
+
+  # Compute per-particle elongation weights for FTIR
+  # Round particles (aspect ~1) get weight ~1; fibers (aspect ~5) get lower weight
+  ftir_weights <- rep(1.0, n_ftir)
+  if (use_elong_weight && "major_um" %in% names(ftir_df) && "minor_um" %in% names(ftir_df)) {
+    major <- ftir_df$major_um
+    minor <- ftir_df$minor_um
+    aspect <- ifelse(!is.na(major) & !is.na(minor) & minor > 0,
+                     major / minor, 1.0)
+    ftir_weights <- 1.0 / (1.0 + elong_alpha * pmax(aspect - 1, 0))
+    log_message("  Elongation weighting: ON (alpha = ", elong_alpha,
+                ", weight range: ", round(min(ftir_weights), 3), " - ",
+                round(max(ftir_weights), 3), ")")
+  }
 
   if (use_reciprocal) log_message("  Reciprocal nearest-neighbor filtering: ON")
   if (trim_pct > 0)   log_message("  Trimming worst ", trim_pct * 100, "% of pairs each iteration")
@@ -114,13 +131,15 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config) {
       break
     }
 
-    # Re-estimate transform from filtered pairs
+    # Re-estimate transform from filtered pairs (with elongation weights)
+    pair_weights <- if (use_elong_weight) ftir_weights[keep] else NULL
     new_tf <- estimate_similarity_transform(
       src_x = ftir_x[keep],
       src_y = ftir_y[keep],
       dst_x = raman_x[raman_idx[keep]],
       dst_y = raman_y[raman_idx[keep]],
-      allow_reflection = allow_mirror
+      allow_reflection = allow_mirror,
+      weights = pair_weights
     )
 
     current_M <- new_tf$matrix

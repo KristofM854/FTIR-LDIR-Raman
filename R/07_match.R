@@ -23,9 +23,11 @@
 match_particles <- function(ftir_df, raman_df, config) {
   log_message("Matching particles")
 
-  dist_thresh  <- config$match_dist_threshold_um
-  size_weight  <- config$match_size_weight
-  size_metric  <- config$match_size_metric
+  dist_thresh      <- config$match_dist_threshold_um
+  adaptive_factor  <- if (!is.null(config$match_adaptive_dist_factor))
+                        config$match_adaptive_dist_factor else 0
+  size_weight      <- config$match_size_weight
+  size_metric      <- config$match_size_metric
 
   ftir_x  <- ftir_df$x_aligned
   ftir_y  <- ftir_df$y_aligned
@@ -34,23 +36,35 @@ match_particles <- function(ftir_df, raman_df, config) {
   n_ftir  <- nrow(ftir_df)
   n_raman <- nrow(raman_df)
 
+  # Per-particle adaptive threshold: larger particles get a wider acceptance radius
+  # to account for centroid uncertainty in elongated/asymmetric particles.
+  ftir_thresh <- rep(dist_thresh, n_ftir)
+  if (adaptive_factor > 0 && "major_um" %in% names(ftir_df)) {
+    major <- ftir_df$major_um
+    ftir_thresh <- pmax(dist_thresh, adaptive_factor * ifelse(is.na(major), 0, major))
+    n_adapted <- sum(ftir_thresh > dist_thresh)
+    if (n_adapted > 0) {
+      log_message("  Adaptive distance threshold: ", n_adapted, " particles have threshold > ",
+                  dist_thresh, " µm (max = ", round(max(ftir_thresh), 1), " µm)")
+    }
+  }
+
   # Find k nearest Raman neighbors for each FTIR particle
   # Use k > 1 so we can fall back if first choice is already taken
+  max_thresh <- max(ftir_thresh)
   k <- min(5, n_raman)
   nn <- RANN::nn2(cbind(raman_x, raman_y), cbind(ftir_x, ftir_y), k = k)
 
   # Build candidate list: (ftir_idx, raman_idx, distance, combined_score)
-  candidates <- data.frame(
-    ftir_idx  = integer(),
-    raman_idx = integer(),
-    distance  = numeric(),
-    score     = numeric()
-  )
+  # Pre-allocate for performance
+  cand_list <- vector("list", n_ftir * k)
+  cand_n <- 0L
 
   for (i in seq_len(n_ftir)) {
+    thresh_i <- ftir_thresh[i]
     for (j in seq_len(k)) {
       d <- nn$nn.dists[i, j]
-      if (d > dist_thresh) next
+      if (d > thresh_i) next
 
       r_idx <- nn$nn.idx[i, j]
 
@@ -66,14 +80,21 @@ match_particles <- function(ftir_df, raman_df, config) {
       }
 
       score <- d + size_penalty
-
-      candidates <- rbind(candidates, data.frame(
+      cand_n <- cand_n + 1L
+      cand_list[[cand_n]] <- data.frame(
         ftir_idx  = i,
         raman_idx = r_idx,
         distance  = d,
         score     = score
-      ))
+      )
     }
+  }
+
+  if (cand_n > 0) {
+    candidates <- do.call(rbind, cand_list[seq_len(cand_n)])
+  } else {
+    candidates <- data.frame(ftir_idx = integer(), raman_idx = integer(),
+                             distance = numeric(), score = numeric())
   }
 
   # Greedy one-to-one matching: accept pairs in order of increasing score

@@ -92,21 +92,35 @@ build_transform_matrix <- function(a, b, tx, ty, reflect = FALSE) {
 #'
 #' Given source points P and destination points Q, find the similarity
 #' transform T such that T(P) ≈ Q, minimizing sum of squared residuals.
+#' Optional per-point weights allow down-weighting unreliable correspondences
+#' (e.g. elongated particles whose centroid is uncertain).
 #'
 #' @param src_x Numeric vector, source x-coordinates
 #' @param src_y Numeric vector, source y-coordinates
 #' @param dst_x Numeric vector, destination x-coordinates
 #' @param dst_y Numeric vector, destination y-coordinates
 #' @param allow_reflection Logical, whether to also try reflection and pick best
+#' @param weights Optional numeric vector of per-point weights (positive).
+#'        Higher weight = more influence. NULL means equal weights.
 #' @return List with: matrix (3x3), a, b, tx, ty, scale, rotation_deg,
 #'         reflected, residual_rms
 estimate_similarity_transform <- function(src_x, src_y, dst_x, dst_y,
-                                          allow_reflection = TRUE) {
+                                          allow_reflection = TRUE,
+                                          weights = NULL) {
   n <- length(src_x)
   stopifnot(n >= 2, n == length(src_y), n == length(dst_x), n == length(dst_y))
 
   # Response vector
   q_vec <- as.numeric(rbind(dst_x, dst_y))  # interleaved: qx1, qy1, qx2, qy2, ...
+
+  # Build per-row weight vector (each point contributes 2 rows: x and y)
+  if (!is.null(weights)) {
+    stopifnot(length(weights) == n)
+    w_sqrt <- sqrt(pmax(weights, 0))
+    w_row <- rep(w_sqrt, each = 2)  # interleaved: w1, w1, w2, w2, ...
+  } else {
+    w_row <- NULL
+  }
 
   # --- No-reflection model ---
   # qx_i = a*px_i - b*py_i + tx
@@ -119,8 +133,17 @@ estimate_similarity_transform <- function(src_x, src_y, dst_x, dst_y,
     A_no[row_y, ] <- c(src_y[i],  src_x[i], 0, 1)
   }
 
-  fit_no   <- qr.solve(A_no, q_vec)
-  res_no   <- q_vec - A_no %*% fit_no
+  # Apply weights via row scaling: W*A*x = W*q  (weighted least squares)
+  if (!is.null(w_row)) {
+    A_no_w <- A_no * w_row
+    q_no_w <- q_vec * w_row
+  } else {
+    A_no_w <- A_no
+    q_no_w <- q_vec
+  }
+
+  fit_no   <- qr.solve(A_no_w, q_no_w)
+  res_no   <- q_vec - A_no %*% fit_no  # residuals on unweighted data
   rms_no   <- sqrt(mean(res_no^2))
 
   results <- list()
@@ -141,7 +164,15 @@ estimate_similarity_transform <- function(src_x, src_y, dst_x, dst_y,
       A_ref[row_y, ] <- c(-src_y[i],  src_x[i], 0, 1)
     }
 
-    fit_ref <- qr.solve(A_ref, q_vec)
+    if (!is.null(w_row)) {
+      A_ref_w <- A_ref * w_row
+      q_ref_w <- q_vec * w_row
+    } else {
+      A_ref_w <- A_ref
+      q_ref_w <- q_vec
+    }
+
+    fit_ref <- qr.solve(A_ref_w, q_ref_w)
     res_ref <- q_vec - A_ref %*% fit_ref
     rms_ref <- sqrt(mean(res_ref^2))
 
