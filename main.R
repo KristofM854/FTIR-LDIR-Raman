@@ -146,13 +146,20 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
   log_message(strrep("-", 50))
   log_message("FTIR image-based particle extraction")
 
-  # Estimate scan bounds from tabular FTIR data
+  # Compute scan bounds from image dimensions and 25 µm grid step.
+  # The PerkinElmer Spotlight renders ~6 image pixels per grid cell.
+  ftir_img_raw <- png::readPNG(config$ftir_image)
+  ftir_grid_nx <- round((ncol(ftir_img_raw) + 1) / 6)
+  ftir_grid_ny <- round((nrow(ftir_img_raw) + 1) / 6)
   ftir_scan_bounds <- list(
     x_min = 0,
-    x_max = max(ftir_raw$x_um, na.rm = TRUE) * 1.05,
+    x_max = ftir_grid_nx * 25,
     y_min = 0,
-    y_max = max(ftir_raw$y_um, na.rm = TRUE) * 1.05
+    y_max = ftir_grid_ny * 25
   )
+  rm(ftir_img_raw)
+  log_message("  Scan bounds: [0, ", ftir_scan_bounds$x_max, "] x [0, ",
+              ftir_scan_bounds$y_max, "] µm")
 
   ftir_from_image <- extract_particles_from_image(
     config$ftir_image,
@@ -410,7 +417,8 @@ diagnostics <- generate_diagnostics(
 
 export_results(
   match_result, agreement, diagnostics,
-  icp_result, norm_result, config
+  icp_result, norm_result, config,
+  ftir_scan_bounds = ftir_scan_bounds
 )
 
 # Export LDIR comparison if available
