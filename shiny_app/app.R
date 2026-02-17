@@ -147,31 +147,42 @@ ui <- fluidPage(
 server <- function(input, output, session) {
 
   # ------------------------------------------------------------------
-  # Load data
+  # Load data (graceful when no pipeline output exists)
   # ------------------------------------------------------------------
   run_dir <- find_latest_run()
+  if (is.null(run_dir)) {
+    message("[Particle Viewer] No pipeline output found in ../output/")
+    message("[Particle Viewer] Working directory: ", getwd())
+  } else {
+    message("[Particle Viewer] Loading data from: ", run_dir)
+  }
+
   run_data <- reactive({
-    req(run_dir)
+    if (is.null(run_dir)) return(list())
     load_run_data(run_dir)
   })
 
+  has_data <- reactive({
+    d <- run_data()
+    !is.null(d$matched) || !is.null(d$unmatched_ftir) || !is.null(d$unmatched_raman)
+  })
+
   instrument_dfs <- reactive({
-    req(run_data())
+    if (!has_data()) return(list(ftir = NULL, raman = NULL))
     build_instrument_dfs(run_data())
   })
 
-  # Full transform matrix (FTIR original -> Raman coords)
+  # Full transform matrix (FTIR original -> Raman coords), or NULL
   M_full <- reactive({
     tr <- run_data()$transform
-    req(tr, tr$M)
+    if (is.null(tr) || is.null(tr$M)) return(NULL)
     build_full_transform(tr)
   })
 
-  # FTIR image bounds in original coordinates
-  # The image covers [0, max_x*1.05] x [0, max_y*1.05] (from pipeline scan_bounds)
+  # FTIR image bounds in original coordinates, or NULL
   ftir_img_bounds <- reactive({
     dfs <- instrument_dfs()
-    req(dfs$ftir)
+    if (is.null(dfs$ftir) || nrow(dfs$ftir) == 0) return(NULL)
     list(
       xmin = 0,
       xmax = max(dfs$ftir$x_orig, na.rm = TRUE) * 1.05,
@@ -185,6 +196,37 @@ server <- function(input, output, session) {
   # ------------------------------------------------------------------
   images <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
 
+  # ------------------------------------------------------------------
+  # Helper: wrap an image raster with bounds for annotation_raster
+  # Uses transform if available; otherwise uses particle bounds or pixel dims.
+  # ------------------------------------------------------------------
+  wrap_ftir_image <- function(raw) {
+    mf <- M_full()
+    bounds <- ftir_img_bounds()
+    tr <- run_data()$transform
+    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
+      return(transform_image_for_display(raw, bounds, mf, tr$rotation_deg))
+    }
+    # Fallback: place at particle-based bounds (or pixel dims)
+    pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+    list(raster = raw, xmin = pb$x[1], xmax = pb$x[2],
+         ymin = pb$y[1], ymax = pb$y[2])
+  }
+
+  wrap_raman_image <- function(raw) {
+    raman_df <- instrument_dfs()$raman
+    if (!is.null(raman_df) && nrow(raman_df) > 0) {
+      return(list(raster = raw,
+                  xmin = min(raman_df$x, na.rm = TRUE) - 200,
+                  xmax = max(raman_df$x, na.rm = TRUE) + 200,
+                  ymin = min(raman_df$y, na.rm = TRUE) - 200,
+                  ymax = max(raman_df$y, na.rm = TRUE) + 200))
+    }
+    pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+    list(raster = raw, xmin = pb$x[1], xmax = pb$x[2],
+         ymin = pb$y[1], ymax = pb$y[2])
+  }
+
   # Auto-load default FTIR image from project root (transformed to aligned coords)
   observe({
     default_img <- file.path("..", "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png")
@@ -193,70 +235,28 @@ server <- function(input, output, session) {
     raw <- load_image_raster(default_img)
     if (is.null(raw)) return()
 
-    tr <- run_data()$transform
-    mf <- tryCatch(M_full(), error = function(e) NULL)
-    bounds <- tryCatch(ftir_img_bounds(), error = function(e) NULL)
-
-    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
-      transformed <- transform_image_for_display(raw, bounds, mf, tr$rotation_deg)
-      images$ftir <- transformed
-      images$overlay <- transformed
-    } else {
-      # Fallback: use raw image with particle-based bounds
-      pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
-      images$ftir <- list(raster = raw,
-                           xmin = pb$x[1], xmax = pb$x[2],
-                           ymin = pb$y[1], ymax = pb$y[2])
-      images$overlay <- images$ftir
-    }
+    transformed <- wrap_ftir_image(raw)
+    images$ftir <- transformed
+    images$overlay <- transformed
   })
 
   # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
     raw <- load_image_raster(input$ftir_image_upload$datapath)
-    req(raw)
-    tr <- run_data()$transform
-    mf <- tryCatch(M_full(), error = function(e) NULL)
-    bounds <- tryCatch(ftir_img_bounds(), error = function(e) NULL)
-    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
-      images$ftir <- transform_image_for_display(raw, bounds, mf, tr$rotation_deg)
-    } else {
-      pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
-      images$ftir <- list(raster = raw,
-                           xmin = pb$x[1], xmax = pb$x[2],
-                           ymin = pb$y[1], ymax = pb$y[2])
-    }
+    if (is.null(raw)) return()
+    images$ftir <- wrap_ftir_image(raw)
   })
 
   observeEvent(input$raman_image_upload, {
     raw <- load_image_raster(input$raman_image_upload$datapath)
-    req(raw)
-    # Raman is the reference frame — no transform needed.
-    # Place at Raman particle extent.
-    raman_df <- instrument_dfs()$raman
-    images$raman <- list(
-      raster = raw,
-      xmin = min(raman_df$x, na.rm = TRUE) - 200,
-      xmax = max(raman_df$x, na.rm = TRUE) + 200,
-      ymin = min(raman_df$y, na.rm = TRUE) - 200,
-      ymax = max(raman_df$y, na.rm = TRUE) + 200
-    )
+    if (is.null(raw)) return()
+    images$raman <- wrap_raman_image(raw)
   })
 
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
-    req(raw)
-    tr <- run_data()$transform
-    mf <- tryCatch(M_full(), error = function(e) NULL)
-    bounds <- tryCatch(ftir_img_bounds(), error = function(e) NULL)
-    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
-      images$overlay <- transform_image_for_display(raw, bounds, mf, tr$rotation_deg)
-    } else {
-      pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
-      images$overlay <- list(raster = raw,
-                              xmin = pb$x[1], xmax = pb$x[2],
-                              ymin = pb$y[1], ymax = pb$y[2])
-    }
+    if (is.null(raw)) return()
+    images$overlay <- wrap_ftir_image(raw)
   })
 
   # ------------------------------------------------------------------
@@ -265,7 +265,7 @@ server <- function(input, output, session) {
   observe({
     dfs <- instrument_dfs()
 
-    if (!is.null(dfs$ftir)) {
+    if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
       ftir <- dfs$ftir
       updateSelectInput(session, "ftir_material_filter",
                         choices = c("All", sort(unique(ftir$material))), selected = "All")
@@ -280,7 +280,7 @@ server <- function(input, output, session) {
                         value = c(0, s_max))
     }
 
-    if (!is.null(dfs$raman)) {
+    if (!is.null(dfs$raman) && nrow(dfs$raman) > 0) {
       raman <- dfs$raman
       updateSelectInput(session, "raman_material_filter",
                         choices = c("All", sort(unique(raman$material))), selected = "All")
@@ -397,15 +397,23 @@ server <- function(input, output, session) {
 
   ftir_filtered <- reactive({
     dfs <- instrument_dfs()
-    req(dfs$ftir)
+    if (is.null(dfs$ftir) || nrow(dfs$ftir) == 0) return(data.frame())
     filter_instrument(dfs$ftir, input$ftir_quality_range, input$ftir_size_range,
                       input$ftir_material_filter, input$ftir_match_filter)
   })
 
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
-    req(nrow(df) > 0)
     bounds <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+    if (nrow(df) == 0) {
+      # Still show image if available
+      p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+        labs(title = "FTIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+        theme_minimal(base_size = 13) +
+        theme(plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "grey98", colour = NA))
+      return(add_image_bg(p, images$ftir))
+    }
     make_scatter(df, images$ftir, bounds,
                  paste0("FTIR Particles (", nrow(df), " shown)"),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"))
@@ -413,6 +421,7 @@ server <- function(input, output, session) {
 
   output$ftir_summary_text <- renderText({
     df <- ftir_filtered()
+    if (nrow(df) == 0) return("No pipeline data loaded")
     paste0(nrow(df), " particles | ",
            sum(df$match_status == "matched"), " matched | ",
            length(unique(df$material)), " materials")
@@ -433,15 +442,22 @@ server <- function(input, output, session) {
 
   raman_filtered <- reactive({
     dfs <- instrument_dfs()
-    req(dfs$raman)
+    if (is.null(dfs$raman) || nrow(dfs$raman) == 0) return(data.frame())
     filter_instrument(dfs$raman, input$raman_hqi_range, input$raman_size_range,
                       input$raman_material_filter, input$raman_match_filter)
   })
 
   output$raman_plot <- renderPlot({
     df <- raman_filtered()
-    req(nrow(df) > 0)
     bounds <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+    if (nrow(df) == 0) {
+      p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+        labs(title = "Raman — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+        theme_minimal(base_size = 13) +
+        theme(plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "grey98", colour = NA))
+      return(add_image_bg(p, images$raman))
+    }
     make_scatter(df, images$raman, bounds,
                  paste0("Raman Particles (", nrow(df), " shown)"),
                  match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"))
@@ -449,6 +465,7 @@ server <- function(input, output, session) {
 
   output$raman_summary_text <- renderText({
     df <- raman_filtered()
+    if (nrow(df) == 0) return("No pipeline data loaded")
     paste0(nrow(df), " particles | ",
            sum(df$match_status == "matched"), " matched | ",
            length(unique(df$material)), " materials")
@@ -469,7 +486,7 @@ server <- function(input, output, session) {
 
   overlay_matched <- reactive({
     d <- run_data()
-    req(d$matched)
+    if (is.null(d$matched) || nrow(d$matched) == 0) return(data.frame())
     df <- d$matched
 
     df <- df[!is.na(df$raman_quality) &
@@ -531,7 +548,7 @@ server <- function(input, output, session) {
     }
 
     # Unmatched FTIR
-    if ("unmatched_ftir" %in% layers) {
+    if ("unmatched_ftir" %in% layers && !is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
       um_f <- dfs$ftir[dfs$ftir$match_status == "unmatched", ]
       if (nrow(um_f) > 0) {
         p <- p + geom_point(data = um_f, aes(x = x, y = y, size = feret_max),
@@ -541,7 +558,7 @@ server <- function(input, output, session) {
     }
 
     # Unmatched Raman
-    if ("unmatched_raman" %in% layers) {
+    if ("unmatched_raman" %in% layers && !is.null(dfs$raman) && nrow(dfs$raman) > 0) {
       um_r <- dfs$raman[dfs$raman$match_status == "unmatched", ]
       if (nrow(um_r) > 0) {
         p <- p + geom_point(data = um_r, aes(x = x, y = y, size = feret_max),
@@ -574,9 +591,12 @@ server <- function(input, output, session) {
   output$overlay_summary_text <- renderText({
     m <- overlay_matched()
     dfs <- instrument_dfs()
+    if (nrow(m) == 0 && is.null(dfs$ftir)) return("No pipeline data loaded")
+    n_um_f <- if (!is.null(dfs$ftir)) sum(dfs$ftir$match_status == "unmatched") else 0
+    n_um_r <- if (!is.null(dfs$raman)) sum(dfs$raman$match_status == "unmatched") else 0
     paste0(nrow(m), " matched pairs shown | ",
-           sum(dfs$ftir$match_status == "unmatched"), " unmatched FTIR | ",
-           sum(dfs$raman$match_status == "unmatched"), " unmatched Raman")
+           n_um_f, " unmatched FTIR | ",
+           n_um_r, " unmatched Raman")
   })
 
   output$overlay_hover_info <- renderUI({
@@ -586,7 +606,8 @@ server <- function(input, output, session) {
                     "Hover over a matched particle for the comparison table"))
 
     matched <- overlay_matched()
-    if (nrow(matched) == 0) return(NULL)
+    if (is.null(matched) || nrow(matched) == 0)
+      return(tags$p(class = "text-muted", "No matched particles available"))
 
     # Find nearest matched particle (check both FTIR and Raman positions)
     dx_f <- matched$ftir_x_aligned - hover$x
