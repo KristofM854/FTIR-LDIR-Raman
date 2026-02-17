@@ -1,0 +1,11 @@
+"material_a","family_a","category_a","n_pairs","n_exact","n_family","n_disagree","exact_pct","family_or_better_pct"
+"ACRYLONITRILE BUTADIENE STYRENE","ABS","Synthetic",1,0,0,1,0,0
+"CARBONATE","Natural","Natural/Organic",1,0,0,1,0,0
+"CELLULOSIC","Cellulose","Semi-synthetic",2,0,0,2,0,0
+"CHITIN","Chitin","Natural/Organic",1,0,0,1,0,0
+"NATURALLY OCCURRING","Natural","Natural/Organic",20,0,0,20,0,0
+"POLYAMIDE","PA","Synthetic",1,0,0,1,0,0
+"POLYCARBONATE","PC","Synthetic",1,0,0,1,0,0
+"POLYETHYLENE TEREPHTHALATE","PET","Synthetic",6,0,3,3,0,50
+"POLYURETHANE","PU","Synthetic",1,0,0,1,0,0
+"RUBBER","Rubber","Synthetic",2,0,0,2,0,0

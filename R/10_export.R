@@ -260,6 +260,15 @@ export_ldir_results <- function(ldir_results, out_dir) {
     log_message("    LDIR-FTIR matched: ", nrow(ldir_results$ldir_ftir_match$matched))
   }
 
+  # Unmatched LDIR particles (from LDIR-Raman match)
+  if (!is.null(ldir_results$ldir_raman_match$unmatched_ldir) &&
+      nrow(ldir_results$ldir_raman_match$unmatched_ldir) > 0) {
+    write.csv(ldir_results$ldir_raman_match$unmatched_ldir,
+              file.path(out_dir, "unmatched_ldir.csv"), row.names = FALSE)
+    log_message("    Unmatched LDIR: ",
+                nrow(ldir_results$ldir_raman_match$unmatched_ldir))
+  }
+
   if (!is.null(ldir_results$triplets) && nrow(ldir_results$triplets) > 0) {
     write.csv(ldir_results$triplets,
               file.path(out_dir, "triplets_3way.csv"), row.names = FALSE)
