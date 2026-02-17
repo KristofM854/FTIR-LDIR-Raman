@@ -36,7 +36,13 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
           h5("Summary"), textOutput(paste0(id_prefix, "_summary_text"))),
       hr(),
       fileInput(paste0(id_prefix, "_image_upload"), "Background Image",
-                accept = c("image/png", "image/jpeg"))
+                accept = c("image/png", "image/jpeg")),
+      fluidRow(
+        column(6, numericInput(paste0(id_prefix, "_img_offset_x"),
+                               "Img X offset (\u00b5m)", value = 0, step = 25)),
+        column(6, numericInput(paste0(id_prefix, "_img_offset_y"),
+                               "Img Y offset (\u00b5m)", value = 0, step = 25))
+      )
     ),
     mainPanel(width = 9,
       plotOutput(paste0(id_prefix, "_plot"), height = "650px",
@@ -128,7 +134,13 @@ ui <- fluidPage(
               h5("Match Summary"), textOutput("overlay_summary_text")),
           hr(),
           fileInput("overlay_image_upload", "Background Image",
-                    accept = c("image/png", "image/jpeg"))
+                    accept = c("image/png", "image/jpeg")),
+          fluidRow(
+            column(6, numericInput("overlay_img_offset_x",
+                                   "Img X offset (\u00b5m)", value = 0, step = 25)),
+            column(6, numericInput("overlay_img_offset_y",
+                                   "Img Y offset (\u00b5m)", value = 0, step = 25))
+          )
         ),
         mainPanel(width = 9,
           plotOutput("overlay_plot", height = "650px",
@@ -307,13 +319,16 @@ server <- function(input, output, session) {
   # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
   # Particles on the FTIR tab are shown at x_orig/y_orig (FTIR instrument frame),
   # so the image just needs to sit at [xmin, xmax] × [ymin, ymax] in that same frame.
+  # User fine-tuning offsets shift the image position without changing its extent.
   ftir_native_image_info <- reactive({
     raw <- ftir_raw_image()
     if (is.null(raw)) return(NULL)
     b <- ftir_img_bounds()
     if (is.null(b)) return(NULL)
-    list(raster = raw, xmin = b$xmin, xmax = b$xmax,
-         ymin = b$ymin, ymax = b$ymax)
+    ox <- if (!is.null(input$ftir_img_offset_x)) input$ftir_img_offset_x else 0
+    oy <- if (!is.null(input$ftir_img_offset_y)) input$ftir_img_offset_y else 0
+    list(raster = raw, xmin = b$xmin + ox, xmax = b$xmax + ox,
+         ymin = b$ymin + oy, ymax = b$ymax + oy)
   })
 
   # Raman tab: user-uploaded image placed at native Raman particle bounds.
@@ -324,33 +339,53 @@ server <- function(input, output, session) {
     raman_df <- instrument_dfs()$raman
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
       pad <- 300
+      ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
+      oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
       return(list(raster = raw,
-                  xmin = min(raman_df$x_orig, na.rm = TRUE) - pad,
-                  xmax = max(raman_df$x_orig, na.rm = TRUE) + pad,
-                  ymin = min(raman_df$y_orig, na.rm = TRUE) - pad,
-                  ymax = max(raman_df$y_orig, na.rm = TRUE) + pad))
+                  xmin = min(raman_df$x_orig, na.rm = TRUE) - pad + ox,
+                  xmax = max(raman_df$x_orig, na.rm = TRUE) + pad + ox,
+                  ymin = min(raman_df$y_orig, na.rm = TRUE) - pad + oy,
+                  ymax = max(raman_df$y_orig, na.rm = TRUE) + pad + oy))
     }
     NULL
   })
 
   # Overlay tab: raman_resized.jpg placed at Raman-normalized bounds.
-  # The overlay shows both instruments in Raman-norm space (x = raman_x_norm),
-  # and raman_resized.jpg was exported to match that coordinate frame.
+  # The image covers the full filter (larger than particle extent), so we
+  # center at (0,0) in Raman-norm space (= Raman centroid) and expand the
+  # bounds to cover all particles with padding, enforcing the image aspect ratio.
   overlay_image_info <- reactive({
     raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
-    raman_df <- instrument_dfs()$raman
-    if (!is.null(raman_df) && nrow(raman_df) > 0) {
-      x_ext <- diff(range(raman_df$x, na.rm = TRUE))
-      y_ext <- diff(range(raman_df$y, na.rm = TRUE))
-      pad   <- max(x_ext, y_ext) * 0.03
-      return(list(raster = raw,
-                  xmin = min(raman_df$x, na.rm = TRUE) - pad,
-                  xmax = max(raman_df$x, na.rm = TRUE) + pad,
-                  ymin = min(raman_df$y, na.rm = TRUE) - pad,
-                  ymax = max(raman_df$y, na.rm = TRUE) + pad))
+    dfs <- instrument_dfs()
+    # Collect all particle x/y in Raman-norm space (both instruments)
+    all_x <- c(dfs$ftir$x, dfs$raman$x)
+    all_y <- c(dfs$ftir$y, dfs$raman$y)
+    all_x <- all_x[is.finite(all_x)]
+    all_y <- all_y[is.finite(all_y)]
+    if (length(all_x) == 0) return(NULL)
+
+    # Image aspect ratio (width / height)
+    img_aspect <- ncol(raw) / nrow(raw)
+
+    # Half-extents needed to cover all particles from (0,0) center + 10% margin
+    half_x <- max(abs(range(all_x))) * 1.10
+    half_y <- max(abs(range(all_y))) * 1.10
+
+    # Enforce image aspect ratio (expand the tighter dimension)
+    if ((2 * half_x) / (2 * half_y) < img_aspect) {
+      half_x <- half_y * img_aspect
+    } else {
+      half_y <- half_x / img_aspect
     }
-    NULL
+
+    # Apply user fine-tuning offsets
+    ox <- if (!is.null(input$overlay_img_offset_x)) input$overlay_img_offset_x else 0
+    oy <- if (!is.null(input$overlay_img_offset_y)) input$overlay_img_offset_y else 0
+
+    list(raster = raw,
+         xmin = -half_x + ox, xmax = half_x + ox,
+         ymin = -half_y + oy, ymax = half_y + oy)
   })
 
   # Auto-load default images from project root
