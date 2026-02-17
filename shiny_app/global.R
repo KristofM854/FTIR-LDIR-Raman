@@ -134,13 +134,25 @@ parse_transform_params <- function(filepath) {
     M <- rbind(r1, r2, r3)
   }
 
+  # FTIR scan bounds (optional — present in newer pipeline output)
+  scan_xmin <- get_num("ftir_scan_xmin")
+  scan_xmax <- get_num("ftir_scan_xmax")
+  scan_ymin <- get_num("ftir_scan_ymin")
+  scan_ymax <- get_num("ftir_scan_ymax")
+  scan_bounds <- NULL
+  if (!is.na(scan_xmax)) {
+    scan_bounds <- list(xmin = scan_xmin, xmax = scan_xmax,
+                        ymin = scan_ymin, ymax = scan_ymax)
+  }
+
   list(
     scale         = get_num("scale"),
     rotation_deg  = get_num("rotation_deg"),
     reflected     = tolower(get_val("reflected")) == "true",
     M             = M,
     ftir_centroid  = c(get_num("ftir_centroid_x"), get_num("ftir_centroid_y")),
-    raman_centroid = c(get_num("raman_centroid_x"), get_num("raman_centroid_y"))
+    raman_centroid = c(get_num("raman_centroid_x"), get_num("raman_centroid_y")),
+    ftir_scan_bounds = scan_bounds
   )
 }
 
@@ -242,40 +254,136 @@ rotate_raster <- function(img, angle_deg) {
 }
 
 # ---------------------------------------------------------------------------
-# Transform an image for display: rotate + compute aligned physical bounds
+# Transform an image for display via full affine warp.
 #
-# img_raster : PNG raster array (h x w x channels)
+# For each pixel in the output raster, the inverse of M_full maps back to
+# the original image coordinates, which are then sampled.  This correctly
+# handles the combination of translation (centroid subtraction) + rotation
+# + scale in a single pass.
+#
+# img_raster : raster array (h x w x channels), already Y-flipped
 # img_bounds : list(xmin, xmax, ymin, ymax) in original FTIR coords
 # M_full     : 3x3 full transform matrix (original -> aligned)
+# rotation_deg : (unused, kept for signature compat)
 #
 # Returns: list(raster, xmin, xmax, ymin, ymax) for annotation_raster
 # ---------------------------------------------------------------------------
 transform_image_for_display <- function(img_raster, img_bounds, M_full,
-                                         rotation_deg) {
+                                         rotation_deg = NULL) {
+  h <- nrow(img_raster)
+  w <- ncol(img_raster)
+  nc <- if (length(dim(img_raster)) == 3) dim(img_raster)[3] else 1
+
   # Transform the 4 image corners to aligned coordinates
   cx <- c(img_bounds$xmin, img_bounds$xmax, img_bounds$xmin, img_bounds$xmax)
   cy <- c(img_bounds$ymin, img_bounds$ymin, img_bounds$ymax, img_bounds$ymax)
   tc <- transform_points(cx, cy, M_full)
 
-  # Axis-aligned bounding box in aligned coords
-  aligned_xmin <- min(tc$x)
-  aligned_xmax <- max(tc$x)
-  aligned_ymin <- min(tc$y)
-  aligned_ymax <- max(tc$y)
+  # Output extent: axis-aligned bounding box + small padding
+  pad <- 50
+  out_xmin <- min(tc$x) - pad
+  out_xmax <- max(tc$x) + pad
+  out_ymin <- min(tc$y) - pad
+  out_ymax <- max(tc$y) + pad
 
-  # Rotate the raster by the transform angle
-  # Note: ggplot annotation_raster has y-axis going up, but PNG row 1 = top.
-  # annotation_raster handles this: ymin=bottom, ymax=top, raster row 1=top.
-  # After rotation, the image is correctly oriented for the new coordinate frame.
-  rot <- rotate_raster(img_raster, rotation_deg)
+  # Output raster resolution: match input pixels-per-µm
+  px_per_um <- w / (img_bounds$xmax - img_bounds$xmin)
+  out_w <- round((out_xmax - out_xmin) * px_per_um)
+  out_h <- round((out_ymax - out_ymin) * px_per_um)
+  # Cap resolution to avoid excessive memory
+  max_dim <- 4000
+  if (out_w > max_dim || out_h > max_dim) {
+    scale <- max_dim / max(out_w, out_h)
+    out_w <- round(out_w * scale)
+    out_h <- round(out_h * scale)
+  }
 
-  list(
-    raster = rot$raster,
-    xmin   = aligned_xmin,
-    xmax   = aligned_xmax,
-    ymin   = aligned_ymin,
-    ymax   = aligned_ymax
-  )
+  # Inverse transform: aligned coords -> original coords
+  M_inv <- solve(M_full)
+
+  # For each output pixel, compute its aligned physical position, then
+  # inverse-transform to original coords, then map to input pixel.
+  out_col <- rep(seq_len(out_w), out_h)
+  out_row <- rep(seq_len(out_h), each = out_w)
+
+  # Output pixel -> aligned physical coords
+  # annotation_raster: col 1 at xmin, col out_w at xmax
+  #                    row 1 at ymax, row out_h at ymin  (Y-flipped image: row 1 = max Y)
+  ax <- out_xmin + (out_col - 1) / max(out_w - 1, 1) * (out_xmax - out_xmin)
+  ay <- out_ymax - (out_row - 1) / max(out_h - 1, 1) * (out_ymax - out_ymin)
+
+  # Inverse transform to original coords
+  orig <- M_inv %*% rbind(ax, ay, rep(1, length(ax)))
+  ox <- orig[1, ]
+  oy <- orig[2, ]
+
+  # Map original coords to input pixel (Y-flipped image: row 1 = ymax, row h = ymin)
+  src_col <- round(1 + (ox - img_bounds$xmin) / (img_bounds$xmax - img_bounds$xmin) * (w - 1))
+  src_row <- round(1 + (img_bounds$ymax - oy) / (img_bounds$ymax - img_bounds$ymin) * (h - 1))
+
+  valid <- src_col >= 1 & src_col <= w & src_row >= 1 & src_row <= h
+
+  if (nc == 1) {
+    out <- matrix(0, out_h, out_w)
+    out[cbind(out_row[valid], out_col[valid])] <-
+      img_raster[cbind(src_row[valid], src_col[valid])]
+  } else {
+    out <- array(0, dim = c(out_h, out_w, nc))
+    for (ch in seq_len(nc)) {
+      ch_in <- img_raster[, , ch]
+      ch_out <- matrix(0, out_h, out_w)
+      ch_out[cbind(out_row[valid], out_col[valid])] <-
+        ch_in[cbind(src_row[valid], src_col[valid])]
+      out[, , ch] <- ch_out
+    }
+    if (nc >= 4) {
+      # Transparent background for unmapped pixels
+      alpha <- out[, , 4]
+      vm <- matrix(FALSE, out_h, out_w)
+      vm[cbind(out_row[valid], out_col[valid])] <- TRUE
+      out[, , 4] <- ifelse(vm, alpha, 0)
+    }
+  }
+
+  list(raster = out, xmin = out_xmin, xmax = out_xmax,
+       ymin = out_ymin, ymax = out_ymax)
+}
+
+# ---------------------------------------------------------------------------
+# Estimate FTIR scan bounds from image dimensions and particle coordinates.
+#
+# The PerkinElmer Spotlight exports images at ~6 rendering pixels per 25µm
+# grid cell.  From a 2993×2993 image: (2993+1)/6 ≈ 499 grid positions,
+# giving a 499 * 25 = 12475 µm scan extent.  This function computes the
+# bounds robustly from the image dimensions and grid step.
+# ---------------------------------------------------------------------------
+estimate_ftir_scan_bounds <- function(img_raster, particle_x_um = NULL,
+                                       particle_y_um = NULL,
+                                       grid_step_um = 25) {
+  img_w <- ncol(img_raster)
+  img_h <- nrow(img_raster)
+
+  # Estimate grid positions from image pixel count
+  # Empirical: (image_px + 1) / 6 gives the grid count
+  render_px_per_cell <- 6
+  grid_nx <- round((img_w + 1) / render_px_per_cell)
+  grid_ny <- round((img_h + 1) / render_px_per_cell)
+
+  # Scan extent: grid_count * grid_step
+  x_extent <- grid_nx * grid_step_um
+  y_extent <- grid_ny * grid_step_um
+
+  # Sanity check against particle positions if available
+  if (!is.null(particle_x_um)) {
+    max_px <- max(particle_x_um, na.rm = TRUE)
+    if (x_extent < max_px) x_extent <- ceiling(max_px / 500) * 500
+  }
+  if (!is.null(particle_y_um)) {
+    max_py <- max(particle_y_um, na.rm = TRUE)
+    if (y_extent < max_py) y_extent <- ceiling(max_py / 500) * 500
+  }
+
+  list(xmin = 0, xmax = x_extent, ymin = 0, ymax = y_extent)
 }
 
 # ---------------------------------------------------------------------------
@@ -368,29 +476,34 @@ compute_bounds <- function(...) {
 
 # ---------------------------------------------------------------------------
 # Load an image (PNG or JPEG) as a raster array for ggplot annotation.
-# Tries PNG first, then JPEG as fallback if extension is ambiguous.
+# The image is flipped vertically so that row 1 = max Y, which matches
+# ggplot's annotation_raster convention (row 1 placed at ymax).
 # ---------------------------------------------------------------------------
 load_image_raster <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
   ext <- tolower(tools::file_ext(path))
 
-  # Try the format matching the extension first, then fallback
+  raw <- NULL
   if (ext %in% c("jpg", "jpeg")) {
-    img <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
-    if (!is.null(img)) return(img)
-    return(tryCatch(png::readPNG(path), error = function(e) NULL))
+    raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
+    if (is.null(raw)) raw <- tryCatch(png::readPNG(path), error = function(e) NULL)
+  } else {
+    raw <- tryCatch(png::readPNG(path), error = function(e) NULL)
+    if (is.null(raw) && requireNamespace("jpeg", quietly = TRUE))
+      raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
   }
-  img <- tryCatch(png::readPNG(path), error = function(e) NULL)
-  if (!is.null(img)) return(img)
-  if (requireNamespace("jpeg", quietly = TRUE))
-    return(tryCatch(jpeg::readJPEG(path), error = function(e) NULL))
-  NULL
+  if (is.null(raw)) return(NULL)
+
+  # Flip Y: standard images have row 1 = top (min Y), but annotation_raster
+  # places row 1 at ymax. Reversing rows fixes this.
+  raw[nrow(raw):1, , , drop = FALSE]
 }
 
 # ---------------------------------------------------------------------------
-# Find nearest particle to a hover coordinate
+# Find nearest particle to a hover coordinate.
+# max_dist_frac: fraction of visible plot range used as snap radius.
 # ---------------------------------------------------------------------------
-nearest_particle <- function(df, hover_x, hover_y, max_dist_frac = 0.03) {
+nearest_particle <- function(df, hover_x, hover_y, max_dist_frac = 0.05) {
   if (is.null(df) || nrow(df) == 0 || is.null(hover_x) || is.null(hover_y)) return(NULL)
   dx <- df$x - hover_x
   dy <- df$y - hover_y
@@ -398,7 +511,7 @@ nearest_particle <- function(df, hover_x, hover_y, max_dist_frac = 0.03) {
   idx <- which.min(dists)
   x_range <- diff(range(df$x, na.rm = TRUE))
   y_range <- diff(range(df$y, na.rm = TRUE))
-  threshold <- max(x_range, y_range) * max_dist_frac
+  threshold <- max(x_range, y_range, 500) * max_dist_frac
   if (dists[idx] > threshold) return(NULL)
   df[idx, , drop = FALSE]
 }
