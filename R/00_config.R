@@ -66,11 +66,14 @@ make_config <- function(ftir_path  = NULL,
     icp_max_pair_dist_um    = 500,  # max distance for ICP correspondences (µm)
     icp_reciprocal          = TRUE, # only keep mutual nearest-neighbor pairs
     icp_trim_pct            = 0.10, # discard worst 10% of pairs each iteration
+    icp_elongation_downweight = TRUE,  # down-weight elongated particles in ICP
+    icp_elongation_alpha    = 0.5,     # weight = 1 / (1 + alpha * (aspect - 1))
 
     # --- Particle matching ---
-    match_dist_threshold_um = 100,  # max distance between matched particles (µm)
-    match_size_weight       = 0,    # weight for size similarity (0 = spatial only)
-    match_size_metric       = "feret_max_um",  # which size metric to compare
+    match_dist_threshold_um    = 100,   # base max distance between matched particles (µm)
+    match_adaptive_dist_factor = 0.15,  # adaptive: max(base, factor * major_um)
+    match_size_weight          = 0.2,   # weight for size similarity (0 = spatial only)
+    match_size_metric          = "feret_max_um",  # which size metric to compare
 
     # --- Material equivalence mapping (for agreement scoring) ---
     # User-defined mapping of FTIR material names → canonical types.
