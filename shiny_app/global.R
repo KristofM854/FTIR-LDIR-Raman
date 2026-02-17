@@ -476,8 +476,9 @@ compute_bounds <- function(...) {
 
 # ---------------------------------------------------------------------------
 # Load an image (PNG or JPEG) as a raster array for ggplot annotation.
-# The image is flipped vertically so that row 1 = max Y, which matches
-# ggplot's annotation_raster convention (row 1 placed at ymax).
+# annotation_raster places row 1 at ymax (top of plot).  Standard images
+# already have row 1 = top of the visual image, which corresponds to max-Y
+# in Cartesian / stage coordinates.  So NO vertical flip is needed.
 # ---------------------------------------------------------------------------
 load_image_raster <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
@@ -494,9 +495,7 @@ load_image_raster <- function(path) {
   }
   if (is.null(raw)) return(NULL)
 
-  # Flip Y: standard images have row 1 = top (min Y), but annotation_raster
-  # places row 1 at ymax. Reversing rows fixes this.
-  raw[nrow(raw):1, , , drop = FALSE]
+  raw
 }
 
 # ---------------------------------------------------------------------------
