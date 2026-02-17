@@ -383,7 +383,28 @@ estimate_ftir_scan_bounds <- function(img_raster, particle_x_um = NULL,
     if (y_extent < max_py) y_extent <- ceiling(max_py / 500) * 500
   }
 
-  list(xmin = 0, xmax = x_extent, ymin = 0, ymax = y_extent)
+  # Center the image extent on the particle distribution midpoint.
+  # The scan origin is unknown, so centering on particle positions is the
+  # best estimate (particles can only appear within the scan area).
+  if (!is.null(particle_x_um) && length(particle_x_um) > 0) {
+    mid_x <- (min(particle_x_um, na.rm = TRUE) +
+              max(particle_x_um, na.rm = TRUE)) / 2
+    xmin <- mid_x - x_extent / 2
+    xmax <- mid_x + x_extent / 2
+  } else {
+    xmin <- 0; xmax <- x_extent
+  }
+
+  if (!is.null(particle_y_um) && length(particle_y_um) > 0) {
+    mid_y <- (min(particle_y_um, na.rm = TRUE) +
+              max(particle_y_um, na.rm = TRUE)) / 2
+    ymin <- mid_y - y_extent / 2
+    ymax <- mid_y + y_extent / 2
+  } else {
+    ymin <- 0; ymax <- y_extent
+  }
+
+  list(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax)
 }
 
 # ---------------------------------------------------------------------------
