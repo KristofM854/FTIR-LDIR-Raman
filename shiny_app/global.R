@@ -284,27 +284,43 @@ build_instrument_dfs <- function(data) {
 }
 
 # ---------------------------------------------------------------------------
-# Coordinate bounds from particle data
+# Coordinate bounds from particle data (safe for NULL / empty inputs)
 # ---------------------------------------------------------------------------
 compute_bounds <- function(...) {
   dfs <- list(...)
-  all_x <- unlist(lapply(dfs, function(d) d$x))
-  all_y <- unlist(lapply(dfs, function(d) d$y))
+  all_x <- unlist(lapply(dfs, function(d) if (!is.null(d) && nrow(d) > 0) d$x))
+  all_y <- unlist(lapply(dfs, function(d) if (!is.null(d) && nrow(d) > 0) d$y))
+  all_x <- all_x[is.finite(all_x)]
+  all_y <- all_y[is.finite(all_y)]
+  if (length(all_x) == 0 || length(all_y) == 0) {
+    return(list(x = c(-1000, 1000), y = c(-1000, 1000)))
+  }
   pad <- 200
   list(
-    x = c(min(all_x, na.rm = TRUE) - pad, max(all_x, na.rm = TRUE) + pad),
-    y = c(min(all_y, na.rm = TRUE) - pad, max(all_y, na.rm = TRUE) + pad)
+    x = c(min(all_x) - pad, max(all_x) + pad),
+    y = c(min(all_y) - pad, max(all_y) + pad)
   )
 }
 
 # ---------------------------------------------------------------------------
-# Load a PNG image as a raster for ggplot annotation
+# Load an image (PNG or JPEG) as a raster array for ggplot annotation.
+# Tries PNG first, then JPEG as fallback if extension is ambiguous.
 # ---------------------------------------------------------------------------
 load_image_raster <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
-  tryCatch(png::readPNG(path), error = function(e) {
-    tryCatch(png::readPNG(path, native = FALSE), error = function(e2) NULL)
-  })
+  ext <- tolower(tools::file_ext(path))
+
+  # Try the format matching the extension first, then fallback
+  if (ext %in% c("jpg", "jpeg")) {
+    img <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
+    if (!is.null(img)) return(img)
+    return(tryCatch(png::readPNG(path), error = function(e) NULL))
+  }
+  img <- tryCatch(png::readPNG(path), error = function(e) NULL)
+  if (!is.null(img)) return(img)
+  if (requireNamespace("jpeg", quietly = TRUE))
+    return(tryCatch(jpeg::readJPEG(path), error = function(e) NULL))
+  NULL
 }
 
 # ---------------------------------------------------------------------------
