@@ -298,80 +298,88 @@ server <- function(input, output, session) {
   })
 
   # ------------------------------------------------------------------
-  # Image state: each entry is either NULL or a list(raster, xmin, xmax, ymin, ymax)
+  # Raw image rasters (Y-flipped by load_image_raster)
   # ------------------------------------------------------------------
-  images <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
+  ftir_raw_image  <- reactiveVal(NULL)   # FTIR "Average Abs" image
+  raman_raw_image <- reactiveVal(NULL)   # Raman overview image (raman_resized.jpg)
 
-  # Raw FTIR image raster (Y-flipped by load_image_raster) — needed for
-  # both scan-bounds estimation and display.
-  ftir_raw_image <- reactiveVal(NULL)
-
-  # ------------------------------------------------------------------
-  # Helper: wrap an image raster with bounds for annotation_raster
-  # Uses transform if available; otherwise uses particle bounds.
-  # ------------------------------------------------------------------
-  wrap_ftir_image <- function(raw) {
-    mf <- M_full()
-    bounds <- ftir_img_bounds()
-    tr <- run_data()$transform
-    if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
-      return(transform_image_for_display(raw, bounds, mf, tr$rotation_deg))
-    }
-    # Fallback: place at particle-based bounds
-    pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
-    list(raster = raw, xmin = pb$x[1], xmax = pb$x[2],
-         ymin = pb$y[1], ymax = pb$y[2])
-  }
-
-  wrap_raman_image <- function(raw) {
-    raman_df <- instrument_dfs()$raman
-    if (!is.null(raman_df) && nrow(raman_df) > 0) {
-      return(list(raster = raw,
-                  xmin = min(raman_df$x, na.rm = TRUE) - 200,
-                  xmax = max(raman_df$x, na.rm = TRUE) + 200,
-                  ymin = min(raman_df$y, na.rm = TRUE) - 200,
-                  ymax = max(raman_df$y, na.rm = TRUE) + 200))
-    }
-    pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
-    list(raster = raw, xmin = pb$x[1], xmax = pb$x[2],
-         ymin = pb$y[1], ymax = pb$y[2])
-  }
-
-  # Auto-load default FTIR image from project root
-  observe({
-    default_img <- file.path("..", "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png")
-    if (!file.exists(default_img)) return()
-    raw <- load_image_raster(default_img)
-    if (is.null(raw)) return()
-    ftir_raw_image(raw)
+  # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
+  # Particles on the FTIR tab are shown at x_orig/y_orig (FTIR instrument frame),
+  # so the image just needs to sit at [xmin, xmax] × [ymin, ymax] in that same frame.
+  ftir_native_image_info <- reactive({
+    raw <- ftir_raw_image()
+    if (is.null(raw)) return(NULL)
+    b <- ftir_img_bounds()
+    if (is.null(b)) return(NULL)
+    list(raster = raw, xmin = b$xmin, xmax = b$xmax,
+         ymin = b$ymin, ymax = b$ymax)
   })
 
-  # When raw FTIR image or transform changes, recompute the display image
+  # Raman tab: raw image placed at native Raman bounds (x_orig, y_orig = raman_x_um, raman_y_um).
+  raman_native_image_info <- reactive({
+    raw <- raman_raw_image()
+    if (is.null(raw)) return(NULL)
+    raman_df <- instrument_dfs()$raman
+    if (!is.null(raman_df) && nrow(raman_df) > 0) {
+      pad <- 300
+      return(list(raster = raw,
+                  xmin = min(raman_df$x_orig, na.rm = TRUE) - pad,
+                  xmax = max(raman_df$x_orig, na.rm = TRUE) + pad,
+                  ymin = min(raman_df$y_orig, na.rm = TRUE) - pad,
+                  ymax = max(raman_df$y_orig, na.rm = TRUE) + pad))
+    }
+    NULL
+  })
+
+  # Overlay tab: raman_resized.jpg placed at Raman-normalized bounds.
+  # The overlay shows both instruments in Raman-norm space (x = raman_x_norm),
+  # and raman_resized.jpg was exported to match that coordinate frame.
+  overlay_image_info <- reactive({
+    raw <- raman_raw_image()
+    if (is.null(raw)) return(NULL)
+    raman_df <- instrument_dfs()$raman
+    if (!is.null(raman_df) && nrow(raman_df) > 0) {
+      x_ext <- diff(range(raman_df$x, na.rm = TRUE))
+      y_ext <- diff(range(raman_df$y, na.rm = TRUE))
+      pad   <- max(x_ext, y_ext) * 0.03
+      return(list(raster = raw,
+                  xmin = min(raman_df$x, na.rm = TRUE) - pad,
+                  xmax = max(raman_df$x, na.rm = TRUE) + pad,
+                  ymin = min(raman_df$y, na.rm = TRUE) - pad,
+                  ymax = max(raman_df$y, na.rm = TRUE) + pad))
+    }
+    NULL
+  })
+
+  # Auto-load default images from project root
   observe({
-    raw <- ftir_raw_image()
-    if (is.null(raw)) return()
-    transformed <- wrap_ftir_image(raw)
-    images$ftir <- transformed
-    images$overlay <- transformed
+    default_ftir <- file.path("..", "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png")
+    if (!file.exists(default_ftir)) return()
+    raw <- load_image_raster(default_ftir)
+    if (!is.null(raw)) ftir_raw_image(raw)
+  })
+
+  observe({
+    default_raman <- file.path("..", "raman_resized.jpg")
+    if (!file.exists(default_raman)) return()
+    raw <- load_image_raster(default_raman)
+    if (!is.null(raw)) raman_raw_image(raw)
   })
 
   # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
     raw <- load_image_raster(input$ftir_image_upload$datapath)
-    if (is.null(raw)) return()
-    ftir_raw_image(raw)
+    if (!is.null(raw)) ftir_raw_image(raw)
   })
 
   observeEvent(input$raman_image_upload, {
     raw <- load_image_raster(input$raman_image_upload$datapath)
-    if (is.null(raw)) return()
-    images$raman <- wrap_raman_image(raw)
+    if (!is.null(raw)) raman_raw_image(raw)
   })
 
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
-    if (is.null(raw)) return()
-    images$overlay <- wrap_ftir_image(raw)
+    if (!is.null(raw)) raman_raw_image(raw)
   })
 
   # ------------------------------------------------------------------
@@ -497,10 +505,10 @@ server <- function(input, output, session) {
       make_detail_row("Area", paste0(round(row$area_um2, 1), " \u00b5m\u00b2")),
       make_detail_row("Major Dim", paste0(round(row$major_um, 1), " \u00b5m")),
       make_detail_row("Minor Dim", paste0(round(row$minor_um, 1), " \u00b5m")),
+      make_detail_row("Position (native)",
+                      paste0("(", round(row$x_orig, 1), ", ", round(row$y_orig, 1), ")")),
       make_detail_row("Position (aligned)",
                       paste0("(", round(row$x, 1), ", ", round(row$y, 1), ")")),
-      make_detail_row("Position (original)",
-                      paste0("(", round(row$x_orig, 1), ", ", round(row$y_orig, 1), ")")),
       make_detail_row("Match Status", row$match_status)
     )
   }
@@ -550,18 +558,29 @@ server <- function(input, output, session) {
 
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
-    bounds <- if (!is.null(zoom$ftir)) zoom$ftir
-              else compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
-    if (nrow(df) == 0) {
+    # Display in native FTIR instrument frame (x_orig, y_orig)
+    df_disp <- df
+    if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
+
+    bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
+      b <- ftir_img_bounds()
+      if (!is.null(b)) list(x = c(b$xmin - 200, b$xmax + 200),
+                            y = c(b$ymin - 200, b$ymax + 200))
+      else compute_bounds(df_disp, NULL)
+    }
+
+    img <- ftir_native_image_info()
+
+    if (nrow(df_disp) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "FTIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
         theme_minimal(base_size = 13) +
         theme(plot.background = element_rect(fill = "white", colour = NA),
               panel.background = element_rect(fill = "grey98", colour = NA))
-      return(add_image_bg(p, images$ftir))
+      return(add_image_bg(p, img))
     }
-    make_scatter(df, images$ftir, bounds,
-                 paste0("FTIR Particles (", nrow(df), " shown)"),
+    make_scatter(df_disp, img, bounds,
+                 paste0("FTIR Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"))
   })
 
@@ -578,8 +597,12 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- ftir_filtered()
     if (nrow(df) == 0) return()
-    row <- nearest_particle(df, hover$x, hover$y)
-    if (!is.null(row)) last_hover$ftir <- row
+    # Search in native FTIR coordinate space (x_orig, y_orig)
+    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+    idx   <- which.min(dists)
+    threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
+                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
+    if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop = FALSE]
   })
 
   output$ftir_hover_info <- renderUI({
@@ -601,18 +624,30 @@ server <- function(input, output, session) {
 
   output$raman_plot <- renderPlot({
     df <- raman_filtered()
-    bounds <- if (!is.null(zoom$raman)) zoom$raman
-              else compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
-    if (nrow(df) == 0) {
+    # Display in native Raman instrument frame (x_orig, y_orig)
+    df_disp <- df
+    if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
+
+    bounds <- if (!is.null(zoom$raman)) zoom$raman else {
+      if (nrow(df_disp) > 0) {
+        pad <- 300
+        list(x = c(min(df_disp$x, na.rm = TRUE) - pad, max(df_disp$x, na.rm = TRUE) + pad),
+             y = c(min(df_disp$y, na.rm = TRUE) - pad, max(df_disp$y, na.rm = TRUE) + pad))
+      } else list(x = c(-1000, 1000), y = c(-1000, 1000))
+    }
+
+    img <- raman_native_image_info()
+
+    if (nrow(df_disp) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "Raman — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
         theme_minimal(base_size = 13) +
         theme(plot.background = element_rect(fill = "white", colour = NA),
               panel.background = element_rect(fill = "grey98", colour = NA))
-      return(add_image_bg(p, images$raman))
+      return(add_image_bg(p, img))
     }
-    make_scatter(df, images$raman, bounds,
-                 paste0("Raman Particles (", nrow(df), " shown)"),
+    make_scatter(df_disp, img, bounds,
+                 paste0("Raman Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"))
   })
 
@@ -629,8 +664,12 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- raman_filtered()
     if (nrow(df) == 0) return()
-    row <- nearest_particle(df, hover$x, hover$y)
-    if (!is.null(row)) last_hover$raman <- row
+    # Search in native Raman coordinate space (x_orig, y_orig)
+    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+    idx   <- which.min(dists)
+    threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
+                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
+    if (dists[idx] <= threshold) last_hover$raman <- df[idx, , drop = FALSE]
   })
 
   output$raman_hover_info <- renderUI({
@@ -693,8 +732,8 @@ server <- function(input, output, session) {
         legend.position  = "bottom"
       )
 
-    # Background image (transformed FTIR image)
-    p <- add_image_bg(p, images$overlay)
+    # Background image: raman_resized.jpg placed at Raman-normalized bounds
+    p <- add_image_bg(p, overlay_image_info())
 
     # Match lines
     if ("match_lines" %in% layers && nrow(matched) > 0) {
