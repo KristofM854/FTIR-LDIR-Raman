@@ -142,6 +142,7 @@ if (has_ldir) {
 }
 
 # --- FTIR image-based coordinate extraction (if image provided) ---
+ftir_scan_bounds <- NULL
 if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
   log_message(strrep("-", 50))
   log_message("FTIR image-based particle extraction")
@@ -364,45 +365,260 @@ match_result <- match_particles(ftir_aligned, raman_for_match, config)
 agreement <- analyze_agreement(match_result, config)
 
 # ---------------------------------------------------------------------------
-# 10. LDIR comparison (non-spatial, material composition)
+# 10. TPS assessment (systematic distortion check)
 # ---------------------------------------------------------------------------
 
-ldir_comparison <- NULL
+tps_assessment <- assess_tps_need(match_result)
+log_message("TPS assessment: ", tps_assessment$message)
+if (isTRUE(tps_assessment$recommend_tps)) {
+  log_message("  RECOMMENDATION: Consider thin-plate spline warp for improved alignment",
+              level = "WARN")
+}
+
+# ---------------------------------------------------------------------------
+# 11. Composite matching (1:many) for unmatched FTIR
+# ---------------------------------------------------------------------------
+
+composites <- data.frame()
+if (nrow(match_result$unmatched_ftir) > 0 && nrow(match_result$unmatched_raman) > 0) {
+  # Ensure unmatched FTIR particles have aligned coordinates
+  unmatched_ftir_src <- match_result$unmatched_ftir
+  if (!"x_aligned" %in% names(unmatched_ftir_src)) {
+    unmatched_ftir_src$x_norm <- unmatched_ftir_src$x_um - norm_result$ftir_centroid[1]
+    unmatched_ftir_src$y_norm <- unmatched_ftir_src$y_um - norm_result$ftir_centroid[2]
+    tf <- apply_transform_points(unmatched_ftir_src$x_norm,
+                                 unmatched_ftir_src$y_norm,
+                                 icp_result$transform)
+    unmatched_ftir_src$x_aligned <- tf$x_transformed
+    unmatched_ftir_src$y_aligned <- tf$y_transformed
+  }
+
+  composites <- find_composite_matches(
+    unmatched_ftir_src, match_result$unmatched_raman, config
+  )
+
+  if (nrow(composites) > 0) {
+    log_message("Composite matches found: ", nrow(composites),
+                " FTIR particles matched to multiple Raman fragments")
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 12. LDIR spatial pipeline (image → coordinates → alignment → matching)
+# ---------------------------------------------------------------------------
+
+ldir_results <- NULL
 if (has_ldir && !is.null(ldir_raw)) {
   log_message(strrep("-", 50))
-  log_message("LDIR comparison (non-spatial: material composition)")
+  log_message("LDIR Spatial Pipeline")
 
-  ldir_clean <- prefilter_ldir(ldir_raw, min_quality = 0.6, min_size_um = 0)
+  # 12a. Pre-filter LDIR particles
+  ldir_clean <- prefilter_ldir(
+    ldir_raw,
+    min_quality = config$ldir_quality_threshold,
+    min_size_um = config$min_particle_size_um
+  )
 
-  # Compare material distributions across all three instruments
-  ftir_mats  <- table(ftir_clean$material)
-  raman_mats <- table(raman_for_match$material)
-  ldir_mats  <- table(ldir_clean$material)
+  # 12b. Extract coordinates from LDIR image (if available)
+  ldir_with_coords <- ldir_clean
+  has_ldir_coords  <- FALSE
 
-  log_message("  FTIR material distribution (top 5):")
-  for (m in names(head(sort(ftir_mats, decreasing = TRUE), 5))) {
-    log_message("    ", m, ": ", ftir_mats[m])
+  if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) {
+    log_message("Extracting LDIR coordinates from companion image")
+
+    # Compute scan bounds from configured scan diameter (circular filter)
+    ldir_scan_diam <- config$ldir_scan_diameter_um
+    if (is.null(ldir_scan_diam)) ldir_scan_diam <- 13000
+    ldir_scan_bounds <- list(
+      x_min = 0, x_max = ldir_scan_diam,
+      y_min = 0, y_max = ldir_scan_diam
+    )
+
+    ldir_image_particles <- extract_ldir_image_coords(
+      config$ldir_image,
+      scan_bounds    = ldir_scan_bounds,
+      expected_count = nrow(ldir_clean)
+    )
+
+    # Join image coordinates with Excel data via size-based Hungarian matching
+    ldir_with_coords <- join_ldir_coords(ldir_clean, ldir_image_particles)
+
+    # Validate join quality via scan-order correlation
+    scan_order <- validate_ldir_scan_order(ldir_with_coords)
+    log_message("  Scan order validation: ", scan_order$message)
+
+    n_with_coords <- sum(!is.na(ldir_with_coords$x_um))
+    has_ldir_coords <- n_with_coords >= 10
+    log_message("  LDIR particles with coordinates: ", n_with_coords,
+                " of ", nrow(ldir_with_coords))
   }
-  log_message("  Raman material distribution (top 5):")
-  for (m in names(head(sort(raman_mats, decreasing = TRUE), 5))) {
-    log_message("    ", m, ": ", raman_mats[m])
+
+  # 12c–j. Spatial alignment & matching (only if coordinates available)
+  ldir_raman_match     <- NULL
+  ldir_ftir_match      <- NULL
+  ldir_raman_agreement <- NULL
+  ldir_icp             <- NULL
+  ldir_aligned         <- NULL
+  triplets             <- data.frame()
+
+  if (has_ldir_coords) {
+    log_message("LDIR spatial matching enabled")
+
+    # 12c. Normalize LDIR coordinates (center using LDIR's own centroid)
+    ldir_valid    <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+    ldir_centroid <- c(mean(ldir_valid$x_um), mean(ldir_valid$y_um))
+    ldir_with_coords$x_norm <- ldir_with_coords$x_um - ldir_centroid[1]
+    ldir_with_coords$y_norm <- ldir_with_coords$y_um - ldir_centroid[2]
+
+    # 12d. Material-based LDIR alignment anchors
+    ldir_for_align <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+    if (!is.null(config$align_ldir_materials)) {
+      ldir_mat_mask <- grepl(
+        paste(config$align_ldir_materials, collapse = "|"),
+        ldir_for_align$material, ignore.case = TRUE
+      )
+      if (sum(ldir_mat_mask) >= 4) {
+        ldir_for_align <- ldir_for_align[ldir_mat_mask, ]
+      } else {
+        log_message("  Insufficient LDIR anchor materials (",
+                    sum(ldir_mat_mask),
+                    ") — using all LDIR particles for alignment")
+      }
+    }
+    log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
+
+    # 12e. LDIR→Raman alignment (RANSAC + ICP)
+    # Raman reference: use the same normalized set from step 4
+    ldir_ransac <- tryCatch({
+      ransac_align(ldir_for_align, raman_norm_align, config)
+    }, error = function(e) {
+      log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
+      NULL
+    })
+
+    if (!is.null(ldir_ransac)) {
+      log_message("  LDIR-Raman RANSAC: scale=",
+                  round(ldir_ransac$params$scale, 4),
+                  ", rot=", round(ldir_ransac$params$rotation_deg, 2), " deg",
+                  ", reflected=", ldir_ransac$params$reflected,
+                  ", inliers=", ldir_ransac$n_inliers)
+
+      # ICP refinement on all LDIR particles with coordinates
+      ldir_for_icp <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+      ldir_icp <- tryCatch({
+        icp_refine(ldir_for_icp, raman_for_transform,
+                   ldir_ransac$transform, config)
+      }, error = function(e) {
+        log_message("  LDIR ICP failed: ", e$message,
+                    " — using RANSAC transform", level = "WARN")
+        list(
+          transform    = ldir_ransac$transform,
+          params       = ldir_ransac$params,
+          converged    = FALSE,
+          n_iterations = 0,
+          rms_history  = numeric(0)
+        )
+      })
+
+      log_message("  LDIR-Raman ICP: scale=",
+                  round(ldir_icp$params$scale, 4),
+                  ", rot=", round(ldir_icp$params$rotation_deg, 2), " deg",
+                  ", converged=", ldir_icp$converged)
+
+      # 12f. Apply transform to all LDIR particles with coordinates
+      ldir_aligned <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+      ldir_tf <- apply_transform_points(
+        ldir_aligned$x_norm, ldir_aligned$y_norm, ldir_icp$transform
+      )
+      ldir_aligned$x_aligned <- ldir_tf$x_transformed
+      ldir_aligned$y_aligned <- ldir_tf$y_transformed
+
+      # 12g. LDIR↔Raman matching
+      ldir_raman_match <- match_particles(
+        ldir_aligned, raman_for_match, config,
+        src_label = "ldir", ref_label = "raman"
+      )
+
+      # 12h. LDIR↔Raman agreement analysis
+      ldir_raman_agreement <- analyze_agreement(
+        ldir_raman_match, config,
+        instrument_a = "LDIR", instrument_b = "Raman"
+      )
+
+      # 12i. LDIR↔FTIR matching (both already in Raman coordinate frame)
+      # Set up aligned FTIR as reference: matcher expects ref with x_norm/y_norm
+      ftir_as_ref <- ftir_aligned
+      ftir_as_ref$x_norm <- ftir_as_ref$x_aligned
+      ftir_as_ref$y_norm <- ftir_as_ref$y_aligned
+      ldir_ftir_match <- match_particles(
+        ldir_aligned, ftir_as_ref, config,
+        src_label = "ldir", ref_label = "ftir"
+      )
+      log_message("  LDIR-FTIR direct matching: ",
+                  ldir_ftir_match$match_stats$n_matched, " pairs")
+
+      # 12j. Three-way triplets (FTIR↔Raman ∩ LDIR↔Raman via Raman ID)
+      if (nrow(match_result$matched) > 0 &&
+          nrow(ldir_raman_match$matched) > 0) {
+        ftir_raman_pairs <- data.frame(
+          raman_particle_id   = match_result$matched$raman_particle_id,
+          ftir_particle_id    = match_result$matched$ftir_particle_id,
+          ftir_material       = match_result$matched$ftir_material,
+          ftir_raman_distance = match_result$matched$match_distance,
+          stringsAsFactors = FALSE
+        )
+        ldir_raman_pairs <- data.frame(
+          raman_particle_id   = ldir_raman_match$matched$raman_particle_id,
+          ldir_particle_id    = ldir_raman_match$matched$ldir_particle_id,
+          ldir_material       = ldir_raman_match$matched$ldir_material,
+          ldir_raman_distance = ldir_raman_match$matched$match_distance,
+          stringsAsFactors = FALSE
+        )
+
+        triplets <- merge(ftir_raman_pairs, ldir_raman_pairs,
+                          by = "raman_particle_id")
+
+        # Add Raman material
+        raman_mat_idx <- match(triplets$raman_particle_id,
+                               raman_for_match$particle_id)
+        triplets$raman_material <- raman_for_match$material[raman_mat_idx]
+
+        log_message("  Three-way triplets: ", nrow(triplets),
+                    " particles matched across all three instruments")
+      }
+
+    } else {
+      log_message("  LDIR spatial alignment failed — ",
+                  "material comparison only", level = "WARN")
+    }
+
+  } else {
+    log_message("  LDIR: no spatial coordinates — material comparison only")
   }
+
+  # Non-spatial material distribution (always available)
+  ldir_mats <- table(ldir_clean$material)
   log_message("  LDIR material distribution (top 5):")
   for (m in names(head(sort(ldir_mats, decreasing = TRUE), 5))) {
     log_message("    ", m, ": ", ldir_mats[m])
   }
 
-  ldir_comparison <- list(
-    ldir_particles = ldir_clean,
-    ftir_material_dist  = ftir_mats,
-    raman_material_dist = raman_mats,
-    ldir_material_dist  = ldir_mats,
-    n_ldir = nrow(ldir_clean)
+  ldir_results <- list(
+    ldir_clean           = ldir_clean,
+    ldir_with_coords     = ldir_with_coords,
+    ldir_aligned         = ldir_aligned,
+    ldir_raman_match     = ldir_raman_match,
+    ldir_ftir_match      = ldir_ftir_match,
+    ldir_raman_agreement = ldir_raman_agreement,
+    ldir_icp             = ldir_icp,
+    triplets             = triplets,
+    has_coords           = has_ldir_coords,
+    ldir_material_dist   = ldir_mats
   )
 }
 
 # ---------------------------------------------------------------------------
-# 11. Diagnostics (use full datasets for overlay, matched pairs for detail)
+# 13. Diagnostics (use full datasets for overlay, matched pairs for detail)
 # ---------------------------------------------------------------------------
 
 diagnostics <- generate_diagnostics(
@@ -411,30 +627,56 @@ diagnostics <- generate_diagnostics(
   config
 )
 
+# Add LDIR diagnostics if spatial matching was performed
+if (!is.null(ldir_results) && !is.null(ldir_results$ldir_aligned) &&
+    !is.null(ldir_results$ldir_raman_match)) {
+  ldir_diag <- generate_ldir_diagnostics(
+    ldir_results$ldir_aligned, raman_clean,
+    ldir_results$ldir_raman_match, ldir_results$ldir_raman_agreement
+  )
+  diagnostics <- c(diagnostics, ldir_diag)
+  log_message("  Added ", length(ldir_diag), " LDIR diagnostic plots")
+}
+
 # ---------------------------------------------------------------------------
-# 12. Export
+# 14. Export
 # ---------------------------------------------------------------------------
 
 export_results(
   match_result, agreement, diagnostics,
   icp_result, norm_result, config,
-  ftir_scan_bounds = ftir_scan_bounds
+  ftir_scan_bounds = ftir_scan_bounds,
+  ldir_results     = ldir_results
 )
 
-# Export LDIR comparison if available
-if (!is.null(ldir_comparison)) {
-  ldir_out <- file.path(config$output_dir, "ldir_material_distribution.csv")
-  ldir_df <- data.frame(
-    material = names(ldir_comparison$ldir_material_dist),
-    count    = as.integer(ldir_comparison$ldir_material_dist),
-    stringsAsFactors = FALSE
+# Export composite matches if found
+if (nrow(composites) > 0) {
+  write.csv(composites,
+            file.path(config$output_dir, "composite_matches.csv"),
+            row.names = FALSE)
+  log_message("  Wrote composite_matches.csv (", nrow(composites), " composites)")
+}
+
+# Export TPS assessment
+if (!is.null(tps_assessment$quadrant_residuals)) {
+  write.csv(tps_assessment$quadrant_residuals,
+            file.path(config$output_dir, "tps_quadrant_residuals.csv"),
+            row.names = FALSE)
+  tps_lines <- c(
+    "# TPS (Thin-Plate Spline) Assessment",
+    paste0("# Generated: ", Sys.time()),
+    "",
+    paste0("systematic_distortion: ", tps_assessment$systematic_distortion),
+    paste0("recommend_tps:         ", tps_assessment$recommend_tps),
+    paste0("dx_range_um:           ", tps_assessment$dx_range_um),
+    paste0("dy_range_um:           ", tps_assessment$dy_range_um),
+    paste0("assessment:            ", tps_assessment$message)
   )
-  write.csv(ldir_df, ldir_out, row.names = FALSE)
-  log_message("  Wrote LDIR material distribution to: ", basename(ldir_out))
+  writeLines(tps_lines, file.path(config$output_dir, "tps_assessment.txt"))
 }
 
 # ---------------------------------------------------------------------------
-# 13. Summary
+# 15. Summary
 # ---------------------------------------------------------------------------
 
 log_message(strrep("=", 60))
@@ -459,7 +701,37 @@ log_message("  FTIR match rate:    ",
 if (!is.na(agreement$agreement_rate)) {
   log_message("  Material agreement: ", round(agreement$agreement_rate * 100, 1), "%")
 }
-if (has_ldir) {
-  log_message("  LDIR particles:     ", ldir_comparison$n_ldir)
+if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
+  tr <- agreement$tiered_rates
+  log_message("  Tiered agreement:  Exact ", tr$exact_pct, "%, Family+ ",
+              tr$family_or_better_pct, "%")
+}
+if (nrow(composites) > 0) {
+  log_message("  Composite matches: ", nrow(composites))
+}
+log_message("  TPS assessment:    ", tps_assessment$message)
+if (has_ldir && !is.null(ldir_results)) {
+  log_message("  --- LDIR ---")
+  log_message("  LDIR particles:    ", nrow(ldir_results$ldir_clean))
+  log_message("  LDIR coordinates:  ",
+              if (ldir_results$has_coords) "spatial (from image)" else "none")
+  if (!is.null(ldir_results$ldir_raman_match)) {
+    log_message("  LDIR-Raman matched: ",
+                ldir_results$ldir_raman_match$match_stats$n_matched)
+  }
+  if (!is.null(ldir_results$ldir_ftir_match)) {
+    log_message("  LDIR-FTIR matched:  ",
+                ldir_results$ldir_ftir_match$match_stats$n_matched)
+  }
+  if (nrow(ldir_results$triplets) > 0) {
+    log_message("  Three-way triplets: ", nrow(ldir_results$triplets))
+  }
+  if (!is.null(ldir_results$ldir_raman_agreement) &&
+      !is.null(ldir_results$ldir_raman_agreement$tiered_rates) &&
+      ldir_results$ldir_raman_agreement$tiered_rates$n_total > 0) {
+    ltr <- ldir_results$ldir_raman_agreement$tiered_rates
+    log_message("  LDIR-Raman agreement: Exact ", ltr$exact_pct,
+                "%, Family+ ", ltr$family_or_better_pct, "%")
+  }
 }
 log_message("  Results in: ", config$output_dir)
