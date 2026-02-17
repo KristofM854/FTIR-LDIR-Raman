@@ -385,14 +385,21 @@ join_ldir_coords <- function(excel_df, image_df) {
     }
   }
 
-  # Apply coordinates
+  # Apply coordinates (reject matches above cost threshold)
+  max_cost <- 2.0
   excel_df$coord_match_cost <- NA_real_
   excel_df$coord_source <- "none"
   n_joined <- 0
+  n_rejected <- 0
 
   for (i in seq_len(n_excel)) {
     j <- assignment[i]
     if (is.na(j) || j > n_image || cost[i, j] >= BIG) next
+
+    if (cost[i, j] > max_cost) {
+      n_rejected <- n_rejected + 1
+      next
+    }
 
     excel_df$x_um[i] <- image_df$x_um[j]
     excel_df$y_um[i] <- image_df$y_um[j]
@@ -403,6 +410,10 @@ join_ldir_coords <- function(excel_df, image_df) {
 
   n_missing <- n_excel - n_joined
   log_message("  Joined coordinates: ", n_joined, " of ", n_excel, " particles")
+  if (n_rejected > 0) {
+    log_message("  Rejected ", n_rejected, " joins with cost > ", max_cost,
+                " (poor size match)")
+  }
   if (n_missing > 0) {
     log_message("  Missing coordinates: ", n_missing, " particles (no image match)")
   }
@@ -413,12 +424,6 @@ join_ldir_coords <- function(excel_df, image_df) {
     log_message("  Join quality — cost median: ", round(median(costs), 3),
                 ", mean: ", round(mean(costs), 3),
                 ", max: ", round(max(costs), 3))
-    # Flag high-cost joins as potentially wrong
-    high_cost <- sum(costs > 2.0)
-    if (high_cost > 0) {
-      log_message("  WARNING: ", high_cost, " joins have high cost (>2.0) — ",
-                  "potential mismatches", level = "WARN")
-    }
   }
 
   excel_df

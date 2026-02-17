@@ -117,9 +117,12 @@ ui <- fluidPage(
                              choices = c("Matched pairs" = "matched",
                                          "Unmatched FTIR" = "unmatched_ftir",
                                          "Unmatched Raman" = "unmatched_raman",
-                                         "Match lines" = "match_lines"),
+                                         "FTIR-Raman lines" = "match_lines",
+                                         "LDIR matched" = "ldir_matched",
+                                         "LDIR unmatched" = "ldir_unmatched",
+                                         "LDIR-Raman lines" = "ldir_lines"),
                              selected = c("matched", "unmatched_ftir",
-                                          "unmatched_raman"),
+                                          "unmatched_raman", "ldir_matched"),
                              inline = FALSE),
           hr(),
           div(class = "info-box",
@@ -344,16 +347,16 @@ server <- function(input, output, session) {
   })
 
   # Overlay tab: raman_resized.jpg placed at Raman-normalized bounds.
-  # The image covers the full filter (larger than particle extent), so we
-  # center at (0,0) in Raman-norm space (= Raman centroid) and expand the
-  # bounds to cover all particles with padding, enforcing the image aspect ratio.
+  # The image covers the full filter.  We compute bounds from the actual
+  # extent of ALL instruments' particles (FTIR + Raman + LDIR) with generous
+  # padding, centered on the particle midpoint and enforcing image aspect ratio.
   overlay_image_info <- reactive({
     raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
     dfs <- instrument_dfs()
-    # Collect all particle x/y in Raman-norm space (both instruments)
-    all_x <- c(dfs$ftir$x, dfs$raman$x)
-    all_y <- c(dfs$ftir$y, dfs$raman$y)
+    # Collect all particle x/y in Raman-norm space (all instruments)
+    all_x <- c(dfs$ftir$x, dfs$raman$x, dfs$ldir$x)
+    all_y <- c(dfs$ftir$y, dfs$raman$y, dfs$ldir$y)
     all_x <- all_x[is.finite(all_x)]
     all_y <- all_y[is.finite(all_y)]
     if (length(all_x) == 0) return(NULL)
@@ -361,15 +364,25 @@ server <- function(input, output, session) {
     # Image aspect ratio (width / height)
     img_aspect <- ncol(raw) / nrow(raw)
 
-    # Half-extents needed to cover all particles from (0,0) center + 10% margin
-    half_x <- max(abs(range(all_x))) * 1.10
-    half_y <- max(abs(range(all_y))) * 1.10
+    # Compute bounds from actual particle extent with 25% padding
+    pad_frac <- 0.25
+    rx <- range(all_x); ry <- range(all_y)
+    w <- diff(rx); h <- diff(ry)
+    xmin <- rx[1] - pad_frac * w
+    xmax <- rx[2] + pad_frac * w
+    ymin <- ry[1] - pad_frac * h
+    ymax <- ry[2] + pad_frac * h
 
     # Enforce image aspect ratio (expand the tighter dimension)
-    if ((2 * half_x) / (2 * half_y) < img_aspect) {
-      half_x <- half_y * img_aspect
+    curr_aspect <- (xmax - xmin) / (ymax - ymin)
+    if (curr_aspect < img_aspect) {
+      mid_x <- (xmin + xmax) / 2
+      half_x <- (ymax - ymin) * img_aspect / 2
+      xmin <- mid_x - half_x; xmax <- mid_x + half_x
     } else {
-      half_y <- half_x / img_aspect
+      mid_y <- (ymin + ymax) / 2
+      half_y <- (xmax - xmin) / img_aspect / 2
+      ymin <- mid_y - half_y; ymax <- mid_y + half_y
     }
 
     # Apply user fine-tuning offsets
@@ -377,44 +390,33 @@ server <- function(input, output, session) {
     oy <- if (!is.null(input$overlay_img_offset_y)) input$overlay_img_offset_y else 0
 
     list(raster = raw,
-         xmin = -half_x + ox, xmax = half_x + ox,
-         ymin = -half_y + oy, ymax = half_y + oy)
+         xmin = xmin + ox, xmax = xmax + ox,
+         ymin = ymin + oy, ymax = ymax + oy)
   })
 
-  # LDIR tab: image placed at native LDIR coordinate bounds.
-  # LDIR coordinates are extracted from this very image, so the image
-  # bounds are derived from particle positions.
+  # LDIR tab: image placed at LDIR scan area bounds.
+  # LDIR coordinates use image convention: y=0 at top, increasing downward.
+  # ggplot uses Cartesian: y increases upward.  We swap ymin/ymax so that
+  # image row 1 (physical top, y_um≈0) maps to the bottom of the plot,
+  # matching the particle y_um values.
   ldir_native_image_info <- reactive({
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
     ldir_df <- instrument_dfs()$ldir
     if (!is.null(ldir_df) && nrow(ldir_df) > 0 &&
         any(!is.na(ldir_df$x_orig))) {
-      pad <- 500
       ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
       oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
       xvals <- ldir_df$x_orig[!is.na(ldir_df$x_orig)]
       yvals <- ldir_df$y_orig[!is.na(ldir_df$y_orig)]
-      # Expand to cover the full image (particles are contained within it)
-      xmin <- min(0, min(xvals) - pad)
-      xmax <- max(max(xvals) + pad, min(xvals) + (max(xvals) - min(xvals)) * 1.3)
-      ymin <- min(0, min(yvals) - pad)
-      ymax <- max(max(yvals) + pad, min(yvals) + (max(yvals) - min(yvals)) * 1.3)
-      # Enforce image aspect ratio
-      img_aspect <- ncol(raw) / nrow(raw)
-      curr_aspect <- (xmax - xmin) / (ymax - ymin)
-      if (curr_aspect < img_aspect) {
-        mid_x <- (xmin + xmax) / 2
-        half_x <- (ymax - ymin) * img_aspect / 2
-        xmin <- mid_x - half_x; xmax <- mid_x + half_x
-      } else {
-        mid_y <- (ymin + ymax) / 2
-        half_y <- (xmax - xmin) / img_aspect / 2
-        ymin <- mid_y - half_y; ymax <- mid_y + half_y
-      }
+      # Compute scan extent: round up max coordinate to nearest 1000 µm
+      extent <- max(ceiling(max(xvals) / 1000) * 1000,
+                    ceiling(max(yvals) / 1000) * 1000)
+      # Image is square (2400x2400), scan area is [0, extent] x [0, extent]
+      # Swap ymin/ymax to flip image vertically (LDIR y convention = image rows)
       return(list(raster = raw,
-                  xmin = xmin + ox, xmax = xmax + ox,
-                  ymin = ymin + oy, ymax = ymax + oy))
+                  xmin = 0 + ox, xmax = extent + ox,
+                  ymin = extent + oy, ymax = 0 + oy))
     }
     NULL
   })
@@ -885,16 +887,25 @@ server <- function(input, output, session) {
     df
   })
 
+  # LDIR-Raman matched data for overlay
+  overlay_ldir_matched <- reactive({
+    d <- run_data()
+    if (is.null(d$ldir_raman_matched) || nrow(d$ldir_raman_matched) == 0)
+      return(data.frame())
+    d$ldir_raman_matched
+  })
+
   output$overlay_plot <- renderPlot({
     dfs <- instrument_dfs()
     matched <- overlay_matched()
+    ldir_m <- overlay_ldir_matched()
     layers <- input$overlay_layers
     bounds <- if (!is.null(zoom$overlay)) zoom$overlay
-              else compute_bounds(dfs$ftir, dfs$raman)
+              else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
 
     p <- ggplot() +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
-      labs(title = "FTIR + Raman Overlay (aligned coordinates)",
+      labs(title = "FTIR + Raman + LDIR Overlay (aligned coordinates)",
            x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 13) +
       theme(
@@ -907,7 +918,7 @@ server <- function(input, output, session) {
     # Background image: raman_resized.jpg placed at Raman-normalized bounds
     p <- add_image_bg(p, overlay_image_info())
 
-    # Match lines
+    # FTIR-Raman match lines
     if ("match_lines" %in% layers && nrow(matched) > 0) {
       seg_df <- data.frame(
         x    = matched$ftir_x_aligned, y    = matched$ftir_y_aligned,
@@ -916,6 +927,18 @@ server <- function(input, output, session) {
       p <- p + geom_segment(data = seg_df,
                               aes(x = x, y = y, xend = xend, yend = yend),
                               colour = "grey60", alpha = 0.3, linewidth = 0.3)
+    }
+
+    # LDIR-Raman match lines
+    if ("ldir_lines" %in% layers && nrow(ldir_m) > 0 &&
+        "ldir_x_aligned" %in% names(ldir_m) && "raman_x_norm" %in% names(ldir_m)) {
+      ldir_seg <- data.frame(
+        x    = ldir_m$ldir_x_aligned, y    = ldir_m$ldir_y_aligned,
+        xend = ldir_m$raman_x_norm,    yend = ldir_m$raman_y_norm
+      )
+      p <- p + geom_segment(data = ldir_seg,
+                              aes(x = x, y = y, xend = xend, yend = yend),
+                              colour = "#9467bd", alpha = 0.3, linewidth = 0.3)
     }
 
     # Unmatched FTIR
@@ -937,23 +960,43 @@ server <- function(input, output, session) {
       }
     }
 
-    # Matched pairs: FTIR as triangle, Raman as circle
+    # Unmatched LDIR
+    if ("ldir_unmatched" %in% layers && !is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
+      um_l <- dfs$ldir[dfs$ldir$match_status == "unmatched", ]
+      if (nrow(um_l) > 0) {
+        p <- p + geom_point(data = um_l, aes(x = x, y = y, size = feret_max),
+                             colour = "#9467bd", alpha = 0.3, shape = 8)
+      }
+    }
+
+    # Matched pairs: FTIR as triangle, Raman as circle, LDIR as diamond
+    all_pts <- list()
     if ("matched" %in% layers && nrow(matched) > 0) {
-      ftir_pts <- data.frame(
+      all_pts[[length(all_pts) + 1]] <- data.frame(
         x = matched$ftir_x_aligned, y = matched$ftir_y_aligned,
         feret_max = matched$ftir_feret_max_um, instrument = "FTIR"
       )
-      raman_pts <- data.frame(
+      all_pts[[length(all_pts) + 1]] <- data.frame(
         x = matched$raman_x_norm, y = matched$raman_y_norm,
         feret_max = matched$raman_feret_max_um, instrument = "Raman"
       )
-      both <- rbind(ftir_pts, raman_pts)
+    }
+    if ("ldir_matched" %in% layers && nrow(ldir_m) > 0 &&
+        "ldir_x_aligned" %in% names(ldir_m)) {
+      all_pts[[length(all_pts) + 1]] <- data.frame(
+        x = ldir_m$ldir_x_aligned, y = ldir_m$ldir_y_aligned,
+        feret_max = ldir_m$ldir_feret_max_um, instrument = "LDIR"
+      )
+    }
+    if (length(all_pts) > 0) {
+      both <- do.call(rbind, all_pts)
       p <- p + geom_point(data = both,
                             aes(x = x, y = y, size = feret_max,
                                 shape = instrument, colour = instrument),
                             alpha = 0.7) +
-        scale_shape_manual(values = c(FTIR = 17, Raman = 16)) +
-        scale_colour_manual(values = c(FTIR = "#2ca02c", Raman = "#1f77b4"))
+        scale_shape_manual(values = c(FTIR = 17, Raman = 16, LDIR = 18)) +
+        scale_colour_manual(values = c(FTIR = "#2ca02c", Raman = "#1f77b4",
+                                        LDIR = "#9467bd"))
     }
 
     p
@@ -965,9 +1008,12 @@ server <- function(input, output, session) {
     if (nrow(m) == 0 && is.null(dfs$ftir)) return("No pipeline data loaded")
     n_um_f <- if (!is.null(dfs$ftir)) sum(dfs$ftir$match_status == "unmatched") else 0
     n_um_r <- if (!is.null(dfs$raman)) sum(dfs$raman$match_status == "unmatched") else 0
-    paste0(nrow(m), " matched pairs shown | ",
+    n_ldir <- if (!is.null(dfs$ldir)) nrow(dfs$ldir) else 0
+    n_ldir_m <- if (!is.null(dfs$ldir)) sum(dfs$ldir$match_status == "matched") else 0
+    paste0(nrow(m), " FTIR-Raman pairs | ",
            n_um_f, " unmatched FTIR | ",
-           n_um_r, " unmatched Raman")
+           n_um_r, " unmatched Raman | ",
+           n_ldir_m, "/", n_ldir, " LDIR matched")
   })
 
   # Overlay: sticky hover — update last_hover$overlay only when a new match is found
@@ -976,33 +1022,49 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
 
     matched <- overlay_matched()
-    if (is.null(matched) || nrow(matched) == 0) return()
-
-    # Find nearest matched particle (check both FTIR and Raman positions)
-    dx_f <- matched$ftir_x_aligned - hover$x
-    dy_f <- matched$ftir_y_aligned - hover$y
-    dist_f <- sqrt(dx_f^2 + dy_f^2)
-
-    dx_r <- matched$raman_x_norm - hover$x
-    dy_r <- matched$raman_y_norm - hover$y
-    dist_r <- sqrt(dx_r^2 + dy_r^2)
-
-    min_f <- min(dist_f)
-    min_r <- min(dist_r)
+    ldir_m <- overlay_ldir_matched()
 
     # Snap threshold: 5% of visible range (zoom-aware)
+    dfs <- instrument_dfs()
     vis <- if (!is.null(zoom$overlay)) zoom$overlay
-           else compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+           else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
 
-    if (min(min_f, min_r) <= snap_dist) {
-      if (min_f <= min_r) {
-        last_hover$overlay <- matched[which.min(dist_f), ]
-      } else {
-        last_hover$overlay <- matched[which.min(dist_r), ]
+    best_dist <- Inf
+    best_row <- NULL
+    best_source <- NULL
+
+    # Check FTIR-Raman matched
+    if (!is.null(matched) && nrow(matched) > 0) {
+      dist_f <- sqrt((matched$ftir_x_aligned - hover$x)^2 +
+                      (matched$ftir_y_aligned - hover$y)^2)
+      dist_r <- sqrt((matched$raman_x_norm - hover$x)^2 +
+                      (matched$raman_y_norm - hover$y)^2)
+      d <- pmin(dist_f, dist_r)
+      idx <- which.min(d)
+      if (d[idx] < best_dist) {
+        best_dist <- d[idx]
+        best_row <- matched[idx, ]
+        best_source <- "ftir_raman"
       }
     }
-    # If no particle near cursor, keep the old one (sticky)
+
+    # Check LDIR-Raman matched
+    if (nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
+      dist_l <- sqrt((ldir_m$ldir_x_aligned - hover$x)^2 +
+                      (ldir_m$ldir_y_aligned - hover$y)^2)
+      idx_l <- which.min(dist_l)
+      if (dist_l[idx_l] < best_dist) {
+        best_dist <- dist_l[idx_l]
+        best_row <- ldir_m[idx_l, ]
+        best_source <- "ldir_raman"
+      }
+    }
+
+    if (best_dist <= snap_dist && !is.null(best_row)) {
+      last_hover$overlay <- best_row
+      attr(last_hover$overlay, "source") <- best_source
+    }
   })
 
   output$overlay_hover_info <- renderUI({
@@ -1012,6 +1074,29 @@ server <- function(input, output, session) {
                     "Hover over a matched particle for the comparison table"))
     }
 
+    src <- attr(row, "source")
+    if (!is.null(src) && src == "ldir_raman") {
+      return(tags$table(class = "hover-tbl",
+        tags$tr(tags$th(""), tags$th("LDIR"), tags$th("Raman")),
+        tags$tr(tags$td(tags$b("Particle ID")),
+                tags$td(row$ldir_particle_id),
+                tags$td(row$raman_particle_id)),
+        tags$tr(tags$td(tags$b("Material")),
+                tags$td(row$ldir_material),
+                tags$td(row$raman_material)),
+        tags$tr(tags$td(tags$b("Quality")),
+                tags$td(round(row$ldir_quality, 3)),
+                tags$td(paste0("HQI ", round(row$raman_quality, 2)))),
+        tags$tr(tags$td(tags$b("Feret Max")),
+                tags$td(paste0(round(row$ldir_feret_max_um, 1), " \u00b5m")),
+                tags$td(paste0(round(row$raman_feret_max_um, 1), " \u00b5m"))),
+        tags$tr(tags$td(tags$b("Match Dist.")),
+                tags$td(colspan = "2",
+                        paste0(round(row$match_distance, 1), " \u00b5m")))
+      ))
+    }
+
+    # Default: FTIR-Raman hover info
     tags$table(class = "hover-tbl",
       tags$tr(tags$th(""), tags$th("FTIR"), tags$th("Raman")),
       tags$tr(tags$td(tags$b("Particle ID")),
