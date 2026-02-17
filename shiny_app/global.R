@@ -7,35 +7,99 @@ library(ggplot2)
 library(png)
 
 # ---------------------------------------------------------------------------
-# Locate the most recent pipeline run
+# Locate pipeline output.
+# Supports two layouts:
+#   1. Subdirectory runs:  output/2026-02-16_6/matched_particles.csv
+#   2. Flat timestamped:   output/matched_particles_20260216_172156.csv
+# Returns a list(dir, format) or NULL.
 # ---------------------------------------------------------------------------
 find_latest_run <- function(output_dir = file.path("..", "output")) {
+  if (!dir.exists(output_dir)) return(NULL)
+
+  # --- Try subdirectory format first ---
   runs <- list.dirs(output_dir, recursive = FALSE, full.names = TRUE)
-  if (length(runs) == 0) return(NULL)
-  runs <- runs[order(file.mtime(runs), decreasing = TRUE)]
-  runs[1]
+  # Keep only dirs that actually contain a matched_particles.csv
+  runs <- runs[file.exists(file.path(runs, "matched_particles.csv"))]
+  if (length(runs) > 0) {
+    runs <- runs[order(file.mtime(runs), decreasing = TRUE)]
+    return(list(dir = runs[1], format = "subdir"))
+  }
+
+  # --- Try flat timestamped format ---
+  flat <- list.files(output_dir, pattern = "^matched_particles.*\\.csv$",
+                     full.names = TRUE)
+  if (length(flat) > 0) {
+    flat <- flat[order(file.mtime(flat), decreasing = TRUE)]
+    return(list(dir = output_dir, format = "flat",
+                matched_file = flat[1]))
+  }
+
+  NULL
 }
 
 # ---------------------------------------------------------------------------
-# Load pipeline CSVs
+# Load pipeline CSVs from either subdirectory or flat format
 # ---------------------------------------------------------------------------
-load_run_data <- function(run_dir) {
-  data <- list(run_dir = run_dir)
+load_run_data <- function(run_info) {
+  data <- list(run_dir = run_info$dir)
 
-  paths <- list(
-    matched         = "matched_particles.csv",
-    unmatched_ftir  = "unmatched_ftir.csv",
-    unmatched_raman = "unmatched_raman.csv",
-    agreement       = "agreement_summary.csv"
-  )
+  if (run_info$format == "subdir") {
+    # Simple: files have fixed names in a subdirectory
+    file_map <- list(
+      matched         = "matched_particles.csv",
+      unmatched_ftir  = "unmatched_ftir.csv",
+      unmatched_raman = "unmatched_raman.csv",
+      agreement       = "agreement_summary.csv"
+    )
+    for (nm in names(file_map)) {
+      fp <- file.path(run_info$dir, file_map[[nm]])
+      if (file.exists(fp)) data[[nm]] <- read.csv(fp, stringsAsFactors = FALSE)
+    }
+    tp <- file.path(run_info$dir, "transform_params.txt")
+    if (file.exists(tp)) data$transform <- parse_transform_params(tp)
 
-  for (nm in names(paths)) {
-    fp <- file.path(run_dir, paths[[nm]])
-    if (file.exists(fp)) data[[nm]] <- read.csv(fp, stringsAsFactors = FALSE)
+  } else {
+    # Flat: files have timestamps in the name. Find each by prefix.
+    find_flat <- function(prefix, ext = "csv") {
+      pat <- paste0("^", prefix, ".*\\.", ext, "$")
+      hits <- list.files(run_info$dir, pattern = pat, full.names = TRUE)
+      if (length(hits) == 0) return(NULL)
+      hits[order(file.mtime(hits), decreasing = TRUE)][1]
+    }
+
+    for (info in list(
+      list(nm = "matched",         prefix = "matched_particles"),
+      list(nm = "unmatched_ftir",  prefix = "unmatched_ftir"),
+      list(nm = "unmatched_raman", prefix = "unmatched_raman"),
+      list(nm = "agreement",       prefix = "agreement_summary")
+    )) {
+      fp <- find_flat(info$prefix)
+      if (!is.null(fp)) data[[info$nm]] <- read.csv(fp, stringsAsFactors = FALSE)
+    }
+    tp <- find_flat("transform_params", "txt")
+    if (!is.null(tp)) data$transform <- parse_transform_params(tp)
   }
 
-  tp <- file.path(run_dir, "transform_params.txt")
-  if (file.exists(tp)) data$transform <- parse_transform_params(tp)
+  data
+}
+
+# ---------------------------------------------------------------------------
+# Build run_data from user-uploaded CSVs (fallback when pipeline output is
+# not available).  Minimum required: matched_particles.csv.
+# ---------------------------------------------------------------------------
+load_uploaded_data <- function(matched_path,
+                                unmatched_ftir_path = NULL,
+                                unmatched_raman_path = NULL,
+                                transform_path = NULL) {
+  data <- list(run_dir = dirname(matched_path))
+  data$matched <- read.csv(matched_path, stringsAsFactors = FALSE)
+
+  if (!is.null(unmatched_ftir_path) && file.exists(unmatched_ftir_path))
+    data$unmatched_ftir <- read.csv(unmatched_ftir_path, stringsAsFactors = FALSE)
+  if (!is.null(unmatched_raman_path) && file.exists(unmatched_raman_path))
+    data$unmatched_raman <- read.csv(unmatched_raman_path, stringsAsFactors = FALSE)
+  if (!is.null(transform_path) && file.exists(transform_path))
+    data$transform <- parse_transform_params(transform_path)
 
   data
 }

@@ -135,6 +135,31 @@ ui <- fluidPage(
               detail_table_ui("overlay_hover_info"))
         )
       )
+    ),
+
+    # Tab 5: Data Upload (fallback)
+    tabPanel("Upload Data",
+      fluidRow(
+        column(6, offset = 3,
+          div(class = "info-box", style = "margin-top: 20px;",
+            h4("Upload Pipeline Output"),
+            p("If the app cannot find pipeline output automatically, you can
+               upload the CSV files here. At minimum, upload ",
+              code("matched_particles.csv"), "."),
+            hr(),
+            fileInput("upload_matched", "matched_particles.csv (required)",
+                      accept = ".csv"),
+            fileInput("upload_unmatched_ftir", "unmatched_ftir.csv (optional)",
+                      accept = ".csv"),
+            fileInput("upload_unmatched_raman", "unmatched_raman.csv (optional)",
+                      accept = ".csv"),
+            fileInput("upload_transform", "transform_params.txt (optional)",
+                      accept = ".txt"),
+            hr(),
+            uiOutput("upload_status")
+          )
+        )
+      )
     )
   )
 )
@@ -149,17 +174,26 @@ server <- function(input, output, session) {
   # ------------------------------------------------------------------
   # Load data (graceful when no pipeline output exists)
   # ------------------------------------------------------------------
-  run_dir <- find_latest_run()
-  if (is.null(run_dir)) {
+  run_info <- find_latest_run()
+  if (is.null(run_info)) {
     message("[Particle Viewer] No pipeline output found in ../output/")
     message("[Particle Viewer] Working directory: ", getwd())
+    message("[Particle Viewer] Use the 'Upload Data' tab to load CSV files manually.")
   } else {
-    message("[Particle Viewer] Loading data from: ", run_dir)
+    message("[Particle Viewer] Loading data from: ", run_info$dir,
+            " (format: ", run_info$format, ")")
   }
 
+  # Reactive value that can be updated by CSV uploads
+  uploaded_data <- reactiveVal(NULL)
+
   run_data <- reactive({
-    if (is.null(run_dir)) return(list())
-    load_run_data(run_dir)
+    # User uploads take priority
+    ud <- uploaded_data()
+    if (!is.null(ud)) return(ud)
+    # Then try auto-detected pipeline output
+    if (is.null(run_info)) return(list())
+    load_run_data(run_info)
   })
 
   has_data <- reactive({
@@ -170,6 +204,54 @@ server <- function(input, output, session) {
   instrument_dfs <- reactive({
     if (!has_data()) return(list(ftir = NULL, raman = NULL))
     build_instrument_dfs(run_data())
+  })
+
+  # ------------------------------------------------------------------
+  # Handle CSV uploads (fallback)
+  # ------------------------------------------------------------------
+  observeEvent(input$upload_matched, {
+    matched_path <- input$upload_matched$datapath
+    uf_path <- if (!is.null(input$upload_unmatched_ftir))
+                 input$upload_unmatched_ftir$datapath else NULL
+    ur_path <- if (!is.null(input$upload_unmatched_raman))
+                 input$upload_unmatched_raman$datapath else NULL
+    tp_path <- if (!is.null(input$upload_transform))
+                 input$upload_transform$datapath else NULL
+
+    tryCatch({
+      data <- load_uploaded_data(matched_path, uf_path, ur_path, tp_path)
+      uploaded_data(data)
+      message("[Particle Viewer] Loaded uploaded data: ",
+              nrow(data$matched), " matched particles")
+    }, error = function(e) {
+      message("[Particle Viewer] Upload error: ", conditionMessage(e))
+    })
+  })
+
+  output$upload_status <- renderUI({
+    if (has_data()) {
+      d <- run_data()
+      n_m <- if (!is.null(d$matched)) nrow(d$matched) else 0
+      n_uf <- if (!is.null(d$unmatched_ftir)) nrow(d$unmatched_ftir) else 0
+      n_ur <- if (!is.null(d$unmatched_raman)) nrow(d$unmatched_raman) else 0
+      has_t <- !is.null(d$transform)
+      tags$div(class = "alert alert-success",
+        tags$b("Data loaded successfully"),
+        tags$ul(
+          tags$li(paste0(n_m, " matched particles")),
+          tags$li(paste0(n_uf, " unmatched FTIR")),
+          tags$li(paste0(n_ur, " unmatched Raman")),
+          tags$li(paste0("Transform: ", if (has_t) "available" else "not loaded"))
+        )
+      )
+    } else {
+      src <- if (!is.null(uploaded_data())) "uploaded" else "auto-detected"
+      tags$div(class = "alert alert-warning",
+        tags$b("No data loaded"),
+        tags$p(paste0("No pipeline output was ", src, ". Upload ",
+                      code("matched_particles.csv"), " to get started."))
+      )
+    }
   })
 
   # Full transform matrix (FTIR original -> Raman coords), or NULL
