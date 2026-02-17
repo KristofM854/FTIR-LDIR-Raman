@@ -93,17 +93,9 @@ ui <- fluidPage(
       instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200)
     ),
 
-    # Tab 3: LDIR (placeholder)
+    # Tab 3: LDIR
     tabPanel("LDIR",
-      div(class = "placeholder-msg",
-        h3("LDIR Panel"),
-        p("Awaiting LDIR particle coordinates."),
-        p("When LDIR coordinate data or an LDIR image becomes available,
-           this panel will show an interactive spatial plot identical
-           to the FTIR and Raman panels."),
-        p("Currently, LDIR comparison is limited to bulk material composition
-           (see pipeline output ", code("ldir_material_distribution.csv"), ").")
-      )
+      instrument_panel_ui("ldir", "Quality", 0, 1, 0.01, 1200)
     ),
 
     # Tab 4: Overlay (FTIR + Raman)
@@ -224,7 +216,7 @@ server <- function(input, output, session) {
   })
 
   instrument_dfs <- reactive({
-    if (!has_data()) return(list(ftir = NULL, raman = NULL))
+    if (!has_data()) return(list(ftir = NULL, raman = NULL, ldir = NULL))
     build_instrument_dfs(run_data())
   })
 
@@ -315,6 +307,7 @@ server <- function(input, output, session) {
   ftir_raw_image    <- reactiveVal(NULL)   # FTIR "Average Abs" image
   raman_tab_image   <- reactiveVal(NULL)   # Raman tab: user-uploaded image only
   overlay_raw_image <- reactiveVal(NULL)   # Overlay tab: raman_resized.jpg (auto-loaded)
+  ldir_raw_image    <- reactiveVal(NULL)   # LDIR particle map image
 
   # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
   # Particles on the FTIR tab are shown at x_orig/y_orig (FTIR instrument frame),
@@ -388,6 +381,44 @@ server <- function(input, output, session) {
          ymin = -half_y + oy, ymax = half_y + oy)
   })
 
+  # LDIR tab: image placed at native LDIR coordinate bounds.
+  # LDIR coordinates are extracted from this very image, so the image
+  # bounds are derived from particle positions.
+  ldir_native_image_info <- reactive({
+    raw <- ldir_raw_image()
+    if (is.null(raw)) return(NULL)
+    ldir_df <- instrument_dfs()$ldir
+    if (!is.null(ldir_df) && nrow(ldir_df) > 0 &&
+        any(!is.na(ldir_df$x_orig))) {
+      pad <- 500
+      ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
+      oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
+      xvals <- ldir_df$x_orig[!is.na(ldir_df$x_orig)]
+      yvals <- ldir_df$y_orig[!is.na(ldir_df$y_orig)]
+      # Expand to cover the full image (particles are contained within it)
+      xmin <- min(0, min(xvals) - pad)
+      xmax <- max(max(xvals) + pad, min(xvals) + (max(xvals) - min(xvals)) * 1.3)
+      ymin <- min(0, min(yvals) - pad)
+      ymax <- max(max(yvals) + pad, min(yvals) + (max(yvals) - min(yvals)) * 1.3)
+      # Enforce image aspect ratio
+      img_aspect <- ncol(raw) / nrow(raw)
+      curr_aspect <- (xmax - xmin) / (ymax - ymin)
+      if (curr_aspect < img_aspect) {
+        mid_x <- (xmin + xmax) / 2
+        half_x <- (ymax - ymin) * img_aspect / 2
+        xmin <- mid_x - half_x; xmax <- mid_x + half_x
+      } else {
+        mid_y <- (ymin + ymax) / 2
+        half_y <- (xmax - xmin) / img_aspect / 2
+        ymin <- mid_y - half_y; ymax <- mid_y + half_y
+      }
+      return(list(raster = raw,
+                  xmin = xmin + ox, xmax = xmax + ox,
+                  ymin = ymin + oy, ymax = ymax + oy))
+    }
+    NULL
+  })
+
   # Auto-load default images from project root
   observe({
     default_ftir <- file.path("..", "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png")
@@ -401,6 +432,13 @@ server <- function(input, output, session) {
     if (!file.exists(default_raman)) return()
     raw <- load_image_raster(default_raman)
     if (!is.null(raw)) overlay_raw_image(raw)
+  })
+
+  observe({
+    default_ldir <- file.path("..", "Comparstic LDIR F2Ba_G3B AU 240925.png")
+    if (!file.exists(default_ldir)) return()
+    raw <- load_image_raster(default_ldir)
+    if (!is.null(raw)) ldir_raw_image(raw)
   })
 
   # Handle uploaded images
@@ -417,6 +455,11 @@ server <- function(input, output, session) {
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
     if (!is.null(raw)) overlay_raw_image(raw)
+  })
+
+  observeEvent(input$ldir_image_upload, {
+    raw <- load_image_raster(input$ldir_image_upload$datapath)
+    if (!is.null(raw)) ldir_raw_image(raw)
   })
 
   # ------------------------------------------------------------------
@@ -453,7 +496,26 @@ server <- function(input, output, session) {
                         value = c(0, s_max))
     }
 
-    all_mats <- sort(unique(c(dfs$ftir$material, dfs$raman$material)))
+    if (!is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
+      ldir <- dfs$ldir
+      updateSelectInput(session, "ldir_material_filter",
+                        choices = c("All", sort(unique(ldir$material))), selected = "All")
+      q_range <- range(ldir$quality, na.rm = TRUE)
+      if (all(is.finite(q_range))) {
+        updateSliderInput(session, "ldir_quality_range",
+                          min = floor(q_range[1] * 100) / 100,
+                          max = ceiling(q_range[2] * 100) / 100,
+                          value = c(floor(q_range[1] * 100) / 100,
+                                    ceiling(q_range[2] * 100) / 100))
+      }
+      s_max <- ceiling(max(ldir$feret_max, na.rm = TRUE) / 10) * 10
+      if (is.finite(s_max)) {
+        updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
+                          value = c(0, s_max))
+      }
+    }
+
+    all_mats <- sort(unique(c(dfs$ftir$material, dfs$raman$material, dfs$ldir$material)))
     updateSelectInput(session, "overlay_material_filter",
                       choices = c("All", all_mats), selected = "All")
 
@@ -557,12 +619,12 @@ server <- function(input, output, session) {
   # Updated only when a NEW particle is found; keeps showing the last
   # particle when hovering over empty background.
   # ==================================================================
-  last_hover <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
+  last_hover <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL)
 
   # ==================================================================
   # Zoom state: NULL means full view, otherwise list(x=c(lo,hi), y=c(lo,hi))
   # ==================================================================
-  zoom <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
+  zoom <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL)
 
   observeEvent(input$ftir_brush, {
     b <- input$ftir_brush
@@ -575,6 +637,12 @@ server <- function(input, output, session) {
     zoom$raman <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
   })
   observeEvent(input$raman_dblclick, { zoom$raman <- NULL })
+
+  observeEvent(input$ldir_brush, {
+    b <- input$ldir_brush
+    zoom$ldir <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+  })
+  observeEvent(input$ldir_dblclick, { zoom$ldir <- NULL })
 
   observeEvent(input$overlay_brush, {
     b <- input$overlay_brush
@@ -712,6 +780,73 @@ server <- function(input, output, session) {
   output$raman_hover_info <- renderUI({
     row <- last_hover$raman
     single_detail_html(row, "Raman", "HQI")
+  })
+
+
+  # ==================================================================
+  # LDIR TAB
+  # ==================================================================
+
+  ldir_filtered <- reactive({
+    dfs <- instrument_dfs()
+    if (is.null(dfs$ldir) || nrow(dfs$ldir) == 0) return(data.frame())
+    filter_instrument(dfs$ldir, input$ldir_quality_range, input$ldir_size_range,
+                      input$ldir_material_filter, input$ldir_match_filter)
+  })
+
+  output$ldir_plot <- renderPlot({
+    df <- ldir_filtered()
+    # Display in native LDIR frame (x_orig, y_orig)
+    df_disp <- df
+    if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
+
+    bounds <- if (!is.null(zoom$ldir)) zoom$ldir else {
+      if (nrow(df_disp) > 0) {
+        pad <- 500
+        list(x = c(min(df_disp$x, na.rm = TRUE) - pad, max(df_disp$x, na.rm = TRUE) + pad),
+             y = c(min(df_disp$y, na.rm = TRUE) - pad, max(df_disp$y, na.rm = TRUE) + pad))
+      } else list(x = c(-1000, 14000), y = c(-1000, 14000))
+    }
+
+    img <- ldir_native_image_info()
+
+    if (nrow(df_disp) == 0) {
+      p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+        labs(title = "LDIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+        theme_minimal(base_size = 13) +
+        theme(plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "grey98", colour = NA))
+      return(add_image_bg(p, img))
+    }
+    make_scatter(df_disp, img, bounds,
+                 paste0("LDIR Particles (", nrow(df_disp), " shown)"),
+                 match_colours = c(matched = "#17becf", unmatched = "#bcbd22"))
+  })
+
+  output$ldir_summary_text <- renderText({
+    df <- ldir_filtered()
+    if (nrow(df) == 0) return("No LDIR data loaded")
+    paste0(nrow(df), " particles | ",
+           sum(df$match_status == "matched"), " matched | ",
+           length(unique(df$material)), " materials")
+  })
+
+  observeEvent(input$ldir_hover, {
+    hover <- input$ldir_hover
+    if (is.null(hover)) return()
+    df <- ldir_filtered()
+    if (nrow(df) == 0) return()
+    # Search in native LDIR coordinate space (x_orig, y_orig)
+    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+    idx   <- which.min(dists)
+    threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
+                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
+    if (dists[idx] <= threshold) last_hover$ldir <- df[idx, , drop = FALSE]
+  })
+
+  output$ldir_hover_info <- renderUI({
+    row <- last_hover$ldir
+    single_detail_html(row, "LDIR", "Quality")
   })
 
 

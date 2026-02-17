@@ -1,0 +1,5 @@
+"material_a","family_a","category_a","n_pairs","n_exact","n_family","n_disagree","exact_pct","family_or_better_pct"
+"CELLULOSE","Cellulose","Semi-synthetic",21,0,1,20,0,4.8
+"PET","PET","Synthetic",18,0,18,0,0,100
+"PP","PP","Synthetic",1,0,1,0,0,100
+"PROTEIN","Protein","Natural/Organic",134,0,0,134,0,0
