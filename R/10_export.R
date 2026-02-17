@@ -19,7 +19,8 @@
 #' @param config Configuration list
 #' @return Invisible NULL
 export_results <- function(match_result, agreement, diagnostics,
-                           icp_result, norm_result, config) {
+                           icp_result, norm_result, config,
+                           ftir_scan_bounds = NULL) {
   out_dir <- config$output_dir
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -70,7 +71,22 @@ export_results <- function(match_result, agreement, diagnostics,
     paste0("icp_iterations:   ", icp_result$n_iterations),
     paste0("icp_final_rms:    ",
            round(tail(icp_result$rms_history, 1), 4), " µm"),
-    "",
+    ""
+  )
+
+  # Add scan bounds if available
+  if (!is.null(ftir_scan_bounds)) {
+    param_lines <- c(param_lines,
+      "# FTIR scan area (physical extent of the background image)",
+      paste0("ftir_scan_xmin:   ", ftir_scan_bounds$x_min),
+      paste0("ftir_scan_xmax:   ", ftir_scan_bounds$x_max),
+      paste0("ftir_scan_ymin:   ", ftir_scan_bounds$y_min),
+      paste0("ftir_scan_ymax:   ", ftir_scan_bounds$y_max),
+      ""
+    )
+  }
+
+  param_lines <- c(param_lines,
     "# 3x3 Transform matrix (homogeneous, FTIR_norm -> Raman_norm)",
     paste0("matrix_row1: ", paste(round(icp_result$transform[1, ], 8), collapse = ", ")),
     paste0("matrix_row2: ", paste(round(icp_result$transform[2, ], 8), collapse = ", ")),
