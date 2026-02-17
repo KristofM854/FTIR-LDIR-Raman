@@ -41,7 +41,12 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
     mainPanel(width = 9,
       plotOutput(paste0(id_prefix, "_plot"), height = "650px",
                  hover = hoverOpts(paste0(id_prefix, "_hover"), delay = 100,
-                                   delayType = "throttle")),
+                                   delayType = "throttle"),
+                 brush = brushOpts(paste0(id_prefix, "_brush"),
+                                   resetOnNew = TRUE),
+                 dblclick = paste0(id_prefix, "_dblclick")),
+      tags$p(class = "text-muted",
+             "Drag to zoom in. Double-click to reset zoom."),
       hr(),
       div(class = "info-box",
           h5("Particle Details (hover)"),
@@ -128,7 +133,12 @@ ui <- fluidPage(
         mainPanel(width = 9,
           plotOutput("overlay_plot", height = "650px",
                      hover = hoverOpts("overlay_hover", delay = 100,
-                                       delayType = "throttle")),
+                                       delayType = "throttle"),
+                     brush = brushOpts("overlay_brush",
+                                       resetOnNew = TRUE),
+                     dblclick = "overlay_dblclick"),
+          tags$p(class = "text-muted",
+                 "Drag to zoom in. Double-click to reset zoom."),
           hr(),
           div(class = "info-box",
               h5("Match Details (hover on matched particle)"),
@@ -261,16 +271,30 @@ server <- function(input, output, session) {
     build_full_transform(tr)
   })
 
-  # FTIR image bounds in original coordinates, or NULL
+  # FTIR image bounds in original coordinates.
+  # Priority: 1) from transform_params.txt, 2) from image dims, 3) from particles.
   ftir_img_bounds <- reactive({
+    # Try saved scan bounds from pipeline output
+    tr <- run_data()$transform
+    if (!is.null(tr$ftir_scan_bounds)) return(tr$ftir_scan_bounds)
+
+    # Estimate from image dimensions (grid geometry)
+    raw_ftir_img <- ftir_raw_image()
     dfs <- instrument_dfs()
-    if (is.null(dfs$ftir) || nrow(dfs$ftir) == 0) return(NULL)
-    list(
-      xmin = 0,
-      xmax = max(dfs$ftir$x_orig, na.rm = TRUE) * 1.05,
-      ymin = 0,
-      ymax = max(dfs$ftir$y_orig, na.rm = TRUE) * 1.05
-    )
+    if (!is.null(raw_ftir_img)) {
+      px <- if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) dfs$ftir$x_orig else NULL
+      py <- if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) dfs$ftir$y_orig else NULL
+      return(estimate_ftir_scan_bounds(raw_ftir_img, px, py))
+    }
+
+    # Fallback: round up particle coords to nearest 500 µm
+    if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
+      return(list(xmin = 0,
+                  xmax = ceiling(max(dfs$ftir$x_orig, na.rm = TRUE) / 500) * 500,
+                  ymin = 0,
+                  ymax = ceiling(max(dfs$ftir$y_orig, na.rm = TRUE) / 500) * 500))
+    }
+    NULL
   })
 
   # ------------------------------------------------------------------
@@ -278,9 +302,13 @@ server <- function(input, output, session) {
   # ------------------------------------------------------------------
   images <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
 
+  # Raw FTIR image raster (Y-flipped by load_image_raster) — needed for
+  # both scan-bounds estimation and display.
+  ftir_raw_image <- reactiveVal(NULL)
+
   # ------------------------------------------------------------------
   # Helper: wrap an image raster with bounds for annotation_raster
-  # Uses transform if available; otherwise uses particle bounds or pixel dims.
+  # Uses transform if available; otherwise uses particle bounds.
   # ------------------------------------------------------------------
   wrap_ftir_image <- function(raw) {
     mf <- M_full()
@@ -289,7 +317,7 @@ server <- function(input, output, session) {
     if (!is.null(mf) && !is.null(bounds) && !is.null(tr)) {
       return(transform_image_for_display(raw, bounds, mf, tr$rotation_deg))
     }
-    # Fallback: place at particle-based bounds (or pixel dims)
+    # Fallback: place at particle-based bounds
     pb <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
     list(raster = raw, xmin = pb$x[1], xmax = pb$x[2],
          ymin = pb$y[1], ymax = pb$y[2])
@@ -309,14 +337,19 @@ server <- function(input, output, session) {
          ymin = pb$y[1], ymax = pb$y[2])
   }
 
-  # Auto-load default FTIR image from project root (transformed to aligned coords)
+  # Auto-load default FTIR image from project root
   observe({
     default_img <- file.path("..", "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png")
     if (!file.exists(default_img)) return()
-
     raw <- load_image_raster(default_img)
     if (is.null(raw)) return()
+    ftir_raw_image(raw)
+  })
 
+  # When raw FTIR image or transform changes, recompute the display image
+  observe({
+    raw <- ftir_raw_image()
+    if (is.null(raw)) return()
     transformed <- wrap_ftir_image(raw)
     images$ftir <- transformed
     images$overlay <- transformed
@@ -326,7 +359,7 @@ server <- function(input, output, session) {
   observeEvent(input$ftir_image_upload, {
     raw <- load_image_raster(input$ftir_image_upload$datapath)
     if (is.null(raw)) return()
-    images$ftir <- wrap_ftir_image(raw)
+    ftir_raw_image(raw)
   })
 
   observeEvent(input$raman_image_upload, {
@@ -474,6 +507,29 @@ server <- function(input, output, session) {
 
 
   # ==================================================================
+  # Zoom state: NULL means full view, otherwise list(x=c(lo,hi), y=c(lo,hi))
+  # ==================================================================
+  zoom <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
+
+  observeEvent(input$ftir_brush, {
+    b <- input$ftir_brush
+    zoom$ftir <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+  })
+  observeEvent(input$ftir_dblclick, { zoom$ftir <- NULL })
+
+  observeEvent(input$raman_brush, {
+    b <- input$raman_brush
+    zoom$raman <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+  })
+  observeEvent(input$raman_dblclick, { zoom$raman <- NULL })
+
+  observeEvent(input$overlay_brush, {
+    b <- input$overlay_brush
+    zoom$overlay <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+  })
+  observeEvent(input$overlay_dblclick, { zoom$overlay <- NULL })
+
+  # ==================================================================
   # FTIR TAB
   # ==================================================================
 
@@ -486,9 +542,9 @@ server <- function(input, output, session) {
 
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
-    bounds <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+    bounds <- if (!is.null(zoom$ftir)) zoom$ftir
+              else compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
     if (nrow(df) == 0) {
-      # Still show image if available
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "FTIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
         theme_minimal(base_size = 13) +
@@ -531,7 +587,8 @@ server <- function(input, output, session) {
 
   output$raman_plot <- renderPlot({
     df <- raman_filtered()
-    bounds <- compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+    bounds <- if (!is.null(zoom$raman)) zoom$raman
+              else compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
     if (nrow(df) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "Raman — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
@@ -601,7 +658,8 @@ server <- function(input, output, session) {
     dfs <- instrument_dfs()
     matched <- overlay_matched()
     layers <- input$overlay_layers
-    bounds <- compute_bounds(dfs$ftir, dfs$raman)
+    bounds <- if (!is.null(zoom$overlay)) zoom$overlay
+              else compute_bounds(dfs$ftir, dfs$raman)
 
     p <- ggplot() +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -703,7 +761,11 @@ server <- function(input, output, session) {
     min_f <- min(dist_f)
     min_r <- min(dist_r)
 
-    if (min(min_f, min_r) > 300) {
+    # Snap threshold: 5% of visible range (zoom-aware)
+    vis <- if (!is.null(zoom$overlay)) zoom$overlay
+           else compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
+    snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
+    if (min(min_f, min_r) > snap_dist) {
       return(tags$p(class = "text-muted",
                     "Hover over a matched particle for the comparison table"))
     }
