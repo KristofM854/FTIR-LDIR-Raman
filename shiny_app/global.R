@@ -58,6 +58,16 @@ load_run_data <- function(run_info) {
     tp <- file.path(run_info$dir, "transform_params.txt")
     if (file.exists(tp)) data$transform <- parse_transform_params(tp)
 
+    # LDIR files (optional)
+    ldir_map <- list(
+      ldir_raman_matched = "ldir_raman_matched.csv",
+      unmatched_ldir     = "unmatched_ldir.csv"
+    )
+    for (nm in names(ldir_map)) {
+      fp <- file.path(run_info$dir, ldir_map[[nm]])
+      if (file.exists(fp)) data[[nm]] <- read.csv(fp, stringsAsFactors = FALSE)
+    }
+
   } else {
     # Flat: files have timestamps in the name. Find each by prefix.
     find_flat <- function(prefix, ext = "csv") {
@@ -78,6 +88,15 @@ load_run_data <- function(run_info) {
     }
     tp <- find_flat("transform_params", "txt")
     if (!is.null(tp)) data$transform <- parse_transform_params(tp)
+
+    # LDIR files (flat format)
+    for (info in list(
+      list(nm = "ldir_raman_matched", prefix = "ldir_raman_matched"),
+      list(nm = "unmatched_ldir",     prefix = "unmatched_ldir")
+    )) {
+      fp <- find_flat(info$prefix)
+      if (!is.null(fp)) data[[info$nm]] <- read.csv(fp, stringsAsFactors = FALSE)
+    }
   }
 
   data
@@ -472,6 +491,37 @@ build_instrument_dfs <- function(data) {
       stringsAsFactors = FALSE)
   }
   result$raman <- do.call(rbind, raman_parts)
+
+  # --- LDIR ---
+  ldir_parts <- list()
+  if (!is.null(data$ldir_raman_matched) && nrow(data$ldir_raman_matched) > 0) {
+    m <- data$ldir_raman_matched
+    ldir_parts[[1]] <- data.frame(
+      particle_id = m$ldir_particle_id,
+      x = m$ldir_x_aligned, y = m$ldir_y_aligned,
+      x_orig = m$ldir_x_um, y_orig = m$ldir_y_um,
+      area_um2 = m$ldir_area_um2,
+      major_um = m$ldir_major_um, minor_um = m$ldir_minor_um,
+      feret_max = m$ldir_feret_max_um,
+      material = m$ldir_material, quality = m$ldir_quality,
+      match_status = "matched", match_id = m$match_id,
+      stringsAsFactors = FALSE)
+  }
+  if (!is.null(data$unmatched_ldir) && nrow(data$unmatched_ldir) > 0) {
+    u <- data$unmatched_ldir
+    ldir_parts[[length(ldir_parts) + 1]] <- data.frame(
+      particle_id = u$particle_id,
+      x = if ("x_aligned" %in% names(u)) u$x_aligned else u$x_um,
+      y = if ("y_aligned" %in% names(u)) u$y_aligned else u$y_um,
+      x_orig = u$x_um, y_orig = u$y_um,
+      area_um2 = u$area_um2,
+      major_um = u$major_um, minor_um = u$minor_um,
+      feret_max = u$feret_max_um,
+      material = u$material, quality = u$quality,
+      match_status = "unmatched", match_id = NA_integer_,
+      stringsAsFactors = FALSE)
+  }
+  result$ldir <- if (length(ldir_parts) > 0) do.call(rbind, ldir_parts) else NULL
 
   result
 }
