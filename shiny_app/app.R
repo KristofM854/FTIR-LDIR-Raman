@@ -507,6 +507,14 @@ server <- function(input, output, session) {
 
 
   # ==================================================================
+  # Sticky hover state: stores the last successfully found particle/row
+  # so the info panel doesn't flicker when the cursor drifts slightly.
+  # Updated only when a NEW particle is found; keeps showing the last
+  # particle when hovering over empty background.
+  # ==================================================================
+  last_hover <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
+
+  # ==================================================================
   # Zoom state: NULL means full view, otherwise list(x=c(lo,hi), y=c(lo,hi))
   # ==================================================================
   zoom <- reactiveValues(ftir = NULL, raman = NULL, overlay = NULL)
@@ -565,11 +573,17 @@ server <- function(input, output, session) {
            length(unique(df$material)), " materials")
   })
 
-  output$ftir_hover_info <- renderUI({
+  observeEvent(input$ftir_hover, {
     hover <- input$ftir_hover
-    if (is.null(hover)) return(tags$p(class = "text-muted", "Hover over a particle"))
+    if (is.null(hover)) return()
     df <- ftir_filtered()
+    if (nrow(df) == 0) return()
     row <- nearest_particle(df, hover$x, hover$y)
+    if (!is.null(row)) last_hover$ftir <- row
+  })
+
+  output$ftir_hover_info <- renderUI({
+    row <- last_hover$ftir
     single_detail_html(row, "FTIR", "AAU Quality")
   })
 
@@ -610,11 +624,17 @@ server <- function(input, output, session) {
            length(unique(df$material)), " materials")
   })
 
-  output$raman_hover_info <- renderUI({
+  observeEvent(input$raman_hover, {
     hover <- input$raman_hover
-    if (is.null(hover)) return(tags$p(class = "text-muted", "Hover over a particle"))
+    if (is.null(hover)) return()
     df <- raman_filtered()
+    if (nrow(df) == 0) return()
     row <- nearest_particle(df, hover$x, hover$y)
+    if (!is.null(row)) last_hover$raman <- row
+  })
+
+  output$raman_hover_info <- renderUI({
+    row <- last_hover$raman
     single_detail_html(row, "Raman", "HQI")
   })
 
@@ -739,15 +759,13 @@ server <- function(input, output, session) {
            n_um_r, " unmatched Raman")
   })
 
-  output$overlay_hover_info <- renderUI({
+  # Overlay: sticky hover — update last_hover$overlay only when a new match is found
+  observeEvent(input$overlay_hover, {
     hover <- input$overlay_hover
-    if (is.null(hover))
-      return(tags$p(class = "text-muted",
-                    "Hover over a matched particle for the comparison table"))
+    if (is.null(hover)) return()
 
     matched <- overlay_matched()
-    if (is.null(matched) || nrow(matched) == 0)
-      return(tags$p(class = "text-muted", "No matched particles available"))
+    if (is.null(matched) || nrow(matched) == 0) return()
 
     # Find nearest matched particle (check both FTIR and Raman positions)
     dx_f <- matched$ftir_x_aligned - hover$x
@@ -765,15 +783,22 @@ server <- function(input, output, session) {
     vis <- if (!is.null(zoom$overlay)) zoom$overlay
            else compute_bounds(instrument_dfs()$ftir, instrument_dfs()$raman)
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
-    if (min(min_f, min_r) > snap_dist) {
+
+    if (min(min_f, min_r) <= snap_dist) {
+      if (min_f <= min_r) {
+        last_hover$overlay <- matched[which.min(dist_f), ]
+      } else {
+        last_hover$overlay <- matched[which.min(dist_r), ]
+      }
+    }
+    # If no particle near cursor, keep the old one (sticky)
+  })
+
+  output$overlay_hover_info <- renderUI({
+    row <- last_hover$overlay
+    if (is.null(row)) {
       return(tags$p(class = "text-muted",
                     "Hover over a matched particle for the comparison table"))
-    }
-
-    if (min_f <= min_r) {
-      row <- matched[which.min(dist_f), ]
-    } else {
-      row <- matched[which.min(dist_r), ]
     }
 
     tags$table(class = "hover-tbl",
