@@ -160,7 +160,14 @@ extract_particles_from_image <- function(image_path,
     x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / w_full
     y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / h_full
     x_um <- scan_bounds$x_min + cx_full * x_scale
-    y_um <- scan_bounds$y_min + cy_full * y_scale
+    # LDIR images have y=0 at top (image convention); flip to Cartesian
+    # so that the coordinate system matches Raman (y increases upward).
+    # FTIR and other instruments keep the original convention.
+    if (grepl("LDIR", instrument, ignore.case = TRUE)) {
+      y_um <- scan_bounds$y_max - cy_full * y_scale
+    } else {
+      y_um <- scan_bounds$y_min + cy_full * y_scale
+    }
     size_scale <- max(x_scale, y_scale) * ds
     area_scale <- x_scale * y_scale * ds * ds
     log_message("  Scale: ", round(x_scale, 2), " x ", round(y_scale, 2), " um/px")

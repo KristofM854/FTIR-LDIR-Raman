@@ -266,7 +266,10 @@ extract_ldir_image_coords <- function(image_path,
   bb_w <- col_max - col_min + 1
   areas <- tab[keep_ids]
 
-  # Scale to physical coordinates
+  # Scale to physical coordinates (Cartesian: y increases upward)
+  # Image pixels have y=0 at top (row 1), but physical/Raman convention
+  # is y increasing upward.  Flip y so row 0 (top) → y_max and
+  # row h (bottom) → y_min, matching Raman's Cartesian frame.
   cx_full <- as.numeric(cx) - 0.5
   cy_full <- as.numeric(cy) - 0.5
 
@@ -274,7 +277,7 @@ extract_ldir_image_coords <- function(image_path,
     x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / w
     y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / h
     x_um <- scan_bounds$x_min + cx_full * x_scale
-    y_um <- scan_bounds$y_min + cy_full * y_scale
+    y_um <- scan_bounds$y_max - cy_full * y_scale
     size_scale <- max(x_scale, y_scale)
     area_scale <- x_scale * y_scale
   } else {
