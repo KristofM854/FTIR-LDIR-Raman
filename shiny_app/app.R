@@ -346,44 +346,23 @@ server <- function(input, output, session) {
     NULL
   })
 
-  # Overlay tab: raman_resized.jpg placed at Raman-normalized bounds.
-  # The image covers the full filter.  We compute bounds from FTIR + Raman
-  # particles only (not LDIR, whose alignment is coarser and would stretch
-  # the image far beyond the filter area).
+  # Overlay tab: raman_resized.jpg placed at the extent of all particles.
+  # The Raman image is already in the Raman coordinate system (the reference
+  # frame).  FTIR and LDIR coordinates are transformed to match Raman, so
+  # the image needs no transformation — just placement at the data extent.
   overlay_image_info <- reactive({
     raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
     dfs <- instrument_dfs()
-    # Use FTIR + Raman only for image placement (well-aligned instruments)
-    all_x <- c(dfs$ftir$x, dfs$raman$x)
-    all_y <- c(dfs$ftir$y, dfs$raman$y)
+    all_x <- c(dfs$ftir$x, dfs$raman$x, if (!is.null(dfs$ldir)) dfs$ldir$x)
+    all_y <- c(dfs$ftir$y, dfs$raman$y, if (!is.null(dfs$ldir)) dfs$ldir$y)
     all_x <- all_x[is.finite(all_x)]
     all_y <- all_y[is.finite(all_y)]
     if (length(all_x) == 0) return(NULL)
 
-    # Image aspect ratio (width / height)
-    img_aspect <- ncol(raw) / nrow(raw)
-
-    # Compute bounds from actual particle extent with 20% padding
-    pad_frac <- 0.20
-    rx <- range(all_x); ry <- range(all_y)
-    w <- diff(rx); h <- diff(ry)
-    xmin <- rx[1] - pad_frac * w
-    xmax <- rx[2] + pad_frac * w
-    ymin <- ry[1] - pad_frac * h
-    ymax <- ry[2] + pad_frac * h
-
-    # Enforce image aspect ratio (expand the tighter dimension)
-    curr_aspect <- (xmax - xmin) / (ymax - ymin)
-    if (curr_aspect < img_aspect) {
-      mid_x <- (xmin + xmax) / 2
-      half_x <- (ymax - ymin) * img_aspect / 2
-      xmin <- mid_x - half_x; xmax <- mid_x + half_x
-    } else {
-      mid_y <- (ymin + ymax) / 2
-      half_y <- (xmax - xmin) / img_aspect / 2
-      ymin <- mid_y - half_y; ymax <- mid_y + half_y
-    }
+    # Place image at the particle extent (no padding, no stretching)
+    xmin <- min(all_x); xmax <- max(all_x)
+    ymin <- min(all_y); ymax <- max(all_y)
 
     # Apply user fine-tuning offsets
     ox <- if (!is.null(input$overlay_img_offset_x)) input$overlay_img_offset_x else 0
@@ -395,12 +374,11 @@ server <- function(input, output, session) {
   })
 
   # LDIR tab: image placed at LDIR scan area bounds.
-  # LDIR coordinates use image convention: y=0 at top, increasing downward.
-  # ggplot uses Cartesian: y increases upward.  annotation_raster always
-  # places row 1 at ymax (top of plot) regardless of ymin/ymax ordering.
-  # So we PHYSICALLY flip the raster (reverse rows) so that what was the
-  # image bottom (high y_um) becomes row 1 and is placed at ymax (top of
-  # the plot), matching the particles plotted at y = y_um.
+  # The pipeline now outputs LDIR coordinates in Cartesian convention
+  # (y increases upward), matching Raman.  annotation_raster places
+  # row 1 at ymax (top of plot).  Since the PNG also has row 1 = top
+  # of the physical filter = high y in Cartesian, this is correct
+  # without any image flip.
   ldir_native_image_info <- reactive({
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
@@ -414,9 +392,7 @@ server <- function(input, output, session) {
       # Compute scan extent: round up max coordinate to nearest 1000 µm
       extent <- max(ceiling(max(xvals) / 1000) * 1000,
                     ceiling(max(yvals) / 1000) * 1000)
-      # Flip raster vertically to match LDIR y convention
-      flipped <- raw[nrow(raw):1, , , drop = FALSE]
-      return(list(raster = flipped,
+      return(list(raster = raw,
                   xmin = 0 + ox, xmax = extent + ox,
                   ymin = 0 + oy, ymax = extent + oy))
     }

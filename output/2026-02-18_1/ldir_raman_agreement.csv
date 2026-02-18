@@ -1,0 +1,8 @@
+"material_a","family_a","category_a","n_pairs","n_exact","n_family","n_disagree","exact_pct","family_or_better_pct"
+"CARBONATE","Natural","Natural/Organic",2,0,0,2,0,0
+"CELLULOSIC","Cellulose","Semi-synthetic",3,0,2,1,0,66.7
+"NATURALLY OCCURRING","Natural","Natural/Organic",13,0,0,13,0,0
+"POLYAMIDE","PA","Synthetic",1,0,1,0,0,100
+"POLYETHYLENE TEREPHTHALATE","PET","Synthetic",2,0,1,1,0,50
+"POLYPROPYLENE","PP","Synthetic",1,0,0,1,0,0
+"RUBBER","Rubber","Synthetic",2,0,0,2,0,0
