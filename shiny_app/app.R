@@ -347,16 +347,16 @@ server <- function(input, output, session) {
   })
 
   # Overlay tab: raman_resized.jpg placed at Raman-normalized bounds.
-  # The image covers the full filter.  We compute bounds from the actual
-  # extent of ALL instruments' particles (FTIR + Raman + LDIR) with generous
-  # padding, centered on the particle midpoint and enforcing image aspect ratio.
+  # The image covers the full filter.  We compute bounds from FTIR + Raman
+  # particles only (not LDIR, whose alignment is coarser and would stretch
+  # the image far beyond the filter area).
   overlay_image_info <- reactive({
     raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
     dfs <- instrument_dfs()
-    # Collect all particle x/y in Raman-norm space (all instruments)
-    all_x <- c(dfs$ftir$x, dfs$raman$x, dfs$ldir$x)
-    all_y <- c(dfs$ftir$y, dfs$raman$y, dfs$ldir$y)
+    # Use FTIR + Raman only for image placement (well-aligned instruments)
+    all_x <- c(dfs$ftir$x, dfs$raman$x)
+    all_y <- c(dfs$ftir$y, dfs$raman$y)
     all_x <- all_x[is.finite(all_x)]
     all_y <- all_y[is.finite(all_y)]
     if (length(all_x) == 0) return(NULL)
@@ -364,8 +364,8 @@ server <- function(input, output, session) {
     # Image aspect ratio (width / height)
     img_aspect <- ncol(raw) / nrow(raw)
 
-    # Compute bounds from actual particle extent with 25% padding
-    pad_frac <- 0.25
+    # Compute bounds from actual particle extent with 20% padding
+    pad_frac <- 0.20
     rx <- range(all_x); ry <- range(all_y)
     w <- diff(rx); h <- diff(ry)
     xmin <- rx[1] - pad_frac * w
@@ -396,9 +396,11 @@ server <- function(input, output, session) {
 
   # LDIR tab: image placed at LDIR scan area bounds.
   # LDIR coordinates use image convention: y=0 at top, increasing downward.
-  # ggplot uses Cartesian: y increases upward.  We swap ymin/ymax so that
-  # image row 1 (physical top, y_um≈0) maps to the bottom of the plot,
-  # matching the particle y_um values.
+  # ggplot uses Cartesian: y increases upward.  annotation_raster always
+  # places row 1 at ymax (top of plot) regardless of ymin/ymax ordering.
+  # So we PHYSICALLY flip the raster (reverse rows) so that what was the
+  # image bottom (high y_um) becomes row 1 and is placed at ymax (top of
+  # the plot), matching the particles plotted at y = y_um.
   ldir_native_image_info <- reactive({
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
@@ -412,11 +414,11 @@ server <- function(input, output, session) {
       # Compute scan extent: round up max coordinate to nearest 1000 µm
       extent <- max(ceiling(max(xvals) / 1000) * 1000,
                     ceiling(max(yvals) / 1000) * 1000)
-      # Image is square (2400x2400), scan area is [0, extent] x [0, extent]
-      # Swap ymin/ymax to flip image vertically (LDIR y convention = image rows)
-      return(list(raster = raw,
+      # Flip raster vertically to match LDIR y convention
+      flipped <- raw[nrow(raw):1, , , drop = FALSE]
+      return(list(raster = flipped,
                   xmin = 0 + ox, xmax = extent + ox,
-                  ymin = extent + oy, ymax = 0 + oy))
+                  ymin = 0 + oy, ymax = extent + oy))
     }
     NULL
   })
