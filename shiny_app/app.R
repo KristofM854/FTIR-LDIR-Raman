@@ -334,14 +334,13 @@ server <- function(input, output, session) {
     if (is.null(raw)) return(NULL)
     raman_df <- instrument_dfs()$raman
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
-      pad <- 300
       ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
       oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
       return(list(raster = raw,
-                  xmin = min(raman_df$x_orig, na.rm = TRUE) - pad + ox,
-                  xmax = max(raman_df$x_orig, na.rm = TRUE) + pad + ox,
-                  ymin = min(raman_df$y_orig, na.rm = TRUE) - pad + oy,
-                  ymax = max(raman_df$y_orig, na.rm = TRUE) + pad + oy))
+                  xmin = min(raman_df$x_orig, na.rm = TRUE) + ox,
+                  xmax = max(raman_df$x_orig, na.rm = TRUE) + ox,
+                  ymin = min(raman_df$y_orig, na.rm = TRUE) + oy,
+                  ymax = max(raman_df$y_orig, na.rm = TRUE) + oy))
     }
     NULL
   })
@@ -363,12 +362,10 @@ server <- function(input, output, session) {
     raman_y <- dfs$raman$y[is.finite(dfs$raman$y)]
     if (length(raman_x) == 0) return(NULL)
 
-    # Same padding as the Raman native tab (300 µm)
-    pad <- 300
-    xmin <- min(raman_x) - pad
-    xmax <- max(raman_x) + pad
-    ymin <- min(raman_y) - pad
-    ymax <- max(raman_y) + pad
+    xmin <- min(raman_x)
+    xmax <- max(raman_x)
+    ymin <- min(raman_y)
+    ymax <- max(raman_y)
 
     # Apply user fine-tuning offsets
     ox <- if (!is.null(input$overlay_img_offset_x)) input$overlay_img_offset_x else 0
