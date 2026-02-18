@@ -315,5 +315,14 @@ export_ldir_results <- function(ldir_results, out_dir) {
               file.path(out_dir, "ldir_coord_quality.csv"), row.names = FALSE)
   }
 
+  # Image-extracted coordinates (before Hungarian join) for Shiny viewer
+  if (!is.null(ldir_results$ldir_image_extracted) &&
+      nrow(ldir_results$ldir_image_extracted) > 0) {
+    write.csv(ldir_results$ldir_image_extracted,
+              file.path(out_dir, "ldir_image_extracted.csv"), row.names = FALSE)
+    log_message("    LDIR image-extracted particles: ",
+                nrow(ldir_results$ldir_image_extracted))
+  }
+
   invisible(NULL)
 }

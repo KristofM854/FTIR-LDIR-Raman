@@ -95,7 +95,54 @@ ui <- fluidPage(
 
     # Tab 3: LDIR
     tabPanel("LDIR",
-      instrument_panel_ui("ldir", "Quality", 0, 1, 0.01, 1200)
+      sidebarLayout(
+        sidebarPanel(width = 3,
+          h4("LDIR Filters"),
+          sliderInput("ldir_quality_range", "Quality",
+                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+          sliderInput("ldir_size_range", "Feret Max (\u00b5m)",
+                      min = 0, max = 1200, value = c(0, 1200), step = 5),
+          selectInput("ldir_material_filter", "Material",
+                      choices = c("All"), selected = "All", multiple = TRUE),
+          checkboxGroupInput("ldir_match_filter", "Match Status",
+                             choices = c("matched", "unmatched"),
+                             selected = c("matched", "unmatched"), inline = TRUE),
+          hr(),
+          h4("Image Overlay"),
+          checkboxGroupInput("ldir_overlay_mode", "Display",
+                             choices = c("Raw image" = "raw_image",
+                                         "Processed image" = "processed_image",
+                                         "Image-extracted particles" = "extracted_pts"),
+                             selected = c("raw_image"),
+                             inline = FALSE),
+          hr(),
+          div(class = "info-box",
+              h5("Summary"), textOutput("ldir_summary_text")),
+          hr(),
+          fileInput("ldir_image_upload", "Background Image",
+                    accept = c("image/png", "image/jpeg")),
+          fluidRow(
+            column(6, numericInput("ldir_img_offset_x",
+                                   "Img X offset (\u00b5m)", value = 0, step = 25)),
+            column(6, numericInput("ldir_img_offset_y",
+                                   "Img Y offset (\u00b5m)", value = 0, step = 25))
+          )
+        ),
+        mainPanel(width = 9,
+          plotOutput("ldir_plot", height = "650px",
+                     hover = hoverOpts("ldir_hover", delay = 100,
+                                       delayType = "throttle"),
+                     brush = brushOpts("ldir_brush",
+                                       resetOnNew = TRUE),
+                     dblclick = "ldir_dblclick"),
+          tags$p(class = "text-muted",
+                 "Drag to zoom in. Double-click to reset zoom."),
+          hr(),
+          div(class = "info-box",
+              h5("Particle Details (hover)"),
+              detail_table_ui("ldir_hover_info"))
+        )
+      )
     ),
 
     # Tab 4: Overlay (FTIR + Raman)
@@ -120,7 +167,8 @@ ui <- fluidPage(
                                          "FTIR-Raman lines" = "match_lines",
                                          "LDIR matched" = "ldir_matched",
                                          "LDIR unmatched" = "ldir_unmatched",
-                                         "LDIR-Raman lines" = "ldir_lines"),
+                                         "LDIR-Raman lines" = "ldir_lines",
+                                         "Triple matches only" = "triple_only"),
                              selected = c("matched", "unmatched_ftir",
                                           "unmatched_raman", "ldir_matched"),
                              inline = FALSE),
@@ -777,8 +825,51 @@ server <- function(input, output, session) {
                       input$ldir_material_filter, input$ldir_match_filter)
   })
 
+  # Processed LDIR image: saturation mask computed on the fly from raw PNG
+  ldir_processed_image <- reactive({
+    raw <- ldir_raw_image()
+    if (is.null(raw)) return(NULL)
+    if (length(dim(raw)) < 3 || dim(raw)[3] < 3) return(NULL)
+
+    r <- raw[,,1]; g <- raw[,,2]; b <- raw[,,3]
+    mx <- pmax(r, g, b)
+    mn <- pmin(r, g, b)
+    sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
+    binary <- sat > 0.3 & mx > 0.08
+
+    # Create a 3-channel visualization:
+    # foreground pixels in green, background in dark grey
+    h <- nrow(raw); w <- ncol(raw)
+    out <- array(0.12, dim = c(h, w, 3))
+    out[,,2][binary] <- 0.8    # green channel for foreground
+    out[,,1][binary] <- 0.15   # slight red for contrast
+    out[,,3][binary] <- 0.15   # slight blue for contrast
+    out
+  })
+
+  # Processed LDIR image info (same bounds as native)
+  ldir_processed_image_info <- reactive({
+    proc <- ldir_processed_image()
+    if (is.null(proc)) return(NULL)
+    native <- ldir_native_image_info()
+    if (is.null(native)) return(NULL)
+    list(raster = proc,
+         xmin = native$xmin, xmax = native$xmax,
+         ymin = native$ymin, ymax = native$ymax)
+  })
+
+  # LDIR image-extracted particles (pre-join, from pipeline)
+  ldir_extracted_pts <- reactive({
+    d <- run_data()
+    if (is.null(d$ldir_image_extracted) || nrow(d$ldir_image_extracted) == 0)
+      return(NULL)
+    d$ldir_image_extracted
+  })
+
   output$ldir_plot <- renderPlot({
     df <- ldir_filtered()
+    overlay_mode <- input$ldir_overlay_mode
+
     # Display in native LDIR frame (x_orig, y_orig)
     df_disp <- df
     if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
@@ -791,9 +882,25 @@ server <- function(input, output, session) {
       } else list(x = c(-1000, 14000), y = c(-1000, 14000))
     }
 
-    img <- ldir_native_image_info()
+    # Choose image based on overlay mode
+    img <- NULL
+    if ("processed_image" %in% overlay_mode) {
+      img <- ldir_processed_image_info()
+    }
+    if (is.null(img) && "raw_image" %in% overlay_mode) {
+      img <- ldir_native_image_info()
+    }
 
-    if (nrow(df_disp) == 0) {
+    n_extracted <- 0
+    extracted <- ldir_extracted_pts()
+    if (!is.null(extracted)) n_extracted <- nrow(extracted)
+
+    title_parts <- paste0("LDIR Particles (", nrow(df_disp), " Excel-joined")
+    if ("extracted_pts" %in% overlay_mode && n_extracted > 0)
+      title_parts <- paste0(title_parts, " + ", n_extracted, " image-extracted")
+    title_parts <- paste0(title_parts, ")")
+
+    if (nrow(df_disp) == 0 && !("extracted_pts" %in% overlay_mode && n_extracted > 0)) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "LDIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
         theme_minimal(base_size = 13) +
@@ -801,16 +908,53 @@ server <- function(input, output, session) {
               panel.background = element_rect(fill = "grey98", colour = NA))
       return(add_image_bg(p, img))
     }
-    make_scatter(df_disp, img, bounds,
-                 paste0("LDIR Particles (", nrow(df_disp), " shown)"),
-                 match_colours = c(matched = "#17becf", unmatched = "#bcbd22"))
+
+    p <- ggplot() +
+      coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+      labs(title = title_parts, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+      theme_minimal(base_size = 13) +
+      theme(
+        plot.background  = element_rect(fill = "white", colour = NA),
+        panel.background = element_rect(fill = "grey98", colour = NA),
+        panel.grid       = element_line(colour = "grey90"),
+        legend.position  = "bottom"
+      )
+
+    # Background image
+    p <- add_image_bg(p, img)
+
+    # Image-extracted particles (before join): small open circles
+    if ("extracted_pts" %in% overlay_mode && n_extracted > 0) {
+      ext_df <- data.frame(x = extracted$x_um, y = extracted$y_um,
+                           feret_max = extracted$feret_max_um)
+      p <- p + geom_point(data = ext_df,
+                            aes(x = x, y = y, size = feret_max),
+                            shape = 1, colour = "#e377c2", alpha = 0.5,
+                            stroke = 0.5) +
+        scale_size_continuous(range = c(2, 12), guide = "none")
+    }
+
+    # Excel-joined particles (main layer)
+    if (nrow(df_disp) > 0) {
+      p <- p + geom_point(data = df_disp,
+                            aes(x = x, y = y, colour = match_status,
+                                size = feret_max),
+                            alpha = 0.7) +
+        scale_colour_manual(values = c(matched = "#17becf",
+                                        unmatched = "#bcbd22"))
+    }
+
+    p
   })
 
   output$ldir_summary_text <- renderText({
     df <- ldir_filtered()
-    if (nrow(df) == 0) return("No LDIR data loaded")
-    paste0(nrow(df), " particles | ",
+    extracted <- ldir_extracted_pts()
+    n_ext <- if (!is.null(extracted)) nrow(extracted) else 0
+    if (nrow(df) == 0 && n_ext == 0) return("No LDIR data loaded")
+    paste0(nrow(df), " Excel-joined | ",
            sum(df$match_status == "matched"), " matched | ",
+           n_ext, " image-extracted | ",
            length(unique(df$material)), " materials")
   })
 
@@ -876,10 +1020,18 @@ server <- function(input, output, session) {
     d$ldir_raman_matched
   })
 
+  # Triple-match data: particles detected by all three instruments
+  overlay_triplets <- reactive({
+    d <- run_data()
+    if (is.null(d$triplets) || nrow(d$triplets) == 0) return(data.frame())
+    d$triplets
+  })
+
   output$overlay_plot <- renderPlot({
     dfs <- instrument_dfs()
     matched <- overlay_matched()
     ldir_m <- overlay_ldir_matched()
+    triplets <- overlay_triplets()
     layers <- input$overlay_layers
     bounds <- if (!is.null(zoom$overlay)) zoom$overlay
               else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
@@ -980,21 +1132,62 @@ server <- function(input, output, session) {
                                         LDIR = "#9467bd"))
     }
 
+    # Triple matches: highlight particles detected by all three instruments
+    if ("triple_only" %in% layers && nrow(triplets) > 0 &&
+        nrow(matched) > 0 && nrow(ldir_m) > 0) {
+      # Get aligned coordinates for each instrument in the triplet
+      triple_pts <- list()
+
+      # FTIR coordinates from matched_particles (join by raman_particle_id)
+      m_trip <- matched[matched$raman_particle_id %in% triplets$raman_particle_id, ]
+      if (nrow(m_trip) > 0) {
+        triple_pts[[1]] <- data.frame(
+          x = m_trip$ftir_x_aligned, y = m_trip$ftir_y_aligned,
+          feret_max = m_trip$ftir_feret_max_um, instrument = "FTIR"
+        )
+        triple_pts[[2]] <- data.frame(
+          x = m_trip$raman_x_norm, y = m_trip$raman_y_norm,
+          feret_max = m_trip$raman_feret_max_um, instrument = "Raman"
+        )
+      }
+
+      # LDIR coordinates from ldir_raman_matched (join by raman_particle_id)
+      l_trip <- ldir_m[ldir_m$raman_particle_id %in% triplets$raman_particle_id, ]
+      if (nrow(l_trip) > 0 && "ldir_x_aligned" %in% names(l_trip)) {
+        triple_pts[[length(triple_pts) + 1]] <- data.frame(
+          x = l_trip$ldir_x_aligned, y = l_trip$ldir_y_aligned,
+          feret_max = l_trip$ldir_feret_max_um, instrument = "LDIR"
+        )
+      }
+
+      if (length(triple_pts) > 0) {
+        triple_df <- do.call(rbind, triple_pts)
+        # Gold ring around triple-match particles for visibility
+        p <- p + geom_point(data = triple_df,
+                              aes(x = x, y = y),
+                              shape = 21, size = 6, stroke = 1.5,
+                              fill = NA, colour = "#FFD700", alpha = 0.9)
+      }
+    }
+
     p
   })
 
   output$overlay_summary_text <- renderText({
     m <- overlay_matched()
     dfs <- instrument_dfs()
+    triplets <- overlay_triplets()
     if (nrow(m) == 0 && is.null(dfs$ftir)) return("No pipeline data loaded")
     n_um_f <- if (!is.null(dfs$ftir)) sum(dfs$ftir$match_status == "unmatched") else 0
     n_um_r <- if (!is.null(dfs$raman)) sum(dfs$raman$match_status == "unmatched") else 0
     n_ldir <- if (!is.null(dfs$ldir)) nrow(dfs$ldir) else 0
     n_ldir_m <- if (!is.null(dfs$ldir)) sum(dfs$ldir$match_status == "matched") else 0
+    n_trip <- nrow(triplets)
     paste0(nrow(m), " FTIR-Raman pairs | ",
            n_um_f, " unmatched FTIR | ",
            n_um_r, " unmatched Raman | ",
-           n_ldir_m, "/", n_ldir, " LDIR matched")
+           n_ldir_m, "/", n_ldir, " LDIR matched | ",
+           n_trip, " triple matches")
   })
 
   # Overlay: sticky hover — update last_hover$overlay only when a new match is found
