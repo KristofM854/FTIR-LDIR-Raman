@@ -124,8 +124,15 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
 #' Extract LDIR particle coordinates from the companion PNG image
 #'
 #' The Agilent 8700 LDIR exports a particle map PNG where particles are
-#' rendered as colored markers on a background. This function detects those
-#' markers and extracts centroids.
+#' rendered as colored markers on a near-black background. This function
+#' detects those markers and extracts centroids.
+#'
+#' Strategy:
+#'   - For color images (mean saturation > 0.15): segment on the HSV
+#'     saturation channel.  Colored particles have high saturation; the
+#'     near-black background has low saturation.  This avoids the grayscale
+#'     conversion that creates texture artifacts.
+#'   - For grayscale images: fall back to adaptive thresholding.
 #'
 #' @param image_path Path to LDIR PNG image file
 #' @param scan_bounds Physical scan bounds in µm (list with x_min, x_max, y_min, y_max)
@@ -147,50 +154,46 @@ extract_ldir_image_coords <- function(image_path,
   n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1
   log_message("  LDIR image: ", w_full, " x ", h_full, " px, ", n_ch, " channels")
 
-  # Determine extraction method based on image characteristics
   if (n_ch >= 3) {
     r <- img[,,1]; g <- img[,,2]; b <- img[,,3]
 
-    # Check for colored markers (high saturation)
+    # Compute saturation (HSV S channel)
     mx <- pmax(r, g, b)
     mn <- pmin(r, g, b)
     sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
     mean_sat <- mean(sat)
-    n_colored <- sum(sat > 0.3)
-    frac_colored <- n_colored / (h_full * w_full)
 
-    log_message("  Mean saturation: ", round(mean_sat, 3),
-                ", colored pixels (sat>0.3): ", round(frac_colored * 100, 1), "%")
+    log_message("  Mean saturation: ", round(mean_sat, 3))
 
-    # Strategy decision: if significant colored pixels exist, use
-    # color-channel segmentation. Otherwise, fall back to grayscale adaptive.
-    if (frac_colored > 0.001 && frac_colored < 0.5) {
-      log_message("  Using color-marker extraction strategy")
-      result <- .extract_ldir_color_markers(img, h_full, w_full, scan_bounds,
-                                             expected_count)
+    # Color images: use saturation-based segmentation.
+    # Grayscale images (mean_sat ≈ 0): fall back to adaptive threshold.
+    if (mean_sat > 0.15) {
+      log_message("  Using saturation-based extraction (colored LDIR image)")
+      result <- .extract_ldir_saturation(img, h_full, w_full, scan_bounds,
+                                          expected_count)
     } else {
-      log_message("  Using adaptive-threshold extraction strategy")
+      log_message("  Using adaptive-threshold extraction (grayscale image)")
       result <- extract_particles_from_image(
         image_path,
         scan_bounds     = scan_bounds,
         adaptive_radius = 50L,
-        adaptive_offset = 0.03,
-        min_pixels      = 3,
-        min_size_um     = 10,
+        adaptive_offset = 0.05,
+        min_pixels      = 15,
+        min_size_um     = 20,
         downsample      = 2L,
         expected_count  = expected_count,
         instrument      = "LDIR"
       )
     }
   } else {
-    # Grayscale image — use standard extraction
+    # Single-channel image — use standard extraction
     result <- extract_particles_from_image(
       image_path,
       scan_bounds     = scan_bounds,
       adaptive_radius = 50L,
-      adaptive_offset = 0.03,
-      min_pixels      = 3,
-      min_size_um     = 10,
+      adaptive_offset = 0.05,
+      min_pixels      = 15,
+      min_size_um     = 20,
       downsample      = 2L,
       expected_count  = expected_count,
       instrument      = "LDIR"
@@ -202,10 +205,15 @@ extract_ldir_image_coords <- function(image_path,
 }
 
 
-#' Color-marker extraction for LDIR particle map images
+#' Saturation-based extraction for LDIR particle map images
 #'
-#' Detects colored markers (non-gray pixels) against a uniform background.
-#' Works well for Agilent LDIR exports where particles are colored dots.
+#' LDIR particle maps render particles as colored markers (high saturation)
+#' on a near-black background (low saturation).  Segmenting on the HSV
+#' saturation channel cleanly separates particles from background without
+#' the grayscale texture artifacts that plague adaptive thresholding.
+#'
+#' A brightness gate (value > 0.08) excludes near-black pixels that can
+#' have noisy saturation values.
 #'
 #' @param img 3D array (h x w x channels)
 #' @param h Image height in pixels
@@ -213,39 +221,44 @@ extract_ldir_image_coords <- function(image_path,
 #' @param scan_bounds Physical scan bounds
 #' @param expected_count Expected particle count
 #' @return Data frame with standard particle columns
-.extract_ldir_color_markers <- function(img, h, w, scan_bounds, expected_count) {
+.extract_ldir_saturation <- function(img, h, w, scan_bounds, expected_count) {
   r <- img[,,1]; g <- img[,,2]; b <- img[,,3]
 
-  # Detect colored (saturated) pixels
+  # HSV saturation and value
   mx <- pmax(r, g, b)
   mn <- pmin(r, g, b)
   sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
 
-  # Also detect bright non-background pixels
-  gray <- (r + g + b) / 3
+  # Foreground: high saturation AND not too dark.
+  # The brightness gate (mx > 0.08) prevents near-black pixels with
+  # unreliable saturation from being counted as particles.
+  binary <- sat > 0.3 & mx > 0.08
 
-  # Background is typically the most common value — find mode
-  gray_hist <- hist(gray, breaks = 256, plot = FALSE)
-  bg_val <- gray_hist$mids[which.max(gray_hist$counts)]
-
-  # Foreground: either colored OR different from background
-  binary <- sat > 0.2 | abs(gray - bg_val) > 0.15
-
-  # Morphological cleanup: remove very small isolated pixels (noise)
-  # Simple approach: just rely on min_pixels in CCL
+  n_fg <- sum(binary)
+  log_message("  Saturation threshold (sat>0.3 & val>0.08): ",
+              n_fg, " foreground pixels (",
+              round(n_fg / (h * w) * 100, 1), "%)")
 
   # Connected components
   cc <- .two_pass_ccl(binary, h, w)
   lab_mat <- cc$labels
   n_components <- cc$n_components
+  log_message("  Raw components: ", n_components)
 
   if (n_components == 0) return(.empty_image_df())
 
-  min_pixels <- 3
+  # Filter by minimum pixel count (15 pixels).
+  # At 5.42 µm/px, 15 pixels ≈ 80 µm² — well below the smallest real
+  # particle (~20 µm feret) but eliminates single-pixel noise clusters.
+  min_pixels <- 15
   fg_idx    <- which(binary, arr.ind = TRUE)
   fg_labels <- lab_mat[binary]
   tab       <- tabulate(fg_labels, nbins = n_components)
   keep_ids  <- which(tab >= min_pixels)
+
+  log_message("  After min_pixels=", min_pixels, " filter: ",
+              length(keep_ids), " components (removed ",
+              n_components - length(keep_ids), " noise clusters)")
 
   if (length(keep_ids) == 0) return(.empty_image_df())
 
@@ -304,16 +317,25 @@ extract_ldir_image_coords <- function(image_path,
     stringsAsFactors = FALSE
   )
 
-  # Auto-trim if way too many components
+  # Size filter: smallest LDIR particle in Excel data is ~20 µm
+  df <- df[df$feret_max_um >= 20, ]
+  n_after_size <- nrow(df)
+  if (n_after_size < n_kept) {
+    log_message("  Size filter (>= 20 µm): ", n_kept, " -> ", n_after_size)
+  }
+
+  # Auto-trim if still too many components
   if (!is.null(expected_count) && expected_count > 0 && nrow(df) > expected_count * 1.5) {
     target_n <- round(expected_count * 1.3)
     if (nrow(df) > target_n) {
       size_cutoff <- sort(df$feret_max_um, decreasing = TRUE)[min(target_n, nrow(df))]
       df <- df[df$feret_max_um >= size_cutoff, ]
-      log_message("  Auto-trimmed to ", nrow(df), " particles (kept largest)")
+      log_message("  Auto-trimmed to ", nrow(df), " particles (kept largest, cutoff >= ",
+                  round(size_cutoff, 1), " µm)")
     }
   }
 
+  log_message("  Final: ", nrow(df), " particles from saturation segmentation")
   df
 }
 
