@@ -334,35 +334,38 @@ server <- function(input, output, session) {
     if (is.null(raw)) return(NULL)
     raman_df <- instrument_dfs()$raman
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
-      pad <- 300
       ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
       oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
       return(list(raster = raw,
-                  xmin = min(raman_df$x_orig, na.rm = TRUE) - pad + ox,
-                  xmax = max(raman_df$x_orig, na.rm = TRUE) + pad + ox,
-                  ymin = min(raman_df$y_orig, na.rm = TRUE) - pad + oy,
-                  ymax = max(raman_df$y_orig, na.rm = TRUE) + pad + oy))
+                  xmin = min(raman_df$x_orig, na.rm = TRUE) + ox,
+                  xmax = max(raman_df$x_orig, na.rm = TRUE) + ox,
+                  ymin = min(raman_df$y_orig, na.rm = TRUE) + oy,
+                  ymax = max(raman_df$y_orig, na.rm = TRUE) + oy))
     }
     NULL
   })
 
-  # Overlay tab: raman_resized.jpg placed at the extent of all particles.
-  # The Raman image is already in the Raman coordinate system (the reference
-  # frame).  FTIR and LDIR coordinates are transformed to match Raman, so
-  # the image needs no transformation — just placement at the data extent.
+  # Overlay tab: raman_resized.jpg placed at Raman particle extent.
+  # The image is a Raman microscope photo, so it covers the same physical
+  # area as the Raman particles.  We use Raman-only extent + 300 µm padding,
+  # exactly mirroring the Raman native tab (which has excellent alignment).
+  # FTIR and LDIR particles are already transformed to the Raman frame,
+  # so they overlay correctly without affecting image placement.
   overlay_image_info <- reactive({
     raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
     dfs <- instrument_dfs()
-    all_x <- c(dfs$ftir$x, dfs$raman$x, if (!is.null(dfs$ldir)) dfs$ldir$x)
-    all_y <- c(dfs$ftir$y, dfs$raman$y, if (!is.null(dfs$ldir)) dfs$ldir$y)
-    all_x <- all_x[is.finite(all_x)]
-    all_y <- all_y[is.finite(all_y)]
-    if (length(all_x) == 0) return(NULL)
+    if (is.null(dfs$raman) || nrow(dfs$raman) == 0) return(NULL)
 
-    # Place image at the particle extent (no padding, no stretching)
-    xmin <- min(all_x); xmax <- max(all_x)
-    ymin <- min(all_y); ymax <- max(all_y)
+    # Use Raman particles only — the image is a Raman microscope photo
+    raman_x <- dfs$raman$x[is.finite(dfs$raman$x)]
+    raman_y <- dfs$raman$y[is.finite(dfs$raman$y)]
+    if (length(raman_x) == 0) return(NULL)
+
+    xmin <- min(raman_x)
+    xmax <- max(raman_x)
+    ymin <- min(raman_y)
+    ymax <- max(raman_y)
 
     # Apply user fine-tuning offsets
     ox <- if (!is.null(input$overlay_img_offset_x)) input$overlay_img_offset_x else 0
