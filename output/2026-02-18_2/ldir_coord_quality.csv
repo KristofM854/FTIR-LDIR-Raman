@@ -1,0 +1,506 @@
+"particle_id","x_um","y_um","coord_match_cost","coord_source","material","quality","feret_max_um"
+"A1",7437.91926319648,485.279126955033,0.226751490461224,"image","Polyethylene terephthalate",0.839804702046538,739
+"A2",6745.19602382131,3451.27534109039,0.383744760874096,"image","Polyethylene terephthalate",0.844333495567771,648
+"A3",2056.40890668248,7141.73149795703,0.581523227953672,"image","Polyethylene terephthalate",0.812781291857113,427
+"A4",5982.00844463802,1745.40759291521,0.103511765583316,"image","Polyethylene terephthalate",0.877067095480206,633
+"A5",12865.3601241438,2733.55236872146,0.204744892179056,"image","Polyethylene terephthalate",0.750639130991263,656
+"A6",11605.0749022483,9073.49645650049,0.189217564220436,"image","Polyethylene terephthalate",0.855330065989846,308
+"A7",9750.58788672655,6113.26378493014,0.16437339455604,"image","Polyethylene terephthalate",0.784742605201264,362
+"A8",3657.28320165538,843.489936042137,0.179390404420395,"image","Polyethylene terephthalate",0.810669600094303,272
+"A9",9505.23767166042,8757.16557428215,0.454030776414585,"image","Cellulosic",0.932922337685594,1113
+"A10",12855.489498645,6386.6793699187,0.145873989706141,"image","Polyethylene terephthalate",0.893747145334681,235
+"A11",6572.90663493841,1232.69200261291,0.0737711067178909,"image","Cellulosic",0.777987093272813,269
+"A12",1402.16346153846,5445.21474358974,0.00174392801310021,"image","Polyethylene terephthalate",0.85274100878399,297
+"A13",5112.11349419124,4625.80428954424,0.0724457097078378,"image","Polyethylene terephthalate",0.781167895347737,263
+"A14",8655.96595790378,8975.85642182131,0.139379548255756,"image","Polyethylene terephthalate",0.906822932618016,437
+"A15",4006.18766149871,10038.7923126615,0.039879791452175,"image","Polyethylene terephthalate",0.87095202394214,220
+"A16",1777.57230586371,12410.2657818278,0.421749056353872,"image","Polyvinyl chloride",0.692078609187708,831
+"A17",9774.81600294985,5362.2651179941,0.195508732441897,"image","Polyethylene terephthalate",0.884980070766979,447
+"A18",5482.40070093458,2261.73169781931,0.401812125831301,"image","Cellulosic",0.867312864284858,646
+"A19",8874.57246376812,11923.0960144928,0.0392329898914122,"image","Rubber",0.757959687261123,371
+"A20",4565.94351424172,6148.39828714396,0.122846492299928,"image","Polyethylene terephthalate",0.910899743593897,152
+"A21",12897.3676335175,5342.23987108656,0.264984903868723,"image","Polyethylene terephthalate",0.911626678055639,497
+"A22",4248.62958715596,5518.82963812436,0.0441763166714503,"image","Polyethylene terephthalate",0.855234937742436,143
+"A23",9631.78673416407,10307.6551142264,0.0491018346382138,"image","Cellulosic",0.917786851676572,263
+"A24",8170.08373526259,10789.6603697749,0.0228124078462638,"image","Polyamide (naturally occurring)",0.781205877791979,145
+"A25",12131.6717791411,11849.2574130879,0.233991962716372,"image","Cellulosic",0.928891530055395,417
+"A26",2176.3005952381,7029.49851190476,0.0412034899755095,"image","Polyethylene terephthalate",0.921203429248864,175
+"A27",5295.76445578231,12047.4515306122,0.291948051179723,"image","Cellulosic",0.910976576782371,375
+"A28",4874.51492537314,5374.86940298507,0.301483037581058,"image","Polyethylene terephthalate",0.866495534103227,107
+"A29",12942.0079442283,6181.45995460441,0.228285875258546,"image","Cellulosic",0.844400536822395,291
+"A30",2694.98666666667,954.676666666666,0.126856307444249,"image","Polyethylene terephthalate",0.892760518130499,140
+"A31",11929.1817876344,12633.6105510753,0.341791721371468,"image","Cellulosic",0.927399984619523,113
+"A32",9212.5248015873,10490.7721560847,0.37478390806777,"image","Polyethylene terephthalate",0.881695252838208,111
+"A33",10135.8700980392,4853.00245098039,0.395827422555158,"image","Cellulosic",0.833985981033295,416
+"A34",12951.5912073491,11418.4612860892,0.743366866326439,"image","Polyethylene terephthalate",0.893210651413161,97
+"A35",3963.27651515152,8274.79955808081,0.733774920669917,"image","Polyamide (naturally occurring)",0.933982588596863,97
+"A36",9334.02412280702,3115.44956140351,0.711278828278118,"image","Polyethylene terephthalate",0.906023235391562,94
+"A37",8186.78316326531,9174.38520408163,0.494918349925338,"image","Carbonate",0.796739607038821,164
+"A38",9433.89880952381,2799.55182072829,0.6064974440926,"image","Polyethylene terephthalate",0.918361068411598,110
+"A39",9373.38389967638,10935.9607605178,0.308157510793789,"image","Polyamide (naturally occurring)",0.878685457165586,192
+"A40",9842.64583333333,9987.72916666667,0.814972033482427,"image","Polyamide (naturally occurring)",0.939859813213134,104
+"A41",5238.92655367232,4060.27365819209,0.673714277373323,"image","Polyethylene terephthalate",0.892249441085367,135
+"A42",5460.72445130316,10504.1092249657,0.850718935082333,"image","Cellulosic",0.910002468582759,105
+"A43",2615.21628498728,826.041666666666,0.841428887138665,"image","Polyamide (naturally occurring)",0.93290560793875,103
+"A44",10151.9166666667,1112.49666666667,0.834789894281095,"image","Polypropylene",0.978589994635303,106
+"A45",5552.26823962517,11495.7003012048,0.845394359512233,"image","Polyamide (naturally occurring)",0.925932956436204,105
+"A46",9642.91941997063,5608.05157856094,0.653298505785798,"image","Cellulosic",0.894828861564227,167
+"A47",9550.125,8509.01388888889,0.558208005164614,"image","Cellulosic",0.822389400336825,190
+"A48",5688.99903100775,7104.53779069767,0.946335185571662,"image","Polyethylene terephthalate",0.877625051256687,94
+"A49",9850.92234848485,10646.5321969697,1.04923623345773,"image","Polyethylene terephthalate",0.911702241758719,80
+"A50",3954.08667369902,9082.71009142053,0.846672802979898,"image","Cellulosic",0.911693399418307,128
+"A51",11788.1451288245,12833.5094605475,0.998269119635386,"image","Polyamide (naturally occurring)",0.917033491970952,96
+"A52",8020.64814814815,12265.2777777778,0.992643445663345,"image","Cellulosic",0.969097963071682,103
+"A53",9648.1139380531,10156.5136430678,1.04005795113864,"image","Polyamide (naturally occurring)",0.898473024242733,100
+"A54",6483.45183486239,1051.13149847095,1.1835972193648,"image","Polyethylene terephthalate",0.922683503707088,74
+"A55",2509.23150069156,881.466977869986,1.12644011885564,"image","Polyethylene terephthalate",0.913073340982825,99
+"A56",7376.64640077821,1919.09127756161,1.34332335805608,"image","Polyamide (naturally occurring)",0.910238033900315,64
+"A57",5377.86299126638,2380.57769286754,1.42161887710614,"image","Cellulosic",0.822302459045794,60
+"A58",3411.2138030888,10086.3457207207,1.33642767564143,"image","Cellulosic",0.870641190372022,80
+"A59",5525.0436827957,1518.43581989247,1.27496662323753,"image","Cellulosic",0.942414338697657,91
+"A60",10422.0066738817,3942.68849206349,1.29372433851523,"image","Polyethylene terephthalate",0.918982893681545,85
+"A61",5715.96655937053,11414.0674177396,1.1029402699319,"image","Cellulosic",0.955328688477602,132
+"A62",6149.83231707317,6714.01117886179,1.15876155946406,"image","Polyamide (naturally occurring)",0.93182349408159,78
+"A63",2765.95119047619,10595.944047619,1.22608489980022,"image","Carbonate",0.860504115038641,73
+"A64",2428.57355442177,11868.6904761905,1.36552366909897,"image","Carbonate",0.732827477267805,55
+"A65",4967.12258454106,892.271537842191,1.31995777198551,"image","Polyamide (naturally occurring)",0.92175196503736,60
+"A66",8933.91578014184,9146.59485815603,1.07198682892134,"image","Cellulosic",0.94209901081891,180
+"A67",4948.82219471947,11600.6497524752,1.28396354606968,"image","Polyamide (naturally occurring)",0.925614174181343,64
+"A68",10471.9662106136,2675.84680762852,1.31546247315598,"image","Polyamide (naturally occurring)",0.92593733437578,70
+"A69",1428.46636546185,4926.98042168675,1.4517002416156,"image","Cellulosic",0.93580260113498,76
+"A70",1662.37003058104,6943.76911314985,1.43077086785484,"image","Polyethylene terephthalate",0.873115309564973,75
+"A71",4423.22916666667,6138.72916666667,1.65285247068037,"image","Polyethylene terephthalate",0.895910031452128,64
+"A72",2113.33421237693,6839.82155414909,1.65547412357597,"image","Polyethylene terephthalate",0.930434884804005,65
+"A73",10189.2489035088,1390.30153508772,1.2784896422093,"image","Polyamide (naturally occurring)",0.91134245757931,66
+"A74",5094.27651515152,5185.25189393939,1.49219992605489,"image","Polyethylene terephthalate",0.89249911252012,79
+"A75",9845.8950617284,9821.0686728395,1.64045624791279,"image","Polyamide (naturally occurring)",0.926064872381839,65
+"A76",8733.93181818182,12352.5852272727,1.19937551225717,"image","Cellulosic",0.828862653882412,165
+"A77",10403.6072695035,1591.05939716312,1.63470813003927,"image","Polyamide (naturally occurring)",0.971180570520754,60
+"A78",5945.44618055556,1267.04861111111,1.69524035021089,"image","Polyamide (naturally occurring)",0.91894503916936,60
+"A79",5342.75230318258,4691.77240368509,1.65427155362662,"image","Polyamide (naturally occurring)",0.914585244700799,56
+"A80",11651.0585016835,8689.70117845118,1.31883220089317,"image","Cellulosic",0.900970428432625,106
+"A81",8790.74296042618,9857.40582191781,1.71105704524788,"image","Polyamide (naturally occurring)",0.927072222024821,60
+"A82",3217.47395833333,144.53125,1.73311033778092,"image","Polyamide (naturally occurring)",0.804518698923528,50
+"A83",11889.2361111111,8158.06944444444,1.59557975806292,"image","Polyethylene terephthalate",0.941419101723752,50
+"A84",9231.39995974235,11480.6773349436,1.68706184320448,"image","Chitin",0.884059143024926,63
+"A85",5028.70833333333,8908.95833333333,1.65906373067965,"image","Polycarbonate",0.887871498426707,60
+"A86",1961.375,11722.8925438596,0.937027744263323,"image","Carbonate",0.860705010415341,53
+"A87",10452.2212441315,6533.30105633803,0.611712958792046,"image","Polyamide (naturally occurring)",0.925915615362264,55
+"A88",2908.75,10979.4208333333,0.894024543253201,"image","Polyamide (naturally occurring)",0.956803703803018,63
+"A89",5542.29607583774,123.222001763668,1.63568536565961,"image","Polyamide (naturally occurring)",0.931131812857365,60
+"A90",4917.92996453901,2126.21453900709,0.905650647679069,"image","Polyamide (naturally occurring)",0.940899868441385,65
+"A91",1377.03897849462,8788.82123655914,1.38322076468808,"image","Polycarbonate",0.869741025025116,68
+"A92",12508.3588709677,11760.125,1.53696311456206,"image","Polyamide (naturally occurring)",0.939254523355852,50
+"A93",1756.97166666667,533.064999999999,1.20629587446342,"image","Polyamide (naturally occurring)",0.934617438466672,63
+"A94",11978.0117313916,12971.1023462783,1.14687902919911,"image","Rubber",0.769118095199971,49
+"A95",10678.2041139241,3372.42352320675,0.924176797606654,"image","Cellulosic",0.936736016673243,45
+"A96",5149.42004504505,10796.661036036,1.14639359662934,"image","Cellulosic",0.949829707431432,60
+"A97",12623.499015748,8028.92880577428,1.30669712896937,"image","Rubber",0.731294542350706,57
+"A98",9545.478515625,10054.052734375,1.35091998357161,"image","Polyamide (naturally occurring)",0.970435445372751,53
+"A99",9961.9976993865,6156.04166666667,1.79353664683889,"image","Polyamide (naturally occurring)",0.94536476687416,55
+"A100",12949.0401329243,2352.11273006135,1.64068635786166,"image","Polyamide (naturally occurring)",0.88344206265084,49
+"A101",NA,NA,NA,"none","Polyamide (naturally occurring)",0.92007180937491,45
+"A102",1456.35488505747,4068.45833333333,1.58410642104563,"image","Polyamide (naturally occurring)",0.896877786873762,45
+"A103",6196.27032520325,1933.08943089431,0.88476526044943,"image","Polyamide (naturally occurring)",0.805443938699752,65
+"A104",8952.03555045872,9729.00420489297,1.18227849881642,"image","Polyamide (naturally occurring)",0.878473654949501,60
+"A105",1642.79761904762,4032.96626984127,1.45664553256119,"image","Polyamide (naturally occurring)",0.957740705779612,49
+"A106",8434.35185185185,1890.45965608465,1.55811595455953,"image","Polyamide (naturally occurring)",0.914073981047385,40
+"A107",9649.61693548387,1909.95743727599,1.06127043772338,"image","Polyamide (naturally occurring)",0.94860957659758,60
+"A108",9364.1193977591,10400.887605042,1.03760222467789,"image","Cellulosic",0.872267480562829,103
+"A109",2141.0464559387,12304.1451149425,1.83023973756289,"image","Polyamide (naturally occurring)",0.91345423626879,46
+"A110",10157.8179824561,4179.67105263158,1.10481493258509,"image","Polyamide (naturally occurring)",0.911695689243465,40
+"A111",4952.82784237726,12174.6301679587,1.61935121101872,"image","Carbonate",0.874503002090825,42
+"A112",NA,NA,NA,"none","Cellulosic",0.916479030282102,62
+"A113",NA,NA,NA,"none","Polyamide (naturally occurring)",0.914672228900686,58
+"A114",12014.0732758621,12336.0847701149,0.938989846740457,"image","Cellulosic",0.885332988884678,74
+"A115",1702.63888888889,157.29828042328,1.52563840404814,"image","Polyamide (naturally occurring)",0.932774540992415,49
+"A116",1516.77646396396,3751.15146396396,1.79829569302631,"image","Polyamide (naturally occurring)",0.899545375294274,40
+"A117",1734.17833333333,7464.795,1.37149057392598,"image","Polycarbonate",0.714527233622709,67
+"A118",2638.18306010929,10982.3804644809,1.51436677524119,"image","Polyamide (naturally occurring)",0.899157106870072,50
+"A119",4833.4906462585,9119.45578231293,1.21473454011207,"image","Polyethylene terephthalate",0.87396817573455,60
+"A120",5704.60227272727,4631.91287878788,1.62951777066285,"image","Cellulosic",0.955462782980767,69
+"A121",8902.04767267267,9238.95457957958,1.43045804115081,"image","Polyamide (naturally occurring)",0.917022459004057,50
+"A122",9036.97137188209,9334.70379818594,1.774139550784,"image","Polyamide (naturally occurring)",0.970035437145177,57
+"A123",NA,NA,NA,"none","Polyamide (naturally occurring)",0.967228630447921,42
+"A124",7602.37833333333,9023.365,1.5808491360205,"image","Polyamide (naturally occurring)",0.927433535301946,49
+"A125",8640.55555555555,12112.1527777778,1.21071464740613,"image","Polyamide (naturally occurring)",0.948391180267762,40
+"A126",5613.33876811594,9895.37862318841,1.41259900082399,"image","Polyamide (naturally occurring)",0.951513394065782,65
+"A127",2781.83189655172,272.420977011494,1.33084300990331,"image","Polyamide (naturally occurring)",0.932803804108519,40
+"A128",1291.37691570881,3663.50335249042,1.22937258790497,"image","Polyamide (naturally occurring)",0.909828476003282,49
+"A129",NA,NA,NA,"none","Polyamide (naturally occurring)",0.925494398314711,40
+"A130",9509.29954068242,8126.68471128609,1.58898968166016,"image","Polyamide (naturally occurring)",0.937622494627555,52
+"A131",10324.276463964,6559.25394144144,1.7094452178802,"image","Polyamide (naturally occurring)",0.922771687456672,74
+"A132",4596.30497685185,5988.91493055555,1.83257624552472,"image","Polyamide (naturally occurring)",0.933069125103516,50
+"A133",2146.51666666667,464.533333333335,1.36766091153364,"image","Polyamide (naturally occurring)",0.9363918972627,65
+"A134",3978.12896825397,3193.74404761905,1.5524179334449,"image","Cellulosic",0.851687567362317,40
+"A135",11264.1130952381,12716.7083333333,1.1816415289778,"image","Polyamide (naturally occurring)",0.93285967297164,40
+"A136",3525.75109649123,9923.76096491228,1.26387962721477,"image","Polyamide (naturally occurring)",0.935471825715886,40
+"A137",NA,NA,NA,"none","Polyamide (naturally occurring)",0.928388537933136,40
+"A138",10251.2824074074,492.736111111111,1.72467694325729,"image","Polyethylene terephthalate",0.913744115578168,55
+"A139",NA,NA,NA,"none","Polyamide (naturally occurring)",0.923709636857136,49
+"A140",NA,NA,NA,"none","Polyamide (naturally occurring)",0.959788191092708,40
+"A141",NA,NA,NA,"none","Polyethylene terephthalate",0.948961338968528,55
+"A142",6284.83048654244,4070.72593167702,1.83562560089936,"image","Polyamide (naturally occurring)",0.953825080018043,60
+"A143",7211.25543478261,9743.05253623188,1.71287174273106,"image","Carbonate",0.802803126661236,45
+"A144",5983.71944444444,6927.08611111111,1.9925867573101,"image","Polyamide (naturally occurring)",0.900482979042572,50
+"A145",NA,NA,NA,"none","Polyamide (naturally occurring)",0.97741251978851,38
+"A146",NA,NA,NA,"none","Polyamide (naturally occurring)",0.93025516856779,35
+"A147",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937900148445519,46
+"A148",NA,NA,NA,"none","Polyamide (naturally occurring)",0.899673539667777,43
+"A149",NA,NA,NA,"none","Polyamide (naturally occurring)",0.941494671029114,40
+"A150",NA,NA,NA,"none","Cellulosic",0.911131013108027,35
+"A151",8764.16666666667,9939.58333333333,1.71748208445506,"image","Cellulosic",0.970433624467308,57
+"A152",1446.80084745763,8607.95550847458,1.8957566050072,"image","Rubber",0.772333042386798,35
+"A153",8097.96257062147,9045.0529661017,1.14926674846713,"image","Polyamide (naturally occurring)",0.878134211710042,40
+"A154",NA,NA,NA,"none","Polytetrafluoroethylene",0.659396083088727,35
+"A155",NA,NA,NA,"none","Polyamide (naturally occurring)",0.924571891780872,39
+"A156",NA,NA,NA,"none","Cellulosic",0.839816627593298,36
+"A157",5074.81481481481,11995.4089506173,1.79524574784848,"image","Polyamide (naturally occurring)",0.947236752252524,40
+"A158",7269.65909090909,3557.4696969697,1.64535876820607,"image","Cellulosic",0.939837039840846,56
+"A159",NA,NA,NA,"none","Polyvinyl chloride",0.674151835167838,40
+"A160",NA,NA,NA,"none","Carbonate",0.819768104945177,38
+"A161",NA,NA,NA,"none","Polyamide",0.809742489366288,49
+"A162",5892.68132716049,2125.69058641975,1.73694749771535,"image","Polyamide (naturally occurring)",0.921464999904045,56
+"A163",12761.7168209877,2325.30478395062,1.95066950512882,"image","Cellulosic",0.948296980620076,35
+"A164",NA,NA,NA,"none","Polyamide (naturally occurring)",0.958400288917463,41
+"A165",NA,NA,NA,"none","Cellulosic",0.957407166211825,46
+"A166",NA,NA,NA,"none","Polyamide (naturally occurring)",0.894654602117043,35
+"A167",NA,NA,NA,"none","Rubber",0.857084832986266,35
+"A168",NA,NA,NA,"none","Polyamide (naturally occurring)",0.965773891299914,35
+"A169",9947.9819023569,5312.62836700337,1.79862553581517,"image","Polyamide",0.694726033409494,45
+"A170",NA,NA,NA,"none","Polyamide (naturally occurring)",0.94995253895931,34
+"A171",6880.89015151515,1276.33627946128,1.87879686085276,"image","Polycarbonate",0.838984365484226,35
+"A172",NA,NA,NA,"none","Polyamide (naturally occurring)",0.929841015772383,42
+"A173",NA,NA,NA,"none","Polyamide (naturally occurring)",0.885576840828974,42
+"A174",8989.3375,10359.4833333333,1.67860299180287,"image","Carbonate",0.864125561005239,55
+"A175",NA,NA,NA,"none","Cellulosic",0.896571768697195,35
+"A176",NA,NA,NA,"none","Polyamide (naturally occurring)",0.970222003369141,35
+"A177",NA,NA,NA,"none","Polyamide (naturally occurring)",0.924178145895416,40
+"A178",NA,NA,NA,"none","Polyamide (naturally occurring)",0.933518357332773,30
+"A179",NA,NA,NA,"none","Polyamide (naturally occurring)",0.950747285026925,35
+"A180",NA,NA,NA,"none","Carbonate",0.686957881547874,30
+"A181",NA,NA,NA,"none","Polyamide (naturally occurring)",0.917362687058753,40
+"A182",6039.90466101695,10344.5939265537,1.86551873814329,"image","Cellulosic",0.915730224189129,57
+"A183",NA,NA,NA,"none","Polyamide (naturally occurring)",0.933151115187775,35
+"A184",NA,NA,NA,"none","Cellulosic",0.857782237441678,35
+"A185",NA,NA,NA,"none","Polyamide (naturally occurring)",0.888156963241818,33
+"A186",NA,NA,NA,"none","Polyamide (naturally occurring)",0.955234345501191,32
+"A187",1590.05208333333,12440.15625,1.86165634283148,"image","Polyamide (naturally occurring)",0.920401598358279,44
+"A188",NA,NA,NA,"none","Cellulosic",0.951939672642685,50
+"A189",NA,NA,NA,"none","Polyamide (naturally occurring)",0.916358019690294,35
+"A190",NA,NA,NA,"none","Polyamide (naturally occurring)",0.951073079205133,35
+"A191",NA,NA,NA,"none","Carbonate",0.640328729755508,32
+"A192",NA,NA,NA,"none","Polyamide (naturally occurring)",0.971536211064836,35
+"A193",NA,NA,NA,"none","Polyamide (naturally occurring)",0.970980710900523,40
+"A194",NA,NA,NA,"none","Polyamide (naturally occurring)",0.884271822228978,40
+"A195",NA,NA,NA,"none","Chitin",0.759995023201463,30
+"A196",NA,NA,NA,"none","Polyamide (naturally occurring)",0.90807277105187,35
+"A197",NA,NA,NA,"none","Polyamide (naturally occurring)",0.926626991285697,30
+"A198",NA,NA,NA,"none","Polyamide (naturally occurring)",0.947245249153435,30
+"A199",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949374759682262,35
+"A200",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937432938110214,30
+"A201",NA,NA,NA,"none","Polyamide (naturally occurring)",0.940423370402516,35
+"A202",NA,NA,NA,"none","Polyamide (naturally occurring)",0.95017311182442,40
+"A203",NA,NA,NA,"none","Polyamide (naturally occurring)",0.963845759382545,35
+"A204",NA,NA,NA,"none","Polyethylene terephthalate",0.858466609997686,41
+"A205",10534.293699187,7787.11890243902,1.80653729432113,"image","Polyamide (naturally occurring)",0.972780674923961,37
+"A206",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949650640398687,35
+"A207",NA,NA,NA,"none","Polyamide (naturally occurring)",0.941450452795813,35
+"A208",NA,NA,NA,"none","Polyamide (naturally occurring)",0.911035875201105,34
+"A209",NA,NA,NA,"none","Polyamide (naturally occurring)",0.940334600848329,36
+"A210",NA,NA,NA,"none","Polyamide (naturally occurring)",0.93579021553149,32
+"A211",NA,NA,NA,"none","Polyamide (naturally occurring)",0.934788459042757,30
+"A212",NA,NA,NA,"none","Polyamide (naturally occurring)",0.930803105523634,36
+"A213",NA,NA,NA,"none","Polycarbonate",0.692949627009735,42
+"A214",NA,NA,NA,"none","Polyamide (naturally occurring)",0.853869071996376,35
+"A215",NA,NA,NA,"none","Polyamide (naturally occurring)",0.91235335604251,35
+"A216",NA,NA,NA,"none","Polyamide (naturally occurring)",0.952123909011037,32
+"A217",NA,NA,NA,"none","Polyethylene terephthalate",0.90668700525846,53
+"A218",NA,NA,NA,"none","Carbonate",0.739916183928179,30
+"A219",NA,NA,NA,"none","Polycarbonate",0.864297192693158,35
+"A220",NA,NA,NA,"none","Polyamide (naturally occurring)",0.940643229375813,30
+"A221",NA,NA,NA,"none","Polyamide (naturally occurring)",0.866809520082321,30
+"A222",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937795511675505,30
+"A223",NA,NA,NA,"none","Polyamide (naturally occurring)",0.959281921288804,28
+"A224",NA,NA,NA,"none","Rubber",0.805345164262843,42
+"A225",NA,NA,NA,"none","Polyamide (naturally occurring)",0.922057074096031,35
+"A226",NA,NA,NA,"none","Cellulosic",0.857929704870774,30
+"A227",NA,NA,NA,"none","Polyethylene terephthalate",0.879502786203839,35
+"A228",NA,NA,NA,"none","Polyamide (naturally occurring)",0.91486452605047,35
+"A229",NA,NA,NA,"none","Rubber",0.70451537726586,30
+"A230",NA,NA,NA,"none","Chitin",0.828103633690543,30
+"A231",NA,NA,NA,"none","Polyamide (naturally occurring)",0.967814555602615,30
+"A232",NA,NA,NA,"none","Polyamide (naturally occurring)",0.915708199824675,30
+"A233",NA,NA,NA,"none","Polyamide (naturally occurring)",0.901091221197316,38
+"A234",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944869669401983,28
+"A235",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949812015469865,39
+"A236",NA,NA,NA,"none","Polyamide (naturally occurring)",0.915357706517027,35
+"A237",NA,NA,NA,"none","Polyamide (naturally occurring)",0.969545731973827,30
+"A238",NA,NA,NA,"none","Polyamide (naturally occurring)",0.909261335902999,30
+"A239",NA,NA,NA,"none","Cellulosic",0.944614896333655,30
+"A240",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948715287677415,30
+"A241",NA,NA,NA,"none","Polyamide (naturally occurring)",0.921882136678206,30
+"A242",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948076441487583,32
+"A243",NA,NA,NA,"none","Polyamide (naturally occurring)",0.914187638323926,39
+"A244",NA,NA,NA,"none","Polyamide (naturally occurring)",0.92180761624123,39
+"A245",NA,NA,NA,"none","Polyamide (naturally occurring)",0.947139047880254,32
+"A246",NA,NA,NA,"none","Polyamide (naturally occurring)",0.950522771750033,28
+"A247",NA,NA,NA,"none","Polyamide (naturally occurring)",0.95757956575154,30
+"A248",NA,NA,NA,"none","Polyamide (naturally occurring)",0.97276566394641,30
+"A249",NA,NA,NA,"none","Polyamide (naturally occurring)",0.903985177441214,35
+"A250",NA,NA,NA,"none","Cellulosic",0.883321038884495,39
+"A251",NA,NA,NA,"none","Polyamide (naturally occurring)",0.945224783067511,30
+"A252",NA,NA,NA,"none","Polyamide (naturally occurring)",0.959672078576031,40
+"A253",NA,NA,NA,"none","Polyamide (naturally occurring)",0.957048639492698,30
+"A254",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948804958581335,35
+"A255",NA,NA,NA,"none","Polyamide (naturally occurring)",0.918731642282479,30
+"A256",NA,NA,NA,"none","Polyamide (naturally occurring)",0.953831033312895,30
+"A257",NA,NA,NA,"none","Polyethylene terephthalate",0.724431794959143,30
+"A258",NA,NA,NA,"none","Polyamide (naturally occurring)",0.928027954200423,32
+"A259",NA,NA,NA,"none","Polyamide (naturally occurring)",0.924933895428387,35
+"A260",NA,NA,NA,"none","Sand",0.770421172824445,30
+"A261",NA,NA,NA,"none","Polyamide (naturally occurring)",0.967622113903948,30
+"A262",NA,NA,NA,"none","Polyamide (naturally occurring)",0.951555409422418,35
+"A263",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949210424715306,30
+"A264",NA,NA,NA,"none","Polyamide (naturally occurring)",0.972102100468779,30
+"A265",NA,NA,NA,"none","Polyamide (naturally occurring)",0.935189290172542,30
+"A266",NA,NA,NA,"none","Polyamide (naturally occurring)",0.958380848164594,30
+"A267",NA,NA,NA,"none","Polyamide (naturally occurring)",0.9649490125108,30
+"A268",NA,NA,NA,"none","Polyamide (naturally occurring)",0.97133510260454,30
+"A269",NA,NA,NA,"none","Polyamide (naturally occurring)",0.957101745689369,30
+"A270",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937971985734079,36
+"A271",NA,NA,NA,"none","Cellulosic",0.957588050747499,35
+"A272",NA,NA,NA,"none","Polyamide (naturally occurring)",0.969211173944635,35
+"A273",NA,NA,NA,"none","Polyamide (naturally occurring)",0.93235243343228,48
+"A274",NA,NA,NA,"none","Polyamide (naturally occurring)",0.863885628334836,30
+"A275",NA,NA,NA,"none","Polyamide (naturally occurring)",0.917005215195633,36
+"A276",NA,NA,NA,"none","Polyamide (naturally occurring)",0.93402509159184,30
+"A277",NA,NA,NA,"none","Polyamide (naturally occurring)",0.967805796044635,28
+"A278",NA,NA,NA,"none","Polyamide (naturally occurring)",0.929661223515047,36
+"A279",NA,NA,NA,"none","Polyethylene terephthalate",0.933458855729851,36
+"A280",4972.98363095238,11713.3482142857,1.60367874461958,"image","Polyamide (naturally occurring)",0.951151784209478,36
+"A281",NA,NA,NA,"none","Polyamide (naturally occurring)",0.970070997757321,46
+"A282",NA,NA,NA,"none","Cellulosic",0.913497830375121,35
+"A283",NA,NA,NA,"none","Polyamide (naturally occurring)",0.96630679112058,30
+"A284",NA,NA,NA,"none","Polyethylene terephthalate",0.880940166433867,35
+"A285",NA,NA,NA,"none","Polyamide (naturally occurring)",0.927075358183687,35
+"A286",NA,NA,NA,"none","Polyamide (naturally occurring)",0.922949798646161,34
+"A287",NA,NA,NA,"none","Polyamide (naturally occurring)",0.958199966475364,30
+"A288",NA,NA,NA,"none","Polyamide (naturally occurring)",0.958325482295452,30
+"A289",NA,NA,NA,"none","Polyamide (naturally occurring)",0.94598865985969,38
+"A290",12063.8682432432,2784.02027027027,1.70496088288882,"image","Polypropylene",0.950282962175133,56
+"A291",NA,NA,NA,"none","Polyamide (naturally occurring)",0.965349923454516,25
+"A292",NA,NA,NA,"none","Cellulosic",0.922325682799352,46
+"A293",NA,NA,NA,"none","Polyamide",0.687808759340656,40
+"A294",NA,NA,NA,"none","Polyamide (naturally occurring)",0.840771430916692,35
+"A295",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949254365409916,35
+"A296",NA,NA,NA,"none","Polyamide (naturally occurring)",0.941737660047569,35
+"A297",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944291424496274,28
+"A298",NA,NA,NA,"none","Polyamide (naturally occurring)",0.912865766046697,30
+"A299",NA,NA,NA,"none","Polyamide (naturally occurring)",0.966770365626697,28
+"A300",NA,NA,NA,"none","Polyamide (naturally occurring)",0.940828186962302,30
+"A301",NA,NA,NA,"none","Polyamide (naturally occurring)",0.924312300171768,28
+"A302",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937722753606073,30
+"A303",NA,NA,NA,"none","Polyamide (naturally occurring)",0.955524497450158,30
+"A304",NA,NA,NA,"none","Polyamide (naturally occurring)",0.875017308918085,30
+"A305",NA,NA,NA,"none","Polyethylene terephthalate",0.9346571516977,30
+"A306",NA,NA,NA,"none","Polyamide (naturally occurring)",0.954875118476621,30
+"A307",NA,NA,NA,"none","Polyamide",0.627841765540542,30
+"A308",NA,NA,NA,"none","Cellulosic",0.951758395580761,28
+"A309",NA,NA,NA,"none","Polyamide (naturally occurring)",0.929447391034541,25
+"A310",NA,NA,NA,"none","Polyamide (naturally occurring)",0.945820704720307,25
+"A311",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944625528048895,35
+"A312",NA,NA,NA,"none","Polyamide (naturally occurring)",0.963695846836079,28
+"A313",NA,NA,NA,"none","Polyamide (naturally occurring)",0.930045299463583,41
+"A314",NA,NA,NA,"none","Polyamide (naturally occurring)",0.959207519731645,30
+"A315",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948384138503734,30
+"A316",NA,NA,NA,"none","Polyamide (naturally occurring)",0.973096407933045,30
+"A317",NA,NA,NA,"none","Polyamide (naturally occurring)",0.969957590332902,28
+"A318",NA,NA,NA,"none","Polyamide (naturally occurring)",0.975876230798027,35
+"A319",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948860379389287,30
+"A320",NA,NA,NA,"none","Polyamide (naturally occurring)",0.951839364264435,41
+"A321",NA,NA,NA,"none","Polyamide (naturally occurring)",0.930325851242443,35
+"A322",NA,NA,NA,"none","Polyamide (naturally occurring)",0.940000872833713,30
+"A323",NA,NA,NA,"none","Polyamide (naturally occurring)",0.920019766551681,31
+"A324",NA,NA,NA,"none","Cellulosic",0.784865772545517,25
+"A325",NA,NA,NA,"none","Polyamide (naturally occurring)",0.962711253353756,25
+"A326",NA,NA,NA,"none","Polyamide (naturally occurring)",0.953905280384705,35
+"A327",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949999649219545,25
+"A328",NA,NA,NA,"none","Polyamide (naturally occurring)",0.939680680535747,25
+"A329",NA,NA,NA,"none","Polyamide (naturally occurring)",0.953848502781251,35
+"A330",NA,NA,NA,"none","Polyamide (naturally occurring)",0.951726692770488,40
+"A331",NA,NA,NA,"none","Polyethylene terephthalate",0.879181290933633,36
+"A332",NA,NA,NA,"none","Polyamide (naturally occurring)",0.965942020163795,30
+"A333",NA,NA,NA,"none","Polyamide (naturally occurring)",0.967155986327077,30
+"A334",NA,NA,NA,"none","Polyamide (naturally occurring)",0.967092336603871,30
+"A335",NA,NA,NA,"none","Polyethylene terephthalate",0.926423786205697,25
+"A336",NA,NA,NA,"none","Polyamide (naturally occurring)",0.951604304839512,30
+"A337",NA,NA,NA,"none","Polyamide (naturally occurring)",0.947647703170995,32
+"A338",NA,NA,NA,"none","Carbonate",0.799788225715532,30
+"A339",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944809928034373,32
+"A340",NA,NA,NA,"none","Polyamide (naturally occurring)",0.971002271308307,32
+"A341",NA,NA,NA,"none","Polyamide (naturally occurring)",0.963577711199882,25
+"A342",NA,NA,NA,"none","Polyamide (naturally occurring)",0.959838203284829,25
+"A343",NA,NA,NA,"none","Polyamide (naturally occurring)",0.962105408954194,30
+"A344",NA,NA,NA,"none","Polyamide (naturally occurring)",0.926758095077795,25
+"A345",NA,NA,NA,"none","Polyamide (naturally occurring)",0.774855761290187,30
+"A346",NA,NA,NA,"none","Cellulosic",0.837694586202782,35
+"A347",NA,NA,NA,"none","Polyamide (naturally occurring)",0.933325674269062,29
+"A348",9313.43413978495,2716.54569892473,1.880815025009,"image","Polyamide (naturally occurring)",0.934525847136481,35
+"A349",NA,NA,NA,"none","Polyamide (naturally occurring)",0.913288511523365,28
+"A350",NA,NA,NA,"none","Carbonate",0.807937621599494,30
+"A351",NA,NA,NA,"none","Carbonate",0.760266988943002,33
+"A352",NA,NA,NA,"none","Cellulosic",0.911055897715493,35
+"A353",NA,NA,NA,"none","Polyamide (naturally occurring)",0.958094951707511,30
+"A354",11382.1319444444,12915.5,1.9849147858274,"image","Polyamide (naturally occurring)",0.935535237258835,28
+"A355",NA,NA,NA,"none","Polyamide (naturally occurring)",0.898432304832974,25
+"A356",NA,NA,NA,"none","Cellulosic",0.948807229322959,30
+"A357",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949394386188322,25
+"A358",NA,NA,NA,"none","Polyamide (naturally occurring)",0.945323858535642,35
+"A359",NA,NA,NA,"none","Polyamide (naturally occurring)",0.870970369965427,30
+"A360",NA,NA,NA,"none","Polyamide (naturally occurring)",0.882892107338418,30
+"A361",NA,NA,NA,"none","Polyamide (naturally occurring)",0.953727325265376,25
+"A362",NA,NA,NA,"none","Chitin",0.819237430467453,37
+"A363",NA,NA,NA,"none","Polyamide (naturally occurring)",0.92947733911121,32
+"A364",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944604281949416,25
+"A365",NA,NA,NA,"none","Polyamide (naturally occurring)",0.942012450840136,25
+"A366",9455.16782407407,9939.50810185185,1.96721926715309,"image","Carbonate",0.777911336721805,44
+"A367",NA,NA,NA,"none","Polyamide (naturally occurring)",0.953769408398387,28
+"A368",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937510940503842,30
+"A369",NA,NA,NA,"none","Polyamide (naturally occurring)",0.952958685347843,35
+"A370",NA,NA,NA,"none","Polyamide (naturally occurring)",0.927519031223428,25
+"A371",NA,NA,NA,"none","Polyamide (naturally occurring)",0.950216719543896,25
+"A372",NA,NA,NA,"none","Cellulosic",0.95481110035359,45
+"A373",NA,NA,NA,"none","Polyamide (naturally occurring)",0.963653571980297,30
+"A374",NA,NA,NA,"none","Polyamide (naturally occurring)",0.905579774011368,25
+"A375",NA,NA,NA,"none","Polyamide (naturally occurring)",0.943460137458787,30
+"A376",NA,NA,NA,"none","Polyamide (naturally occurring)",0.934598424284252,25
+"A377",NA,NA,NA,"none","Polyamide (naturally occurring)",0.95742539755515,30
+"A378",NA,NA,NA,"none","Polyamide (naturally occurring)",0.960430109195392,25
+"A379",NA,NA,NA,"none","Polyamide (naturally occurring)",0.94883653693476,25
+"A380",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948097929427761,36
+"A381",NA,NA,NA,"none","Polyamide (naturally occurring)",0.953584272303069,25
+"A382",NA,NA,NA,"none","Polyamide (naturally occurring)",0.909465260608687,28
+"A383",NA,NA,NA,"none","Cellulosic",0.641622151549329,28
+"A384",NA,NA,NA,"none","Polyamide (naturally occurring)",0.965927014115936,25
+"A385",NA,NA,NA,"none","Chitin",0.92005331203168,30
+"A386",NA,NA,NA,"none","Polycarbonate",0.719971283990988,30
+"A387",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944523414565781,30
+"A388",NA,NA,NA,"none","Polyethylene terephthalate",0.859266622324985,25
+"A389",NA,NA,NA,"none","Polyamide (naturally occurring)",0.92278659197401,30
+"A390",NA,NA,NA,"none","Polyamide (naturally occurring)",0.921605725311557,30
+"A391",NA,NA,NA,"none","Polyamide (naturally occurring)",0.935089582994456,30
+"A392",NA,NA,NA,"none","Carbonate",0.693004986025963,40
+"A393",NA,NA,NA,"none","Polycarbonate",0.808576132423567,32
+"A394",NA,NA,NA,"none","Polyamide (naturally occurring)",0.868942158480459,30
+"A395",NA,NA,NA,"none","Cellulosic",0.913587908974417,25
+"A396",NA,NA,NA,"none","Polyamide (naturally occurring)",0.945369327981254,25
+"A397",NA,NA,NA,"none","Polyamide (naturally occurring)",0.941757882834036,27
+"A398",NA,NA,NA,"none","Polyamide (naturally occurring)",0.89218120974012,30
+"A399",NA,NA,NA,"none","Carbonate",0.822068198092886,25
+"A400",NA,NA,NA,"none","Polyethylene terephthalate",0.9338797427024,25
+"A401",NA,NA,NA,"none","Polyamide (naturally occurring)",0.946861381794015,25
+"A402",NA,NA,NA,"none","Polyamide (naturally occurring)",0.805130344899859,30
+"A403",NA,NA,NA,"none","Polyamide (naturally occurring)",0.941939942156032,28
+"A404",NA,NA,NA,"none","Polyamide",0.913720199643274,28
+"A405",NA,NA,NA,"none","Polyamide (naturally occurring)",0.893401078619942,35
+"A406",NA,NA,NA,"none","Polyamide (naturally occurring)",0.977740264628638,25
+"A407",NA,NA,NA,"none","Carbonate",0.783919203644601,25
+"A408",NA,NA,NA,"none","Carbonate",0.728779598998151,30
+"A409",NA,NA,NA,"none","Polyamide (naturally occurring)",0.955656811872781,25
+"A410",NA,NA,NA,"none","Polyamide (naturally occurring)",0.946485552328187,25
+"A411",NA,NA,NA,"none","Polyamide",0.699331060076559,32
+"A412",NA,NA,NA,"none","Polyamide (naturally occurring)",0.954396830772095,25
+"A413",NA,NA,NA,"none","Polyamide (naturally occurring)",0.955179047592051,25
+"A414",NA,NA,NA,"none","Polyamide (naturally occurring)",0.952325484941445,25
+"A415",NA,NA,NA,"none","Polyamide (naturally occurring)",0.96648582664155,25
+"A416",NA,NA,NA,"none","Polyamide (naturally occurring)",0.967439617606373,25
+"A417",NA,NA,NA,"none","Carbonate",0.822998721391764,29
+"A418",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948134892701059,25
+"A419",NA,NA,NA,"none","Polyamide (naturally occurring)",0.897875915099276,25
+"A420",NA,NA,NA,"none","Polyamide (naturally occurring)",0.92390376041983,34
+"A421",NA,NA,NA,"none","Carbonate",0.796858376679771,28
+"A422",NA,NA,NA,"none","Polyamide (naturally occurring)",0.948704288282523,25
+"A423",NA,NA,NA,"none","Polyethylene",0.867829382616979,29
+"A424",NA,NA,NA,"none","Polycarbonate",0.750265069121513,25
+"A425",NA,NA,NA,"none","Polyamide (naturally occurring)",0.952625705948835,25
+"A426",NA,NA,NA,"none","Polyurethane",0.679958098054692,25
+"A427",NA,NA,NA,"none","Polyamide (naturally occurring)",0.951332291907509,25
+"A428",NA,NA,NA,"none","Polyamide (naturally occurring)",0.954751288364949,25
+"A429",NA,NA,NA,"none","Polyamide (naturally occurring)",0.916359984558259,25
+"A430",NA,NA,NA,"none","Polyamide (naturally occurring)",0.956601468814161,25
+"A431",NA,NA,NA,"none","Polyamide (naturally occurring)",0.785236924116364,25
+"A432",NA,NA,NA,"none","Polyamide (naturally occurring)",0.938731611716842,25
+"A433",NA,NA,NA,"none","Polyamide (naturally occurring)",0.927328848345424,25
+"A434",NA,NA,NA,"none","Polyamide (naturally occurring)",0.88472437131034,25
+"A435",NA,NA,NA,"none","Polyamide (naturally occurring)",0.945862620207692,25
+"A436",NA,NA,NA,"none","Polyamide (naturally occurring)",0.935725697897491,25
+"A437",NA,NA,NA,"none","Polyamide (naturally occurring)",0.953633872989243,32
+"A438",NA,NA,NA,"none","Polyamide (naturally occurring)",0.959716419716355,25
+"A439",NA,NA,NA,"none","Polyamide (naturally occurring)",0.932969454999438,25
+"A440",NA,NA,NA,"none","Polyamide (naturally occurring)",0.936523419568051,25
+"A441",NA,NA,NA,"none","Chitin",0.787670314452342,38
+"A442",NA,NA,NA,"none","Polyamide (naturally occurring)",0.942171426524939,35
+"A443",NA,NA,NA,"none","Polyamide (naturally occurring)",0.931053829809302,25
+"A444",NA,NA,NA,"none","Polyamide",0.762426473851475,28
+"A445",NA,NA,NA,"none","Polyamide (naturally occurring)",0.945613839833864,25
+"A446",NA,NA,NA,"none","Polyamide (naturally occurring)",0.938682943073671,25
+"A447",NA,NA,NA,"none","Polyamide (naturally occurring)",0.93357967119977,25
+"A448",NA,NA,NA,"none","Polyamide (naturally occurring)",0.942708238486994,31
+"A449",NA,NA,NA,"none","Polyamide (naturally occurring)",0.946482232450932,25
+"A450",NA,NA,NA,"none","Polyamide (naturally occurring)",0.961989736542924,25
+"A451",NA,NA,NA,"none","Polyethylene terephthalate",0.832463154464022,32
+"A452",NA,NA,NA,"none","Polyamide (naturally occurring)",0.938318886999982,34
+"A453",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937355120751652,25
+"A454",NA,NA,NA,"none","Cellulosic",0.634142637972076,31
+"A455",NA,NA,NA,"none","Polyamide (naturally occurring)",0.950447732997554,25
+"A456",NA,NA,NA,"none","Polyamide (naturally occurring)",0.93947347094742,25
+"A457",NA,NA,NA,"none","Polyamide (naturally occurring)",0.942416184904301,30
+"A458",NA,NA,NA,"none","Cellulosic",0.779644318284526,25
+"A459",NA,NA,NA,"none","Polyamide",0.640189130212694,25
+"A460",NA,NA,NA,"none","Polyamide (naturally occurring)",0.962608813336533,25
+"A461",NA,NA,NA,"none","Cellulosic",0.961826261035205,28
+"A462",NA,NA,NA,"none","Polyamide (naturally occurring)",0.938423131884679,28
+"A463",NA,NA,NA,"none","Polyamide (naturally occurring)",0.94281751937392,30
+"A464",NA,NA,NA,"none","Polyamide (naturally occurring)",0.929651488658099,20
+"A465",NA,NA,NA,"none","Polycarbonate",0.685081002986391,34
+"A466",NA,NA,NA,"none","Polyamide (naturally occurring)",0.928741166817533,38
+"A467",NA,NA,NA,"none","Polyamide (naturally occurring)",0.956460040270024,25
+"A468",NA,NA,NA,"none","Cellulosic",0.888946526920094,57
+"A469",NA,NA,NA,"none","Polyamide (naturally occurring)",0.960811701791822,21
+"A470",NA,NA,NA,"none","Polyethylene terephthalate",0.872893800679742,25
+"A471",NA,NA,NA,"none","Polyamide (naturally occurring)",0.954776513624124,32
+"A472",NA,NA,NA,"none","Polyamide",0.663111423319241,29
+"A473",NA,NA,NA,"none","Polyamide (naturally occurring)",0.937963053398106,25
+"A474",NA,NA,NA,"none","Polyamide (naturally occurring)",0.780131420852028,25
+"A475",NA,NA,NA,"none","Polyamide (naturally occurring)",0.924068016440947,35
+"A476",NA,NA,NA,"none","Polyethylene terephthalate",0.722903505319137,30
+"A477",NA,NA,NA,"none","Polyamide (naturally occurring)",0.931099240059177,20
+"A478",NA,NA,NA,"none","Carbonate",0.68860112792649,20
+"A479",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944594380384408,30
+"A480",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949930925759395,35
+"A481",NA,NA,NA,"none","Cellulosic",0.945830047196041,25
+"A482",NA,NA,NA,"none","Polyamide (naturally occurring)",0.942046431801794,25
+"A483",NA,NA,NA,"none","Chitin",0.813649084421137,21
+"A484",NA,NA,NA,"none","Polyamide (naturally occurring)",0.918820274550918,25
+"A485",NA,NA,NA,"none","Polyamide (naturally occurring)",0.949884530025255,25
+"A486",NA,NA,NA,"none","Polyamide (naturally occurring)",0.945603558405025,21
+"A487",NA,NA,NA,"none","Polyamide (naturally occurring)",0.954599945842177,21
+"A488",NA,NA,NA,"none","Polyethylene terephthalate",0.937560931448466,36
+"A489",NA,NA,NA,"none","Rubber",0.809738022125302,20
+"A490",NA,NA,NA,"none","Polyamide (naturally occurring)",0.94816445482394,21
+"A491",NA,NA,NA,"none","Polyamide (naturally occurring)",0.943038305761942,20
+"A492",NA,NA,NA,"none","Chitin",0.69929550683147,20
+"A493",NA,NA,NA,"none","Polyamide (naturally occurring)",0.867693427080925,20
+"A494",NA,NA,NA,"none","Polyamide (naturally occurring)",0.941310880428551,27
+"A495",NA,NA,NA,"none","Acrylonitrile butadiene styrene",0.913867045548368,20
+"A496",NA,NA,NA,"none","Polyamide (naturally occurring)",0.923730781957814,20
+"A497",NA,NA,NA,"none","Polyamide (naturally occurring)",0.918257497157609,30
+"A498",NA,NA,NA,"none","Polycarbonate",0.678523910199569,20
+"A499",NA,NA,NA,"none","Polycarbonate",0.778684014132098,25
+"A500",NA,NA,NA,"none","Chitin",0.747637694317659,20
+"A501",NA,NA,NA,"none","Polyamide (naturally occurring)",0.936998282408589,20
+"A502",NA,NA,NA,"none","Polyamide (naturally occurring)",0.944030707179434,20
+"A503",NA,NA,NA,"none","Rubber",0.777302079749297,20
+"A504",NA,NA,NA,"none","Polyamide (naturally occurring)",0.864640904440669,25
+"A505",NA,NA,NA,"none","Polyamide (naturally occurring)",0.941880365627804,20
