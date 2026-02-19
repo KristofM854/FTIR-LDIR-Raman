@@ -384,36 +384,35 @@ join_ldir_coords <- function(excel_df, image_df) {
     return(excel_df)
   }
 
-  # Build cost matrix using morphological similarity
+  # Build cost matrix using morphological similarity (vectorized)
   n_max <- max(n_excel, n_image)
 
-  # Pre-compute size features
   excel_area  <- excel_df$area_um2
   image_area  <- image_df$area_um2
   excel_feret <- excel_df$feret_max_um
   image_feret <- image_df$feret_max_um
 
-  # Vectorized cost computation (sparse — only fill relevant pairs)
   BIG <- 1e9
   cost <- matrix(BIG, nrow = n_max, ncol = n_max)
 
-  for (i in seq_len(n_excel)) {
-    for (j in seq_len(n_image)) {
-      c_area <- 0
-      c_feret <- 0
+  # Vectorized log-ratio cost: outer() gives the full n_excel × n_image matrix
+  # without any R-level loops.
+  log_area <- outer(
+    log(pmax(excel_area, 1e-6, na.rm = FALSE)),
+    log(pmax(image_area,  1e-6, na.rm = FALSE)),
+    FUN = function(a, b) abs(a - b)
+  )
+  log_feret <- outer(
+    log(pmax(excel_feret, 1e-6, na.rm = FALSE)),
+    log(pmax(image_feret,  1e-6, na.rm = FALSE)),
+    FUN = function(a, b) abs(a - b)
+  )
 
-      if (!is.na(excel_area[i]) && !is.na(image_area[j]) &&
-          excel_area[i] > 0 && image_area[j] > 0) {
-        c_area <- abs(log(excel_area[i] / image_area[j]))
-      }
-      if (!is.na(excel_feret[i]) && !is.na(image_feret[j]) &&
-          excel_feret[i] > 0 && image_feret[j] > 0) {
-        c_feret <- abs(log(excel_feret[i] / image_feret[j]))
-      }
+  # NA → 0 (missing size contributes no cost so we don't penalize)
+  log_area[is.na(log_area)]   <- 0
+  log_feret[is.na(log_feret)] <- 0
 
-      cost[i, j] <- c_area + 0.5 * c_feret
-    }
-  }
+  cost[seq_len(n_excel), seq_len(n_image)] <- log_area + 0.5 * log_feret
 
   # Hungarian assignment
   if (requireNamespace("clue", quietly = TRUE)) {
