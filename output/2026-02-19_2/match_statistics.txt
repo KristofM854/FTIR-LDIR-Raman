@@ -1,0 +1,19 @@
+# Match Statistics
+# Generated: 2026-02-19 12:06:21.457012
+
+n_ftir:            360
+n_raman:           792
+n_matched:         322
+n_unmatched_ftir:  38
+n_unmatched_raman: 470
+match_rate_ftir:   89.4%
+match_rate_raman:  40.7%
+mean_distance_um:  17.453
+median_distance_um:15.436
+max_distance_um:   92.957
+
+# Tiered agreement
+agreement_n_pairs:       174
+agreement_exact_pct:     0%
+agreement_family_pct:    11.5%
+agreement_family_or_better_pct: 11.5%

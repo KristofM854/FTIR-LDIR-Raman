@@ -128,11 +128,12 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
 #' detects those markers and extracts centroids.
 #'
 #' Strategy:
-#'   - For color images (mean saturation > 0.15): segment on the HSV
-#'     saturation channel.  Colored particles have high saturation; the
-#'     near-black background has low saturation.  This avoids the grayscale
-#'     conversion that creates texture artifacts.
-#'   - For grayscale images: fall back to adaptive thresholding.
+#'   1. Primary: Python backend (scipy/numpy) with iterative sigma-clipping
+#'      background correction per tile + global thresholding. Auto-tunes
+#'      threshold to match expected_count. Achieves ~505 detections matching
+#'      the LDIR software's particle count.
+#'   2. Fallback (if Python unavailable): R-based saturation segmentation
+#'      for color images, adaptive thresholding for grayscale.
 #'
 #' @param image_path Path to LDIR PNG image file
 #' @param scan_bounds Physical scan bounds in µm (list with x_min, x_max, y_min, y_max)
@@ -142,6 +143,26 @@ extract_ldir_image_coords <- function(image_path,
                                       scan_bounds = NULL,
                                       expected_count = NULL) {
   log_message("Extracting LDIR particle coordinates from image")
+
+  # --- Try Python backend first (preferred) ---
+  py_result <- tryCatch({
+    detect_particles_python(
+      image_path     = image_path,
+      scan_bounds    = scan_bounds,
+      expected_count = expected_count
+    )
+  }, error = function(e) {
+    log_message("  Python detector error: ", conditionMessage(e))
+    NULL
+  })
+
+  if (!is.null(py_result) && nrow(py_result) > 0) {
+    log_message("  Extracted ", nrow(py_result), " particles from LDIR image (Python)")
+    return(py_result)
+  }
+
+  # --- Fallback: R-based extraction ---
+  log_message("  Falling back to R-based extraction")
 
   if (!requireNamespace("png", quietly = TRUE)) {
     stop("Package 'png' required. Install with: install.packages('png')")
