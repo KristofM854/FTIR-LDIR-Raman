@@ -440,6 +440,9 @@ if (has_ldir && !is.null(ldir_raw)) {
       expected_count = nrow(ldir_clean)
     )
 
+    # Save raw image-extracted coordinates (before join) for Shiny viewer
+    ldir_image_extracted <- ldir_image_particles
+
     # Join image coordinates with Excel data via size-based Hungarian matching
     ldir_with_coords <- join_ldir_coords(ldir_clean, ldir_image_particles)
 
@@ -613,7 +616,8 @@ if (has_ldir && !is.null(ldir_raw)) {
     ldir_icp             = ldir_icp,
     triplets             = triplets,
     has_coords           = has_ldir_coords,
-    ldir_material_dist   = ldir_mats
+    ldir_material_dist   = ldir_mats,
+    ldir_image_extracted = if (exists("ldir_image_extracted")) ldir_image_extracted else NULL
   )
 }
 

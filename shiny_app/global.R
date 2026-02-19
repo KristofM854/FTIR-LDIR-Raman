@@ -60,8 +60,10 @@ load_run_data <- function(run_info) {
 
     # LDIR files (optional)
     ldir_map <- list(
-      ldir_raman_matched = "ldir_raman_matched.csv",
-      unmatched_ldir     = "unmatched_ldir.csv"
+      ldir_raman_matched  = "ldir_raman_matched.csv",
+      unmatched_ldir      = "unmatched_ldir.csv",
+      triplets            = "triplets_3way.csv",
+      ldir_image_extracted = "ldir_image_extracted.csv"
     )
     for (nm in names(ldir_map)) {
       fp <- file.path(run_info$dir, ldir_map[[nm]])
@@ -91,8 +93,10 @@ load_run_data <- function(run_info) {
 
     # LDIR files (flat format)
     for (info in list(
-      list(nm = "ldir_raman_matched", prefix = "ldir_raman_matched"),
-      list(nm = "unmatched_ldir",     prefix = "unmatched_ldir")
+      list(nm = "ldir_raman_matched",  prefix = "ldir_raman_matched"),
+      list(nm = "unmatched_ldir",      prefix = "unmatched_ldir"),
+      list(nm = "triplets",            prefix = "triplets_3way"),
+      list(nm = "ldir_image_extracted", prefix = "ldir_image_extracted")
     )) {
       fp <- find_flat(info$prefix)
       if (!is.null(fp)) data[[info$nm]] <- read.csv(fp, stringsAsFactors = FALSE)
