@@ -1,0 +1,8 @@
+# LDIR-to-Raman Transform Parameters
+scale:        1.000756
+rotation_deg: 41.7824
+tx:           -1038.7642
+ty:           -329.0255
+reflected:    FALSE
+icp_converged:  TRUE
+icp_final_rms:  149.7225 um

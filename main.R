@@ -36,6 +36,7 @@ source("R/00_config.R")
 source("R/00b_file_input.R")
 source("R/01_ingest.R")
 source("R/01b_ingest_image.R")
+source("R/utils_python.R")
 source("R/01c_ingest_ldir.R")
 source("R/02_prefilter.R")
 source("R/03_normalize.R")
@@ -528,6 +529,33 @@ if (has_ldir && !is.null(ldir_raw)) {
                   ", rot=", round(ldir_icp$params$rotation_deg, 2), " deg",
                   ", converged=", ldir_icp$converged)
 
+      # Quality check: warn if LDIR ICP alignment is substantially worse than FTIR
+      ldir_final_rms <- if (length(ldir_icp$rms_history) > 0)
+        tail(ldir_icp$rms_history, 1) else NA_real_
+      ftir_final_rms  <- if (length(icp_result$rms_history) > 0)
+        tail(icp_result$rms_history, 1) else NA_real_
+
+      if (!is.na(ldir_final_rms) && ldir_final_rms > 100) {
+        log_message("  LDIR alignment quality: POOR (ICP RMS = ",
+                    round(ldir_final_rms, 1), " µm). Possible causes:",
+                    level = "WARN")
+        log_message("    1. LDIR scan area (ldir_scan_diameter_um=",
+                    config$ldir_scan_diameter_um, " µm) may not match actual scan",
+                    level = "WARN")
+        log_message("    2. Too few anchor material particles for robust RANSAC",
+                    level = "WARN")
+        log_message("    3. Systematic coordinate flip or offset in image extraction",
+                    level = "WARN")
+        log_message("    Recommendation: verify ldir_scan_diameter_um in config ",
+                    "and check LDIR overlay plot (plots/ldir_overlay.png)",
+                    level = "WARN")
+      } else if (!is.na(ldir_final_rms) && !is.na(ftir_final_rms) &&
+                 ldir_final_rms > 3 * ftir_final_rms) {
+        log_message("  LDIR alignment quality: MARGINAL (RMS ",
+                    round(ldir_final_rms, 1), " µm vs FTIR ",
+                    round(ftir_final_rms, 1), " µm)", level = "WARN")
+      }
+
       # 12f. Apply transform to all LDIR particles with coordinates
       ldir_aligned <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
       ldir_tf <- apply_transform_points(
@@ -586,8 +614,42 @@ if (has_ldir && !is.null(ldir_raw)) {
                                raman_for_match$particle_id)
         triplets$raman_material <- raman_for_match$material[raman_mat_idx]
 
-        log_message("  Three-way triplets: ", nrow(triplets),
-                    " particles matched across all three instruments")
+        # Compute per-triplet material agreement quality (0–3 instruments agreeing)
+        # Uses polymer family classification so minor name differences still score
+        if (nrow(triplets) > 0) {
+          ftir_fam  <- classify_family_vec(triplets$ftir_material)
+          raman_fam <- classify_family_vec(triplets$raman_material)
+          ldir_fam  <- classify_family_vec(triplets$ldir_material)
+
+          # Count how many instrument families agree with Raman
+          fr_agree   <- ftir_fam == raman_fam & ftir_fam != "Unknown"
+          lr_agree   <- ldir_fam == raman_fam & ldir_fam != "Unknown"
+          fl_agree   <- ftir_fam == ldir_fam  & ftir_fam != "Unknown"
+          n_agree    <- as.integer(fr_agree) + as.integer(lr_agree) +
+                        as.integer(fl_agree)
+          # n_agree ranges 0–3 (3 = all three pairwise family comparisons agree)
+          triplets$n_instrument_agreement <- n_agree
+          triplets$ftir_family  <- ftir_fam
+          triplets$raman_family <- raman_fam
+          triplets$ldir_family  <- ldir_fam
+          triplets$material_consensus <- ifelse(
+            n_agree == 3, "Full agreement",
+            ifelse(fr_agree & lr_agree, "All three agree",
+            ifelse(fr_agree, "FTIR+Raman agree",
+            ifelse(lr_agree, "LDIR+Raman agree",
+            ifelse(fl_agree, "FTIR+LDIR agree",
+            "No agreement"))))
+          )
+
+          n_full <- sum(n_agree == 3, na.rm = TRUE)
+          n_partial <- sum(n_agree >= 2 & n_agree < 3, na.rm = TRUE)
+          log_message("  Three-way triplets: ", nrow(triplets),
+                      " total (", n_full, " full agreement, ",
+                      n_partial, " partial, ",
+                      nrow(triplets) - n_full - n_partial, " no agreement)")
+        } else {
+          log_message("  Three-way triplets: 0 particles matched")
+        }
       }
 
     } else {

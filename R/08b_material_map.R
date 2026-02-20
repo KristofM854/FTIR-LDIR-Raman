@@ -44,7 +44,7 @@ default_polymer_families <- list(
   ),
   PA = c(
     "^PA$", "^PA\\d", "^Nylon",
-    "^Polyamide(?!.*natural)"   # PA but NOT "naturally occurring"
+    "^Polyamide(?!.*(natural|occurring))"  # PA but NOT "naturally occurring"
   ),
   PC = c(
     "^PC$",
@@ -88,7 +88,7 @@ default_polymer_families <- list(
     "Chitin", "Chitosan"
   ),
   Natural = c(
-    "naturally\\s*occurring",
+    "naturally\\s*occurring",   # covers "Polyamide (naturally occurring)" from LDIR
     "^Carbonate$", "^Sand$",
     "Cotton",
     "^Natural$", "^Organic$", "^Biofilm$"
