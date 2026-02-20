@@ -160,7 +160,12 @@ ui <- fluidPage(
                       min = 0, max = 100, value = c(0, 100), step = 1),
           selectInput("overlay_material_filter", "Material (either instrument)",
                       choices = c("All"), selected = "All", multiple = TRUE),
-          checkboxGroupInput("overlay_layers", "Show Layers",
+          fluidRow(
+            column(6, tags$label("Show Layers")),
+            column(6, actionLink("overlay_toggle_all", "Select / Deselect All",
+                                 style = "float:right; font-size:12px;"))
+          ),
+          checkboxGroupInput("overlay_layers", NULL,
                              choices = c("Matched pairs" = "matched",
                                          "Unmatched FTIR" = "unmatched_ftir",
                                          "Unmatched Raman" = "unmatched_raman",
@@ -678,6 +683,19 @@ server <- function(input, output, session) {
     zoom$overlay <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
   })
   observeEvent(input$overlay_dblclick, { zoom$overlay <- NULL })
+
+  # Overlay: select / deselect all layers
+  observeEvent(input$overlay_toggle_all, {
+    all_choices <- c("matched", "unmatched_ftir", "unmatched_raman",
+                     "match_lines", "ldir_matched", "ldir_unmatched",
+                     "ldir_lines", "triple_only")
+    current <- input$overlay_layers
+    if (length(current) == length(all_choices)) {
+      updateCheckboxGroupInput(session, "overlay_layers", selected = character(0))
+    } else {
+      updateCheckboxGroupInput(session, "overlay_layers", selected = all_choices)
+    }
+  })
 
   # ==================================================================
   # FTIR TAB

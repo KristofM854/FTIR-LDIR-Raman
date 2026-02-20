@@ -65,9 +65,9 @@ select_landmarks <- function(df, config) {
 #'   inlier_ratio  — fraction of landmarks that are inliers
 #'   mean_residual — mean distance of inlier pairs (µm)
 #'   inlier_pairs  — data frame of matched landmark pairs
-landmark_align <- function(ftir_df, raman_df, config) {
+landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR") {
   log_message(strrep("-", 50))
-  log_message("Tier 1: Landmark-based alignment")
+  log_message("Tier 1: Landmark-based alignment (", src_label, " → Raman)")
 
   # --- Select landmarks ---
   ftir_lm_mask  <- select_landmarks(ftir_df, config)
@@ -76,7 +76,7 @@ landmark_align <- function(ftir_df, raman_df, config) {
   n_ftir_lm  <- sum(ftir_lm_mask)
   n_raman_lm <- sum(raman_lm_mask)
 
-  log_message("  FTIR landmarks:  ", n_ftir_lm, " / ", nrow(ftir_df))
+  log_message("  ", src_label, " landmarks:  ", n_ftir_lm, " / ", nrow(ftir_df))
   log_message("  Raman landmarks: ", n_raman_lm, " / ", nrow(raman_df))
 
   min_count <- config$landmark_min_count
@@ -95,7 +95,7 @@ landmark_align <- function(ftir_df, raman_df, config) {
 
   # Log size stats for landmarks
   if (any(!is.na(ftir_lm$feret_max_um))) {
-    log_message("  FTIR landmark sizes: ",
+    log_message("  ", src_label, " landmark sizes: ",
                 round(min(ftir_lm$feret_max_um, na.rm = TRUE)), " – ",
                 round(max(ftir_lm$feret_max_um, na.rm = TRUE)), " µm")
   }
