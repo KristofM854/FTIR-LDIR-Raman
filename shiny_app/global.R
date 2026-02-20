@@ -574,6 +574,49 @@ load_image_raster <- function(path) {
 }
 
 # ---------------------------------------------------------------------------
+# Compute image bounds that preserve the image's native aspect ratio while
+# centering on a set of particles.  The image is expanded (never cropped)
+# so that all particles fit inside, plus padding.
+#
+# img_raster : raster array (h x w x channels)
+# x_vals, y_vals : particle coordinate vectors (determines center + extent)
+# padding_um : padding in µm on each side
+#
+# Returns: list(xmin, xmax, ymin, ymax) for annotation_raster
+# ---------------------------------------------------------------------------
+compute_image_bounds <- function(img_raster, x_vals, y_vals, padding_um = 300) {
+  img_h <- nrow(img_raster)
+  img_w <- ncol(img_raster)
+  img_aspect <- img_w / img_h  # width / height
+
+  # Particle extent
+  px_min <- min(x_vals, na.rm = TRUE)
+  px_max <- max(x_vals, na.rm = TRUE)
+  py_min <- min(y_vals, na.rm = TRUE)
+  py_max <- max(y_vals, na.rm = TRUE)
+
+  # Center on particles
+  cx <- (px_min + px_max) / 2
+  cy <- (py_min + py_max) / 2
+
+  # Required span to contain all particles + padding
+  span_x <- (px_max - px_min) + 2 * padding_um
+  span_y <- (py_max - py_min) + 2 * padding_um
+
+  # Expand the shorter dimension to match the image aspect ratio
+  if (span_x / span_y > img_aspect) {
+    # Image needs to be taller for this width
+    span_y <- span_x / img_aspect
+  } else {
+    # Image needs to be wider for this height
+    span_x <- span_y * img_aspect
+  }
+
+  list(xmin = cx - span_x / 2, xmax = cx + span_x / 2,
+       ymin = cy - span_y / 2, ymax = cy + span_y / 2)
+}
+
+# ---------------------------------------------------------------------------
 # Find nearest particle to a hover coordinate.
 # max_dist_frac: fraction of visible plot range used as snap radius.
 # ---------------------------------------------------------------------------
