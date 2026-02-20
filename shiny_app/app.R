@@ -825,26 +825,55 @@ server <- function(input, output, session) {
                       input$ldir_material_filter, input$ldir_match_filter)
   })
 
-  # Processed LDIR image: saturation mask computed on the fly from raw PNG
+  # Processed LDIR image: background-corrected via Python (preferred)
+  # or saturation mask (fallback). Shows the image after processing to
+  # help diagnose extraction quality.
   ldir_processed_image <- reactive({
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
-    if (length(dim(raw)) < 3 || dim(raw)[3] < 3) return(NULL)
 
-    r <- raw[,,1]; g <- raw[,,2]; b <- raw[,,3]
-    mx <- pmax(r, g, b)
-    mn <- pmin(r, g, b)
-    sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
-    binary <- sat > 0.3 & mx > 0.08
+    # Try Python background correction for the processed view
+    ldir_img_path <- file.path("..", "Comparstic LDIR F2Ba_G3B AU 240925.png")
+    py_ok <- tryCatch({
+      if (file.exists(ldir_img_path) &&
+          requireNamespace("reticulate", quietly = TRUE)) {
+        py_script <- file.path("..", "inst", "python", "particle_detector.py")
+        if (file.exists(py_script)) {
+          reticulate::source_python(py_script)
+          data <- load_and_prepare(ldir_img_path)
+          bg <- correct_background(data$gray)
+          corr <- bg$corrected
+          # Normalize to 0-1 for display
+          mx_val <- max(corr)
+          if (mx_val > 0) corr <- corr / mx_val
+          # Convert to 3-channel green-tinted visualization
+          h <- nrow(corr); w <- ncol(corr)
+          out <- array(0.05, dim = c(h, w, 3))
+          out[,,2] <- corr * 0.9       # green channel = intensity
+          out[,,1] <- corr * 0.2       # slight red
+          out[,,3] <- corr * 0.2       # slight blue
+          return(out)
+        }
+      }
+      FALSE
+    }, error = function(e) FALSE)
 
-    # Create a 3-channel visualization:
-    # foreground pixels in green, background in dark grey
-    h <- nrow(raw); w <- ncol(raw)
-    out <- array(0.12, dim = c(h, w, 3))
-    out[,,2][binary] <- 0.8    # green channel for foreground
-    out[,,1][binary] <- 0.15   # slight red for contrast
-    out[,,3][binary] <- 0.15   # slight blue for contrast
-    out
+    if (is.logical(py_ok) && !py_ok) {
+      # Fallback: saturation mask
+      if (length(dim(raw)) < 3 || dim(raw)[3] < 3) return(NULL)
+      r <- raw[,,1]; g <- raw[,,2]; b <- raw[,,3]
+      mx <- pmax(r, g, b)
+      mn <- pmin(r, g, b)
+      sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
+      binary <- sat > 0.3 & mx > 0.08
+      h <- nrow(raw); w <- ncol(raw)
+      out <- array(0.12, dim = c(h, w, 3))
+      out[,,2][binary] <- 0.8
+      out[,,1][binary] <- 0.15
+      out[,,3][binary] <- 0.15
+      return(out)
+    }
+    py_ok
   })
 
   # Processed LDIR image info (same bounds as native)

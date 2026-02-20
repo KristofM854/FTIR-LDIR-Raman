@@ -6,8 +6,8 @@
 flowchart TB
     subgraph INPUTS["<b>Raw Inputs</b>"]
         direction LR
-        ftir_excel["FTIR Excel<br/><i>particles, materials,<br/>quality, x/y coords</i>"]
-        raman_excel["Raman Excel<br/><i>particles, materials,<br/>HQI, x/y coords</i>"]
+        ftir_excel["FTIR Excel/CSV<br/><i>particles, materials,<br/>quality, x/y coords</i>"]
+        raman_excel["Raman CSV<br/><i>particles, materials,<br/>HQI, x/y coords</i>"]
         ldir_excel["LDIR Excel<br/><i>particles, materials,<br/>quality, sizes<br/>(NO coordinates)</i>"]
         ftir_img["FTIR Image (.png)<br/><i>Absorption heatmap<br/>~3000×3000 px</i>"]
         ldir_img["LDIR Image (.png)<br/><i>Colored particle map<br/>~2400×2400 px</i>"]
@@ -16,11 +16,12 @@ flowchart TB
 
     subgraph INGEST["<b>1. Data Ingestion</b>"]
         direction TB
-        ingest_ftir["ingest_ftir()<br/><i>R/01_ingest_ftir.R</i>"]
-        ingest_raman["ingest_raman()<br/><i>R/01_ingest_raman.R</i>"]
+        ingest_ftir["ingest_ftir()<br/><i>R/01_ingest.R</i>"]
+        ingest_raman["ingest_raman()<br/><i>R/01_ingest.R</i>"]
         ingest_ldir["ingest_ldir()<br/><i>R/01c_ingest_ldir.R</i>"]
-        extract_ldir["extract_ldir_image_coords()<br/><i>Color-marker detection<br/>→ connected components<br/>→ pixel centroids → µm</i>"]
-        join_ldir["join_ldir_coords()<br/><i>Hungarian assignment<br/>on size similarity<br/>+ scan-order validation</i>"]
+        python_detect["Python backend<br/><i>inst/python/particle_detector.py<br/>1. Per-tile sigma-clipping BG correction<br/>2. Global threshold detection<br/>3. Auto-tune threshold → target count<br/>4. Pixel centroid extraction</i>"]
+        r_fallback["R fallback<br/><i>Saturation segmentation<br/>(if Python unavailable)</i>"]
+        join_ldir["join_ldir_coords()<br/><i>Hungarian assignment<br/>on vectorised log-ratio cost<br/>+ scan-order validation (τ)</i>"]
     end
 
     subgraph PREFILTER["<b>2. Pre-filtering</b>"]
@@ -45,13 +46,15 @@ flowchart TB
         tier1_check{"Confident?<br/><i>inliers > 50%<br/>residual < 50 µm</i>"}
         tier2["<b>Tier 2: RANSAC</b><br/><i>Grid search<br/>rotation (1° steps)<br/>× scale (0.9–1.1)<br/>Count inliers < 200 µm</i>"]
         icp_fr["<b>ICP Refinement</b><br/><i>Iterative closest point<br/>Weighted SVD<br/>Downweight fibers<br/>Until RMS converges</i>"]
-        transform_fr["Output: M_ftir<br/><i>3×3 homogeneous matrix<br/>(rotation + scale + translation)</i>"]
+        transform_fr["Output: M_ftir<br/><i>3×3 homogeneous matrix<br/>(rotation + scale + translation)<br/>Typical: RMS ~16 µm</i>"]
     end
 
     subgraph ALIGN_LR["<b>5. LDIR → Raman Alignment</b>"]
         direction TB
-        ransac_lr["RANSAC<br/><i>Same grid search<br/>on LDIR plastic anchors</i>"]
+        ransac_lr["RANSAC<br/><i>Same grid search<br/>on LDIR plastic anchors<br/>(PET, PP, PC)</i>"]
         icp_lr["ICP Refinement<br/><i>Same iterative process</i>"]
+        quality_check{"ICP RMS > 100 µm?"}
+        quality_warn["WARN: Check<br/>ldir_scan_diameter_um<br/>config setting"]
         transform_lr["Output: M_ldir<br/><i>3×3 homogeneous matrix</i>"]
     end
 
@@ -67,14 +70,14 @@ flowchart TB
         match_fr["FTIR ↔ Raman<br/><i>Hungarian algorithm<br/>Cost = distance +<br/>area + feret + aspect<br/>Max 100 µm + 0.15×major</i>"]
         match_lr["LDIR ↔ Raman<br/><i>Same algorithm</i>"]
         match_lf["LDIR ↔ FTIR<br/><i>Both in Raman frame<br/>Direct spatial match</i>"]
-        triplets["3-Way Triplets<br/><i>Shared raman_particle_id<br/>in FR + LR matches</i>"]
+        triplets["3-Way Triplets<br/><i>Shared raman_particle_id<br/>in FR + LR matches<br/>+ material consensus scoring<br/>n_instrument_agreement: 0–3</i>"]
         composites["Composite Matches<br/><i>1 FTIR → N Raman fragments<br/>Area ratio 0.3–5.0</i>"]
     end
 
     subgraph AGREEMENT["<b>8. Agreement Analysis</b>"]
         direction TB
         normalize_mat["Normalize material names<br/><i>Extract abbreviation<br/>from parentheses</i>"]
-        classify["Classify polymer family<br/><i>PET, PP, PE, PS, PVC,<br/>PA, PC, PMMA, Rubber,<br/>Cellulose, ...</i>"]
+        classify["Classify polymer family<br/><i>PET, PP, PE, PS, PVC,<br/>PA, PC, PMMA, Rubber,<br/>Cellulose, Natural, ...<br/>Note: 'Polyamide (naturally occurring)'<br/>→ Natural (not PA)</i>"]
         tier_score["Score agreement tier<br/><i><b>Exact</b>: same family + name<br/><b>Family</b>: same family<br/><b>Disagree</b>: different family</i>"]
         confusion["Confusion matrix<br/><i>FTIR × Raman materials</i>"]
     end
@@ -103,9 +106,9 @@ flowchart TB
 
     subgraph EXPORT["<b>11. Export Results</b>"]
         direction TB
-        csv_out["CSVs:<br/><i>matched_particles<br/>unmatched_ftir/raman/ldir<br/>agreement_summary/pairwise<br/>ldir_*_matched, triplets<br/>triage_top_pairs</i>"]
+        csv_out["CSVs:<br/><i>matched_particles<br/>unmatched_ftir/raman/ldir<br/>agreement_summary/pairwise<br/>ldir_*_matched<br/>triplets_3way (+ consensus)<br/>ldir_image_extracted<br/>triage_top_pairs</i>"]
         txt_out["Transform params:<br/><i>3×3 matrix, centroids<br/>scale, rotation_deg<br/>match_statistics</i>"]
-        plot_out["Plots:<br/><i>9+ PNGs<br/>all_diagnostics.pdf</i>"]
+        plot_out["Plots:<br/><i>11+ PNGs<br/>all_diagnostics.pdf</i>"]
     end
 
     subgraph SHINY["<b>12. Shiny App</b>"]
@@ -113,8 +116,8 @@ flowchart TB
         load_run["Auto-load latest<br/>pipeline output"]
         tab_ftir["<b>FTIR Tab</b><br/><i>Native coords + image<br/>Filter: quality, size,<br/>material, match status</i>"]
         tab_raman["<b>Raman Tab</b><br/><i>Native coords<br/>Same filters</i>"]
-        tab_ldir["<b>LDIR Tab</b><br/><i>Native coords +<br/>Y-flipped image</i>"]
-        tab_overlay["<b>Overlay Tab</b><br/><i>All instruments<br/>in Raman frame<br/>+ raman_resized.jpg</i>"]
+        tab_ldir["<b>LDIR Tab</b><br/><i>Native coords<br/>3 image layers:<br/>raw / processed / extracted</i>"]
+        tab_overlay["<b>Overlay Tab</b><br/><i>All instruments<br/>in Raman frame<br/>+ Triple match rings (gold)</i>"]
         interactive["Interactive:<br/><i>Hover tooltips<br/>Brush zoom<br/>Image offsets<br/>Layer toggles</i>"]
     end
 
@@ -122,8 +125,10 @@ flowchart TB
     ftir_excel --> ingest_ftir
     raman_excel --> ingest_raman
     ldir_excel --> ingest_ldir
-    ldir_img --> extract_ldir
-    extract_ldir --> join_ldir
+    ldir_img --> python_detect
+    python_detect -->|"primary path"| join_ldir
+    ldir_img --> r_fallback
+    r_fallback -->|"Python unavailable"| join_ldir
     ingest_ldir --> join_ldir
 
     ingest_ftir --> filter_plastic
@@ -147,7 +152,10 @@ flowchart TB
     center_ldir --> ransac_lr
     center_raman --> ransac_lr
     ransac_lr --> icp_lr
-    icp_lr --> transform_lr
+    icp_lr --> quality_check
+    quality_check -->|Yes| quality_warn
+    quality_check -->|No| transform_lr
+    quality_warn --> transform_lr
 
     transform_fr --> apply_ftir
     transform_lr --> apply_ldir
@@ -207,11 +215,11 @@ flowchart TB
     subgraph FTIR_COORDS["<b>FTIR Coordinate Pipeline</b>"]
         direction TB
 
-        ftir_raw["<b>Raw FTIR Coordinates</b><br/><i>From Excel: x_um, y_um<br/>Frame: instrument grid<br/>Origin: grid corner<br/>Y-axis: up (Cartesian)<br/>Range: ~[0, 12475] µm</i>"]
+        ftir_raw["<b>Raw FTIR Coordinates</b><br/><i>From CSV: x_um, y_um<br/>Frame: instrument grid<br/>Y-axis: up (Cartesian)<br/>Range: ~[0, 12475] µm</i>"]
 
         ftir_norm["<b>Normalized</b><br/><i>x_norm = x_um − centroid_x<br/>y_norm = y_um − centroid_y<br/>Centroid from PLASTIC subset<br/>Range: ~[−6200, +6200]</i>"]
 
-        ftir_aligned["<b>Aligned (Raman frame)</b><br/><i>[x, y, 1]_aligned = M × [x, y, 1]_norm<br/><br/>M = | s·cos θ  −s·sin θ  tx |<br/>    | s·sin θ   s·cos θ  ty |<br/>    |    0          0      1  |<br/><br/>s ≈ 1.00, θ ≈ 2°, tx/ty ≈ 15 µm</i>"]
+        ftir_aligned["<b>Aligned (Raman frame)</b><br/><i>[x, y, 1]_aligned = M × [x, y, 1]_norm<br/><br/>M ≈ | −1  0  tx |  (≈180° rotation)<br/>    |  0 −1  ty |<br/>    |  0  0   1 |<br/><br/>ICP RMS ≈ 16 µm (typical)</i>"]
 
         ftir_raw --> |"subtract<br/>ftir_centroid"| ftir_norm
         ftir_norm --> |"apply M_ftir<br/>(ICP output)"| ftir_aligned
@@ -220,7 +228,7 @@ flowchart TB
     subgraph RAMAN_COORDS["<b>Raman Coordinate Pipeline</b>"]
         direction TB
 
-        raman_raw["<b>Raw Raman Coordinates</b><br/><i>From Excel: x_um, y_um<br/>Frame: instrument stage<br/>Y-axis: up (Cartesian)<br/>Range: ~[−5500, +6600] µm</i>"]
+        raman_raw["<b>Raw Raman Coordinates</b><br/><i>From CSV: x_um, y_um<br/>Frame: instrument stage<br/>Y-axis: up (Cartesian)<br/>Range: ~[−5500, +6600] µm</i>"]
 
         raman_norm["<b>Normalized = Reference Frame</b><br/><i>x_norm = x_um − centroid_x<br/>y_norm = y_um − centroid_y<br/>Centroid from PLASTIC subset<br/><br/>This IS the aligned frame.<br/>All other instruments<br/>transform TO this frame.</i>"]
 
@@ -232,31 +240,34 @@ flowchart TB
 
         ldir_none["<b>Excel Data</b><br/><i>NO coordinates<br/>Only: sizes, materials,<br/>quality scores</i>"]
 
-        ldir_image["<b>Image Extraction</b><br/><i>Detect colored markers<br/>Connected components<br/>→ pixel centroids (px)</i>"]
+        ldir_python["<b>Python Detection</b><br/><i>inst/python/particle_detector.py<br/>1. Grayscale conversion<br/>2. 4×4 tile BG correction<br/>   (sigma-clipping Gaussian)<br/>3. Global threshold + CCL<br/>4. Auto-tune threshold<br/>   to match Excel count</i>"]
 
-        ldir_physical["<b>Physical Coordinates</b><br/><i>x_um = px_x / width × extent<br/>y_um = px_y / height × extent<br/>Y-axis: DOWN (image convention)<br/>Range: [0, 13000] µm</i>"]
+        ldir_r_fallback["<b>R Fallback</b><br/><i>HSV saturation > 0.3<br/>Adaptive threshold<br/>(if Python unavailable)</i>"]
 
-        ldir_joined["<b>Joined with Excel</b><br/><i>Hungarian matching<br/>on size similarity<br/>(cost < 2.0 threshold)<br/>Validated via scan-order<br/>Kendall tau correlation</i>"]
+        ldir_physical["<b>Physical Coordinates</b><br/><i>x_um = centroid_x / width × extent<br/>y_um = extent − centroid_y / height × extent<br/>Y-flip: image row 0 (top) → y_max<br/>Extent = ldir_scan_diameter_um</i>"]
+
+        ldir_joined["<b>Joined with Excel</b><br/><i>Vectorised log-ratio cost matrix<br/>outer(log area, log feret)<br/>Hungarian assignment<br/>(cost < 2.0 threshold)<br/>Validated via scan-order<br/>Kendall τ correlation<br/>Typical join rate: ~99%</i>"]
 
         ldir_norm["<b>Normalized</b><br/><i>x_norm = x_um − centroid_x<br/>y_norm = y_um − centroid_y<br/>Centroid from PLASTIC subset</i>"]
 
-        ldir_aligned["<b>Aligned (Raman frame)</b><br/><i>[x, y, 1]_aligned = M × [x, y, 1]_norm<br/><br/>Separate M_ldir matrix<br/>(own RANSAC + ICP)</i>"]
+        ldir_aligned["<b>Aligned (Raman frame)</b><br/><i>[x, y, 1]_aligned = M × [x, y, 1]_norm<br/><br/>Separate M_ldir matrix<br/>(own RANSAC + ICP)<br/>Quality check: warn if RMS > 100 µm</i>"]
 
         ldir_none --> ldir_joined
-        ldir_image --> ldir_joined
-        ldir_joined --> |"pixel → µm<br/>scaling"| ldir_physical
-        ldir_physical --> |"subtract<br/>ldir_centroid"| ldir_norm
+        ldir_python -->|"primary"| ldir_physical
+        ldir_r_fallback -->|"fallback"| ldir_physical
+        ldir_physical --> ldir_joined
+        ldir_joined --> |"subtract<br/>ldir_centroid"| ldir_norm
         ldir_norm --> |"apply M_ldir<br/>(ICP output)"| ldir_aligned
     end
 
     subgraph ICP_DETAIL["<b>ICP Registration Detail (runs twice: FTIR→Raman, LDIR→Raman)</b>"]
         direction TB
 
-        coarse["<b>Coarse Alignment</b><br/><i>Tier 1: Landmark (large particles, fibers)<br/>Tier 2: RANSAC (1° rotation × 0.01 scale grid)</i>"]
+        coarse["<b>Coarse Alignment</b><br/><i>Tier 1: Landmark (large particles, fibers)<br/>Tier 2: RANSAC (1° rotation × scale grid)</i>"]
 
         icp_init["Initialize from<br/>coarse transform"]
 
-        icp_loop["<b>ICP Loop (max 100 iter)</b><br/><i>1. Find nearest Raman neighbor for each source pt<br/>2. Compute weights (distance + elongation)<br/>3. Weighted SVD → rotation + scale + translation<br/>4. Update transform matrix<br/>5. Compute RMS error</i>"]
+        icp_loop["<b>ICP Loop (max 100 iter)</b><br/><i>1. Find nearest Raman neighbor for each source pt<br/>2. Reciprocal filter (forward + backward NN agree)<br/>3. Trim worst 10% by distance<br/>4. Weighted SVD → rotation + scale + translation<br/>   (downweight elongated particles)<br/>5. Compute RMS error</i>"]
 
         icp_conv{"RMS change<br/>< 0.01 µm?"}
 
@@ -286,15 +297,22 @@ flowchart TB
     subgraph LDIR_IMAGE["<b>LDIR Image Handling</b>"]
         direction TB
 
-        ldir_img_raw["<b>Raw PNG</b><br/><i>Colored particle map<br/>~2400 × 2400 px<br/>Row 1 = top (y_um ≈ 0)</i>"]
+        ldir_img_raw["<b>Raw PNG</b><br/><i>Colored particle map<br/>~2400 × 2400 px<br/>Row 1 = top (y_um ≈ 0 in image coords)</i>"]
 
-        ldir_problem["<b>Y-Axis Mismatch</b><br/><i>LDIR image: row 1 = y_um 0 (top)<br/>ggplot: y=0 at bottom, y=13000 at top<br/>annotation_raster: row 1 → ymax (top)<br/><br/>Without fix: image top (y_um=0) placed<br/>at plot top (y=13000) → INVERTED</i>"]
+        ldir_problem["<b>Y-Axis Mismatch</b><br/><i>Image: row 1 = small y_um (top)<br/>ggplot: y=0 at bottom<br/>annotation_raster: row 1 → ymax<br/>→ INVERTED without fix</i>"]
 
-        ldir_flip["<b>Fix: Physical Row Reversal</b><br/><i>flipped = raw[nrow:1, , ]<br/><br/>Now row 1 = what was bottom<br/>of image (y_um ≈ 13000)<br/>→ placed at ymax (plot top)<br/>→ matches high-y particles</i>"]
+        ldir_flip["<b>Fix: Physical Row Reversal</b><br/><i>flipped = raw[nrow:1, , ]<br/>Now row 1 = large y_um side<br/>→ placed at ymax (plot top)<br/>→ matches particle coordinates</i>"]
 
-        ldir_native_display["<b>LDIR Tab Display</b><br/><i>annotation_raster(<br/>  flipped_raster,<br/>  xmin=0, xmax=13000,<br/>  ymin=0, ymax=13000<br/>)<br/><br/>Particles: x_orig, y_orig</i>"]
+        ldir_raw_display["<b>Raw Image Layer</b><br/><i>annotation_raster(flipped)<br/>LDIR tab: always shown</i>"]
 
-        ldir_img_raw --> ldir_problem --> ldir_flip --> ldir_native_display
+        ldir_processed["<b>Processed Image Layer</b><br/><i>Python: BG-corrected view<br/>(green-tinted, optional)<br/>Fallback: saturation mask</i>"]
+
+        ldir_extracted["<b>Extracted Points Layer</b><br/><i>ldir_image_extracted.csv<br/>Pink open circles<br/>Pre-join centroids</i>"]
+
+        ldir_img_raw --> ldir_problem --> ldir_flip
+        ldir_flip --> ldir_raw_display
+        ldir_flip --> ldir_processed
+        ldir_img_raw --> ldir_extracted
     end
 
     subgraph OVERLAY_IMAGE["<b>Overlay Image Handling (raman_resized.jpg)</b>"]
@@ -302,9 +320,9 @@ flowchart TB
 
         overlay_img_raw["<b>Raw JPEG</b><br/><i>Optical overview<br/>5000 × 4834 px<br/>Covers full 13mm filter</i>"]
 
-        overlay_bounds["<b>Compute Bounds</b><br/><i>Use FTIR + Raman extents ONLY<br/>(not LDIR — coarser alignment)<br/><br/>20% padding on each side<br/>Enforce image aspect ratio<br/>≈ [−8200, +9300] × [−9900, +7000]</i>"]
+        overlay_bounds["<b>Compute Bounds</b><br/><i>Use FTIR + Raman extents ONLY<br/>(not LDIR — coarser alignment)<br/><br/>20% padding on each side<br/>Enforce image aspect ratio</i>"]
 
-        overlay_display["<b>Overlay Tab Display</b><br/><i>annotation_raster(<br/>  raman_img,<br/>  xmin, xmax, ymin, ymax<br/>)<br/><br/>+ FTIR (x_aligned, green △)<br/>+ Raman (x_norm, blue ●)<br/>+ LDIR (x_aligned, purple ◆)<br/>+ match lines (grey)</i>"]
+        overlay_display["<b>Overlay Tab Display</b><br/><i>annotation_raster(raman_img, ...)<br/><br/>Layers (toggleable):<br/>+ FTIR (x_aligned, green △)<br/>+ Raman (x_norm, blue ●)<br/>+ LDIR (x_aligned, purple ◆)<br/>+ Match lines (grey)<br/>+ Triple matches (gold ○, 6pt ring)</i>"]
 
         overlay_img_raw --> overlay_bounds --> overlay_display
     end
@@ -316,9 +334,9 @@ flowchart TB
 
         ds2["<b>Raman Tab</b><br/>Particles: x_orig, y_orig<br/>Image: user-uploaded only<br/>No flip"]
 
-        ds3["<b>LDIR Tab</b><br/>Particles: x_orig, y_orig<br/>Image: [0, extent] µm<br/><b>Rows flipped vertically</b>"]
+        ds3["<b>LDIR Tab</b><br/>Particles: x_orig, y_orig<br/>Image: [0, extent] µm<br/><b>Rows flipped vertically</b><br/>3 optional overlays"]
 
-        ds4["<b>Overlay Tab</b><br/>All particles in Raman frame:<br/>  FTIR → x_aligned<br/>  Raman → x_norm<br/>  LDIR → x_aligned<br/>Image: FTIR+Raman extent<br/>No flip"]
+        ds4["<b>Overlay Tab</b><br/>All particles in Raman frame:<br/>  FTIR → x_aligned<br/>  Raman → x_norm<br/>  LDIR → x_aligned<br/>Image: FTIR+Raman extent<br/>Triple match rings: gold"]
     end
 
     %% Cross-subgraph connections
@@ -336,3 +354,51 @@ flowchart TB
     style OVERLAY_IMAGE fill:#fff3e0,stroke:#ef6c00
     style DISPLAY_SUMMARY fill:#fafafa,stroke:#424242
 ```
+
+## 3. Analysis Findings & Improvement Notes
+
+### Current Pipeline Performance (2026-02-19 run)
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| FTIR→Raman ICP RMS | 16.6 µm | Excellent — landmark alignment succeeded |
+| LDIR→Raman ICP RMS | 149.7 µm | Poor — see LDIR alignment section |
+| FTIR match rate | 89.4% | 322/360 matched |
+| LDIR image join rate | 99.6% | 503/505 via Python backend |
+| LDIR→Raman matches | 67 pairs | |
+| Three-way triplets | 26 total | Material consensus varies |
+| FTIR→Raman agreement | 11.5% family+ | Low — see material issues |
+
+### Why LDIR Spatial Alignment Is Poor
+
+The LDIR→Raman ICP converges to ~150 µm RMS vs ~17 µm for FTIR→Raman. Root causes:
+
+1. **Scan area mismatch**: `ldir_scan_diameter_um = 13000 µm` assumes a 13 mm square scan. If the actual scan area is smaller or non-square, all pixel→µm coordinate mappings are wrong by a constant factor.
+
+2. **Sparse anchors**: LDIR RANSAC uses only PET, PP, and PC particles. If these are few in number or spatially clustered, the initial RANSAC rotation estimate can be off by a large angle.
+
+3. **No direct reference**: LDIR aligns to Raman indirectly. Since LDIR and FTIR scan the same filter area, aligning LDIR→FTIR first (smaller spatial difference expected) before mapping to Raman via M_ftir could improve results.
+
+**Diagnostic**: Check `plots/ldir_overlay.png` — if LDIR particles are systematically offset from Raman in one direction, the scan bounds need adjustment.
+
+### Why Triplet Material Agreement Is Low
+
+Of 26 triplets in the test dataset, most show `material_consensus = "No agreement"`. Key observations:
+
+1. **FTIR "Protein" matches**: Many FTIR particles classified as "Protein" spatially match Raman particles classified as "Polyacrylamide/acrylate" or "CAB". This could be:
+   - A genuine scientific finding (surface protein coating on synthetic particles)
+   - Spatial matching artifacts from the large match distance threshold (100 µm)
+   - FTIR spectral confusion between protein amide bands and acrylate carbonyl bands
+
+2. **LDIR "Polyamide (naturally occurring)"**: Previously misclassified as synthetic PA (nylon). Now correctly mapped to the "Natural" family, reducing false material agreements with synthetic PA/Nylon from other instruments.
+
+3. **Poor LDIR spatial alignment**: An LDIR–Raman ICP RMS of 150 µm means the LDIR spatial matches themselves are uncertain. Several LDIR particles may be matched to the wrong Raman particle.
+
+### Key Redundancies Found
+
+| Location | Redundancy | Status |
+|----------|-----------|--------|
+| `R/01c_ingest_ldir.R` | O(n×m) nested loop for cost matrix | Fixed: replaced with `outer()` |
+| `R/08b_material_map.R` | PA regex did not exclude "naturally occurring" | Fixed: updated negative lookahead |
+| `R/08_agreement.R` + `08b_material_map.R` | Double normalization path when no config mapping | Acceptable: normalize_material() is fallback only |
+| `R/07_match.R` + `R/01c_ingest_ldir.R` | Similar log-ratio cost logic in two places | Minor: different column names prevent clean sharing |
