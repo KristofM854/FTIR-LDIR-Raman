@@ -375,8 +375,8 @@ server <- function(input, output, session) {
          ymin = b$ymin + oy, ymax = b$ymax + oy)
   })
 
-  # Raman tab: user-uploaded image placed at native Raman particle bounds.
-  # No image is auto-loaded for the Raman tab (raman_resized.jpg is for overlay only).
+  # Raman tab: image placed at native Raman particle bounds, preserving aspect ratio.
+  # Auto-loaded from raman_resized.jpg, same image as overlay tab.
   raman_native_image_info <- reactive({
     raw <- raman_tab_image()
     if (is.null(raw)) return(NULL)
@@ -384,21 +384,20 @@ server <- function(input, output, session) {
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
       ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
       oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
+      b <- compute_image_bounds(raw,
+                                raman_df$x_orig[!is.na(raman_df$x_orig)],
+                                raman_df$y_orig[!is.na(raman_df$y_orig)],
+                                padding_um = 300)
       return(list(raster = raw,
-                  xmin = min(raman_df$x_orig, na.rm = TRUE) + ox,
-                  xmax = max(raman_df$x_orig, na.rm = TRUE) + ox,
-                  ymin = min(raman_df$y_orig, na.rm = TRUE) + oy,
-                  ymax = max(raman_df$y_orig, na.rm = TRUE) + oy))
+                  xmin = b$xmin + ox, xmax = b$xmax + ox,
+                  ymin = b$ymin + oy, ymax = b$ymax + oy))
     }
     NULL
   })
 
-  # Overlay tab: raman_resized.jpg placed at Raman particle extent.
-  # The image is a Raman microscope photo, so it covers the same physical
-  # area as the Raman particles.  We use Raman-only extent + 300 µm padding,
-  # exactly mirroring the Raman native tab (which has excellent alignment).
-  # FTIR and LDIR particles are already transformed to the Raman frame,
-  # so they overlay correctly without affecting image placement.
+  # Overlay tab: raman_resized.jpg placed at Raman particle extent in
+  # normalized (centered) coordinates.  Uses same aspect-ratio-preserving
+  # logic as the Raman native tab so the image appears identical in both views.
   overlay_image_info <- reactive({
     raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
@@ -410,18 +409,14 @@ server <- function(input, output, session) {
     raman_y <- dfs$raman$y[is.finite(dfs$raman$y)]
     if (length(raman_x) == 0) return(NULL)
 
-    xmin <- min(raman_x)
-    xmax <- max(raman_x)
-    ymin <- min(raman_y)
-    ymax <- max(raman_y)
-
     # Apply user fine-tuning offsets
     ox <- if (!is.null(input$overlay_img_offset_x)) input$overlay_img_offset_x else 0
     oy <- if (!is.null(input$overlay_img_offset_y)) input$overlay_img_offset_y else 0
 
+    b <- compute_image_bounds(raw, raman_x, raman_y, padding_um = 300)
     list(raster = raw,
-         xmin = xmin + ox, xmax = xmax + ox,
-         ymin = ymin + oy, ymax = ymax + oy)
+         xmin = b$xmin + ox, xmax = b$xmax + ox,
+         ymin = b$ymin + oy, ymax = b$ymax + oy)
   })
 
   # LDIR tab: image placed at LDIR scan area bounds.
@@ -462,7 +457,10 @@ server <- function(input, output, session) {
     default_raman <- file.path("..", "raman_resized.jpg")
     if (!file.exists(default_raman)) return()
     raw <- load_image_raster(default_raman)
-    if (!is.null(raw)) overlay_raw_image(raw)
+    if (!is.null(raw)) {
+      overlay_raw_image(raw)
+      raman_tab_image(raw)   # Same image on Raman tab for consistency
+    }
   })
 
   observe({
@@ -764,15 +762,20 @@ server <- function(input, output, session) {
     df_disp <- df
     if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
 
+    img <- raman_native_image_info()
+
+    # Use image extent for bounds when available (consistent with overlay)
     bounds <- if (!is.null(zoom$raman)) zoom$raman else {
-      if (nrow(df_disp) > 0) {
+      if (!is.null(img)) {
+        pad <- 200
+        list(x = c(img$xmin - pad, img$xmax + pad),
+             y = c(img$ymin - pad, img$ymax + pad))
+      } else if (nrow(df_disp) > 0) {
         pad <- 300
         list(x = c(min(df_disp$x, na.rm = TRUE) - pad, max(df_disp$x, na.rm = TRUE) + pad),
              y = c(min(df_disp$y, na.rm = TRUE) - pad, max(df_disp$y, na.rm = TRUE) + pad))
       } else list(x = c(-1000, 1000), y = c(-1000, 1000))
     }
-
-    img <- raman_native_image_info()
 
     if (nrow(df_disp) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -969,7 +972,7 @@ server <- function(input, output, session) {
                             aes(x = x, y = y, colour = match_status,
                                 size = feret_max),
                             alpha = 0.7) +
-        scale_colour_manual(values = c(matched = "#17becf",
+        scale_colour_manual(values = c(matched = "#d62728",
                                         unmatched = "#bcbd22"))
     }
 
@@ -1062,8 +1065,21 @@ server <- function(input, output, session) {
     ldir_m <- overlay_ldir_matched()
     triplets <- overlay_triplets()
     layers <- input$overlay_layers
-    bounds <- if (!is.null(zoom$overlay)) zoom$overlay
-              else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
+
+    # Overlay bounds: use the image extent when available (consistent framing
+    # with the Raman tab), otherwise fall back to FTIR + Raman only.
+    # LDIR aligned coords are excluded because LDIR alignment is typically
+    # much coarser (ICP RMS > 100 µm) and would expand the view excessively.
+    bounds <- if (!is.null(zoom$overlay)) zoom$overlay else {
+      img_info <- overlay_image_info()
+      if (!is.null(img_info)) {
+        pad <- 200
+        list(x = c(img_info$xmin - pad, img_info$xmax + pad),
+             y = c(img_info$ymin - pad, img_info$ymax + pad))
+      } else {
+        compute_bounds(dfs$ftir, dfs$raman)
+      }
+    }
 
     p <- ggplot() +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -1158,7 +1174,7 @@ server <- function(input, output, session) {
                             alpha = 0.7) +
         scale_shape_manual(values = c(FTIR = 17, Raman = 16, LDIR = 18)) +
         scale_colour_manual(values = c(FTIR = "#2ca02c", Raman = "#1f77b4",
-                                        LDIR = "#9467bd"))
+                                        LDIR = "#d62728"))
     }
 
     # Triple matches: highlight particles detected by all three instruments
