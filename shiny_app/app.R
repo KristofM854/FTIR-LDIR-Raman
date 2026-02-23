@@ -31,6 +31,8 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
                          choices = c("matched", "unmatched"),
                          selected = c("matched", "unmatched"), inline = TRUE),
+      selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
+                  choices = c("None"), selected = "None"),
       hr(),
       div(class = "info-box",
           h5("Summary"), textOutput(paste0(id_prefix, "_summary_text"))),
@@ -107,6 +109,8 @@ ui <- fluidPage(
           checkboxGroupInput("ldir_match_filter", "Match Status",
                              choices = c("matched", "unmatched"),
                              selected = c("matched", "unmatched"), inline = TRUE),
+          selectInput("ldir_highlight_particle", "Highlight Particle",
+                      choices = c("None"), selected = "None"),
           hr(),
           h4("Image Overlay"),
           checkboxGroupInput("ldir_overlay_mode", "Display",
@@ -177,6 +181,14 @@ ui <- fluidPage(
                              selected = c("matched", "unmatched_ftir",
                                           "unmatched_raman", "ldir_matched"),
                              inline = FALSE),
+          hr(),
+          h5("Highlight Particle"),
+          selectInput("overlay_highlight_ftir", "FTIR",
+                      choices = c("None"), selected = "None"),
+          selectInput("overlay_highlight_raman", "Raman",
+                      choices = c("None"), selected = "None"),
+          selectInput("overlay_highlight_ldir", "LDIR",
+                      choices = c("None"), selected = "None"),
           hr(),
           div(class = "info-box",
               h5("Match Summary"), textOutput("overlay_summary_text")),
@@ -506,6 +518,10 @@ server <- function(input, output, session) {
       ftir <- dfs$ftir
       updateSelectInput(session, "ftir_material_filter",
                         choices = c("All", sort(unique(ftir$material))), selected = "All")
+      updateSelectInput(session, "ftir_highlight_particle",
+                        choices = c("None", sort(unique(ftir$particle_id))))
+      updateSelectInput(session, "overlay_highlight_ftir",
+                        choices = c("None", sort(unique(ftir$particle_id))))
       q_range <- range(ftir$quality, na.rm = TRUE)
       updateSliderInput(session, "ftir_quality_range",
                         min = floor(q_range[1] * 100) / 100,
@@ -521,6 +537,10 @@ server <- function(input, output, session) {
       raman <- dfs$raman
       updateSelectInput(session, "raman_material_filter",
                         choices = c("All", sort(unique(raman$material))), selected = "All")
+      updateSelectInput(session, "raman_highlight_particle",
+                        choices = c("None", sort(unique(raman$particle_id))))
+      updateSelectInput(session, "overlay_highlight_raman",
+                        choices = c("None", sort(unique(raman$particle_id))))
       q_range <- range(raman$quality, na.rm = TRUE)
       updateSliderInput(session, "raman_quality_range",
                         min = floor(q_range[1]), max = ceiling(q_range[2]),
@@ -534,6 +554,10 @@ server <- function(input, output, session) {
       ldir <- dfs$ldir
       updateSelectInput(session, "ldir_material_filter",
                         choices = c("All", sort(unique(ldir$material))), selected = "All")
+      updateSelectInput(session, "ldir_highlight_particle",
+                        choices = c("None", sort(unique(ldir$particle_id))))
+      updateSelectInput(session, "overlay_highlight_ldir",
+                        choices = c("None", sort(unique(ldir$particle_id))))
       q_range <- range(ldir$quality, na.rm = TRUE)
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ldir_quality_range",
@@ -592,7 +616,7 @@ server <- function(input, output, session) {
   # Helper: ggplot scatter with optional image background
   # ==================================================================
   make_scatter <- function(df, img_info, bounds, title,
-                            match_colours = NULL) {
+                            match_colours = NULL, highlight_id = NULL) {
 
     p <- ggplot(df, aes(x = x, y = y))
 
@@ -607,7 +631,7 @@ server <- function(input, output, session) {
       p <- p + scale_colour_manual(values = match_colours)
 
     p <- p +
-      scale_size_continuous(range = c(2, 12), guide = "none") +
+      scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 13) +
@@ -617,6 +641,17 @@ server <- function(input, output, session) {
         panel.grid       = element_line(colour = "grey90"),
         legend.position  = "bottom"
       )
+
+    # Highlight selected particle
+    if (!is.null(highlight_id) && highlight_id != "None" &&
+        "particle_id" %in% names(df)) {
+      hl <- df[df$particle_id == highlight_id, ]
+      if (nrow(hl) > 0) {
+        p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 21, size = 10, stroke = 2,
+                             fill = NA, colour = "#FFD700")
+      }
+    }
 
     p
   }
@@ -733,7 +768,8 @@ server <- function(input, output, session) {
     }
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR Particles (", nrow(df_disp), " shown)"),
-                 match_colours = c(matched = "#2ca02c", unmatched = "#d62728"))
+                 match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
+                 highlight_id = input$ftir_highlight_particle)
   })
 
   output$ftir_summary_text <- renderText({
@@ -805,7 +841,8 @@ server <- function(input, output, session) {
     }
     make_scatter(df_disp, img, bounds,
                  paste0("Raman Particles (", nrow(df_disp), " shown)"),
-                 match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"))
+                 match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
+                 highlight_id = input$raman_highlight_particle)
   })
 
   output$raman_summary_text <- renderText({
@@ -980,8 +1017,7 @@ server <- function(input, output, session) {
       p <- p + geom_point(data = ext_df,
                             aes(x = x, y = y, size = feret_max),
                             shape = 1, colour = "#e377c2", alpha = 0.5,
-                            stroke = 0.5) +
-        scale_size_continuous(range = c(2, 12), guide = "none")
+                            stroke = 0.5)
     }
 
     # Excel-joined particles (main layer)
@@ -992,6 +1028,20 @@ server <- function(input, output, session) {
                             alpha = 0.7) +
         scale_colour_manual(values = c(matched = "#d62728",
                                         unmatched = "#bcbd22"))
+    }
+
+    # Size legend (single scale for all layers)
+    p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
+
+    # Highlight selected particle
+    hl_id <- input$ldir_highlight_particle
+    if (!is.null(hl_id) && hl_id != "None" && nrow(df_disp) > 0) {
+      hl <- df_disp[df_disp$particle_id == hl_id, ]
+      if (nrow(hl) > 0) {
+        p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 21, size = 10, stroke = 2,
+                             fill = NA, colour = "#FFD700")
+      }
     }
 
     p
@@ -1114,7 +1164,8 @@ server <- function(input, output, session) {
     # Background image: raman_resized.jpg placed at Raman-normalized bounds
     p <- add_image_bg(p, overlay_image_info())
 
-    # FTIR-Raman match lines
+    # FTIR-Raman match lines: connect each matched FTIR point to its Raman pair.
+    # Visible mainly when zoomed in (good alignment = short lines).
     if ("match_lines" %in% layers && nrow(matched) > 0) {
       seg_df <- data.frame(
         x    = matched$ftir_x_aligned, y    = matched$ftir_y_aligned,
@@ -1122,10 +1173,10 @@ server <- function(input, output, session) {
       )
       p <- p + geom_segment(data = seg_df,
                               aes(x = x, y = y, xend = xend, yend = yend),
-                              colour = "grey60", alpha = 0.3, linewidth = 0.3)
+                              colour = "grey40", alpha = 0.6, linewidth = 0.8)
     }
 
-    # LDIR-Raman match lines
+    # LDIR-Raman match lines: connect each matched LDIR point to its Raman pair.
     if ("ldir_lines" %in% layers && nrow(ldir_m) > 0 &&
         "ldir_x_aligned" %in% names(ldir_m) && "raman_x_norm" %in% names(ldir_m)) {
       ldir_seg <- data.frame(
@@ -1134,7 +1185,7 @@ server <- function(input, output, session) {
       )
       p <- p + geom_segment(data = ldir_seg,
                               aes(x = x, y = y, xend = xend, yend = yend),
-                              colour = "#9467bd", alpha = 0.3, linewidth = 0.3)
+                              colour = "#9467bd", alpha = 0.5, linewidth = 0.7)
     }
 
     # Unmatched FTIR
@@ -1142,8 +1193,7 @@ server <- function(input, output, session) {
       um_f <- dfs$ftir[dfs$ftir$match_status == "unmatched", ]
       if (nrow(um_f) > 0) {
         p <- p + geom_point(data = um_f, aes(x = x, y = y, size = feret_max),
-                             colour = "#d62728", alpha = 0.4, shape = 4) +
-          scale_size_continuous(range = c(2, 12), guide = "none")
+                             colour = "#d62728", alpha = 0.4, shape = 4)
       }
     }
 
@@ -1233,6 +1283,42 @@ server <- function(input, output, session) {
       }
     }
 
+    # Size legend (single scale for all layers)
+    p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
+
+    # Highlight selected particles (one per instrument)
+    hl_ftir  <- input$overlay_highlight_ftir
+    hl_raman <- input$overlay_highlight_raman
+    hl_ldir  <- input$overlay_highlight_ldir
+
+    if (!is.null(hl_ftir) && hl_ftir != "None" &&
+        !is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
+      hl <- dfs$ftir[dfs$ftir$particle_id == hl_ftir, ]
+      if (nrow(hl) > 0) {
+        p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 21, size = 10, stroke = 2,
+                             fill = NA, colour = "#FFD700")
+      }
+    }
+    if (!is.null(hl_raman) && hl_raman != "None" &&
+        !is.null(dfs$raman) && nrow(dfs$raman) > 0) {
+      hl <- dfs$raman[dfs$raman$particle_id == hl_raman, ]
+      if (nrow(hl) > 0) {
+        p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 21, size = 10, stroke = 2,
+                             fill = NA, colour = "#FFD700")
+      }
+    }
+    if (!is.null(hl_ldir) && hl_ldir != "None" &&
+        !is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
+      hl <- dfs$ldir[dfs$ldir$particle_id == hl_ldir, ]
+      if (nrow(hl) > 0) {
+        p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 21, size = 10, stroke = 2,
+                             fill = NA, colour = "#FFD700")
+      }
+    }
+
     p
   })
 
@@ -1253,11 +1339,13 @@ server <- function(input, output, session) {
            n_trip, " triple matches")
   })
 
-  # Overlay: sticky hover — update last_hover$overlay only when a new match is found
+  # Overlay: sticky hover — update last_hover$overlay only when a new match is found.
+  # Only checks particles belonging to currently active layers.
   observeEvent(input$overlay_hover, {
     hover <- input$overlay_hover
     if (is.null(hover)) return()
 
+    layers <- input$overlay_layers
     matched <- overlay_matched()
     ldir_m <- overlay_ldir_matched()
 
@@ -1271,8 +1359,8 @@ server <- function(input, output, session) {
     best_row <- NULL
     best_source <- NULL
 
-    # Check FTIR-Raman matched
-    if (!is.null(matched) && nrow(matched) > 0) {
+    # Check FTIR-Raman matched (only if "matched" layer is active)
+    if ("matched" %in% layers && !is.null(matched) && nrow(matched) > 0) {
       dist_f <- sqrt((matched$ftir_x_aligned - hover$x)^2 +
                       (matched$ftir_y_aligned - hover$y)^2)
       dist_r <- sqrt((matched$raman_x_norm - hover$x)^2 +
@@ -1286,8 +1374,9 @@ server <- function(input, output, session) {
       }
     }
 
-    # Check LDIR-Raman matched
-    if (nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
+    # Check LDIR-Raman matched (only if "ldir_matched" layer is active)
+    if ("ldir_matched" %in% layers &&
+        nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
       dist_l <- sqrt((ldir_m$ldir_x_aligned - hover$x)^2 +
                       (ldir_m$ldir_y_aligned - hover$y)^2)
       idx_l <- which.min(dist_l)
