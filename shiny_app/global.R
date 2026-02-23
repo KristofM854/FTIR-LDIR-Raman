@@ -500,9 +500,16 @@ build_instrument_dfs <- function(data) {
   ldir_parts <- list()
   if (!is.null(data$ldir_raman_matched) && nrow(data$ldir_raman_matched) > 0) {
     m <- data$ldir_raman_matched
+    # Safeguard: ensure aligned columns exist; fall back to originals with warning
+    has_aligned <- "ldir_x_aligned" %in% names(m)
+    if (!has_aligned) {
+      message("[Particle Viewer] WARNING: ldir_raman_matched.csv missing ldir_x_aligned; ",
+              "falling back to ldir_x_um (original coordinates)")
+    }
     ldir_parts[[1]] <- data.frame(
       particle_id = m$ldir_particle_id,
-      x = m$ldir_x_aligned, y = m$ldir_y_aligned,
+      x = if (has_aligned) m$ldir_x_aligned else m$ldir_x_um,
+      y = if (has_aligned) m$ldir_y_aligned else m$ldir_y_um,
       x_orig = m$ldir_x_um, y_orig = m$ldir_y_um,
       area_um2 = m$ldir_area_um2,
       major_um = m$ldir_major_um, minor_um = m$ldir_minor_um,
@@ -614,6 +621,16 @@ compute_image_bounds <- function(img_raster, x_vals, y_vals, padding_um = 300) {
 
   list(xmin = cx - span_x / 2, xmax = cx + span_x / 2,
        ymin = cy - span_y / 2, ymax = cy + span_y / 2)
+}
+
+# ---------------------------------------------------------------------------
+# Natural/numeric sort for particle IDs with prefixes.
+# Extracts the first numeric substring and sorts by it, keeping the full ID.
+# E.g. MP_1, MP_2, ..., MP_10 (not MP_1, MP_10, MP_11, ..., MP_2).
+# ---------------------------------------------------------------------------
+natural_sort_ids <- function(ids) {
+  nums <- as.numeric(sub(".*?(\\d+).*", "\\1", ids))
+  ids[order(nums, na.last = TRUE)]
 }
 
 # ---------------------------------------------------------------------------
