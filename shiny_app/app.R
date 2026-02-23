@@ -745,14 +745,21 @@ server <- function(input, output, session) {
 
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
-    # Display in native FTIR instrument frame (x_orig, y_orig)
+    # Display in native FTIR instrument frame.
+    # PerkinElmer Spotlight uses Y-down convention (y_um increases downward,
+    # same direction as image pixel rows).  ggplot2 uses Y-up (Cartesian).
+    # Flip Y so particles align with the background image.
     df_disp <- df
-    if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
+    b_ftir <- ftir_img_bounds()
+    scan_ymax <- if (!is.null(b_ftir)) b_ftir$ymax else 12475
+    if (nrow(df_disp) > 0) {
+      df_disp$x <- df_disp$x_orig
+      df_disp$y <- scan_ymax - df_disp$y_orig
+    }
 
     bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
-      b <- ftir_img_bounds()
-      if (!is.null(b)) list(x = c(b$xmin - 200, b$xmax + 200),
-                            y = c(b$ymin - 200, b$ymax + 200))
+      if (!is.null(b_ftir)) list(x = c(b_ftir$xmin - 200, b_ftir$xmax + 200),
+                                  y = c(b_ftir$ymin - 200, b_ftir$ymax + 200))
       else compute_bounds(df_disp, NULL)
     }
 
@@ -785,11 +792,14 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- ftir_filtered()
     if (nrow(df) == 0) return()
-    # Search in native FTIR coordinate space (x_orig, y_orig)
-    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+    # Search in Y-flipped coordinate space (matching the displayed positions)
+    b_ftir <- ftir_img_bounds()
+    sy <- if (!is.null(b_ftir)) b_ftir$ymax else 12475
+    y_disp <- sy - df$y_orig
+    dists <- sqrt((df$x_orig - hover$x)^2 + (y_disp - hover$y)^2)
     idx   <- which.min(dists)
     threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
-                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
+                     diff(range(y_disp, na.rm = TRUE)), 500) * 0.05
     if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop = FALSE]
   })
 
