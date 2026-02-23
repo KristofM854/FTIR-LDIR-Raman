@@ -474,31 +474,59 @@ if (has_ldir && !is.null(ldir_raw)) {
     ldir_with_coords$x_norm <- ldir_with_coords$x_um - ldir_centroid[1]
     ldir_with_coords$y_norm <- ldir_with_coords$y_um - ldir_centroid[2]
 
-    # 12d. Material-based LDIR alignment anchors
-    ldir_for_align <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
-    if (!is.null(config$align_ldir_materials)) {
-      ldir_mat_mask <- grepl(
-        paste(config$align_ldir_materials, collapse = "|"),
-        ldir_for_align$material, ignore.case = TRUE
-      )
-      if (sum(ldir_mat_mask) >= 4) {
-        ldir_for_align <- ldir_for_align[ldir_mat_mask, ]
-      } else {
-        log_message("  Insufficient LDIR anchor materials (",
-                    sum(ldir_mat_mask),
-                    ") — using all LDIR particles for alignment")
-      }
-    }
-    log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
-
-    # 12e. LDIR→Raman alignment (RANSAC + ICP)
-    # Raman reference: use the same normalized set from step 4
-    ldir_ransac <- tryCatch({
-      ransac_align(ldir_for_align, raman_norm_align, config)
+    # 12d. Tiered LDIR→Raman alignment
+    #
+    # Tier 1 — Landmark alignment: use large particles & fibers
+    #   (same strategy as FTIR→Raman). Landmarks are instrument-agnostic
+    #   geometric features that are visible across all instruments.
+    # Tier 2 — Material-based RANSAC: PET/PP/PC anchors (fallback).
+    ldir_landmark_result <- tryCatch({
+      landmark_align(ldir_valid, raman_for_transform, config, src_label = "LDIR")
     }, error = function(e) {
-      log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
-      NULL
+      log_message("  LDIR landmark alignment failed: ", e$message, level = "WARN")
+      list(success = FALSE, confident = FALSE,
+           n_ftir_landmarks = 0, n_raman_landmarks = 0)
     })
+
+    use_ldir_landmark <- ldir_landmark_result$confident &&
+                         config$landmark_skip_full_ransac
+
+    if (use_ldir_landmark) {
+      log_message("  Using LDIR landmark transform (Tier 1) — skipping material RANSAC")
+      ldir_ransac <- list(
+        transform = ldir_landmark_result$transform,
+        params    = ldir_landmark_result$params,
+        n_inliers = ldir_landmark_result$n_inliers
+      )
+    } else {
+      # Tier 2: Material-based RANSAC (fallback)
+      log_message(strrep("-", 50))
+      log_message("  LDIR Tier 2: Material-based RANSAC alignment")
+      ldir_for_align <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+      if (!is.null(config$align_ldir_materials)) {
+        ldir_mat_mask <- grepl(
+          paste(config$align_ldir_materials, collapse = "|"),
+          ldir_for_align$material, ignore.case = TRUE
+        )
+        if (sum(ldir_mat_mask) >= 4) {
+          ldir_for_align <- ldir_for_align[ldir_mat_mask, ]
+        } else {
+          log_message("  Insufficient LDIR anchor materials (",
+                      sum(ldir_mat_mask),
+                      ") — using all LDIR particles for alignment")
+        }
+      }
+      log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
+
+      # 12e. LDIR→Raman alignment (RANSAC + ICP)
+      # Raman reference: use the same normalized set from step 4
+      ldir_ransac <- tryCatch({
+        ransac_align(ldir_for_align, raman_norm_align, config)
+      }, error = function(e) {
+        log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
+        NULL
+      })
+    }
 
     if (!is.null(ldir_ransac)) {
       log_message("  LDIR-Raman RANSAC: scale=",
@@ -676,6 +704,8 @@ if (has_ldir && !is.null(ldir_raw)) {
     ldir_ftir_match      = ldir_ftir_match,
     ldir_raman_agreement = ldir_raman_agreement,
     ldir_icp             = ldir_icp,
+    ldir_landmark        = if (exists("ldir_landmark_result")) ldir_landmark_result else NULL,
+    ldir_alignment_method = if (exists("use_ldir_landmark") && use_ldir_landmark) "landmark" else "ransac",
     triplets             = triplets,
     has_coords           = has_ldir_coords,
     ldir_material_dist   = ldir_mats,
@@ -781,6 +811,11 @@ if (has_ldir && !is.null(ldir_results)) {
   log_message("  LDIR particles:    ", nrow(ldir_results$ldir_clean))
   log_message("  LDIR coordinates:  ",
               if (ldir_results$has_coords) "spatial (from image)" else "none")
+  if (!is.null(ldir_results$ldir_landmark)) {
+    log_message("  LDIR alignment:    ", ldir_results$ldir_alignment_method,
+                " (landmarks: ", ldir_results$ldir_landmark$n_ftir_landmarks,
+                ", confident: ", ldir_results$ldir_landmark$confident, ")")
+  }
   if (!is.null(ldir_results$ldir_raman_match)) {
     log_message("  LDIR-Raman matched: ",
                 ldir_results$ldir_raman_match$match_stats$n_matched)
