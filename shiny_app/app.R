@@ -519,9 +519,9 @@ server <- function(input, output, session) {
       updateSelectInput(session, "ftir_material_filter",
                         choices = c("All", sort(unique(ftir$material))), selected = "All")
       updateSelectInput(session, "ftir_highlight_particle",
-                        choices = c("None", sort(unique(ftir$particle_id))))
+                        choices = c("None", natural_sort_ids(unique(ftir$particle_id))))
       updateSelectInput(session, "overlay_highlight_ftir",
-                        choices = c("None", sort(unique(ftir$particle_id))))
+                        choices = c("None", natural_sort_ids(unique(ftir$particle_id))))
       q_range <- range(ftir$quality, na.rm = TRUE)
       updateSliderInput(session, "ftir_quality_range",
                         min = floor(q_range[1] * 100) / 100,
@@ -538,9 +538,9 @@ server <- function(input, output, session) {
       updateSelectInput(session, "raman_material_filter",
                         choices = c("All", sort(unique(raman$material))), selected = "All")
       updateSelectInput(session, "raman_highlight_particle",
-                        choices = c("None", sort(unique(raman$particle_id))))
+                        choices = c("None", natural_sort_ids(unique(raman$particle_id))))
       updateSelectInput(session, "overlay_highlight_raman",
-                        choices = c("None", sort(unique(raman$particle_id))))
+                        choices = c("None", natural_sort_ids(unique(raman$particle_id))))
       q_range <- range(raman$quality, na.rm = TRUE)
       updateSliderInput(session, "raman_quality_range",
                         min = floor(q_range[1]), max = ceiling(q_range[2]),
@@ -555,9 +555,9 @@ server <- function(input, output, session) {
       updateSelectInput(session, "ldir_material_filter",
                         choices = c("All", sort(unique(ldir$material))), selected = "All")
       updateSelectInput(session, "ldir_highlight_particle",
-                        choices = c("None", sort(unique(ldir$particle_id))))
+                        choices = c("None", natural_sort_ids(unique(ldir$particle_id))))
       updateSelectInput(session, "overlay_highlight_ldir",
-                        choices = c("None", sort(unique(ldir$particle_id))))
+                        choices = c("None", natural_sort_ids(unique(ldir$particle_id))))
       q_range <- range(ldir$quality, na.rm = TRUE)
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ldir_quality_range",
@@ -616,7 +616,8 @@ server <- function(input, output, session) {
   # Helper: ggplot scatter with optional image background
   # ==================================================================
   make_scatter <- function(df, img_info, bounds, title,
-                            match_colours = NULL, highlight_id = NULL) {
+                            match_colours = NULL, highlight_id = NULL,
+                            full_df = NULL) {
 
     p <- ggplot(df, aes(x = x, y = y))
 
@@ -642,14 +643,22 @@ server <- function(input, output, session) {
         legend.position  = "bottom"
       )
 
-    # Highlight selected particle
-    if (!is.null(highlight_id) && highlight_id != "None" &&
-        "particle_id" %in% names(df)) {
-      hl <- df[df$particle_id == highlight_id, ]
-      if (nrow(hl) > 0) {
+    # Highlight selected particle — ALWAYS shown even if filtered out.
+    # First try the filtered df, then fall back to full_df (unfiltered).
+    if (!is.null(highlight_id) && highlight_id != "None") {
+      hl <- NULL
+      if ("particle_id" %in% names(df))
+        hl <- df[df$particle_id == highlight_id, ]
+      if ((is.null(hl) || nrow(hl) == 0) && !is.null(full_df) &&
+          "particle_id" %in% names(full_df))
+        hl <- full_df[full_df$particle_id == highlight_id, ]
+      if (!is.null(hl) && nrow(hl) > 0) {
         p <- p + geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700")
+                             fill = NA, colour = "#FFD700") +
+                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
+                            vjust = -1.5, size = 3.5, fontface = "bold",
+                            colour = "#FFD700")
       }
     }
 
@@ -765,6 +774,13 @@ server <- function(input, output, session) {
 
     img <- ftir_native_image_info()
 
+    # Full (unfiltered) FTIR data with Y-flip for highlight fallback
+    full_ftir <- instrument_dfs()$ftir
+    if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
+      full_ftir$x <- full_ftir$x_orig
+      full_ftir$y <- scan_ymax - full_ftir$y_orig
+    }
+
     if (nrow(df_disp) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "FTIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
@@ -776,7 +792,8 @@ server <- function(input, output, session) {
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
-                 highlight_id = input$ftir_highlight_particle)
+                 highlight_id = input$ftir_highlight_particle,
+                 full_df = full_ftir)
   })
 
   output$ftir_summary_text <- renderText({
@@ -841,6 +858,12 @@ server <- function(input, output, session) {
       } else list(x = c(-1000, 1000), y = c(-1000, 1000))
     }
 
+    # Full (unfiltered) Raman data for highlight fallback
+    full_raman <- instrument_dfs()$raman
+    if (!is.null(full_raman) && nrow(full_raman) > 0) {
+      full_raman$x <- full_raman$x_orig; full_raman$y <- full_raman$y_orig
+    }
+
     if (nrow(df_disp) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "Raman — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
@@ -852,7 +875,8 @@ server <- function(input, output, session) {
     make_scatter(df_disp, img, bounds,
                  paste0("Raman Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
-                 highlight_id = input$raman_highlight_particle)
+                 highlight_id = input$raman_highlight_particle,
+                 full_df = full_raman)
   })
 
   output$raman_summary_text <- renderText({
@@ -1043,14 +1067,25 @@ server <- function(input, output, session) {
     # Size legend (single scale for all layers)
     p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
 
-    # Highlight selected particle
+    # Highlight selected particle — always shown even if filtered out
     hl_id <- input$ldir_highlight_particle
-    if (!is.null(hl_id) && hl_id != "None" && nrow(df_disp) > 0) {
-      hl <- df_disp[df_disp$particle_id == hl_id, ]
+    if (!is.null(hl_id) && hl_id != "None") {
+      hl <- if (nrow(df_disp) > 0) df_disp[df_disp$particle_id == hl_id, ] else data.frame()
+      # Fall back to full unfiltered data (native coords) if particle is filtered out
+      if (nrow(hl) == 0) {
+        full_ldir <- instrument_dfs()$ldir
+        if (!is.null(full_ldir) && nrow(full_ldir) > 0) {
+          full_ldir$x <- full_ldir$x_orig; full_ldir$y <- full_ldir$y_orig
+          hl <- full_ldir[full_ldir$particle_id == hl_id, ]
+        }
+      }
       if (nrow(hl) > 0) {
         p <- p + geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700")
+                             fill = NA, colour = "#FFD700") +
+                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
+                            vjust = -1.5, size = 3.5, fontface = "bold",
+                            colour = "#FFD700")
       }
     }
 
@@ -1198,12 +1233,47 @@ server <- function(input, output, session) {
                               colour = "#9467bd", alpha = 0.5, linewidth = 0.7)
     }
 
+    # Build combined data frame for all active layers.
+    # Each instrument gets a colored circle: matched = filled, unmatched = open.
+    # Size driven by feret_max only.
+    all_pts <- list()
+
+    # Matched FTIR + Raman
+    if ("matched" %in% layers && nrow(matched) > 0) {
+      all_pts[[length(all_pts) + 1]] <- data.frame(
+        x = matched$ftir_x_aligned, y = matched$ftir_y_aligned,
+        feret_max = matched$ftir_feret_max_um,
+        instrument = "FTIR", match_status = "matched",
+        stringsAsFactors = FALSE
+      )
+      all_pts[[length(all_pts) + 1]] <- data.frame(
+        x = matched$raman_x_norm, y = matched$raman_y_norm,
+        feret_max = matched$raman_feret_max_um,
+        instrument = "Raman", match_status = "matched",
+        stringsAsFactors = FALSE
+      )
+    }
+
+    # Matched LDIR
+    if ("ldir_matched" %in% layers && nrow(ldir_m) > 0 &&
+        "ldir_x_aligned" %in% names(ldir_m)) {
+      all_pts[[length(all_pts) + 1]] <- data.frame(
+        x = ldir_m$ldir_x_aligned, y = ldir_m$ldir_y_aligned,
+        feret_max = ldir_m$ldir_feret_max_um,
+        instrument = "LDIR", match_status = "matched",
+        stringsAsFactors = FALSE
+      )
+    }
+
     # Unmatched FTIR
     if ("unmatched_ftir" %in% layers && !is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
       um_f <- dfs$ftir[dfs$ftir$match_status == "unmatched", ]
       if (nrow(um_f) > 0) {
-        p <- p + geom_point(data = um_f, aes(x = x, y = y, size = feret_max),
-                             colour = "#d62728", alpha = 0.4, shape = 4)
+        all_pts[[length(all_pts) + 1]] <- data.frame(
+          x = um_f$x, y = um_f$y, feret_max = um_f$feret_max,
+          instrument = "FTIR", match_status = "unmatched",
+          stringsAsFactors = FALSE
+        )
       }
     }
 
@@ -1211,8 +1281,11 @@ server <- function(input, output, session) {
     if ("unmatched_raman" %in% layers && !is.null(dfs$raman) && nrow(dfs$raman) > 0) {
       um_r <- dfs$raman[dfs$raman$match_status == "unmatched", ]
       if (nrow(um_r) > 0) {
-        p <- p + geom_point(data = um_r, aes(x = x, y = y, size = feret_max),
-                             colour = "#ff7f0e", alpha = 0.4, shape = 5)
+        all_pts[[length(all_pts) + 1]] <- data.frame(
+          x = um_r$x, y = um_r$y, feret_max = um_r$feret_max,
+          instrument = "Raman", match_status = "unmatched",
+          stringsAsFactors = FALSE
+        )
       }
     }
 
@@ -1220,74 +1293,61 @@ server <- function(input, output, session) {
     if ("ldir_unmatched" %in% layers && !is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
       um_l <- dfs$ldir[dfs$ldir$match_status == "unmatched", ]
       if (nrow(um_l) > 0) {
-        p <- p + geom_point(data = um_l, aes(x = x, y = y, size = feret_max),
-                             colour = "#9467bd", alpha = 0.3, shape = 8)
+        all_pts[[length(all_pts) + 1]] <- data.frame(
+          x = um_l$x, y = um_l$y, feret_max = um_l$feret_max,
+          instrument = "LDIR", match_status = "unmatched",
+          stringsAsFactors = FALSE
+        )
       }
     }
 
-    # Matched pairs: FTIR as triangle, Raman as circle, LDIR as diamond
-    all_pts <- list()
-    if ("matched" %in% layers && nrow(matched) > 0) {
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = matched$ftir_x_aligned, y = matched$ftir_y_aligned,
-        feret_max = matched$ftir_feret_max_um, instrument = "FTIR"
-      )
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = matched$raman_x_norm, y = matched$raman_y_norm,
-        feret_max = matched$raman_feret_max_um, instrument = "Raman"
-      )
-    }
-    if ("ldir_matched" %in% layers && nrow(ldir_m) > 0 &&
-        "ldir_x_aligned" %in% names(ldir_m)) {
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = ldir_m$ldir_x_aligned, y = ldir_m$ldir_y_aligned,
-        feret_max = ldir_m$ldir_feret_max_um, instrument = "LDIR"
-      )
-    }
+    # Draw all particles: filled circles for matched, open circles for unmatched
     if (length(all_pts) > 0) {
       both <- do.call(rbind, all_pts)
-      p <- p + geom_point(data = both,
-                            aes(x = x, y = y, size = feret_max,
-                                shape = instrument, colour = instrument),
-                            alpha = 0.7) +
-        scale_shape_manual(values = c(FTIR = 17, Raman = 16, LDIR = 18)) +
-        scale_colour_manual(values = c(FTIR = "#2ca02c", Raman = "#1f77b4",
-                                        LDIR = "#d62728"))
+      matched_df   <- both[both$match_status == "matched", ]
+      unmatched_df <- both[both$match_status == "unmatched", ]
+
+      if (nrow(matched_df) > 0) {
+        p <- p + geom_point(data = matched_df,
+                              aes(x = x, y = y, size = feret_max,
+                                  colour = instrument),
+                              shape = 19, alpha = 0.7)
+      }
+      if (nrow(unmatched_df) > 0) {
+        p <- p + geom_point(data = unmatched_df,
+                              aes(x = x, y = y, size = feret_max,
+                                  colour = instrument),
+                              shape = 1, alpha = 0.5, stroke = 0.8)
+      }
     }
 
-    # Triple matches: highlight particles detected by all three instruments
+    # Colour scale: one colour per instrument (only when points use colour aes)
+    if (length(all_pts) > 0) {
+      p <- p + scale_colour_manual(
+        name = "Instrument",
+        values = c(FTIR = "#2ca02c", Raman = "#1f77b4", LDIR = "#d62728")
+      )
+    }
+
+    # Triple matches: gold ring around particles detected by all three instruments
     if ("triple_only" %in% layers && nrow(triplets) > 0 &&
         nrow(matched) > 0 && nrow(ldir_m) > 0) {
-      # Get aligned coordinates for each instrument in the triplet
       triple_pts <- list()
-
-      # FTIR coordinates from matched_particles (join by raman_particle_id)
       m_trip <- matched[matched$raman_particle_id %in% triplets$raman_particle_id, ]
       if (nrow(m_trip) > 0) {
         triple_pts[[1]] <- data.frame(
-          x = m_trip$ftir_x_aligned, y = m_trip$ftir_y_aligned,
-          feret_max = m_trip$ftir_feret_max_um, instrument = "FTIR"
-        )
+          x = m_trip$ftir_x_aligned, y = m_trip$ftir_y_aligned)
         triple_pts[[2]] <- data.frame(
-          x = m_trip$raman_x_norm, y = m_trip$raman_y_norm,
-          feret_max = m_trip$raman_feret_max_um, instrument = "Raman"
-        )
+          x = m_trip$raman_x_norm, y = m_trip$raman_y_norm)
       }
-
-      # LDIR coordinates from ldir_raman_matched (join by raman_particle_id)
       l_trip <- ldir_m[ldir_m$raman_particle_id %in% triplets$raman_particle_id, ]
       if (nrow(l_trip) > 0 && "ldir_x_aligned" %in% names(l_trip)) {
         triple_pts[[length(triple_pts) + 1]] <- data.frame(
-          x = l_trip$ldir_x_aligned, y = l_trip$ldir_y_aligned,
-          feret_max = l_trip$ldir_feret_max_um, instrument = "LDIR"
-        )
+          x = l_trip$ldir_x_aligned, y = l_trip$ldir_y_aligned)
       }
-
       if (length(triple_pts) > 0) {
         triple_df <- do.call(rbind, triple_pts)
-        # Gold ring around triple-match particles for visibility
-        p <- p + geom_point(data = triple_df,
-                              aes(x = x, y = y),
+        p <- p + geom_point(data = triple_df, aes(x = x, y = y),
                               shape = 21, size = 6, stroke = 1.5,
                               fill = NA, colour = "#FFD700", alpha = 0.9)
       }
@@ -1296,7 +1356,9 @@ server <- function(input, output, session) {
     # Size legend (single scale for all layers)
     p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
 
-    # Highlight selected particles (one per instrument)
+    # Highlight selected particles (one per instrument).
+    # ALWAYS drawn regardless of layer state — allows single-particle inspection.
+    # Uses dfs$<instrument> (full unfiltered data with aligned coordinates).
     hl_ftir  <- input$overlay_highlight_ftir
     hl_raman <- input$overlay_highlight_raman
     hl_ldir  <- input$overlay_highlight_ldir
@@ -1306,8 +1368,13 @@ server <- function(input, output, session) {
       hl <- dfs$ftir[dfs$ftir$particle_id == hl_ftir, ]
       if (nrow(hl) > 0) {
         p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 19, size = 5, colour = "#2ca02c") +
+                 geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700")
+                             fill = NA, colour = "#FFD700") +
+                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
+                            vjust = -1.5, size = 3.5, fontface = "bold",
+                            colour = "#FFD700")
       }
     }
     if (!is.null(hl_raman) && hl_raman != "None" &&
@@ -1315,8 +1382,13 @@ server <- function(input, output, session) {
       hl <- dfs$raman[dfs$raman$particle_id == hl_raman, ]
       if (nrow(hl) > 0) {
         p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 19, size = 5, colour = "#1f77b4") +
+                 geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700")
+                             fill = NA, colour = "#FFD700") +
+                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
+                            vjust = -1.5, size = 3.5, fontface = "bold",
+                            colour = "#FFD700")
       }
     }
     if (!is.null(hl_ldir) && hl_ldir != "None" &&
@@ -1324,8 +1396,13 @@ server <- function(input, output, session) {
       hl <- dfs$ldir[dfs$ldir$particle_id == hl_ldir, ]
       if (nrow(hl) > 0) {
         p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 19, size = 5, colour = "#d62728") +
+                 geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700")
+                             fill = NA, colour = "#FFD700") +
+                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
+                            vjust = -1.5, size = 3.5, fontface = "bold",
+                            colour = "#FFD700")
       }
     }
 
