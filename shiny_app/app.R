@@ -153,17 +153,75 @@ ui <- fluidPage(
     tabPanel("Overlay",
       sidebarLayout(
         sidebarPanel(width = 3,
-          h4("Overlay Filters"),
-          sliderInput("overlay_hqi_range", "Raman HQI",
-                      min = 0, max = 100, value = c(0, 100), step = 1),
-          sliderInput("overlay_quality_range", "FTIR AAU Quality",
-                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+          # --- GLOBAL CONTROLS ---
+          h4("Global Filters"),
           sliderInput("overlay_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
           sliderInput("overlay_dist_range", "Match Distance (\u00b5m)",
                       min = 0, max = 100, value = c(0, 100), step = 1),
-          selectInput("overlay_material_filter", "Material (either instrument)",
-                      choices = c("All"), selected = "All", multiple = TRUE),
+          hr(),
+
+          # --- FT-IR SECTION ---
+          h4("FT-IR", style = "color: #2ca02c; margin-bottom: 4px;"),
+          sliderInput("overlay_ftir_quality", "AAU Quality",
+                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+          sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
+                      min = 0, max = 800, value = c(0, 800), step = 5),
+          selectizeInput("overlay_ftir_material", "Material",
+                         choices = c("All"), selected = "All", multiple = TRUE),
+          fluidRow(
+            column(8, textInput("overlay_ftir_pattern", NULL,
+                                placeholder = "Range (1-10) or pattern (MP_*)")),
+            column(4, actionButton("overlay_ftir_apply_pattern", "Apply",
+                                   class = "btn-sm", style = "margin-top: 25px;"))
+          ),
+          selectizeInput("overlay_ftir_particles", "Highlight Particles",
+                         choices = NULL, multiple = TRUE,
+                         options = list(placeholder = "Select particles...",
+                                        plugins = list("remove_button"))),
+          hr(),
+
+          # --- RAMAN SECTION ---
+          h4("Raman", style = "color: #1f77b4; margin-bottom: 4px;"),
+          sliderInput("overlay_raman_quality", "HQI",
+                      min = 0, max = 100, value = c(0, 100), step = 1),
+          sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
+                      min = 0, max = 1200, value = c(0, 1200), step = 5),
+          selectizeInput("overlay_raman_material", "Material",
+                         choices = c("All"), selected = "All", multiple = TRUE),
+          fluidRow(
+            column(8, textInput("overlay_raman_pattern", NULL,
+                                placeholder = "Range (1-10) or pattern")),
+            column(4, actionButton("overlay_raman_apply_pattern", "Apply",
+                                   class = "btn-sm", style = "margin-top: 25px;"))
+          ),
+          selectizeInput("overlay_raman_particles", "Highlight Particles",
+                         choices = NULL, multiple = TRUE,
+                         options = list(placeholder = "Select particles...",
+                                        plugins = list("remove_button"))),
+          hr(),
+
+          # --- LD-IR SECTION ---
+          h4("LD-IR", style = "color: #d62728; margin-bottom: 4px;"),
+          sliderInput("overlay_ldir_quality", "Quality",
+                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+          sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
+                      min = 0, max = 1200, value = c(0, 1200), step = 5),
+          selectizeInput("overlay_ldir_material", "Material",
+                         choices = c("All"), selected = "All", multiple = TRUE),
+          fluidRow(
+            column(8, textInput("overlay_ldir_pattern", NULL,
+                                placeholder = "Range (1-10) or pattern (A*)")),
+            column(4, actionButton("overlay_ldir_apply_pattern", "Apply",
+                                   class = "btn-sm", style = "margin-top: 25px;"))
+          ),
+          selectizeInput("overlay_ldir_particles", "Highlight Particles",
+                         choices = NULL, multiple = TRUE,
+                         options = list(placeholder = "Select particles...",
+                                        plugins = list("remove_button"))),
+          hr(),
+
+          # --- LAYER CHECKBOXES ---
           fluidRow(
             column(6, tags$label("Show Layers")),
             column(6, actionLink("overlay_toggle_all", "Select / Deselect All",
@@ -182,14 +240,8 @@ ui <- fluidPage(
                                           "unmatched_raman", "ldir_matched"),
                              inline = FALSE),
           hr(),
-          h5("Highlight Particle"),
-          selectInput("overlay_highlight_ftir", "FTIR",
-                      choices = c("None"), selected = "None"),
-          selectInput("overlay_highlight_raman", "Raman",
-                      choices = c("None"), selected = "None"),
-          selectInput("overlay_highlight_ldir", "LDIR",
-                      choices = c("None"), selected = "None"),
-          hr(),
+
+          # --- SUMMARY + IMAGE ---
           div(class = "info-box",
               h5("Match Summary"), textOutput("overlay_summary_text")),
           hr(),
@@ -204,16 +256,22 @@ ui <- fluidPage(
         ),
         mainPanel(width = 9,
           plotOutput("overlay_plot", height = "650px",
-                     hover = hoverOpts("overlay_hover", delay = 100,
+                     click = "overlay_click",
+                     hover = hoverOpts("overlay_hover", delay = 200,
                                        delayType = "throttle"),
                      brush = brushOpts("overlay_brush",
                                        resetOnNew = TRUE),
                      dblclick = "overlay_dblclick"),
           tags$p(class = "text-muted",
-                 "Drag to zoom in. Double-click to reset zoom."),
+                 "Drag to zoom. Double-click to reset. Click a particle to pin details."),
           hr(),
           div(class = "info-box",
-              h5("Match Details (hover on matched particle)"),
+              fluidRow(
+                column(8, h5("Match Details (hover / click / select)")),
+                column(4, actionButton("overlay_clear_pin", "Clear",
+                                       class = "btn-sm btn-default",
+                                       style = "float:right; margin-top:2px;"))
+              ),
               detail_table_ui("overlay_hover_info"))
         )
       )
@@ -288,6 +346,30 @@ server <- function(input, output, session) {
     build_instrument_dfs(run_data())
   })
 
+  # Per-instrument full-data reactives (avoid repeated instrument_dfs()$ftir calls)
+  ftir_df_full  <- reactive({ instrument_dfs()$ftir })
+  raman_df_full <- reactive({ instrument_dfs()$raman })
+  ldir_df_full  <- reactive({ instrument_dfs()$ldir })
+
+  # Debounced slider inputs (300ms) — prevents re-render on every pixel drag
+  # Individual tabs
+  ftir_quality_range_d   <- debounce(reactive(input$ftir_quality_range), 300)
+  ftir_size_range_d      <- debounce(reactive(input$ftir_size_range), 300)
+  raman_quality_range_d  <- debounce(reactive(input$raman_quality_range), 300)
+  raman_size_range_d     <- debounce(reactive(input$raman_size_range), 300)
+  ldir_quality_range_d   <- debounce(reactive(input$ldir_quality_range), 300)
+  ldir_size_range_d      <- debounce(reactive(input$ldir_size_range), 300)
+  # Overlay global
+  overlay_size_range_d   <- debounce(reactive(input$overlay_size_range), 300)
+  overlay_dist_range_d   <- debounce(reactive(input$overlay_dist_range), 300)
+  # Overlay per-instrument
+  overlay_ftir_quality_d <- debounce(reactive(input$overlay_ftir_quality), 300)
+  overlay_ftir_size_d    <- debounce(reactive(input$overlay_ftir_size), 300)
+  overlay_raman_quality_d <- debounce(reactive(input$overlay_raman_quality), 300)
+  overlay_raman_size_d   <- debounce(reactive(input$overlay_raman_size), 300)
+  overlay_ldir_quality_d <- debounce(reactive(input$overlay_ldir_quality), 300)
+  overlay_ldir_size_d    <- debounce(reactive(input$overlay_ldir_size), 300)
+
   # ------------------------------------------------------------------
   # Handle CSV uploads (fallback)
   # ------------------------------------------------------------------
@@ -352,19 +434,19 @@ server <- function(input, output, session) {
 
     # Estimate from image dimensions (grid geometry)
     raw_ftir_img <- ftir_raw_image()
-    dfs <- instrument_dfs()
+    ftir_d <- ftir_df_full()
     if (!is.null(raw_ftir_img)) {
-      px <- if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) dfs$ftir$x_orig else NULL
-      py <- if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) dfs$ftir$y_orig else NULL
+      px <- if (!is.null(ftir_d) && nrow(ftir_d) > 0) ftir_d$x_orig else NULL
+      py <- if (!is.null(ftir_d) && nrow(ftir_d) > 0) ftir_d$y_orig else NULL
       return(estimate_ftir_scan_bounds(raw_ftir_img, px, py))
     }
 
     # Fallback: round up particle coords to nearest 500 µm
-    if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
+    if (!is.null(ftir_d) && nrow(ftir_d) > 0) {
       return(list(xmin = 0,
-                  xmax = ceiling(max(dfs$ftir$x_orig, na.rm = TRUE) / 500) * 500,
+                  xmax = ceiling(max(ftir_d$x_orig, na.rm = TRUE) / 500) * 500,
                   ymin = 0,
-                  ymax = ceiling(max(dfs$ftir$y_orig, na.rm = TRUE) / 500) * 500))
+                  ymax = ceiling(max(ftir_d$y_orig, na.rm = TRUE) / 500) * 500))
     }
     NULL
   })
@@ -397,7 +479,7 @@ server <- function(input, output, session) {
   raman_native_image_info <- reactive({
     raw <- raman_tab_image()
     if (is.null(raw)) return(NULL)
-    raman_df <- instrument_dfs()$raman
+    raman_df <- raman_df_full()
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
       ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
       oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
@@ -418,12 +500,12 @@ server <- function(input, output, session) {
   overlay_image_info <- reactive({
     raw <- overlay_raw_image()
     if (is.null(raw)) return(NULL)
-    dfs <- instrument_dfs()
-    if (is.null(dfs$raman) || nrow(dfs$raman) == 0) return(NULL)
+    raman_d <- raman_df_full()
+    if (is.null(raman_d) || nrow(raman_d) == 0) return(NULL)
 
     # Use Raman particles only — the image is a Raman microscope photo
-    raman_x <- dfs$raman$x[is.finite(dfs$raman$x)]
-    raman_y <- dfs$raman$y[is.finite(dfs$raman$y)]
+    raman_x <- raman_d$x[is.finite(raman_d$x)]
+    raman_y <- raman_d$y[is.finite(raman_d$y)]
     if (length(raman_x) == 0) return(NULL)
 
     # Apply user fine-tuning offsets
@@ -445,7 +527,7 @@ server <- function(input, output, session) {
   ldir_native_image_info <- reactive({
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
-    ldir_df <- instrument_dfs()$ldir
+    ldir_df <- ldir_df_full()
     if (!is.null(ldir_df) && nrow(ldir_df) > 0 &&
         any(!is.na(ldir_df$x_orig))) {
       ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
@@ -512,53 +594,89 @@ server <- function(input, output, session) {
   # Update filter controls from data
   # ------------------------------------------------------------------
   observe({
-    dfs <- instrument_dfs()
+    ftir_d <- ftir_df_full()
+    raman_d <- raman_df_full()
+    ldir_d <- ldir_df_full()
 
-    if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
-      ftir <- dfs$ftir
+    # --- FTIR controls (individual tab + overlay) ---
+    if (!is.null(ftir_d) && nrow(ftir_d) > 0) {
+      ftir <- ftir_d
+      ftir_mats <- sort(unique(ftir$material))
+      ftir_ids  <- natural_sort_ids(unique(ftir$particle_id))
+      q_range   <- range(ftir$quality, na.rm = TRUE)
+      s_max     <- ceiling(max(ftir$feret_max, na.rm = TRUE) / 10) * 10
+
+      # Individual tab
       updateSelectInput(session, "ftir_material_filter",
-                        choices = c("All", sort(unique(ftir$material))), selected = "All")
+                        choices = c("All", ftir_mats), selected = "All")
       updateSelectInput(session, "ftir_highlight_particle",
-                        choices = c("None", natural_sort_ids(unique(ftir$particle_id))))
-      updateSelectInput(session, "overlay_highlight_ftir",
-                        choices = c("None", natural_sort_ids(unique(ftir$particle_id))))
-      q_range <- range(ftir$quality, na.rm = TRUE)
+                        choices = c("None", ftir_ids))
       updateSliderInput(session, "ftir_quality_range",
                         min = floor(q_range[1] * 100) / 100,
                         max = ceiling(q_range[2] * 100) / 100,
                         value = c(floor(q_range[1] * 100) / 100,
                                   ceiling(q_range[2] * 100) / 100))
-      s_max <- ceiling(max(ftir$feret_max, na.rm = TRUE) / 10) * 10
       updateSliderInput(session, "ftir_size_range", min = 0, max = s_max,
+                        value = c(0, s_max))
+
+      # Overlay per-instrument
+      updateSelectizeInput(session, "overlay_ftir_material",
+                           choices = c("All", ftir_mats), selected = "All")
+      updateSelectizeInput(session, "overlay_ftir_particles",
+                           choices = ftir_ids, selected = character(0))
+      updateSliderInput(session, "overlay_ftir_quality",
+                        min = floor(q_range[1] * 100) / 100,
+                        max = ceiling(q_range[2] * 100) / 100,
+                        value = c(floor(q_range[1] * 100) / 100,
+                                  ceiling(q_range[2] * 100) / 100))
+      updateSliderInput(session, "overlay_ftir_size", min = 0, max = s_max,
                         value = c(0, s_max))
     }
 
-    if (!is.null(dfs$raman) && nrow(dfs$raman) > 0) {
-      raman <- dfs$raman
+    # --- Raman controls (individual tab + overlay) ---
+    if (!is.null(raman_d) && nrow(raman_d) > 0) {
+      raman <- raman_d
+      raman_mats <- sort(unique(raman$material))
+      raman_ids  <- natural_sort_ids(unique(raman$particle_id))
+      q_range    <- range(raman$quality, na.rm = TRUE)
+      s_max      <- ceiling(max(raman$feret_max, na.rm = TRUE) / 10) * 10
+
+      # Individual tab
       updateSelectInput(session, "raman_material_filter",
-                        choices = c("All", sort(unique(raman$material))), selected = "All")
+                        choices = c("All", raman_mats), selected = "All")
       updateSelectInput(session, "raman_highlight_particle",
-                        choices = c("None", natural_sort_ids(unique(raman$particle_id))))
-      updateSelectInput(session, "overlay_highlight_raman",
-                        choices = c("None", natural_sort_ids(unique(raman$particle_id))))
-      q_range <- range(raman$quality, na.rm = TRUE)
+                        choices = c("None", raman_ids))
       updateSliderInput(session, "raman_quality_range",
                         min = floor(q_range[1]), max = ceiling(q_range[2]),
                         value = c(floor(q_range[1]), ceiling(q_range[2])))
-      s_max <- ceiling(max(raman$feret_max, na.rm = TRUE) / 10) * 10
       updateSliderInput(session, "raman_size_range", min = 0, max = s_max,
+                        value = c(0, s_max))
+
+      # Overlay per-instrument
+      updateSelectizeInput(session, "overlay_raman_material",
+                           choices = c("All", raman_mats), selected = "All")
+      updateSelectizeInput(session, "overlay_raman_particles",
+                           choices = raman_ids, selected = character(0))
+      updateSliderInput(session, "overlay_raman_quality",
+                        min = floor(q_range[1]), max = ceiling(q_range[2]),
+                        value = c(floor(q_range[1]), ceiling(q_range[2])))
+      updateSliderInput(session, "overlay_raman_size", min = 0, max = s_max,
                         value = c(0, s_max))
     }
 
-    if (!is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
-      ldir <- dfs$ldir
+    # --- LDIR controls (individual tab + overlay) ---
+    if (!is.null(ldir_d) && nrow(ldir_d) > 0) {
+      ldir <- ldir_d
+      ldir_mats <- sort(unique(ldir$material))
+      ldir_ids  <- natural_sort_ids(unique(ldir$particle_id))
+      q_range   <- range(ldir$quality, na.rm = TRUE)
+      s_max     <- ceiling(max(ldir$feret_max, na.rm = TRUE) / 10) * 10
+
+      # Individual tab
       updateSelectInput(session, "ldir_material_filter",
-                        choices = c("All", sort(unique(ldir$material))), selected = "All")
+                        choices = c("All", ldir_mats), selected = "All")
       updateSelectInput(session, "ldir_highlight_particle",
-                        choices = c("None", natural_sort_ids(unique(ldir$particle_id))))
-      updateSelectInput(session, "overlay_highlight_ldir",
-                        choices = c("None", natural_sort_ids(unique(ldir$particle_id))))
-      q_range <- range(ldir$quality, na.rm = TRUE)
+                        choices = c("None", ldir_ids))
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ldir_quality_range",
                           min = floor(q_range[1] * 100) / 100,
@@ -566,22 +684,84 @@ server <- function(input, output, session) {
                           value = c(floor(q_range[1] * 100) / 100,
                                     ceiling(q_range[2] * 100) / 100))
       }
-      s_max <- ceiling(max(ldir$feret_max, na.rm = TRUE) / 10) * 10
       if (is.finite(s_max)) {
         updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
                           value = c(0, s_max))
       }
+
+      # Overlay per-instrument
+      updateSelectizeInput(session, "overlay_ldir_material",
+                           choices = c("All", ldir_mats), selected = "All")
+      updateSelectizeInput(session, "overlay_ldir_particles",
+                           choices = ldir_ids, selected = character(0))
+      if (all(is.finite(q_range))) {
+        updateSliderInput(session, "overlay_ldir_quality",
+                          min = floor(q_range[1] * 100) / 100,
+                          max = ceiling(q_range[2] * 100) / 100,
+                          value = c(floor(q_range[1] * 100) / 100,
+                                    ceiling(q_range[2] * 100) / 100))
+      }
+      if (is.finite(s_max)) {
+        updateSliderInput(session, "overlay_ldir_size", min = 0, max = s_max,
+                          value = c(0, s_max))
+      }
     }
 
-    all_mats <- sort(unique(c(dfs$ftir$material, dfs$raman$material, dfs$ldir$material)))
-    updateSelectInput(session, "overlay_material_filter",
-                      choices = c("All", all_mats), selected = "All")
-
+    # --- Global overlay controls ---
     if (!is.null(run_data()$matched)) {
       max_dist <- ceiling(max(run_data()$matched$match_distance, na.rm = TRUE))
       updateSliderInput(session, "overlay_dist_range",
                         min = 0, max = max_dist, value = c(0, max_dist))
     }
+  })
+
+  # Global Feret Max constrains per-instrument size sliders
+  observeEvent(input$overlay_size_range, {
+    global <- input$overlay_size_range
+    for (slider_id in c("overlay_ftir_size", "overlay_raman_size", "overlay_ldir_size")) {
+      current <- input[[slider_id]]
+      if (!is.null(current)) {
+        new_lo <- max(current[1], global[1])
+        new_hi <- min(current[2], global[2])
+        updateSliderInput(session, slider_id,
+                          min = global[1], max = global[2],
+                          value = c(new_lo, new_hi))
+      }
+    }
+  })
+
+  # Pattern Apply buttons for particle selectors
+  observeEvent(input$overlay_ftir_apply_pattern, {
+    pat <- input$overlay_ftir_pattern
+    df <- ftir_df_full()
+    if (is.null(df) || nrow(df) == 0 || nchar(trimws(pat)) == 0) return()
+    matched_ids <- parse_particle_selection(pat, unique(df$particle_id))
+    current <- input$overlay_ftir_particles
+    new_sel <- unique(c(current, matched_ids))
+    updateSelectizeInput(session, "overlay_ftir_particles", selected = new_sel)
+    updateTextInput(session, "overlay_ftir_pattern", value = "")
+  })
+
+  observeEvent(input$overlay_raman_apply_pattern, {
+    pat <- input$overlay_raman_pattern
+    df <- raman_df_full()
+    if (is.null(df) || nrow(df) == 0 || nchar(trimws(pat)) == 0) return()
+    matched_ids <- parse_particle_selection(pat, unique(df$particle_id))
+    current <- input$overlay_raman_particles
+    new_sel <- unique(c(current, matched_ids))
+    updateSelectizeInput(session, "overlay_raman_particles", selected = new_sel)
+    updateTextInput(session, "overlay_raman_pattern", value = "")
+  })
+
+  observeEvent(input$overlay_ldir_apply_pattern, {
+    pat <- input$overlay_ldir_pattern
+    df <- ldir_df_full()
+    if (is.null(df) || nrow(df) == 0 || nchar(trimws(pat)) == 0) return()
+    matched_ids <- parse_particle_selection(pat, unique(df$particle_id))
+    current <- input$overlay_ldir_particles
+    new_sel <- unique(c(current, matched_ids))
+    updateSelectizeInput(session, "overlay_ldir_particles", selected = new_sel)
+    updateTextInput(session, "overlay_ldir_pattern", value = "")
   })
 
   # ==================================================================
@@ -699,6 +879,11 @@ server <- function(input, output, session) {
   # ==================================================================
   last_hover <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL)
 
+  # Pinned overlay particle: persists across hover events until cleared.
+  # Stores a data row (matched or single-instrument) and its source type.
+  pinned_overlay <- reactiveVal(NULL)
+  pinned_source  <- reactiveVal(NULL)   # "ftir_raman", "ldir_raman", or "single_ftir"/"single_raman"/"single_ldir"
+
   # ==================================================================
   # Zoom state: NULL means full view, otherwise list(x=c(lo,hi), y=c(lo,hi))
   # ==================================================================
@@ -746,9 +931,9 @@ server <- function(input, output, session) {
   # ==================================================================
 
   ftir_filtered <- reactive({
-    dfs <- instrument_dfs()
-    if (is.null(dfs$ftir) || nrow(dfs$ftir) == 0) return(data.frame())
-    filter_instrument(dfs$ftir, input$ftir_quality_range, input$ftir_size_range,
+    df <- ftir_df_full()
+    if (is.null(df) || nrow(df) == 0) return(data.frame())
+    filter_instrument(df, ftir_quality_range_d(), ftir_size_range_d(),
                       input$ftir_material_filter, input$ftir_match_filter)
   })
 
@@ -775,7 +960,7 @@ server <- function(input, output, session) {
     img <- ftir_native_image_info()
 
     # Full (unfiltered) FTIR data with Y-flip for highlight fallback
-    full_ftir <- instrument_dfs()$ftir
+    full_ftir <- ftir_df_full()
     if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
       full_ftir$x <- full_ftir$x_orig
       full_ftir$y <- scan_ymax - full_ftir$y_orig
@@ -831,9 +1016,9 @@ server <- function(input, output, session) {
   # ==================================================================
 
   raman_filtered <- reactive({
-    dfs <- instrument_dfs()
-    if (is.null(dfs$raman) || nrow(dfs$raman) == 0) return(data.frame())
-    filter_instrument(dfs$raman, input$raman_quality_range, input$raman_size_range,
+    df <- raman_df_full()
+    if (is.null(df) || nrow(df) == 0) return(data.frame())
+    filter_instrument(df, raman_quality_range_d(), raman_size_range_d(),
                       input$raman_material_filter, input$raman_match_filter)
   })
 
@@ -859,7 +1044,7 @@ server <- function(input, output, session) {
     }
 
     # Full (unfiltered) Raman data for highlight fallback
-    full_raman <- instrument_dfs()$raman
+    full_raman <- raman_df_full()
     if (!is.null(full_raman) && nrow(full_raman) > 0) {
       full_raman$x <- full_raman$x_orig; full_raman$y <- full_raman$y_orig
     }
@@ -911,9 +1096,9 @@ server <- function(input, output, session) {
   # ==================================================================
 
   ldir_filtered <- reactive({
-    dfs <- instrument_dfs()
-    if (is.null(dfs$ldir) || nrow(dfs$ldir) == 0) return(data.frame())
-    filter_instrument(dfs$ldir, input$ldir_quality_range, input$ldir_size_range,
+    df <- ldir_df_full()
+    if (is.null(df) || nrow(df) == 0) return(data.frame())
+    filter_instrument(df, ldir_quality_range_d(), ldir_size_range_d(),
                       input$ldir_material_filter, input$ldir_match_filter)
   })
 
@@ -1073,7 +1258,7 @@ server <- function(input, output, session) {
       hl <- if (nrow(df_disp) > 0) df_disp[df_disp$particle_id == hl_id, ] else data.frame()
       # Fall back to full unfiltered data (native coords) if particle is filtered out
       if (nrow(hl) == 0) {
-        full_ldir <- instrument_dfs()$ldir
+        full_ldir <- ldir_df_full()
         if (!is.null(full_ldir) && nrow(full_ldir) > 0) {
           full_ldir$x <- full_ldir$x_orig; full_ldir$y <- full_ldir$y_orig
           hl <- full_ldir[full_ldir$particle_id == hl_id, ]
@@ -1131,38 +1316,92 @@ server <- function(input, output, session) {
     if (is.null(d$matched) || nrow(d$matched) == 0) return(data.frame())
     df <- d$matched
 
-    df <- df[!is.na(df$raman_quality) &
-             df$raman_quality >= input$overlay_hqi_range[1] &
-             df$raman_quality <= input$overlay_hqi_range[2], ]
-    df <- df[!is.na(df$ftir_quality) &
-             df$ftir_quality >= input$overlay_quality_range[1] &
-             df$ftir_quality <= input$overlay_quality_range[2], ]
+    # Per-instrument quality filters (debounced)
+    raman_q <- overlay_raman_quality_d()
+    ftir_q  <- overlay_ftir_quality_d()
+    if (!is.null(raman_q)) {
+      df <- df[!is.na(df$raman_quality) &
+               df$raman_quality >= raman_q[1] &
+               df$raman_quality <= raman_q[2], ]
+    }
+    if (!is.null(ftir_q)) {
+      df <- df[!is.na(df$ftir_quality) &
+               df$ftir_quality >= ftir_q[1] &
+               df$ftir_quality <= ftir_q[2], ]
+    }
 
-    ftir_ok <- !is.na(df$ftir_feret_max_um) &
-               df$ftir_feret_max_um >= input$overlay_size_range[1] &
-               df$ftir_feret_max_um <= input$overlay_size_range[2]
-    raman_ok <- !is.na(df$raman_feret_max_um) &
-                df$raman_feret_max_um >= input$overlay_size_range[1] &
-                df$raman_feret_max_um <= input$overlay_size_range[2]
+    # Per-instrument size filters (intersection with global)
+    ftir_sz  <- overlay_ftir_size_d()
+    raman_sz <- overlay_raman_size_d()
+    if (!is.null(ftir_sz)) {
+      ftir_ok <- !is.na(df$ftir_feret_max_um) &
+                 df$ftir_feret_max_um >= ftir_sz[1] &
+                 df$ftir_feret_max_um <= ftir_sz[2]
+    } else {
+      ftir_ok <- rep(TRUE, nrow(df))
+    }
+    if (!is.null(raman_sz)) {
+      raman_ok <- !is.na(df$raman_feret_max_um) &
+                  df$raman_feret_max_um >= raman_sz[1] &
+                  df$raman_feret_max_um <= raman_sz[2]
+    } else {
+      raman_ok <- rep(TRUE, nrow(df))
+    }
     df <- df[ftir_ok | raman_ok, ]
 
-    df <- df[!is.na(df$match_distance) &
-             df$match_distance >= input$overlay_dist_range[1] &
-             df$match_distance <= input$overlay_dist_range[2], ]
+    # Match distance (debounced)
+    dist_r <- overlay_dist_range_d()
+    if (!is.null(dist_r)) {
+      df <- df[!is.na(df$match_distance) &
+               df$match_distance >= dist_r[1] &
+               df$match_distance <= dist_r[2], ]
+    }
 
-    if (!("All" %in% input$overlay_material_filter)) {
-      df <- df[df$ftir_material %in% input$overlay_material_filter |
-               df$raman_material %in% input$overlay_material_filter, ]
+    # Per-instrument material filters
+    ftir_mat  <- input$overlay_ftir_material
+    raman_mat <- input$overlay_raman_material
+    ftir_mat_ok  <- is.null(ftir_mat) || "All" %in% ftir_mat
+    raman_mat_ok <- is.null(raman_mat) || "All" %in% raman_mat
+    if (!ftir_mat_ok || !raman_mat_ok) {
+      keep <- rep(TRUE, nrow(df))
+      if (!ftir_mat_ok)  keep <- keep & (df$ftir_material %in% ftir_mat)
+      if (!raman_mat_ok) keep <- keep & (df$raman_material %in% raman_mat)
+      df <- df[keep, ]
     }
     df
   })
 
-  # LDIR-Raman matched data for overlay
+  # LDIR-Raman matched data for overlay (filtered by per-instrument controls)
   overlay_ldir_matched <- reactive({
     d <- run_data()
     if (is.null(d$ldir_raman_matched) || nrow(d$ldir_raman_matched) == 0)
       return(data.frame())
-    d$ldir_raman_matched
+    df <- d$ldir_raman_matched
+
+    # LDIR quality filter
+    ldir_q <- overlay_ldir_quality_d()
+    if (!is.null(ldir_q) && "ldir_quality" %in% names(df)) {
+      df <- df[!is.na(df$ldir_quality) &
+               df$ldir_quality >= ldir_q[1] &
+               df$ldir_quality <= ldir_q[2], ]
+    }
+
+    # LDIR size filter
+    ldir_sz <- overlay_ldir_size_d()
+    if (!is.null(ldir_sz) && "ldir_feret_max_um" %in% names(df)) {
+      df <- df[!is.na(df$ldir_feret_max_um) &
+               df$ldir_feret_max_um >= ldir_sz[1] &
+               df$ldir_feret_max_um <= ldir_sz[2], ]
+    }
+
+    # LDIR material filter
+    ldir_mat <- input$overlay_ldir_material
+    if (!is.null(ldir_mat) && !("All" %in% ldir_mat) &&
+        "ldir_material" %in% names(df)) {
+      df <- df[df$ldir_material %in% ldir_mat, ]
+    }
+
+    df
   })
 
   # Triple-match data: particles detected by all three instruments
@@ -1173,7 +1412,7 @@ server <- function(input, output, session) {
   })
 
   output$overlay_plot <- renderPlot({
-    dfs <- instrument_dfs()
+    dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full())
     matched <- overlay_matched()
     ldir_m <- overlay_ldir_matched()
     triplets <- overlay_triplets()
@@ -1356,54 +1595,43 @@ server <- function(input, output, session) {
     # Size legend (single scale for all layers)
     p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
 
-    # Highlight selected particles (one per instrument).
+    # Highlight selected particles (multi-select per instrument).
     # ALWAYS drawn regardless of layer state — allows single-particle inspection.
     # Uses dfs$<instrument> (full unfiltered data with aligned coordinates).
-    hl_ftir  <- input$overlay_highlight_ftir
-    hl_raman <- input$overlay_highlight_raman
-    hl_ldir  <- input$overlay_highlight_ldir
+    hl_specs <- list(
+      list(ids = input$overlay_ftir_particles,  df = dfs$ftir,  col = "#2ca02c"),
+      list(ids = input$overlay_raman_particles, df = dfs$raman, col = "#1f77b4"),
+      list(ids = input$overlay_ldir_particles,  df = dfs$ldir,  col = "#d62728")
+    )
+    for (spec in hl_specs) {
+      sel_ids <- spec$ids
+      if (is.null(sel_ids) || length(sel_ids) == 0) next
+      inst_df <- spec$df
+      if (is.null(inst_df) || nrow(inst_df) == 0) next
+      hl <- inst_df[inst_df$particle_id %in% sel_ids, ]
+      if (nrow(hl) > 0) {
+        p <- p + geom_point(data = hl, aes(x = x, y = y),
+                             shape = 19, size = 5, colour = spec$col) +
+                 geom_point(data = hl, aes(x = x, y = y),
+                             shape = 21, size = 10, stroke = 2,
+                             fill = NA, colour = "#FFD700") +
+                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
+                            vjust = -1.5, size = 3.5, fontface = "bold",
+                            colour = "#FFD700")
+      }
+    }
 
-    if (!is.null(hl_ftir) && hl_ftir != "None" &&
-        !is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
-      hl <- dfs$ftir[dfs$ftir$particle_id == hl_ftir, ]
-      if (nrow(hl) > 0) {
-        p <- p + geom_point(data = hl, aes(x = x, y = y),
-                             shape = 19, size = 5, colour = "#2ca02c") +
-                 geom_point(data = hl, aes(x = x, y = y),
-                             shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
-                            vjust = -1.5, size = 3.5, fontface = "bold",
-                            colour = "#FFD700")
-      }
-    }
-    if (!is.null(hl_raman) && hl_raman != "None" &&
-        !is.null(dfs$raman) && nrow(dfs$raman) > 0) {
-      hl <- dfs$raman[dfs$raman$particle_id == hl_raman, ]
-      if (nrow(hl) > 0) {
-        p <- p + geom_point(data = hl, aes(x = x, y = y),
-                             shape = 19, size = 5, colour = "#1f77b4") +
-                 geom_point(data = hl, aes(x = x, y = y),
-                             shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
-                            vjust = -1.5, size = 3.5, fontface = "bold",
-                            colour = "#FFD700")
-      }
-    }
-    if (!is.null(hl_ldir) && hl_ldir != "None" &&
-        !is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
-      hl <- dfs$ldir[dfs$ldir$particle_id == hl_ldir, ]
-      if (nrow(hl) > 0) {
-        p <- p + geom_point(data = hl, aes(x = x, y = y),
-                             shape = 19, size = 5, colour = "#d62728") +
-                 geom_point(data = hl, aes(x = x, y = y),
-                             shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
-                            vjust = -1.5, size = 3.5, fontface = "bold",
-                            colour = "#FFD700")
-      }
+    # Also highlight pinned particle (from click or dropdown selection)
+    pin <- pinned_overlay()
+    if (!is.null(pin) && !is.null(pin$x) && !is.null(pin$y)) {
+      pin_df <- data.frame(x = pin$x, y = pin$y,
+                           label = if (!is.null(pin$particle_id)) pin$particle_id else "")
+      p <- p + geom_point(data = pin_df, aes(x = x, y = y),
+                           shape = 8, size = 8, stroke = 2,
+                           colour = "#FF6600") +
+               geom_text(data = pin_df, aes(x = x, y = y, label = label),
+                          vjust = -2, size = 4, fontface = "bold",
+                          colour = "#FF6600")
     }
 
     p
@@ -1411,7 +1639,7 @@ server <- function(input, output, session) {
 
   output$overlay_summary_text <- renderText({
     m <- overlay_matched()
-    dfs <- instrument_dfs()
+    dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full())
     triplets <- overlay_triplets()
     if (nrow(m) == 0 && is.null(dfs$ftir)) return("No pipeline data loaded")
     n_um_f <- if (!is.null(dfs$ftir)) sum(dfs$ftir$match_status == "unmatched") else 0
@@ -1426,8 +1654,124 @@ server <- function(input, output, session) {
            n_trip, " triple matches")
   })
 
+  # ==================================================================
+  # Helper: find nearest particle across all instruments (for click/hover)
+  # Returns list(row, source, dist) or NULL.
+  # Checks: matched pairs, LDIR-Raman pairs, then highlighted/selected
+  # single-instrument particles (regardless of layer state).
+  # ==================================================================
+  find_nearest_overlay_particle <- function(px, py, snap_dist,
+                                            layers, matched, ldir_m, dfs) {
+    best_dist <- Inf
+    best_row <- NULL
+    best_source <- NULL
+
+    # Check FTIR-Raman matched (if "matched" layer is active or always for click)
+    if (!is.null(matched) && nrow(matched) > 0 &&
+        ("matched" %in% layers || is.null(layers))) {
+      dist_f <- sqrt((matched$ftir_x_aligned - px)^2 +
+                      (matched$ftir_y_aligned - py)^2)
+      dist_r <- sqrt((matched$raman_x_norm - px)^2 +
+                      (matched$raman_y_norm - py)^2)
+      d <- pmin(dist_f, dist_r)
+      idx <- which.min(d)
+      if (length(idx) > 0 && d[idx] < best_dist) {
+        best_dist <- d[idx]
+        best_row <- matched[idx, ]
+        best_source <- "ftir_raman"
+      }
+    }
+
+    # Check LDIR-Raman matched (if layer active or always for click)
+    if (!is.null(ldir_m) && nrow(ldir_m) > 0 &&
+        "ldir_x_aligned" %in% names(ldir_m) &&
+        ("ldir_matched" %in% layers || is.null(layers))) {
+      dist_l <- sqrt((ldir_m$ldir_x_aligned - px)^2 +
+                      (ldir_m$ldir_y_aligned - py)^2)
+      idx_l <- which.min(dist_l)
+      if (length(idx_l) > 0 && dist_l[idx_l] < best_dist) {
+        best_dist <- dist_l[idx_l]
+        best_row <- ldir_m[idx_l, ]
+        best_source <- "ldir_raman"
+      }
+    }
+
+    # Check unmatched FTIR (if layer active or always for click)
+    if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0 &&
+        ("unmatched_ftir" %in% layers || is.null(layers))) {
+      um_f <- dfs$ftir[dfs$ftir$match_status == "unmatched", ]
+      if (nrow(um_f) > 0) {
+        d_f <- sqrt((um_f$x - px)^2 + (um_f$y - py)^2)
+        idx_f <- which.min(d_f)
+        if (length(idx_f) > 0 && d_f[idx_f] < best_dist) {
+          best_dist <- d_f[idx_f]
+          best_row <- um_f[idx_f, , drop = FALSE]
+          best_source <- "single_ftir"
+        }
+      }
+    }
+
+    # Check unmatched Raman (if layer active or always for click)
+    if (!is.null(dfs$raman) && nrow(dfs$raman) > 0 &&
+        ("unmatched_raman" %in% layers || is.null(layers))) {
+      um_r <- dfs$raman[dfs$raman$match_status == "unmatched", ]
+      if (nrow(um_r) > 0) {
+        d_r <- sqrt((um_r$x - px)^2 + (um_r$y - py)^2)
+        idx_r <- which.min(d_r)
+        if (length(idx_r) > 0 && d_r[idx_r] < best_dist) {
+          best_dist <- d_r[idx_r]
+          best_row <- um_r[idx_r, , drop = FALSE]
+          best_source <- "single_raman"
+        }
+      }
+    }
+
+    # Check unmatched LDIR (if layer active or always for click)
+    if (!is.null(dfs$ldir) && nrow(dfs$ldir) > 0 &&
+        ("ldir_unmatched" %in% layers || is.null(layers))) {
+      um_l <- dfs$ldir[dfs$ldir$match_status == "unmatched", ]
+      if (nrow(um_l) > 0) {
+        d_l <- sqrt((um_l$x - px)^2 + (um_l$y - py)^2)
+        idx_l <- which.min(d_l)
+        if (length(idx_l) > 0 && d_l[idx_l] < best_dist) {
+          best_dist <- d_l[idx_l]
+          best_row <- um_l[idx_l, , drop = FALSE]
+          best_source <- "single_ldir"
+        }
+      }
+    }
+
+    # ALWAYS check highlighted/selected particles regardless of layer state
+    hl_specs <- list(
+      list(ids = input$overlay_ftir_particles,  df = dfs$ftir,  src = "single_ftir"),
+      list(ids = input$overlay_raman_particles, df = dfs$raman, src = "single_raman"),
+      list(ids = input$overlay_ldir_particles,  df = dfs$ldir,  src = "single_ldir")
+    )
+    for (spec in hl_specs) {
+      if (is.null(spec$ids) || length(spec$ids) == 0) next
+      inst_df <- spec$df
+      if (is.null(inst_df) || nrow(inst_df) == 0) next
+      hl <- inst_df[inst_df$particle_id %in% spec$ids, ]
+      if (nrow(hl) > 0) {
+        d_hl <- sqrt((hl$x - px)^2 + (hl$y - py)^2)
+        idx_hl <- which.min(d_hl)
+        if (length(idx_hl) > 0 && d_hl[idx_hl] < best_dist) {
+          best_dist <- d_hl[idx_hl]
+          best_row <- hl[idx_hl, , drop = FALSE]
+          best_source <- spec$src
+        }
+      }
+    }
+
+    if (best_dist <= snap_dist && !is.null(best_row)) {
+      list(row = best_row, source = best_source, dist = best_dist)
+    } else {
+      NULL
+    }
+  }
+
   # Overlay: sticky hover — update last_hover$overlay only when a new match is found.
-  # Only checks particles belonging to currently active layers.
+  # Checks active layers AND highlighted/selected particles regardless of layer state.
   observeEvent(input$overlay_hover, {
     hover <- input$overlay_hover
     if (is.null(hover)) return()
@@ -1435,59 +1779,147 @@ server <- function(input, output, session) {
     layers <- input$overlay_layers
     matched <- overlay_matched()
     ldir_m <- overlay_ldir_matched()
+    dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full())
 
-    # Snap threshold: 5% of visible range (zoom-aware)
-    dfs <- instrument_dfs()
     vis <- if (!is.null(zoom$overlay)) zoom$overlay
            else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
 
-    best_dist <- Inf
-    best_row <- NULL
-    best_source <- NULL
-
-    # Check FTIR-Raman matched (only if "matched" layer is active)
-    if ("matched" %in% layers && !is.null(matched) && nrow(matched) > 0) {
-      dist_f <- sqrt((matched$ftir_x_aligned - hover$x)^2 +
-                      (matched$ftir_y_aligned - hover$y)^2)
-      dist_r <- sqrt((matched$raman_x_norm - hover$x)^2 +
-                      (matched$raman_y_norm - hover$y)^2)
-      d <- pmin(dist_f, dist_r)
-      idx <- which.min(d)
-      if (d[idx] < best_dist) {
-        best_dist <- d[idx]
-        best_row <- matched[idx, ]
-        best_source <- "ftir_raman"
-      }
-    }
-
-    # Check LDIR-Raman matched (only if "ldir_matched" layer is active)
-    if ("ldir_matched" %in% layers &&
-        nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
-      dist_l <- sqrt((ldir_m$ldir_x_aligned - hover$x)^2 +
-                      (ldir_m$ldir_y_aligned - hover$y)^2)
-      idx_l <- which.min(dist_l)
-      if (dist_l[idx_l] < best_dist) {
-        best_dist <- dist_l[idx_l]
-        best_row <- ldir_m[idx_l, ]
-        best_source <- "ldir_raman"
-      }
-    }
-
-    if (best_dist <= snap_dist && !is.null(best_row)) {
-      last_hover$overlay <- best_row
-      attr(last_hover$overlay, "source") <- best_source
+    result <- find_nearest_overlay_particle(hover$x, hover$y, snap_dist,
+                                            layers, matched, ldir_m, dfs)
+    if (!is.null(result)) {
+      last_hover$overlay <- result$row
+      attr(last_hover$overlay, "source") <- result$source
     }
   })
 
+  # ==================================================================
+  # Click-to-pin: clicking a particle on the overlay plot pins it
+  # ==================================================================
+  observeEvent(input$overlay_click, {
+    click <- input$overlay_click
+    if (is.null(click)) return()
+
+    matched <- overlay_matched()
+    ldir_m <- overlay_ldir_matched()
+    dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full())
+
+    vis <- if (!is.null(zoom$overlay)) zoom$overlay
+           else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
+    snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
+
+    # For click, pass NULL layers to search ALL instruments
+    result <- find_nearest_overlay_particle(click$x, click$y, snap_dist,
+                                            NULL, matched, ldir_m, dfs)
+    if (!is.null(result)) {
+      pinned_overlay(result$row)
+      pinned_source(result$source)
+    } else {
+      # Click on empty space clears the pin
+      pinned_overlay(NULL)
+      pinned_source(NULL)
+    }
+  })
+
+  # Clear pin button
+  observeEvent(input$overlay_clear_pin, {
+    pinned_overlay(NULL)
+    pinned_source(NULL)
+  })
+
+  # ==================================================================
+  # Dropdown selection triggers details: pin the most recently added particle
+  # ==================================================================
+  observeEvent(input$overlay_ftir_particles, {
+    sel <- input$overlay_ftir_particles
+    if (is.null(sel) || length(sel) == 0) return()
+    df <- ftir_df_full()
+    if (is.null(df) || nrow(df) == 0) return()
+    # Pin the last selected particle
+    pid <- sel[length(sel)]
+    row <- df[df$particle_id == pid, ]
+    if (nrow(row) > 0) {
+      pinned_overlay(row[1, , drop = FALSE])
+      pinned_source("single_ftir")
+    }
+  }, ignoreNULL = FALSE)
+
+  observeEvent(input$overlay_raman_particles, {
+    sel <- input$overlay_raman_particles
+    if (is.null(sel) || length(sel) == 0) return()
+    df <- raman_df_full()
+    if (is.null(df) || nrow(df) == 0) return()
+    pid <- sel[length(sel)]
+    row <- df[df$particle_id == pid, ]
+    if (nrow(row) > 0) {
+      pinned_overlay(row[1, , drop = FALSE])
+      pinned_source("single_raman")
+    }
+  }, ignoreNULL = FALSE)
+
+  observeEvent(input$overlay_ldir_particles, {
+    sel <- input$overlay_ldir_particles
+    if (is.null(sel) || length(sel) == 0) return()
+    df <- ldir_df_full()
+    if (is.null(df) || nrow(df) == 0) return()
+    pid <- sel[length(sel)]
+    row <- df[df$particle_id == pid, ]
+    if (nrow(row) > 0) {
+      pinned_overlay(row[1, , drop = FALSE])
+      pinned_source("single_ldir")
+    }
+  }, ignoreNULL = FALSE)
+
+  # ==================================================================
+  # Helper: render detail HTML for a single-instrument particle
+  # ==================================================================
+  single_overlay_detail <- function(row, instrument, quality_label) {
+    tags$table(class = "hover-tbl",
+      tags$tr(tags$th("Field"), tags$th("Value")),
+      tags$tr(tags$td(tags$b("Instrument")), tags$td(instrument)),
+      tags$tr(tags$td(tags$b("Particle ID")), tags$td(row$particle_id)),
+      tags$tr(tags$td(tags$b("Material")), tags$td(tags$b(row$material))),
+      tags$tr(tags$td(tags$b(quality_label)), tags$td(round(row$quality, 3))),
+      tags$tr(tags$td(tags$b("Feret Max")),
+              tags$td(paste0(round(row$feret_max, 1), " \u00b5m"))),
+      tags$tr(tags$td(tags$b("Match Status")), tags$td(row$match_status)),
+      tags$tr(tags$td(tags$b("Position")),
+              tags$td(paste0("(", round(row$x, 1), ", ", round(row$y, 1), ")")))
+    )
+  }
+
+  # ==================================================================
+  # Detail panel: pinned > hover. Shows pin source label when pinned.
+  # ==================================================================
   output$overlay_hover_info <- renderUI({
-    row <- last_hover$overlay
-    if (is.null(row)) {
-      return(tags$p(class = "text-muted",
-                    "Hover over a matched particle for the comparison table"))
+    # Priority: pinned particle > hover
+    pin <- pinned_overlay()
+    pin_src <- pinned_source()
+
+    if (!is.null(pin)) {
+      row <- pin
+      src <- pin_src
+    } else {
+      row <- last_hover$overlay
+      src <- if (!is.null(row)) attr(row, "source") else NULL
     }
 
-    src <- attr(row, "source")
+    if (is.null(row)) {
+      return(tags$p(class = "text-muted",
+                    "Hover, click, or select a particle for details"))
+    }
+
+    # Single-instrument particle
+    if (!is.null(src) && grepl("^single_", src)) {
+      inst <- sub("^single_", "", src)
+      inst_label <- switch(inst,
+                           ftir = "FTIR", raman = "Raman", ldir = "LDIR", inst)
+      q_label <- switch(inst,
+                        ftir = "AAU Quality", raman = "HQI", ldir = "Quality", "Quality")
+      return(single_overlay_detail(row, inst_label, q_label))
+    }
+
+    # LDIR-Raman match pair
     if (!is.null(src) && src == "ldir_raman") {
       return(tags$table(class = "hover-tbl",
         tags$tr(tags$th(""), tags$th("LDIR"), tags$th("Raman")),
@@ -1509,7 +1941,7 @@ server <- function(input, output, session) {
       ))
     }
 
-    # Default: FTIR-Raman hover info
+    # Default: FTIR-Raman match pair
     tags$table(class = "hover-tbl",
       tags$tr(tags$th(""), tags$th("FTIR"), tags$th("Raman")),
       tags$tr(tags$td(tags$b("Particle ID")),
