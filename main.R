@@ -469,10 +469,27 @@ if (has_ldir && !is.null(ldir_raw)) {
     log_message("LDIR spatial matching enabled")
 
     # 12c. Normalize LDIR coordinates (center using LDIR's own centroid)
+    #
+    # IMPORTANT: LDIR y_um has been Y-flipped to Cartesian during image
+    # extraction (y_um = scan_ymax - row * scale).  This Y-flip introduces
+    # a reflection that causes the RANSAC to converge on a wrong rotation
+    # (the effective LDIR→Raman transform becomes mirror+rotation instead
+    # of a pure rotation like FTIR→Raman).
+    #
+    # Fix: negate y_norm to undo the Y-flip for the alignment step.
+    # Mathematically: centering then negating is equivalent to centering
+    # the raw (non-flipped) pixel-frame Y coordinates.  This puts LDIR
+    # in a convention analogous to FTIR's native frame, allowing the
+    # RANSAC/ICP to find a clean rotation (typically ~180°).
+    # The aligned output (x_aligned, y_aligned) remains in the Raman
+    # coordinate frame regardless.
     ldir_valid    <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
     ldir_centroid <- c(mean(ldir_valid$x_um), mean(ldir_valid$y_um))
     ldir_with_coords$x_norm <- ldir_with_coords$x_um - ldir_centroid[1]
-    ldir_with_coords$y_norm <- ldir_with_coords$y_um - ldir_centroid[2]
+    ldir_with_coords$y_norm <- -(ldir_with_coords$y_um - ldir_centroid[2])
+    log_message("  LDIR centroid: (", round(ldir_centroid[1], 1), ", ",
+                round(ldir_centroid[2], 1), ")")
+    log_message("  LDIR y_norm negated to undo image Y-flip for alignment")
 
     # 12d. Tiered LDIR→Raman alignment
     #
