@@ -634,6 +634,50 @@ natural_sort_ids <- function(ids) {
 }
 
 # ---------------------------------------------------------------------------
+# Parse a particle selection string into matching IDs.
+#
+# Supported syntax:
+#   - Numeric range: "1-10" or "MP_1-MP_10" (matches IDs with numeric suffix 1..10)
+#   - Comma list:    "MP_1,MP_5,MP_10"  (exact IDs)
+#   - Glob pattern:  "MP_*" or "A*"     (wildcard matching)
+#
+# all_ids: character vector of all available particle IDs
+# Returns: character vector of matching IDs (subset of all_ids)
+# ---------------------------------------------------------------------------
+parse_particle_selection <- function(text, all_ids) {
+  text <- trimws(text)
+  if (nchar(text) == 0) return(character(0))
+
+  # Try numeric range: "1-10" or "MP_1-MP_10"
+  range_match <- regmatches(text, regexec("^(.*)?(\\d+)\\s*-\\s*(.*)?(\\d+)$", text))[[1]]
+  if (length(range_match) == 5) {
+    lo <- as.integer(range_match[3])
+    hi <- as.integer(range_match[5])
+    if (!is.na(lo) && !is.na(hi)) {
+      nums <- as.numeric(sub(".*?(\\d+).*", "\\1", all_ids))
+      return(all_ids[!is.na(nums) & nums >= lo & nums <= hi])
+    }
+  }
+
+  # Try comma-separated list
+  if (grepl(",", text)) {
+    parts <- trimws(strsplit(text, ",")[[1]])
+    return(intersect(parts, all_ids))
+  }
+
+  # Try glob pattern (contains * or ?)
+  if (grepl("[*?]", text)) {
+    pat <- utils::glob2rx(text)
+    return(all_ids[grepl(pat, all_ids)])
+  }
+
+  # Exact match
+  if (text %in% all_ids) return(text)
+
+  character(0)
+}
+
+# ---------------------------------------------------------------------------
 # Find nearest particle to a hover coordinate.
 # max_dist_frac: fraction of visible plot range used as snap radius.
 # ---------------------------------------------------------------------------
