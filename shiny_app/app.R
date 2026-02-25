@@ -940,15 +940,13 @@ server <- function(input, output, session) {
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
     # Display in native FTIR instrument frame.
-    # PerkinElmer Spotlight uses Y-down convention (y_um increases downward,
-    # same direction as image pixel rows).  ggplot2 uses Y-up (Cartesian).
-    # Flip Y so particles align with the background image.
+    # Use untransformed FTIR coordinates directly — they already match the
+    # untransformed background image (Cartesian, y increases upward).
     df_disp <- df
     b_ftir <- ftir_img_bounds()
-    scan_ymax <- if (!is.null(b_ftir)) b_ftir$ymax else 12475
     if (nrow(df_disp) > 0) {
       df_disp$x <- df_disp$x_orig
-      df_disp$y <- scan_ymax - df_disp$y_orig
+      df_disp$y <- df_disp$y_orig
     }
 
     bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
@@ -959,11 +957,11 @@ server <- function(input, output, session) {
 
     img <- ftir_native_image_info()
 
-    # Full (unfiltered) FTIR data with Y-flip for highlight fallback
+    # Full (unfiltered) FTIR data for highlight fallback
     full_ftir <- ftir_df_full()
     if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
       full_ftir$x <- full_ftir$x_orig
-      full_ftir$y <- scan_ymax - full_ftir$y_orig
+      full_ftir$y <- full_ftir$y_orig
     }
 
     if (nrow(df_disp) == 0) {
@@ -994,14 +992,11 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- ftir_filtered()
     if (nrow(df) == 0) return()
-    # Search in Y-flipped coordinate space (matching the displayed positions)
-    b_ftir <- ftir_img_bounds()
-    sy <- if (!is.null(b_ftir)) b_ftir$ymax else 12475
-    y_disp <- sy - df$y_orig
-    dists <- sqrt((df$x_orig - hover$x)^2 + (y_disp - hover$y)^2)
+    # Search in native coordinate space (no Y-flip needed)
+    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
     idx   <- which.min(dists)
     threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
-                     diff(range(y_disp, na.rm = TRUE)), 500) * 0.05
+                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
     if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop = FALSE]
   })
 
@@ -1616,7 +1611,7 @@ server <- function(input, output, session) {
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
                  geom_text(data = hl, aes(x = x, y = y, label = particle_id),
-                            vjust = -1.5, size = 3.5, fontface = "bold",
+                            vjust = -2.8, size = 3.5, fontface = "bold",
                             colour = "#FFD700")
       }
     }
