@@ -121,6 +121,198 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
 }
 
 
+#' Detect the scan circle inside an LDIR PNG image
+#'
+#' Converts the image to a binary mask of the scan area, then fits a circle
+#' using edge detection and least-squares circle fitting.
+#'
+#' @param image_path Path to LDIR PNG image file
+#' @return List with cx_px, cy_px, radius_px, width, height, edge_gap_px,
+#'   export_type ("scan_only" or "full_field")
+detect_ldir_scan_circle <- function(image_path) {
+  if (!requireNamespace("png", quietly = TRUE)) {
+    stop("Package 'png' required. Install with: install.packages('png')")
+  }
+
+  img <- png::readPNG(image_path)
+  h <- nrow(img)
+  w <- ncol(img)
+  n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1
+
+  # Convert to a foreground mask: any pixel that is not near-black
+  if (n_ch >= 3) {
+    brightness <- pmax(img[,,1], img[,,2], img[,,3])
+  } else {
+    brightness <- if (n_ch == 1) img else img[,,1]
+  }
+
+  # Threshold: pixels brighter than a low percentile are "scan area"
+  thresh <- max(0.05, quantile(brightness, 0.10))
+  mask <- brightness > thresh
+
+  # Find bounding edge pixels of the mask (contour approximation)
+  # For each row, find leftmost and rightmost foreground pixel
+  # For each column, find topmost and bottommost foreground pixel
+  edge_points_row <- integer(0)
+  edge_points_col <- integer(0)
+
+  # Sample rows and columns for speed
+  row_sample <- seq(1, h, by = max(1, h %/% 200))
+  for (r in row_sample) {
+    fg_cols <- which(mask[r, ])
+    if (length(fg_cols) >= 2) {
+      edge_points_row <- c(edge_points_row, r, r)
+      edge_points_col <- c(edge_points_col, min(fg_cols), max(fg_cols))
+    }
+  }
+  col_sample <- seq(1, w, by = max(1, w %/% 200))
+  for (cc in col_sample) {
+    fg_rows <- which(mask[, cc])
+    if (length(fg_rows) >= 2) {
+      edge_points_row <- c(edge_points_row, min(fg_rows), max(fg_rows))
+      edge_points_col <- c(edge_points_col, cc, cc)
+    }
+  }
+
+  if (length(edge_points_row) < 10) {
+    log_message("  Scan circle detection: too few edge points, falling back to image bounds",
+                level = "WARN")
+    return(list(
+      cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
+      width = w, height = h,
+      edge_gap_px = 0, export_type = "scan_only", detected = FALSE
+    ))
+  }
+
+  # Least-squares circle fit (algebraic method)
+  # Minimize sum((x-cx)^2 + (y-cy)^2 - r^2)^2
+  # Linearized: x^2 + y^2 = 2*cx*x + 2*cy*y + (r^2 - cx^2 - cy^2)
+  x_e <- as.numeric(edge_points_col)
+  y_e <- as.numeric(edge_points_row)
+  A <- cbind(x_e, y_e, 1)
+  b_vec <- x_e^2 + y_e^2
+  fit <- tryCatch(qr.solve(A, b_vec), error = function(e) NULL)
+
+  if (is.null(fit)) {
+    log_message("  Scan circle fit failed, falling back to image bounds", level = "WARN")
+    return(list(
+      cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
+      width = w, height = h,
+      edge_gap_px = 0, export_type = "scan_only", detected = FALSE
+    ))
+  }
+
+  cx_px <- fit[1] / 2
+  cy_px <- fit[2] / 2
+  radius_px <- sqrt(fit[3] + cx_px^2 + cy_px^2)
+
+  # Classify export type
+  edge_gap_px <- min(cx_px, cy_px, w - cx_px, h - cy_px) - radius_px
+  export_type <- if (abs(edge_gap_px) <= 15) "scan_only" else "full_field"
+
+  log_message("  Scan circle: center=(", round(cx_px, 1), ", ", round(cy_px, 1),
+              "), radius=", round(radius_px, 1), " px")
+  log_message("  Edge gap: ", round(edge_gap_px, 1), " px -> ", export_type)
+
+  list(
+    cx_px = cx_px, cy_px = cy_px, radius_px = radius_px,
+    width = w, height = h,
+    edge_gap_px = edge_gap_px, export_type = export_type, detected = TRUE
+  )
+}
+
+
+#' Save scan circle debug diagnostic image
+#'
+#' Overlays detected circle + center crosshair on the original LDIR PNG.
+#'
+#' @param image_path Path to original LDIR PNG
+#' @param circle_info Result from detect_ldir_scan_circle()
+#' @param output_path Path to write the debug PNG
+save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
+  tryCatch({
+    img <- png::readPNG(image_path)
+    h <- nrow(img)
+    w <- ncol(img)
+
+    cx <- circle_info$cx_px
+    cy <- circle_info$cy_px
+    r  <- circle_info$radius_px
+
+    grDevices::png(output_path, width = w, height = h)
+    par(mar = c(0, 0, 0, 0))
+
+    # Plot image
+    if (length(dim(img)) == 3) {
+      plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1),
+           xlab = "", ylab = "", asp = 1, axes = FALSE)
+      graphics::rasterImage(img, 1, h, w, 1)
+    } else {
+      plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1),
+           xlab = "", ylab = "", asp = 1, axes = FALSE)
+    }
+
+    # Draw detected circle
+    theta <- seq(0, 2 * pi, length.out = 360)
+    lines(cx + r * cos(theta), cy + r * sin(theta), col = "red", lwd = 2)
+
+    # Draw center crosshair
+    lines(c(cx - 30, cx + 30), c(cy, cy), col = "red", lwd = 2)
+    lines(c(cx, cx), c(cy - 30, cy + 30), col = "red", lwd = 2)
+
+    # Annotate
+    text(cx, cy + 50, paste0("r=", round(r, 0), "px, gap=",
+                              round(circle_info$edge_gap_px, 0), "px"),
+         col = "yellow", cex = 1.5)
+
+    grDevices::dev.off()
+    log_message("  Saved scan circle debug: ", output_path)
+  }, error = function(e) {
+    log_message("  Could not save circle debug image: ", e$message, level = "WARN")
+  })
+}
+
+
+#' Write scan circle export type info to a text file
+#'
+#' @param circle_info Result from detect_ldir_scan_circle()
+#' @param output_path Path to write the text file
+save_ldir_export_type <- function(circle_info, output_path) {
+  lines <- c(
+    paste0("image_width:  ", circle_info$width),
+    paste0("image_height: ", circle_info$height),
+    paste0("center_px:    (", round(circle_info$cx_px, 2), ", ",
+           round(circle_info$cy_px, 2), ")"),
+    paste0("radius_px:    ", round(circle_info$radius_px, 2)),
+    paste0("edge_gap_px:  ", round(circle_info$edge_gap_px, 2)),
+    paste0("export_type:  ", circle_info$export_type),
+    paste0("detected:     ", circle_info$detected)
+  )
+  writeLines(lines, output_path)
+}
+
+
+#' Map particle pixel centroids to µm using scan-circle calibration
+#'
+#' Uses the detected scan circle center and radius to compute a
+#' scale factor, rather than assuming full-image bounds = scan area.
+#'
+#' @param cx_particle_px Numeric vector, particle centroid x in pixels
+#' @param cy_particle_px Numeric vector, particle centroid y in pixels
+#' @param circle_info Result from detect_ldir_scan_circle()
+#' @param scan_diameter_um Physical scan diameter in µm (default 13000)
+#' @return Data frame with x_um, y_um columns
+map_pixels_to_um_circle <- function(cx_particle_px, cy_particle_px,
+                                     circle_info, scan_diameter_um = 13000) {
+  scale_um_per_px <- (scan_diameter_um / 2) / circle_info$radius_px
+  x_um <- (cx_particle_px - circle_info$cx_px) * scale_um_per_px
+  # Pixel y increases downward; physical y increases upward
+  y_um <- (circle_info$cy_px - cy_particle_px) * scale_um_per_px
+
+  data.frame(x_um = x_um, y_um = y_um)
+}
+
+
 #' Extract LDIR particle coordinates from the companion PNG image
 #'
 #' The Agilent 8700 LDIR exports a particle map PNG where particles are
@@ -135,15 +327,89 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
 #'   2. Fallback (if Python unavailable): R-based saturation segmentation
 #'      for color images, adaptive thresholding for grayscale.
 #'
+#' After extraction, pixel centroids are remapped to µm using scan-circle
+#' calibration (not full-image bounds) for robustness to margins/padding.
+#'
 #' @param image_path Path to LDIR PNG image file
 #' @param scan_bounds Physical scan bounds in µm (list with x_min, x_max, y_min, y_max)
 #' @param expected_count Expected number of particles (from Excel data)
+#' @param config Optional config list (for debug output and scan diameter)
 #' @return Data frame with particle_id, x_um, y_um, area_um2, etc.
 extract_ldir_image_coords <- function(image_path,
                                       scan_bounds = NULL,
-                                      expected_count = NULL) {
+                                      expected_count = NULL,
+                                      config = NULL) {
   log_message("Extracting LDIR particle coordinates from image")
 
+  # --- Step 1: Detect scan circle for calibrated mapping ---
+  circle_info <- detect_ldir_scan_circle(image_path)
+
+  scan_diam_um <- if (!is.null(config$ldir_scan_diameter_um)) {
+    config$ldir_scan_diameter_um
+  } else if (!is.null(scan_bounds)) {
+    scan_bounds$x_max - scan_bounds$x_min
+  } else {
+    13000
+  }
+
+  # Save debug artifacts if debug mode enabled
+  if (!is.null(config) && isTRUE(config$debug) && !is.null(config$debug_dir)) {
+    save_ldir_circle_debug(image_path, circle_info,
+                           file.path(config$debug_dir, "ldir_circle_debug.png"))
+    save_ldir_export_type(circle_info,
+                          file.path(config$debug_dir, "export_type.txt"))
+  }
+
+  # --- Step 2: Extract particle pixel centroids ---
+  # Use a wrapper that returns particles with centroid_px_x, centroid_px_y columns
+  # (pixel-space centroids before µm mapping)
+  pixel_particles <- .extract_ldir_pixel_centroids(
+    image_path, scan_bounds, expected_count
+  )
+
+  if (is.null(pixel_particles) || nrow(pixel_particles) == 0) {
+    log_message("  No particles extracted from LDIR image")
+    return(.empty_image_df())
+  }
+
+  # --- Step 3: Remap pixel centroids → µm using scan-circle calibration ---
+  um_coords <- map_pixels_to_um_circle(
+    pixel_particles$centroid_px_x,
+    pixel_particles$centroid_px_y,
+    circle_info, scan_diam_um
+  )
+
+  scale_um_per_px <- (scan_diam_um / 2) / circle_info$radius_px
+
+  pixel_particles$x_um <- um_coords$x_um
+  pixel_particles$y_um <- um_coords$y_um
+  pixel_particles$coord_source <- "circle_calibrated"
+
+  # Store calibration metadata as attributes
+  attr(pixel_particles, "circle_cx_px") <- circle_info$cx_px
+  attr(pixel_particles, "circle_cy_px") <- circle_info$cy_px
+  attr(pixel_particles, "circle_radius_px") <- circle_info$radius_px
+  attr(pixel_particles, "scale_um_per_px") <- scale_um_per_px
+
+  log_message("  Circle-calibrated mapping: scale=",
+              round(scale_um_per_px, 3), " µm/px, ",
+              nrow(pixel_particles), " particles")
+
+  pixel_particles
+}
+
+
+#' Internal: extract particle pixel centroids from LDIR image
+#'
+#' Returns particles with centroid_px_x, centroid_px_y in pixel coordinates
+#' (not yet mapped to µm). Also includes size columns in µm using the
+#' legacy scan_bounds for backward compatibility with size-based filtering.
+#'
+#' @param image_path Path to LDIR PNG image file
+#' @param scan_bounds Physical scan bounds in µm
+#' @param expected_count Expected number of particles
+#' @return Data frame with centroid_px_x, centroid_px_y, and standard columns
+.extract_ldir_pixel_centroids <- function(image_path, scan_bounds, expected_count) {
   # --- Try Python backend first (preferred) ---
   py_result <- tryCatch({
     detect_particles_python(
@@ -158,6 +424,25 @@ extract_ldir_image_coords <- function(image_path,
 
   if (!is.null(py_result) && nrow(py_result) > 0) {
     log_message("  Extracted ", nrow(py_result), " particles from LDIR image (Python)")
+    # Python result has centroid_x/centroid_y in pixel space (from result$particles)
+    # The x_um/y_um were computed with old scan_bounds mapping — we keep pixel coords
+    if ("centroid_x" %in% names(py_result)) {
+      py_result$centroid_px_x <- py_result$centroid_x
+      py_result$centroid_px_y <- py_result$centroid_y
+    } else {
+      # Reverse-compute pixel coords from x_um/y_um if centroid_x not available
+      img_w <- attr(py_result, "image_width")
+      img_h <- attr(py_result, "image_height")
+      if (!is.null(scan_bounds) && !is.null(img_w)) {
+        x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / img_w
+        y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / img_h
+        py_result$centroid_px_x <- (py_result$x_um - scan_bounds$x_min) / x_scale
+        py_result$centroid_px_y <- (scan_bounds$y_max - py_result$y_um) / y_scale
+      } else {
+        py_result$centroid_px_x <- py_result$x_um
+        py_result$centroid_px_y <- py_result$y_um
+      }
+    }
     return(py_result)
   }
 
@@ -168,7 +453,6 @@ extract_ldir_image_coords <- function(image_path,
     stop("Package 'png' required. Install with: install.packages('png')")
   }
 
-  # Read image
   img <- png::readPNG(image_path)
   h_full <- nrow(img)
   w_full <- ncol(img)
@@ -176,110 +460,61 @@ extract_ldir_image_coords <- function(image_path,
   log_message("  LDIR image: ", w_full, " x ", h_full, " px, ", n_ch, " channels")
 
   if (n_ch >= 3) {
-    r <- img[,,1]; g <- img[,,2]; b <- img[,,3]
+    r_ch <- img[,,1]; g_ch <- img[,,2]; b_ch <- img[,,3]
 
-    # Compute saturation (HSV S channel)
-    mx <- pmax(r, g, b)
-    mn <- pmin(r, g, b)
+    mx <- pmax(r_ch, g_ch, b_ch)
+    mn <- pmin(r_ch, g_ch, b_ch)
     sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
     mean_sat <- mean(sat)
 
     log_message("  Mean saturation: ", round(mean_sat, 3))
 
-    # Color images: use saturation-based segmentation.
-    # Grayscale images (mean_sat ≈ 0): fall back to adaptive threshold.
     if (mean_sat > 0.15) {
       log_message("  Using saturation-based extraction (colored LDIR image)")
-      result <- .extract_ldir_saturation(img, h_full, w_full, scan_bounds,
-                                          expected_count)
+      result <- .extract_ldir_saturation_px(img, h_full, w_full, scan_bounds,
+                                             expected_count)
     } else {
       log_message("  Using adaptive-threshold extraction (grayscale image)")
-      result <- extract_particles_from_image(
-        image_path,
-        scan_bounds     = scan_bounds,
-        adaptive_radius = 50L,
-        adaptive_offset = 0.05,
-        min_pixels      = 15,
-        min_size_um     = 20,
-        downsample      = 2L,
-        expected_count  = expected_count,
-        instrument      = "LDIR"
-      )
+      result <- .extract_ldir_adaptive_px(image_path, h_full, w_full,
+                                           scan_bounds, expected_count)
     }
   } else {
-    # Single-channel image — use standard extraction
-    result <- extract_particles_from_image(
-      image_path,
-      scan_bounds     = scan_bounds,
-      adaptive_radius = 50L,
-      adaptive_offset = 0.05,
-      min_pixels      = 15,
-      min_size_um     = 20,
-      downsample      = 2L,
-      expected_count  = expected_count,
-      instrument      = "LDIR"
-    )
+    result <- .extract_ldir_adaptive_px(image_path, h_full, w_full,
+                                         scan_bounds, expected_count)
   }
 
-  log_message("  Extracted ", nrow(result), " particles from LDIR image")
   result
 }
 
 
-#' Saturation-based extraction for LDIR particle map images
+#' Saturation-based extraction returning pixel centroids
 #'
-#' LDIR particle maps render particles as colored markers (high saturation)
-#' on a near-black background (low saturation).  Segmenting on the HSV
-#' saturation channel cleanly separates particles from background without
-#' the grayscale texture artifacts that plague adaptive thresholding.
-#'
-#' A brightness gate (value > 0.08) excludes near-black pixels that can
-#' have noisy saturation values.
-#'
-#' @param img 3D array (h x w x channels)
-#' @param h Image height in pixels
-#' @param w Image width in pixels
-#' @param scan_bounds Physical scan bounds
-#' @param expected_count Expected particle count
-#' @return Data frame with standard particle columns
-.extract_ldir_saturation <- function(img, h, w, scan_bounds, expected_count) {
-  r <- img[,,1]; g <- img[,,2]; b <- img[,,3]
+#' Same algorithm as .extract_ldir_saturation but returns centroid_px_x/y
+#' in addition to x_um/y_um (which are computed for size filtering only).
+.extract_ldir_saturation_px <- function(img, h, w, scan_bounds, expected_count) {
+  r_ch <- img[,,1]; g_ch <- img[,,2]; b_ch <- img[,,3]
 
-  # HSV saturation and value
-  mx <- pmax(r, g, b)
-  mn <- pmin(r, g, b)
+  mx <- pmax(r_ch, g_ch, b_ch)
+  mn <- pmin(r_ch, g_ch, b_ch)
   sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
 
-  # Foreground: high saturation AND not too dark.
-  # The brightness gate (mx > 0.08) prevents near-black pixels with
-  # unreliable saturation from being counted as particles.
   binary <- sat > 0.3 & mx > 0.08
 
   n_fg <- sum(binary)
-  log_message("  Saturation threshold (sat>0.3 & val>0.08): ",
-              n_fg, " foreground pixels (",
+  log_message("  Saturation threshold: ", n_fg, " foreground pixels (",
               round(n_fg / (h * w) * 100, 1), "%)")
 
-  # Connected components
   cc <- .two_pass_ccl(binary, h, w)
   lab_mat <- cc$labels
   n_components <- cc$n_components
-  log_message("  Raw components: ", n_components)
 
   if (n_components == 0) return(.empty_image_df())
 
-  # Filter by minimum pixel count (15 pixels).
-  # At 5.42 µm/px, 15 pixels ≈ 80 µm² — well below the smallest real
-  # particle (~20 µm feret) but eliminates single-pixel noise clusters.
   min_pixels <- 15
   fg_idx    <- which(binary, arr.ind = TRUE)
   fg_labels <- lab_mat[binary]
   tab       <- tabulate(fg_labels, nbins = n_components)
   keep_ids  <- which(tab >= min_pixels)
-
-  log_message("  After min_pixels=", min_pixels, " filter: ",
-              length(keep_ids), " components (removed ",
-              n_components - length(keep_ids), " noise clusters)")
 
   if (length(keep_ids) == 0) return(.empty_image_df())
 
@@ -289,7 +524,6 @@ extract_ldir_image_coords <- function(image_path,
   fg_cols <- fg_idx[valid, 2]
   lf      <- droplevels(label_factor[valid])
 
-  # Centroids and properties
   cy <- tapply(fg_rows, lf, mean)
   cx <- tapply(fg_cols, lf, mean)
   row_min <- tapply(fg_rows, lf, min)
@@ -300,23 +534,17 @@ extract_ldir_image_coords <- function(image_path,
   bb_w <- col_max - col_min + 1
   areas <- tab[keep_ids]
 
-  # Scale to physical coordinates (Cartesian: y increases upward)
-  # Image pixels have y=0 at top (row 1), but physical/Raman convention
-  # is y increasing upward.  Flip y so row 0 (top) → y_max and
-  # row h (bottom) → y_min, matching Raman's Cartesian frame.
+  # Pixel centroids (0-indexed convention: subtract 0.5)
   cx_full <- as.numeric(cx) - 0.5
   cy_full <- as.numeric(cy) - 0.5
 
+  # Compute approximate µm sizes for filtering using scan_bounds
   if (!is.null(scan_bounds)) {
     x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / w
     y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / h
-    x_um <- scan_bounds$x_min + cx_full * x_scale
-    y_um <- scan_bounds$y_max - cy_full * y_scale
     size_scale <- max(x_scale, y_scale)
     area_scale <- x_scale * y_scale
   } else {
-    x_um <- cx_full
-    y_um <- cy_full
     size_scale <- 1
     area_scale <- 1
   }
@@ -324,40 +552,67 @@ extract_ldir_image_coords <- function(image_path,
   n_kept <- length(keep_ids)
 
   df <- data.frame(
-    particle_id  = paste0("LDIR_IMG_", seq_len(n_kept)),
-    x_um         = x_um,
-    y_um         = y_um,
-    area_um2     = as.numeric(areas) * area_scale,
-    major_um     = as.numeric(pmax(bb_w, bb_h)) * size_scale,
-    minor_um     = as.numeric(pmin(bb_w, bb_h)) * size_scale,
-    feret_min_um = as.numeric(pmin(bb_w, bb_h)) * size_scale,
-    feret_max_um = as.numeric(pmax(bb_w, bb_h)) * size_scale,
-    material     = NA_character_,
-    quality      = NA_real_,
-    source_file  = "LDIR_image",
+    particle_id    = paste0("LDIR_IMG_", seq_len(n_kept)),
+    centroid_px_x  = cx_full,
+    centroid_px_y  = cy_full,
+    x_um           = NA_real_,   # will be overwritten by circle calibration
+    y_um           = NA_real_,
+    area_um2       = as.numeric(areas) * area_scale,
+    major_um       = as.numeric(pmax(bb_w, bb_h)) * size_scale,
+    minor_um       = as.numeric(pmin(bb_w, bb_h)) * size_scale,
+    feret_min_um   = as.numeric(pmin(bb_w, bb_h)) * size_scale,
+    feret_max_um   = as.numeric(pmax(bb_w, bb_h)) * size_scale,
+    material       = NA_character_,
+    quality        = NA_real_,
+    source_file    = "LDIR_image",
     stringsAsFactors = FALSE
   )
 
-  # Size filter: smallest LDIR particle in Excel data is ~20 µm
+  # Size filter
   df <- df[df$feret_max_um >= 20, ]
-  n_after_size <- nrow(df)
-  if (n_after_size < n_kept) {
-    log_message("  Size filter (>= 20 µm): ", n_kept, " -> ", n_after_size)
-  }
 
-  # Auto-trim if still too many components
+  # Auto-trim if too many
   if (!is.null(expected_count) && expected_count > 0 && nrow(df) > expected_count * 1.5) {
     target_n <- round(expected_count * 1.3)
     if (nrow(df) > target_n) {
       size_cutoff <- sort(df$feret_max_um, decreasing = TRUE)[min(target_n, nrow(df))]
       df <- df[df$feret_max_um >= size_cutoff, ]
-      log_message("  Auto-trimmed to ", nrow(df), " particles (kept largest, cutoff >= ",
-                  round(size_cutoff, 1), " µm)")
     }
   }
 
   log_message("  Final: ", nrow(df), " particles from saturation segmentation")
   df
+}
+
+
+#' Adaptive-threshold extraction returning pixel centroids (fallback)
+.extract_ldir_adaptive_px <- function(image_path, h_full, w_full,
+                                       scan_bounds, expected_count) {
+  # Delegate to existing extract_particles_from_image, then recover pixel coords
+  result <- extract_particles_from_image(
+    image_path,
+    scan_bounds     = scan_bounds,
+    adaptive_radius = 50L,
+    adaptive_offset = 0.05,
+    min_pixels      = 15,
+    min_size_um     = 20,
+    downsample      = 2L,
+    expected_count  = expected_count,
+    instrument      = "LDIR"
+  )
+
+  if (nrow(result) > 0 && !is.null(scan_bounds)) {
+    # Reverse the µm → pixel mapping to recover pixel centroids
+    x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / w_full
+    y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / h_full
+    result$centroid_px_x <- (result$x_um - scan_bounds$x_min) / x_scale
+    result$centroid_px_y <- (scan_bounds$y_max - result$y_um) / y_scale
+  } else if (nrow(result) > 0) {
+    result$centroid_px_x <- result$x_um
+    result$centroid_px_y <- result$y_um
+  }
+
+  result
 }
 
 
@@ -449,7 +704,13 @@ join_ldir_coords <- function(excel_df, image_df) {
     excel_df$x_um[i] <- image_df$x_um[j]
     excel_df$y_um[i] <- image_df$y_um[j]
     excel_df$coord_match_cost[i] <- cost[i, j]
-    excel_df$coord_source[i] <- "image"
+    # Propagate coord_source from image extraction (e.g. "circle_calibrated")
+    excel_df$coord_source[i] <- if ("coord_source" %in% names(image_df) &&
+                                     !is.na(image_df$coord_source[j])) {
+      image_df$coord_source[j]
+    } else {
+      "image"
+    }
     n_joined <- n_joined + 1
   }
 
