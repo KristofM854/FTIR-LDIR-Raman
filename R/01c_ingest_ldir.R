@@ -28,8 +28,12 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
   log_message("Reading LDIR data from: ", filepath)
 
   raw <- readxl::read_excel(filepath, sheet = sheet)
+
+  # Sanitize column names to valid UTF-8 immediately
+  names(raw) <- safe_colnames(names(raw))
+
   log_message("  Raw LDIR data: ", nrow(raw), " rows, ", ncol(raw), " columns")
-  log_message("  Columns: ", paste(names(raw), collapse = ", "))
+  log_message("  Columns (sanitized): ", paste(names(raw), collapse = ", "))
 
   # Try to read sample info from "Info" sheet
   info_sheet <- tryCatch({
@@ -83,7 +87,7 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
 
   # Is Valid filter
   if (!is.null(valid_col)) {
-    valid <- raw[[valid_col]]
+    valid <- safe_colnames(as.character(raw[[valid_col]]))
     n_invalid <- sum(tolower(valid) != "true", na.rm = TRUE)
     if (n_invalid > 0) {
       log_message("  Flagged ", n_invalid, " invalid particles (keeping all for now)")
