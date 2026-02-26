@@ -45,6 +45,18 @@ make_config <- function(ftir_path  = NULL,
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
     ldir_flip_y_for_alignment = TRUE,  # negate y_norm to undo image Y-flip
 
+    # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
+    # Example: c("A3" = "A3", "MP_11" = "Raman_190")
+    # NULL = no explicit map, fall back to size-based landmark RANSAC
+    ldir_landmark_map = NULL,
+
+    # When TRUE and ldir_landmark_map is set: use Procrustes as the FINAL
+    # transform (do not let ICP override it). ICP still runs for diagnostics.
+    ldir_procrustes_lock = TRUE,
+
+    # Particle IDs to trace stage-by-stage in debug mode
+    debug_trace_ids = c("A3", "MP_11"),
+
     # --- Debug mode ---
     debug = FALSE,  # set TRUE for debug artifacts
 

@@ -41,6 +41,7 @@ source("R/01c_ingest_ldir.R")
 source("R/02_prefilter.R")
 source("R/03_normalize.R")
 source("R/03b_landmark_align.R")
+source("R/03c_procrustes_align.R")
 source("R/04_ransac.R")
 source("R/05_transform.R")
 source("R/06_icp_refine.R")
@@ -113,14 +114,36 @@ config$ldir_image <- if (exists("ldir_image")) ldir_image else NULL
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
 
-# --- Debug mode setup ---
-# Set config$debug <- TRUE before sourcing to enable debug artifacts
+# --- Debug mode setup (Step 0: bulletproof) ---
+# Set config$debug <- TRUE before sourcing to enable debug artifacts.
+# Writes to an absolute path so nothing can silently swallow errors.
 if (isTRUE(config$debug)) {
   run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
   config$run_id <- run_id
-  config$debug_dir <- file.path(config$output_dir, "debug")
-  if (!dir.exists(config$debug_dir)) dir.create(config$debug_dir, recursive = TRUE)
-  log_message("Debug mode ON — artifacts in: ", config$debug_dir)
+
+  # Build absolute path — avoids any working-directory ambiguity
+  debug_dir_abs <- normalizePath(
+    file.path(config$output_dir, "debug"),
+    winslash = "/", mustWork = FALSE
+  )
+  dir.create(debug_dir_abs, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(debug_dir_abs)) {
+    stop("DEBUG: failed to create debug directory: ", debug_dir_abs)
+  }
+
+  # Heartbeat file — if this is absent the whole debug run failed
+  heartbeat <- file.path(debug_dir_abs, "DEBUG_ALIVE.txt")
+  writeLines(c(paste0("run_id: ", run_id),
+               paste0("created: ", Sys.time()),
+               paste0("debug_dir: ", debug_dir_abs)),
+             heartbeat)
+  if (!file.exists(heartbeat)) {
+    stop("DEBUG: heartbeat write failed — check permissions for ", debug_dir_abs)
+  }
+
+  config$debug_dir <- debug_dir_abs
+  message("DEBUG DIR: ", debug_dir_abs)
+  log_message("Debug mode ON — artifacts in: ", debug_dir_abs)
 }
 
 # Override any defaults as needed:
@@ -466,6 +489,9 @@ if (has_ldir && !is.null(ldir_raw)) {
 
     # Step 5: Trace A3 — snapshot after coordinate join
     if (isTRUE(config$debug)) {
+      trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+      dump_particle(ldir_clean, trace_ids, "after_ingest", config$debug_dir)
+      dump_particle(ldir_with_coords, trace_ids, "after_coords_join", config$debug_dir)
       trace_particle_snapshot(ldir_clean, "after_ingest", config)
       trace_particle_snapshot(ldir_with_coords, "after_coords_join", config)
     }
@@ -487,47 +513,88 @@ if (has_ldir && !is.null(ldir_raw)) {
   if (has_ldir_coords) {
     log_message("LDIR spatial matching enabled")
 
-    # 12c. Normalize LDIR coordinates (center using LDIR's own centroid)
+    # 12c. Normalize LDIR coordinates using explicit normalize_coords_ldir()
     #
-    # Circle-calibrated coords already have proper Cartesian convention:
-    #   x_um = (cx_px - circle_cx) * scale  (positive = right)
-    #   y_um = (circle_cy - cy_px) * scale  (positive = up, Y-flip built in)
-    #
-    # The Y-flip toggle controls whether to negate y_norm for alignment.
-    # This resolves the reflection ambiguity between LDIR and Raman frames.
-    ldir_valid    <- ldir_with_coords[!is.na(ldir_with_coords$x_um) &
-                                       !is.na(ldir_with_coords$y_um), ]
-    ldir_centroid <- c(mean(ldir_valid$x_um), mean(ldir_valid$y_um))
-    ldir_with_coords$x_norm <- ldir_with_coords$x_um - ldir_centroid[1]
-    y_norm_raw <- ldir_with_coords$y_um - ldir_centroid[2]
+    # This returns an auditable norm_params object (centroid, scale, y_flip)
+    # and writes ldir_norm_params.json to debug_dir if debug=TRUE.
+    # The Y-flip toggle resolves the reflection ambiguity between LDIR and Raman.
+    ldir_norm_result <- normalize_coords_ldir(
+      ldir_with_coords,
+      flip_y       = isTRUE(config$ldir_flip_y_for_alignment),
+      scale_coords = isTRUE(config$normalize_scale),
+      debug_dir    = if (isTRUE(config$debug)) config$debug_dir else NULL
+    )
+    ldir_with_coords <- ldir_norm_result$df
+    ldir_norm_params <- ldir_norm_result$norm_params
 
-    # Step 2: Y-flip toggle (configurable)
-    if (isTRUE(config$ldir_flip_y_for_alignment)) {
-      ldir_with_coords$y_norm <- -y_norm_raw
-      log_message("  LDIR y_norm negated (ldir_flip_y_for_alignment = TRUE)")
-    } else {
-      ldir_with_coords$y_norm <- y_norm_raw
-      log_message("  LDIR y_norm NOT negated (ldir_flip_y_for_alignment = FALSE)")
-    }
-    log_message("  LDIR centroid: (", round(ldir_centroid[1], 1), ", ",
-                round(ldir_centroid[2], 1), ")")
-
-    # Step 5: Trace A3 — snapshot after normalization
+    # Step 5: dump traced particles after normalization
     if (isTRUE(config$debug)) {
+      trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+      dump_particle(ldir_with_coords, trace_ids, "after_normalization", config$debug_dir)
       trace_particle_snapshot(ldir_with_coords, "after_normalization", config)
     }
 
-    # Step 3: Landmark alignment uses ldir_valid WITH x_norm/y_norm
-    # (previously called before normalization was applied)
+    # Step 3: ldir_valid is now extracted AFTER x_norm/y_norm exist
     ldir_valid <- ldir_with_coords[!is.na(ldir_with_coords$x_um) &
                                     !is.na(ldir_with_coords$y_um), ]
 
+    # Step 1: dump traced particles after coords join (before normalization)
+    if (isTRUE(config$debug)) {
+      trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+      dump_particle(ldir_with_coords, trace_ids, "after_coords_join", config$debug_dir)
+    }
+
     # 12d. Tiered LDIR→Raman alignment
     #
-    # Tier 1 — Landmark alignment: use large particles & fibers
-    #   (same strategy as FTIR→Raman). Landmarks are instrument-agnostic
-    #   geometric features that are visible across all instruments.
-    # Tier 2 — Material-based RANSAC: PET/PP/PC anchors (fallback).
+    # Tier 0 (Step 3): Explicit Procrustes — if config$ldir_landmark_map is set,
+    #   use named LDIR↔Raman correspondences to fit via SVD. This guarantees
+    #   A3 (and other named landmarks) have minimal residuals by construction.
+    #   When ldir_procrustes_lock=TRUE (default), this is the FINAL transform.
+    #   ICP still runs but only for diagnostics (its output is not used).
+    #
+    # Tier 1: Size-based landmark RANSAC (large particles & fibers).
+    # Tier 2: Material-based RANSAC: PET/PP/PC anchors (fallback).
+
+    ldir_procrustes  <- NULL
+    ldir_anchor_pairs <- NULL   # passed to ICP for pinned-weight refinement
+    use_procrustes_final <- FALSE
+
+    if (!is.null(config$ldir_landmark_map) && length(config$ldir_landmark_map) > 0) {
+      log_message(strrep("-", 50))
+      log_message("  LDIR Tier 0: Explicit Procrustes alignment from landmark map")
+
+      ldir_procrustes <- fit_similarity_from_landmarks(
+        src_df       = ldir_valid,
+        tgt_df       = raman_for_transform,
+        landmark_map = config$ldir_landmark_map,
+        debug_dir    = if (isTRUE(config$debug)) config$debug_dir else NULL
+      )
+
+      if (ldir_procrustes$success) {
+        log_message("  Procrustes SUCCESS: ", ldir_procrustes$message)
+
+        # Build anchor_pairs (src_idx in ldir_valid, tgt_idx in raman_for_transform)
+        # so ICP can pin them with high weight even when refining
+        lp <- ldir_procrustes$landmark_pairs
+        if (nrow(lp) > 0) {
+          a_src <- match(lp$ldir_id,  ldir_valid$particle_id)
+          a_tgt <- match(lp$raman_id, raman_for_transform$particle_id)
+          ok_a  <- !is.na(a_src) & !is.na(a_tgt)
+          if (sum(ok_a) > 0) {
+            ldir_anchor_pairs <- data.frame(
+              src_idx = a_src[ok_a],
+              tgt_idx = a_tgt[ok_a]
+            )
+          }
+        }
+
+        use_procrustes_final <- isTRUE(config$ldir_procrustes_lock)
+      } else {
+        log_message("  Procrustes failed (", ldir_procrustes$message,
+                    ") — falling through to RANSAC", level = "WARN")
+      }
+    }
+
     ldir_landmark_result <- tryCatch({
       landmark_align(ldir_valid, raman_for_transform, config, src_label = "LDIR")
     }, error = function(e) {
@@ -536,7 +603,8 @@ if (has_ldir && !is.null(ldir_raw)) {
            n_ftir_landmarks = 0, n_raman_landmarks = 0)
     })
 
-    use_ldir_landmark <- ldir_landmark_result$confident &&
+    use_ldir_landmark <- !use_procrustes_final &&
+                         ldir_landmark_result$confident &&
                          config$landmark_skip_full_ransac
 
     if (use_ldir_landmark) {
@@ -546,7 +614,7 @@ if (has_ldir && !is.null(ldir_raw)) {
         params    = ldir_landmark_result$params,
         n_inliers = ldir_landmark_result$n_inliers
       )
-    } else {
+    } else if (!use_procrustes_final) {
       # Tier 2: Material-based RANSAC (fallback)
       log_message(strrep("-", 50))
       log_message("  LDIR Tier 2: Material-based RANSAC alignment")
@@ -566,34 +634,69 @@ if (has_ldir && !is.null(ldir_raw)) {
       }
       log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
 
-      # 12e. LDIR→Raman alignment (RANSAC + ICP)
-      # Raman reference: use the same normalized set from step 4
       ldir_ransac <- tryCatch({
         ransac_align(ldir_for_align, raman_norm_align, config)
       }, error = function(e) {
         log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
         NULL
       })
+    } else {
+      # Procrustes locked — still set ldir_ransac from Procrustes for logging
+      ldir_ransac <- list(
+        transform = ldir_procrustes$matrix,
+        params    = ldir_procrustes$params,
+        n_inliers = ldir_procrustes$n_pairs
+      )
     }
 
     if (!is.null(ldir_ransac)) {
-      log_message("  LDIR-Raman RANSAC: scale=",
-                  round(ldir_ransac$params$scale, 4),
-                  ", rot=", round(ldir_ransac$params$rotation_deg, 2), " deg",
-                  ", reflected=", ldir_ransac$params$reflected,
-                  ", inliers=", ldir_ransac$n_inliers)
+      if (!use_procrustes_final) {
+        log_message("  LDIR-Raman RANSAC: scale=",
+                    round(ldir_ransac$params$scale, 4),
+                    ", rot=", round(ldir_ransac$params$rotation_deg, 2), " deg",
+                    ", reflected=", ldir_ransac$params$reflected,
+                    ", inliers=", ldir_ransac$n_inliers)
+      }
+
+      # Initial transform for ICP (Procrustes if locked, RANSAC otherwise)
+      icp_initial_transform <- if (use_procrustes_final) {
+        ldir_procrustes$matrix
+      } else {
+        ldir_ransac$transform
+      }
 
       # ICP refinement on all LDIR particles with coordinates
-      ldir_for_icp <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+      # Anchor pairs are pinned with 100x weight (Step 4)
+      ldir_for_icp <- ldir_with_coords[!is.na(ldir_with_coords$x_um) &
+                                        !is.na(ldir_with_coords$y_um), ]
+
+      # Resolve anchor_pairs indices into ldir_for_icp row space
+      icp_anchor <- NULL
+      if (!is.null(ldir_anchor_pairs) && nrow(ldir_anchor_pairs) > 0) {
+        # ldir_anchor_pairs$src_idx points into ldir_valid; remap to ldir_for_icp
+        valid_ids <- ldir_valid$particle_id[ldir_anchor_pairs$src_idx]
+        icp_src   <- match(valid_ids, ldir_for_icp$particle_id)
+        ok_remap  <- !is.na(icp_src)
+        if (sum(ok_remap) > 0) {
+          icp_anchor <- data.frame(
+            src_idx = icp_src[ok_remap],
+            tgt_idx = ldir_anchor_pairs$tgt_idx[ok_remap]
+          )
+          log_message("  ICP anchor pairs (pinned 100x weight): ",
+                      sum(ok_remap), " landmarks")
+        }
+      }
+
       ldir_icp <- tryCatch({
         icp_refine(ldir_for_icp, raman_for_transform,
-                   ldir_ransac$transform, config)
+                   icp_initial_transform, config,
+                   anchor_pairs = icp_anchor)
       }, error = function(e) {
         log_message("  LDIR ICP failed: ", e$message,
-                    " — using RANSAC transform", level = "WARN")
+                    " — using initial transform", level = "WARN")
         list(
-          transform    = ldir_ransac$transform,
-          params       = ldir_ransac$params,
+          transform    = icp_initial_transform,
+          params       = extract_transform_params(icp_initial_transform),
           converged    = FALSE,
           n_iterations = 0,
           rms_history  = numeric(0)
@@ -605,7 +708,15 @@ if (has_ldir && !is.null(ldir_raw)) {
                   ", rot=", round(ldir_icp$params$rotation_deg, 2), " deg",
                   ", converged=", ldir_icp$converged)
 
-      # Quality check: warn if LDIR ICP alignment is substantially worse than FTIR
+      # When Procrustes is locked, discard ICP transform and keep Procrustes
+      if (use_procrustes_final) {
+        log_message("  Procrustes lock active — retaining Procrustes transform ",
+                    "(ICP ran for diagnostics only)")
+        ldir_icp$transform <- ldir_procrustes$matrix
+        ldir_icp$params    <- ldir_procrustes$params
+      }
+
+      # Quality check
       ldir_final_rms <- if (length(ldir_icp$rms_history) > 0)
         tail(ldir_icp$rms_history, 1) else NA_real_
       ftir_final_rms  <- if (length(icp_result$rms_history) > 0)
@@ -613,23 +724,23 @@ if (has_ldir && !is.null(ldir_raw)) {
 
       if (!is.na(ldir_final_rms) && ldir_final_rms > 100) {
         log_message("  LDIR alignment quality: POOR (ICP RMS = ",
-                    round(ldir_final_rms, 1), " µm). Possible causes:",
+                    round(ldir_final_rms, 1), " \u00b5m). Possible causes:",
                     level = "WARN")
         log_message("    1. LDIR scan area (ldir_scan_diameter_um=",
-                    config$ldir_scan_diameter_um, " µm) may not match actual scan",
+                    config$ldir_scan_diameter_um, " \u00b5m) may not match actual scan",
                     level = "WARN")
         log_message("    2. Too few anchor material particles for robust RANSAC",
                     level = "WARN")
         log_message("    3. Systematic coordinate flip or offset in image extraction",
                     level = "WARN")
-        log_message("    Recommendation: verify ldir_scan_diameter_um in config ",
-                    "and check LDIR overlay plot (plots/ldir_overlay.png)",
+        log_message("    Recommendation: set config$ldir_landmark_map with explicit",
+                    " A3\u2194Raman correspondences, or verify ldir_scan_diameter_um",
                     level = "WARN")
       } else if (!is.na(ldir_final_rms) && !is.na(ftir_final_rms) &&
                  ldir_final_rms > 3 * ftir_final_rms) {
         log_message("  LDIR alignment quality: MARGINAL (RMS ",
-                    round(ldir_final_rms, 1), " µm vs FTIR ",
-                    round(ftir_final_rms, 1), " µm)", level = "WARN")
+                    round(ldir_final_rms, 1), " \u00b5m vs FTIR ",
+                    round(ftir_final_rms, 1), " \u00b5m)", level = "WARN")
       }
 
       # 12f. Apply transform to all LDIR particles with coordinates
@@ -640,12 +751,17 @@ if (has_ldir && !is.null(ldir_raw)) {
       )
       ldir_aligned$x_aligned <- ldir_tf$x_transformed
       ldir_aligned$y_aligned <- ldir_tf$y_transformed
+      # Tag which transform path was used (for provenance in debug CSV)
+      ldir_aligned$align_method <- if (use_procrustes_final) "procrustes" else
+                                    if (use_ldir_landmark) "landmark_ransac" else "ransac_icp"
 
       # Step 4: Assert aligned coordinates exist before any plotting
       stopifnot(all(c("x_aligned", "y_aligned") %in% colnames(ldir_aligned)))
 
-      # Step 5: Trace A3 — snapshot after alignment transform
+      # Step 5: dump traced particles + full snapshot after alignment
       if (isTRUE(config$debug)) {
+        trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+        dump_particle(ldir_aligned, trace_ids, "after_alignment", config$debug_dir)
         trace_particle_snapshot(ldir_aligned, "after_alignment", config)
       }
 
@@ -797,14 +913,42 @@ if (!is.null(ldir_results) && !is.null(ldir_results$ldir_aligned) &&
   ldir_plot_df <- ldir_results$ldir_aligned
   stopifnot(all(c("x_aligned", "y_aligned") %in% colnames(ldir_plot_df)))
 
-  # Step 5: Trace A3 — final overlay dataframe
+  # Step 5: dump traced particles + full snapshot for final overlay
   if (isTRUE(config$debug)) {
+    trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+    dump_particle(ldir_plot_df, trace_ids, "final_overlay", config$debug_dir)
     trace_particle_snapshot(ldir_plot_df, "final_overlay", config)
+
+    # Log the exact plotted coordinates for traced particles
+    for (pid in trace_ids) {
+      ri <- which(ldir_plot_df$particle_id == pid)
+      if (length(ri) > 0) {
+        message(sprintf("OVERLAY CHECK '%s': x_aligned=%.2f  y_aligned=%.2f",
+                        pid, ldir_plot_df$x_aligned[ri[1]],
+                        ldir_plot_df$y_aligned[ri[1]]))
+      } else {
+        message(sprintf("OVERLAY CHECK '%s': NOT IN ldir_plot_df", pid))
+      }
+    }
   }
 
   ldir_diag <- generate_ldir_diagnostics(
     ldir_plot_df, raman_clean,
-    ldir_results$ldir_raman_match, ldir_results$ldir_raman_agreement
+    ldir_results$ldir_raman_match, ldir_results$ldir_raman_agreement,
+    debug_subtitle = if (isTRUE(config$debug)) {
+      # Build per-particle subtitle for A3 etc.
+      parts <- character(0)
+      for (pid in (config$debug_trace_ids %||% c("A3", "MP_11"))) {
+        ri <- which(ldir_plot_df$particle_id == pid)
+        if (length(ri) > 0) {
+          parts <- c(parts, sprintf("%s: (%.1f, %.1f)",
+                                    pid,
+                                    ldir_plot_df$x_aligned[ri[1]],
+                                    ldir_plot_df$y_aligned[ri[1]]))
+        }
+      }
+      if (length(parts) > 0) paste(parts, collapse = "  ") else NULL
+    } else NULL
   )
   diagnostics <- c(diagnostics, ldir_diag)
   log_message("  Added ", length(ldir_diag), " LDIR diagnostic plots")
