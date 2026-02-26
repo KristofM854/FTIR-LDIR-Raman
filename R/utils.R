@@ -316,10 +316,63 @@ log_message <- function(..., level = "INFO") {
 # Debug: A3 particle trace (Step 5)
 # ---------------------------------------------------------------------------
 
+#' Dump a single particle's coordinates at one pipeline stage to a CSV
+#'
+#' Writes one row per particle_id in \code{ids} to
+#'   \code{<debug_dir>/<id>_stage_<stage>.csv}
+#' If the particle is not found a "not_found" note is written instead.
+#' Every write is verified with stopifnot(file.exists()).
+#'
+#' @param df Data frame at the current pipeline stage
+#' @param ids Character vector of particle_id values to dump (e.g. c("A3","MP_11"))
+#' @param stage Character label (used in filename and "stage" column)
+#' @param debug_dir Path to debug directory
+dump_particle <- function(df, ids, stage, debug_dir) {
+  if (is.null(debug_dir) || !dir.exists(debug_dir)) return(invisible(NULL))
+
+  all_cols <- c("particle_id", "x_um", "y_um", "x_norm", "y_norm",
+                "x_aligned", "y_aligned", "coord_source", "material",
+                "feret_max_um", "quality")
+
+  for (pid in ids) {
+    row_idx <- which(df$particle_id == pid)
+    out_path <- file.path(debug_dir,
+                          paste0(gsub("[^A-Za-z0-9_-]", "_", pid),
+                                 "_stage_", stage, ".csv"))
+
+    if (length(row_idx) == 0) {
+      row_df <- data.frame(
+        particle_id = pid, stage = stage,
+        note = "not_found_at_this_stage",
+        stringsAsFactors = FALSE
+      )
+    } else {
+      row_df <- df[row_idx[1], intersect(all_cols, names(df)), drop = FALSE]
+      # Fill missing coord columns with NA
+      for (col in all_cols) {
+        if (!col %in% names(row_df)) row_df[[col]] <- NA
+      }
+      row_df$stage <- stage
+    }
+
+    tryCatch({
+      write.csv(row_df, out_path, row.names = FALSE)
+      stopifnot(file.exists(out_path))
+    }, error = function(e) {
+      log_message("  WARN: dump_particle write failed for '", pid,
+                  "' stage '", stage, "': ", e$message, level = "WARN")
+    })
+  }
+
+  log_message("  Dumped stage '", stage, "' for: ",
+              paste(ids, collapse = ", "))
+}
+
+
 #' Trace a particle through pipeline stages
 #'
 #' Appends a snapshot row to debug_A3_trace.csv for each pipeline stage.
-#' Traces ALL particles (not just A3) so the CSV can be filtered later.
+#' Traces ALL particles so the CSV can be filtered to any ID later.
 #'
 #' @param df Data frame with particle data at a given stage
 #' @param stage Character label for this pipeline stage
@@ -347,12 +400,18 @@ trace_particle_snapshot <- function(df, stage, config) {
     if (!col %in% names(snapshot)) snapshot[[col]] <- NA
   }
 
-  if (file.exists(trace_file)) {
-    write.table(snapshot, trace_file, append = TRUE, sep = ",",
-                row.names = FALSE, col.names = FALSE)
-  } else {
-    write.csv(snapshot, trace_file, row.names = FALSE)
-  }
+  tryCatch({
+    if (file.exists(trace_file)) {
+      write.table(snapshot, trace_file, append = TRUE, sep = ",",
+                  row.names = FALSE, col.names = FALSE)
+    } else {
+      write.csv(snapshot, trace_file, row.names = FALSE)
+    }
+    stopifnot(file.exists(trace_file))
+  }, error = function(e) {
+    log_message("  WARN: trace_particle_snapshot write failed: ", e$message,
+                level = "WARN")
+  })
 
   log_message("  Traced ", nrow(snapshot), " particles at stage: ", stage)
 }
@@ -381,9 +440,39 @@ debug_ldir_branches <- function(ldir_aligned, raman_df, ldir_raman_match,
   tryCatch({
     # Current branch overlay (the active flip setting)
     branch_label <- if (isTRUE(config$ldir_flip_y_for_alignment)) "A" else "B"
-    other_label <- if (branch_label == "A") "B" else "A"
+
+    # Step 5: Write overlay_plot_data_ldir.csv so we can verify plotted columns
+    overlay_csv <- file.path(debug_dir, "overlay_plot_data_ldir.csv")
+    plot_cols <- intersect(c("particle_id", "x_aligned", "y_aligned",
+                              "x_norm", "y_norm", "x_um", "y_um",
+                              "material", "feret_max_um", "coord_source"),
+                           names(ldir_aligned))
+    write.csv(ldir_aligned[seq_len(min(200, nrow(ldir_aligned))), plot_cols,
+                            drop = FALSE],
+              overlay_csv, row.names = FALSE)
+    stopifnot(file.exists(overlay_csv))
+    log_message("  Debug: wrote overlay_plot_data_ldir.csv (",
+                min(200, nrow(ldir_aligned)), " rows, cols: ",
+                paste(plot_cols, collapse = ","), ")")
+
+    # A3 in the final overlay (what is actually plotted)
+    trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+    for (pid in trace_ids) {
+      row_idx <- which(ldir_aligned$particle_id == pid)
+      if (length(row_idx) > 0) {
+        r <- ldir_aligned[row_idx[1], plot_cols, drop = FALSE]
+        log_message("  Debug overlay coords for '", pid, "': ",
+                    "x_aligned=", round(r$x_aligned, 2),
+                    " y_aligned=", round(r$y_aligned, 2))
+      } else {
+        log_message("  Debug: '", pid, "' NOT FOUND in ldir_aligned", level = "WARN")
+      }
+    }
 
     # Save current branch overlay
+    icp_rms_val <- if (length(ldir_icp$rms_history) > 0)
+      round(tail(ldir_icp$rms_history, 1), 1) else NA_real_
+
     p_current <- plot_overlay(
       ldir_aligned, raman_df, ldir_raman_match,
       ftir_color = "darkgreen", raman_color = "steelblue",
@@ -391,19 +480,20 @@ debug_ldir_branches <- function(ldir_aligned, raman_df, ldir_raman_match,
     ) + ggplot2::labs(
       title = paste0("LDIR-Raman Overlay — Branch ", branch_label,
                       " (flip_y=", config$ldir_flip_y_for_alignment, ")"),
-      subtitle = paste0("Green=LDIR, Blue=Raman | ",
-                        "ICP RMS=", round(tail(ldir_icp$rms_history, 1), 1), " µm")
+      subtitle = paste0("Green=LDIR(x_aligned/y_aligned), Blue=Raman(x_norm/y_norm) | ",
+                        "ICP RMS=", icp_rms_val, " \u00b5m")
     )
-    ggplot2::ggsave(file.path(debug_dir, paste0("overlay_branch", branch_label, ".png")),
-                    p_current, width = 10, height = 8, dpi = 150)
+    overlay_png <- file.path(debug_dir,
+                              paste0("overlay_branch", branch_label, ".png"))
+    ggplot2::ggsave(overlay_png, p_current, width = 10, height = 8, dpi = 150)
+    stopifnot(file.exists(overlay_png))
 
     # Compute metrics for current branch
     matched <- ldir_raman_match$matched
     metrics <- data.frame(
       branch = branch_label,
       flip_y = config$ldir_flip_y_for_alignment,
-      icp_rms = if (length(ldir_icp$rms_history) > 0)
-        round(tail(ldir_icp$rms_history, 1), 2) else NA_real_,
+      icp_rms = icp_rms_val,
       n_matched = nrow(matched),
       median_match_dist = if (nrow(matched) > 0)
         round(median(matched$match_distance), 2) else NA_real_,
@@ -415,12 +505,13 @@ debug_ldir_branches <- function(ldir_aligned, raman_df, ldir_raman_match,
     summary_lines <- c(
       paste0("Branch ", branch_label, " (ldir_flip_y_for_alignment = ",
              config$ldir_flip_y_for_alignment, "):"),
-      paste0("  ICP RMS:             ", metrics$icp_rms, " µm"),
+      paste0("  ICP RMS:             ", metrics$icp_rms, " \u00b5m"),
       paste0("  Matched pairs:       ", metrics$n_matched),
-      paste0("  Median match dist:   ", metrics$median_match_dist, " µm"),
+      paste0("  Median match dist:   ", metrics$median_match_dist, " \u00b5m"),
       ""
     )
     writeLines(summary_lines, summary_file)
+    stopifnot(file.exists(summary_file))
     log_message("  Debug: saved Branch ", branch_label, " overlay + metrics")
 
     # --- Residual vectors (Step 6) ---

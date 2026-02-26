@@ -439,20 +439,31 @@ plot_tiered_agreement <- function(agreement) {
 #' @param ldir_agreement Agreement result for LDIR-Raman
 #' @return List of ggplot objects
 generate_ldir_diagnostics <- function(ldir_aligned, raman_df,
-                                      ldir_raman_match, ldir_agreement) {
+                                      ldir_raman_match, ldir_agreement,
+                                      debug_subtitle = NULL) {
   plots <- list()
 
   # LDIR-Raman overlay
+  # Step 5: overlay always uses x_aligned / y_aligned (enforced upstream by stopifnot)
   if (nrow(ldir_aligned) > 0 && nrow(raman_df) > 0) {
     plots$ldir_overlay <- plot_overlay(
       ldir_aligned, raman_df, ldir_raman_match,
       ftir_color = "darkgreen", raman_color = "steelblue",
       src_label = "ldir"
     )
+
+    # Build subtitle: always say which columns are used, append debug info when present
+    base_sub <- "Green triangles = LDIR (x_aligned/y_aligned), Blue circles = Raman (x_norm/y_norm)"
+    sub_text  <- if (!is.null(debug_subtitle) && nzchar(debug_subtitle)) {
+      paste0(base_sub, "\n", debug_subtitle)
+    } else {
+      base_sub
+    }
+
     plots$ldir_overlay <- plots$ldir_overlay +
       ggplot2::labs(
-        title = "LDIR\u2013Raman Particle Overlay (aligned coordinates)",
-        subtitle = "Green triangles = LDIR, Blue circles = Raman"
+        title    = "LDIR\u2013Raman Particle Overlay (aligned coordinates)",
+        subtitle = sub_text
       )
   }
 
