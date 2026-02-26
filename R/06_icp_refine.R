@@ -22,7 +22,8 @@
 #'   rms_history   — RMS error at each iteration
 #'   converged     — logical
 #'   n_iterations  — number of iterations performed
-icp_refine <- function(ftir_df, raman_df, initial_transform, config) {
+icp_refine <- function(ftir_df, raman_df, initial_transform, config,
+                       anchor_pairs = NULL) {
   log_message("Starting ICP refinement")
 
   max_iter       <- config$icp_max_iterations
@@ -132,14 +133,37 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config) {
     }
 
     # Re-estimate transform from filtered pairs (with elongation weights)
-    pair_weights <- if (use_elong_weight) ftir_weights[keep] else NULL
+    # Anchor pairs (if any) are pinned with very high weight (100×) so ICP
+    # cannot move the landmark correspondences away from the Procrustes solution.
+    pair_weights <- if (use_elong_weight) ftir_weights[keep] else rep(1.0, sum(keep))
+
+    est_src_x <- ftir_x[keep]
+    est_src_y <- ftir_y[keep]
+    est_dst_x <- raman_x[raman_idx[keep]]
+    est_dst_y <- raman_y[raman_idx[keep]]
+    est_w     <- pair_weights
+
+    if (!is.null(anchor_pairs) && nrow(anchor_pairs) > 0) {
+      anc_src_x <- ftir_x[anchor_pairs$src_idx]
+      anc_src_y <- ftir_y[anchor_pairs$src_idx]
+      anc_dst_x <- raman_x[anchor_pairs$tgt_idx]
+      anc_dst_y <- raman_y[anchor_pairs$tgt_idx]
+      anc_w     <- rep(100.0, nrow(anchor_pairs))
+
+      est_src_x <- c(est_src_x, anc_src_x)
+      est_src_y <- c(est_src_y, anc_src_y)
+      est_dst_x <- c(est_dst_x, anc_dst_x)
+      est_dst_y <- c(est_dst_y, anc_dst_y)
+      est_w     <- c(est_w, anc_w)
+    }
+
     new_tf <- estimate_similarity_transform(
-      src_x = ftir_x[keep],
-      src_y = ftir_y[keep],
-      dst_x = raman_x[raman_idx[keep]],
-      dst_y = raman_y[raman_idx[keep]],
+      src_x = est_src_x,
+      src_y = est_src_y,
+      dst_x = est_dst_x,
+      dst_y = est_dst_y,
       allow_reflection = allow_mirror,
-      weights = pair_weights
+      weights = est_w
     )
 
     current_M <- new_tf$matrix
