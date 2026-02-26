@@ -304,6 +304,48 @@ find_nearest_neighbors <- function(query_x, query_y, ref_x, ref_y, k = 1) {
 }
 
 # ---------------------------------------------------------------------------
+# Encoding safety for column names
+# ---------------------------------------------------------------------------
+
+#' Sanitize column names to valid UTF-8
+#'
+#' Instrument exports on Windows often use latin1 encoding for special
+#' characters like µ (\xb5), ² (\xb2), ³ (\xb3).  When R's locale
+#' expects UTF-8 these appear as invalid multibyte strings, crashing
+#' tolower(), grep(), and other string functions.
+#'
+#' Strategy: try system-default → UTF-8 first, then latin1 → UTF-8.
+#' Pick whichever produces fewer NA/empty strings.  Any bytes that still
+#' cannot convert are silently dropped (sub = "").
+#'
+#' @param x Character vector (typically column names)
+#' @return Character vector with valid UTF-8 encoding
+safe_colnames <- function(x) {
+  # Attempt 1: system default → UTF-8
+  x_sys <- tryCatch(
+    iconv(x, from = "", to = "UTF-8", sub = ""),
+    error = function(e) rep(NA_character_, length(x))
+  )
+
+  # Attempt 2: latin1 → UTF-8  (most common for Spotlight / Agilent exports)
+  x_lat <- tryCatch(
+    iconv(x, from = "latin1", to = "UTF-8", sub = ""),
+    error = function(e) rep(NA_character_, length(x))
+  )
+
+  # Score: fewer NA/empty = better
+  score <- function(v) sum(is.na(v) | nchar(v) == 0)
+  result <- if (score(x_lat) < score(x_sys)) x_lat else x_sys
+
+  # Last-resort: if still NA, keep original bytes (best effort)
+  still_na <- is.na(result)
+  if (any(still_na)) result[still_na] <- x[still_na]
+
+  result
+}
+
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 

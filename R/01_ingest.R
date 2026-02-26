@@ -44,6 +44,8 @@ read_data_file <- function(filepath, sheet = "Long_Table") {
 #' @param x Character vector of column names
 #' @return Normalized character vector
 normalize_colname <- function(x) {
+  # Sanitize encoding FIRST (prevents "invalid multibyte string" in tolower)
+  x <- safe_colnames(x)
   x <- tolower(x)
   # Replace common encoding artifacts for µ (micro sign / mu)
   x <- gsub("\xb5|\xc2\xb5|\xc2|\xb2|\xb3", "", x, useBytes = TRUE)
@@ -118,28 +120,36 @@ ingest_ftir <- function(filepath, sheet = "Long_Table") {
   log_message("Reading FTIR data from: ", filepath)
 
   raw <- read_data_file(filepath, sheet = sheet)
-  log_message("  Raw FTIR data: ", nrow(raw), " rows, ", ncol(raw), " columns")
-  log_message("  Columns: ", paste(names(raw), collapse = ", "))
 
-  # Find the µm coordinate column (not the pixel one)
-  col_names <- names(raw)
-  coord_candidates <- grep("Coord", col_names, ignore.case = TRUE, value = TRUE)
+  # Sanitize column names to valid UTF-8 immediately
+  # (prevents "invalid multibyte string" from µ/²/³ in tolower/grep)
+  names(raw) <- safe_colnames(names(raw))
+  col_names  <- names(raw)
+
+  log_message("  Raw FTIR data: ", nrow(raw), " rows, ", ncol(raw), " columns")
+  log_message("  Columns (sanitized): ", paste(col_names, collapse = ", "))
+
+  # Find coordinate columns — ASCII-safe matching (no reliance on µ literal)
+  coord_candidates <- grep("^Coord", col_names, ignore.case = TRUE, value = TRUE)
+
+  if (length(coord_candidates) == 0) {
+    # Fallback: any column containing "Coord" anywhere
+    coord_candidates <- grep("Coord", col_names, ignore.case = TRUE, value = TRUE)
+  }
 
   if (length(coord_candidates) == 0) {
     stop("Could not find any 'Coord' column in FTIR data. ",
          "Available columns: ", paste(col_names, collapse = ", "))
   }
 
-  # Prefer the µm column — it's the one that does NOT contain "pixel"
-  coord_col <- NULL
-  for (cc in coord_candidates) {
-    if (!grepl("pixel", cc, ignore.case = TRUE)) {
-      coord_col <- cc
-      break
-    }
-  }
-  if (is.null(coord_col)) coord_col <- coord_candidates[1]
+  # Split into "pixels" column vs "µm" column (the one without "pixel")
+  coord_px <- coord_candidates[grepl("pixel", coord_candidates, ignore.case = TRUE)]
+  coord_um <- setdiff(coord_candidates, coord_px)
 
+  # Prefer the µm column; fall back to whatever is available
+  coord_col <- if (length(coord_um) > 0) coord_um[1] else coord_candidates[1]
+
+  log_message("  Coordinate candidates: ", paste(coord_candidates, collapse = ", "))
   log_message("  Using coordinate column: '", coord_col, "'")
 
   coords <- parse_ftir_coordinates(raw[[coord_col]])
@@ -194,8 +204,12 @@ ingest_raman <- function(filepath, sheet = "Long_Table") {
   log_message("Reading Raman data from: ", filepath)
 
   raw <- read_data_file(filepath, sheet = sheet)
+
+  # Sanitize column names to valid UTF-8 immediately
+  names(raw) <- safe_colnames(names(raw))
+
   log_message("  Raw Raman data: ", nrow(raw), " rows, ", ncol(raw), " columns")
-  log_message("  Columns: ", paste(names(raw), collapse = ", "))
+  log_message("  Columns (sanitized): ", paste(names(raw), collapse = ", "))
 
   # Find coordinate columns
   x_col <- find_column(raw, c("Visual Center Point X [µm]",
