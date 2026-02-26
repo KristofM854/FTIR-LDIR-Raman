@@ -311,3 +311,161 @@ log_message <- function(..., level = "INFO") {
   msg <- paste0("[", Sys.time(), "] [", level, "] ", paste0(..., collapse = ""))
   message(msg)
 }
+
+# ---------------------------------------------------------------------------
+# Debug: A3 particle trace (Step 5)
+# ---------------------------------------------------------------------------
+
+#' Trace a particle through pipeline stages
+#'
+#' Appends a snapshot row to debug_A3_trace.csv for each pipeline stage.
+#' Traces ALL particles (not just A3) so the CSV can be filtered later.
+#'
+#' @param df Data frame with particle data at a given stage
+#' @param stage Character label for this pipeline stage
+#' @param config Config list (needs config$debug_dir)
+trace_particle_snapshot <- function(df, stage, config) {
+  if (!isTRUE(config$debug) || is.null(config$debug_dir)) return(invisible(NULL))
+
+  trace_file <- file.path(config$debug_dir, "debug_A3_trace.csv")
+
+  # Extract available coordinate columns
+  cols_available <- intersect(
+    c("particle_id", "x_um", "y_um", "x_norm", "y_norm",
+      "x_aligned", "y_aligned", "coord_source", "material",
+      "feret_max_um"),
+    names(df)
+  )
+
+  snapshot <- df[, cols_available, drop = FALSE]
+  snapshot$stage <- stage
+
+  # Fill missing columns with NA
+  for (col in c("particle_id", "x_um", "y_um", "x_norm", "y_norm",
+                "x_aligned", "y_aligned", "coord_source", "material",
+                "feret_max_um")) {
+    if (!col %in% names(snapshot)) snapshot[[col]] <- NA
+  }
+
+  if (file.exists(trace_file)) {
+    write.table(snapshot, trace_file, append = TRUE, sep = ",",
+                row.names = FALSE, col.names = FALSE)
+  } else {
+    write.csv(snapshot, trace_file, row.names = FALSE)
+  }
+
+  log_message("  Traced ", nrow(snapshot), " particles at stage: ", stage)
+}
+
+
+# ---------------------------------------------------------------------------
+# Debug: Branch A/B comparison + residual vectors (Steps 2 & 6)
+# ---------------------------------------------------------------------------
+
+#' Run Branch A/B Y-flip comparison and save debug artifacts
+#'
+#' Generates overlay plots for both Y-flip settings and computes quality
+#' metrics (ICP RMS, median match distance) for each.
+#'
+#' @param ldir_aligned LDIR data frame with x_aligned, y_aligned
+#' @param raman_df Raman data frame with x_norm, y_norm
+#' @param ldir_raman_match Match result for LDIR-Raman
+#' @param ldir_icp ICP result for LDIR alignment
+#' @param config Configuration list
+debug_ldir_branches <- function(ldir_aligned, raman_df, ldir_raman_match,
+                                 ldir_icp, config) {
+  if (!isTRUE(config$debug) || is.null(config$debug_dir)) return(invisible(NULL))
+
+  debug_dir <- config$debug_dir
+
+  tryCatch({
+    # Current branch overlay (the active flip setting)
+    branch_label <- if (isTRUE(config$ldir_flip_y_for_alignment)) "A" else "B"
+    other_label <- if (branch_label == "A") "B" else "A"
+
+    # Save current branch overlay
+    p_current <- plot_overlay(
+      ldir_aligned, raman_df, ldir_raman_match,
+      ftir_color = "darkgreen", raman_color = "steelblue",
+      src_label = "ldir"
+    ) + ggplot2::labs(
+      title = paste0("LDIR-Raman Overlay — Branch ", branch_label,
+                      " (flip_y=", config$ldir_flip_y_for_alignment, ")"),
+      subtitle = paste0("Green=LDIR, Blue=Raman | ",
+                        "ICP RMS=", round(tail(ldir_icp$rms_history, 1), 1), " µm")
+    )
+    ggplot2::ggsave(file.path(debug_dir, paste0("overlay_branch", branch_label, ".png")),
+                    p_current, width = 10, height = 8, dpi = 150)
+
+    # Compute metrics for current branch
+    matched <- ldir_raman_match$matched
+    metrics <- data.frame(
+      branch = branch_label,
+      flip_y = config$ldir_flip_y_for_alignment,
+      icp_rms = if (length(ldir_icp$rms_history) > 0)
+        round(tail(ldir_icp$rms_history, 1), 2) else NA_real_,
+      n_matched = nrow(matched),
+      median_match_dist = if (nrow(matched) > 0)
+        round(median(matched$match_distance), 2) else NA_real_,
+      stringsAsFactors = FALSE
+    )
+
+    # Write branch summary
+    summary_file <- file.path(debug_dir, "branch_summary.txt")
+    summary_lines <- c(
+      paste0("Branch ", branch_label, " (ldir_flip_y_for_alignment = ",
+             config$ldir_flip_y_for_alignment, "):"),
+      paste0("  ICP RMS:             ", metrics$icp_rms, " µm"),
+      paste0("  Matched pairs:       ", metrics$n_matched),
+      paste0("  Median match dist:   ", metrics$median_match_dist, " µm"),
+      ""
+    )
+    writeLines(summary_lines, summary_file)
+    log_message("  Debug: saved Branch ", branch_label, " overlay + metrics")
+
+    # --- Residual vectors (Step 6) ---
+    if (nrow(matched) > 0) {
+      src_x_col <- "ldir_x_aligned"
+      src_y_col <- "ldir_y_aligned"
+      ref_x_col <- "raman_x_norm"
+      ref_y_col <- "raman_y_norm"
+
+      if (all(c(src_x_col, src_y_col, ref_x_col, ref_y_col) %in% names(matched))) {
+        resid_df <- data.frame(
+          x = matched[[src_x_col]],
+          y = matched[[src_y_col]],
+          dx = matched[[ref_x_col]] - matched[[src_x_col]],
+          dy = matched[[ref_y_col]] - matched[[src_y_col]],
+          dist = matched$match_distance
+        )
+        resid_df <- resid_df[complete.cases(resid_df), ]
+
+        if (nrow(resid_df) > 0) {
+          p_resid <- ggplot2::ggplot(resid_df) +
+            ggplot2::geom_segment(
+              ggplot2::aes(x = x, y = y,
+                           xend = x + dx * 5, yend = y + dy * 5,
+                           colour = dist),
+              arrow = ggplot2::arrow(length = ggplot2::unit(2, "mm")),
+              linewidth = 0.5, alpha = 0.7
+            ) +
+            ggplot2::scale_colour_viridis_c(name = "Distance (µm)") +
+            ggplot2::coord_equal() +
+            ggplot2::labs(
+              title = "LDIR Residual Vector Field",
+              subtitle = "Arrows magnified 5x | Systematic patterns = local distortion",
+              x = "X (µm)", y = "Y (µm)"
+            ) +
+            ggplot2::theme_minimal()
+
+          ggplot2::ggsave(file.path(debug_dir, "ldir_residual_vectors.png"),
+                          p_resid, width = 10, height = 8, dpi = 150)
+          log_message("  Debug: saved ldir_residual_vectors.png")
+        }
+      }
+    }
+
+  }, error = function(e) {
+    log_message("  Debug branch comparison failed: ", e$message, level = "WARN")
+  })
+}

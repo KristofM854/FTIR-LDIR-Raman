@@ -43,6 +43,10 @@ make_config <- function(ftir_path  = NULL,
                              "Polycarbonate"),
     ldir_quality_threshold = 0.6,  # Agilent quality score (0-1)
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
+    ldir_flip_y_for_alignment = TRUE,  # negate y_norm to undo image Y-flip
+
+    # --- Debug mode ---
+    debug = FALSE,  # set TRUE for debug artifacts
 
     # --- Landmark-first alignment (Tier 1) ---
     landmark_min_size_um       = 100,

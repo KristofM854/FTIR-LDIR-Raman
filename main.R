@@ -113,6 +113,16 @@ config$ldir_image <- if (exists("ldir_image")) ldir_image else NULL
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
 
+# --- Debug mode setup ---
+# Set config$debug <- TRUE before sourcing to enable debug artifacts
+if (isTRUE(config$debug)) {
+  run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
+  config$run_id <- run_id
+  config$debug_dir <- file.path(config$output_dir, "debug")
+  if (!dir.exists(config$debug_dir)) dir.create(config$debug_dir, recursive = TRUE)
+  log_message("Debug mode ON — artifacts in: ", config$debug_dir)
+}
+
 # Override any defaults as needed:
 # config$raman_hqi_threshold     <- 75
 # config$match_dist_threshold_um <- 25
@@ -428,6 +438,7 @@ if (has_ldir && !is.null(ldir_raw)) {
     log_message("Extracting LDIR coordinates from companion image")
 
     # Compute scan bounds from configured scan diameter (circular filter)
+    # Used as fallback for size estimation; actual µm mapping uses scan-circle
     ldir_scan_diam <- config$ldir_scan_diameter_um
     if (is.null(ldir_scan_diam)) ldir_scan_diam <- 13000
     ldir_scan_bounds <- list(
@@ -435,10 +446,12 @@ if (has_ldir && !is.null(ldir_raw)) {
       y_min = 0, y_max = ldir_scan_diam
     )
 
+    # Step 1: Circle-calibrated extraction (replaces full-image bounds mapping)
     ldir_image_particles <- extract_ldir_image_coords(
       config$ldir_image,
       scan_bounds    = ldir_scan_bounds,
-      expected_count = nrow(ldir_clean)
+      expected_count = nrow(ldir_clean),
+      config         = config
     )
 
     # Save raw image-extracted coordinates (before join) for Shiny viewer
@@ -450,6 +463,12 @@ if (has_ldir && !is.null(ldir_raw)) {
     # Validate join quality via scan-order correlation
     scan_order <- validate_ldir_scan_order(ldir_with_coords)
     log_message("  Scan order validation: ", scan_order$message)
+
+    # Step 5: Trace A3 — snapshot after coordinate join
+    if (isTRUE(config$debug)) {
+      trace_particle_snapshot(ldir_clean, "after_ingest", config)
+      trace_particle_snapshot(ldir_with_coords, "after_coords_join", config)
+    }
 
     n_with_coords <- sum(!is.na(ldir_with_coords$x_um))
     has_ldir_coords <- n_with_coords >= 10
@@ -470,26 +489,38 @@ if (has_ldir && !is.null(ldir_raw)) {
 
     # 12c. Normalize LDIR coordinates (center using LDIR's own centroid)
     #
-    # IMPORTANT: LDIR y_um has been Y-flipped to Cartesian during image
-    # extraction (y_um = scan_ymax - row * scale).  This Y-flip introduces
-    # a reflection that causes the RANSAC to converge on a wrong rotation
-    # (the effective LDIR→Raman transform becomes mirror+rotation instead
-    # of a pure rotation like FTIR→Raman).
+    # Circle-calibrated coords already have proper Cartesian convention:
+    #   x_um = (cx_px - circle_cx) * scale  (positive = right)
+    #   y_um = (circle_cy - cy_px) * scale  (positive = up, Y-flip built in)
     #
-    # Fix: negate y_norm to undo the Y-flip for the alignment step.
-    # Mathematically: centering then negating is equivalent to centering
-    # the raw (non-flipped) pixel-frame Y coordinates.  This puts LDIR
-    # in a convention analogous to FTIR's native frame, allowing the
-    # RANSAC/ICP to find a clean rotation (typically ~180°).
-    # The aligned output (x_aligned, y_aligned) remains in the Raman
-    # coordinate frame regardless.
-    ldir_valid    <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+    # The Y-flip toggle controls whether to negate y_norm for alignment.
+    # This resolves the reflection ambiguity between LDIR and Raman frames.
+    ldir_valid    <- ldir_with_coords[!is.na(ldir_with_coords$x_um) &
+                                       !is.na(ldir_with_coords$y_um), ]
     ldir_centroid <- c(mean(ldir_valid$x_um), mean(ldir_valid$y_um))
     ldir_with_coords$x_norm <- ldir_with_coords$x_um - ldir_centroid[1]
-    ldir_with_coords$y_norm <- -(ldir_with_coords$y_um - ldir_centroid[2])
+    y_norm_raw <- ldir_with_coords$y_um - ldir_centroid[2]
+
+    # Step 2: Y-flip toggle (configurable)
+    if (isTRUE(config$ldir_flip_y_for_alignment)) {
+      ldir_with_coords$y_norm <- -y_norm_raw
+      log_message("  LDIR y_norm negated (ldir_flip_y_for_alignment = TRUE)")
+    } else {
+      ldir_with_coords$y_norm <- y_norm_raw
+      log_message("  LDIR y_norm NOT negated (ldir_flip_y_for_alignment = FALSE)")
+    }
     log_message("  LDIR centroid: (", round(ldir_centroid[1], 1), ", ",
                 round(ldir_centroid[2], 1), ")")
-    log_message("  LDIR y_norm negated to undo image Y-flip for alignment")
+
+    # Step 5: Trace A3 — snapshot after normalization
+    if (isTRUE(config$debug)) {
+      trace_particle_snapshot(ldir_with_coords, "after_normalization", config)
+    }
+
+    # Step 3: Landmark alignment uses ldir_valid WITH x_norm/y_norm
+    # (previously called before normalization was applied)
+    ldir_valid <- ldir_with_coords[!is.na(ldir_with_coords$x_um) &
+                                    !is.na(ldir_with_coords$y_um), ]
 
     # 12d. Tiered LDIR→Raman alignment
     #
@@ -602,12 +633,21 @@ if (has_ldir && !is.null(ldir_raw)) {
       }
 
       # 12f. Apply transform to all LDIR particles with coordinates
-      ldir_aligned <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+      ldir_aligned <- ldir_with_coords[!is.na(ldir_with_coords$x_um) &
+                                        !is.na(ldir_with_coords$y_um), ]
       ldir_tf <- apply_transform_points(
         ldir_aligned$x_norm, ldir_aligned$y_norm, ldir_icp$transform
       )
       ldir_aligned$x_aligned <- ldir_tf$x_transformed
       ldir_aligned$y_aligned <- ldir_tf$y_transformed
+
+      # Step 4: Assert aligned coordinates exist before any plotting
+      stopifnot(all(c("x_aligned", "y_aligned") %in% colnames(ldir_aligned)))
+
+      # Step 5: Trace A3 — snapshot after alignment transform
+      if (isTRUE(config$debug)) {
+        trace_particle_snapshot(ldir_aligned, "after_alignment", config)
+      }
 
       # 12g. LDIR↔Raman matching
       ldir_raman_match <- match_particles(
@@ -728,6 +768,15 @@ if (has_ldir && !is.null(ldir_raw)) {
     ldir_material_dist   = ldir_mats,
     ldir_image_extracted = if (exists("ldir_image_extracted")) ldir_image_extracted else NULL
   )
+
+  # --- Debug: Branch A/B comparison + residual vectors ---
+  if (isTRUE(config$debug) && has_ldir_coords && !is.null(ldir_aligned) &&
+      !is.null(ldir_raman_match)) {
+    debug_ldir_branches(
+      ldir_aligned, raman_clean, ldir_raman_match,
+      ldir_icp, config
+    )
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -743,8 +792,18 @@ diagnostics <- generate_diagnostics(
 # Add LDIR diagnostics if spatial matching was performed
 if (!is.null(ldir_results) && !is.null(ldir_results$ldir_aligned) &&
     !is.null(ldir_results$ldir_raman_match)) {
+
+  # Step 4: Assert LDIR overlay uses aligned coordinates
+  ldir_plot_df <- ldir_results$ldir_aligned
+  stopifnot(all(c("x_aligned", "y_aligned") %in% colnames(ldir_plot_df)))
+
+  # Step 5: Trace A3 — final overlay dataframe
+  if (isTRUE(config$debug)) {
+    trace_particle_snapshot(ldir_plot_df, "final_overlay", config)
+  }
+
   ldir_diag <- generate_ldir_diagnostics(
-    ldir_results$ldir_aligned, raman_clean,
+    ldir_plot_df, raman_clean,
     ldir_results$ldir_raman_match, ldir_results$ldir_raman_agreement
   )
   diagnostics <- c(diagnostics, ldir_diag)
