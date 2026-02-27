@@ -304,6 +304,364 @@ find_nearest_neighbors <- function(query_x, query_y, ref_x, ref_y, k = 1) {
 }
 
 # ---------------------------------------------------------------------------
+# Image type detection and canonicalization (magick-based)
+# ---------------------------------------------------------------------------
+
+#' Detect image format from magic bytes
+#'
+#' Reads first 12 bytes of the file and returns the detected format
+#' regardless of file extension.  Prevents errors when JPEG files carry
+#' a .png extension (a known Agilent LDIR export quirk).
+#'
+#' @param path File path to inspect
+#' @return Character: "PNG", "JPEG", "TIFF", "BMP", "WEBP", or "unknown"
+guess_image_type <- function(path) {
+  if (!file.exists(path)) return("unknown")
+  hdr <- tryCatch(
+    as.integer(readBin(path, "raw", n = 12)),
+    error = function(e) integer(0)
+  )
+  if (length(hdr) < 4) return("unknown")
+
+  # PNG: 0x89 P N G \r \n 0x1A \n
+  if (hdr[1] == 137 && hdr[2] == 80 && hdr[3] == 78 && hdr[4] == 71)
+    return("PNG")
+  # JPEG: FF D8 FF
+  if (hdr[1] == 255 && hdr[2] == 216 && hdr[3] == 255)
+    return("JPEG")
+  # TIFF little-endian (II) or big-endian (MM)
+  if ((hdr[1] == 73 && hdr[2] == 73 && hdr[3] == 42 && hdr[4] == 0) ||
+      (hdr[1] == 77 && hdr[2] == 77 && hdr[3] == 0  && hdr[4] == 42))
+    return("TIFF")
+  # BMP: BM
+  if (hdr[1] == 66 && hdr[2] == 77) return("BMP")
+  # WEBP: RIFF....WEBP
+  if (length(hdr) >= 12 &&
+      hdr[1] == 82 && hdr[2] == 73 && hdr[3] == 70 && hdr[4] == 70 &&
+      hdr[9] == 87 && hdr[10] == 69 && hdr[11] == 66 && hdr[12] == 80)
+    return("WEBP")
+
+  "unknown"
+}
+
+
+#' Read any supported image via magick and return an R array (0–1 range)
+#'
+#' Works for PNG, JPEG, TIFF, BMP, WEBP regardless of file extension.
+#' The returned array has the same layout as png::readPNG:
+#'   dim = c(height, width, channels)  channels = 3 (RGB) or 4 (RGBA)
+#'
+#' If magick is unavailable the function falls back to png::readPNG /
+#' jpeg::readJPEG based on the detected type (returns NULL on failure).
+#'
+#' @param path File path
+#' @param verbose Emit log_message on detected format mismatch
+#' @return Numeric array [0,1] or NULL on failure
+read_image_any <- function(path, verbose = TRUE) {
+  if (!file.exists(path)) {
+    log_message("  read_image_any: file not found: ", path, level = "WARN")
+    return(NULL)
+  }
+
+  detected <- guess_image_type(path)
+  ext_type  <- toupper(tools::file_ext(path))
+
+  if (verbose && detected != "unknown" && detected != ext_type) {
+    log_message("  Image signature mismatch: extension says ", ext_type,
+                " but magic bytes say ", detected, " — using magick",
+                level = "WARN")
+  }
+
+  # Preferred path: magick (handles all formats transparently)
+  if (requireNamespace("magick", quietly = TRUE)) {
+    tryCatch({
+      img_mg <- magick::image_read(path)
+      info   <- magick::image_info(img_mg)
+      log_message("  magick: ", info$format, " ", info$width, "x", info$height)
+
+      # Flatten to RGB (drop alpha if present; we re-add as 0/1 if needed)
+      img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
+                                        type = "TrueColor")
+      # Export as raw bitmap
+      raw_data <- magick::image_data(img_rgb, channels = "rgb")
+      # raw_data is a raw array: dim = c(3, width, height)  (channel, col, row)
+      h  <- dim(raw_data)[3]
+      w  <- dim(raw_data)[2]
+      nc <- dim(raw_data)[1]
+      # Rearrange to [row, col, channel] and convert to 0–1
+      arr <- array(as.integer(raw_data) / 255, dim = c(nc, w, h))
+      arr <- aperm(arr, c(3, 2, 1))   # -> [height, width, channel]
+      return(arr)
+    }, error = function(e) {
+      log_message("  magick failed (", e$message, "), trying pkg fallback",
+                  level = "WARN")
+    })
+  }
+
+  # Fallback: pkg-specific readers
+  if (detected == "JPEG" || ext_type %in% c("JPG", "JPEG")) {
+    if (requireNamespace("jpeg", quietly = TRUE))
+      return(tryCatch(jpeg::readJPEG(path), error = function(e) NULL))
+  }
+  if (requireNamespace("png", quietly = TRUE))
+    return(tryCatch(png::readPNG(path),  error = function(e) NULL))
+
+  NULL
+}
+
+
+#' Canonicalize an LDIR image to PNG and create a preview
+#'
+#' Copies the original file, writes a canonical PNG (lossless), and a
+#' downscaled preview for the Shiny viewer.  Returns a list of provenance
+#' info suitable for inclusion in the run manifest.
+#'
+#' @param src_path Source image path (any format)
+#' @param inputs_dir Destination directory (output/<run>/inputs/)
+#' @param max_preview_px Maximum dimension (width or height) of the preview
+#' @return Named list: detected_format, orig_width, orig_height,
+#'   canonical_path, canonical_width, canonical_height,
+#'   preview_path, preview_width, preview_height, preview_scale
+canonicalize_ldir_image <- function(src_path, inputs_dir,
+                                     max_preview_px = 1600L) {
+  if (!dir.exists(inputs_dir)) dir.create(inputs_dir, recursive = TRUE)
+
+  detected <- guess_image_type(src_path)
+  ext_orig  <- tools::file_ext(src_path)
+  if (nchar(ext_orig) == 0) ext_orig <- tolower(detected)
+
+  result <- list(
+    detected_format  = detected,
+    orig_path        = src_path,
+    orig_basename    = basename(src_path)
+  )
+
+  if (!requireNamespace("magick", quietly = TRUE)) {
+    log_message("  magick not available; skipping LDIR image canonicalization",
+                level = "WARN")
+    return(result)
+  }
+
+  tryCatch({
+    img_mg <- magick::image_read(src_path)
+    info   <- magick::image_info(img_mg)
+
+    result$orig_width  <- info$width
+    result$orig_height <- info$height
+    result$magick_format <- info$format
+
+    # --- Copy original under inputs/ with detected extension ---
+    orig_dest <- file.path(inputs_dir,
+                           paste0("ldir_image_original.", tolower(ext_orig)))
+    file.copy(src_path, orig_dest, overwrite = TRUE)
+    result$orig_dest <- orig_dest
+
+    # --- Write canonical PNG ---
+    canon_path <- file.path(inputs_dir, "ldir_image_canonical.png")
+    magick::image_write(img_mg, path = canon_path, format = "png")
+    canon_info <- magick::image_info(magick::image_read(canon_path))
+    result$canonical_path   <- canon_path
+    result$canonical_width  <- canon_info$width
+    result$canonical_height <- canon_info$height
+    log_message("  Canonical PNG: ", canon_path,
+                " (", canon_info$width, "x", canon_info$height, ")")
+
+    # --- Preview (downscaled) ---
+    max_dim <- max(info$width, info$height)
+    if (max_dim > max_preview_px) {
+      scale_pct <- round(max_preview_px / max_dim * 100)
+      prev_mg   <- magick::image_scale(img_mg, paste0(scale_pct, "%"))
+    } else {
+      prev_mg   <- img_mg
+    }
+    prev_path <- file.path(inputs_dir, "ldir_image_preview.png")
+    magick::image_write(prev_mg, path = prev_path, format = "png")
+    prev_info <- magick::image_info(prev_mg)
+    result$preview_path   <- prev_path
+    result$preview_width  <- prev_info$width
+    result$preview_height <- prev_info$height
+    result$preview_scale  <- prev_info$width / info$width
+    log_message("  Preview PNG: ", prev_path,
+                " (", prev_info$width, "x", prev_info$height, ")")
+
+  }, error = function(e) {
+    log_message("  canonicalize_ldir_image error: ", e$message, level = "WARN")
+  })
+
+  result
+}
+
+
+#' Compute MD5 hash of a file
+#'
+#' @param path File path
+#' @return Hex MD5 string, or NA if file doesn't exist
+file_md5 <- function(path) {
+  if (!file.exists(path)) return(NA_character_)
+  tryCatch(
+    as.character(tools::md5sum(path)),
+    error = function(e) NA_character_
+  )
+}
+
+
+# ---------------------------------------------------------------------------
+# Run manifest (provenance)
+# ---------------------------------------------------------------------------
+
+#' Write a run manifest JSON file
+#'
+#' Records authoritative provenance for every pipeline run: run ID,
+#' timestamp, git commit, R session, config snapshot, input file hashes,
+#' and LDIR image details.
+#'
+#' The manifest is written early (at run start) and updated by
+#' update_manifest() as the pipeline progresses.
+#'
+#' @param run_dir   Run output directory
+#' @param run_id    Character run ID (e.g. "2026-02-27_1")
+#' @param config    Config list from make_config()
+#' @param input_paths Named list of input file paths (ftir, raman, ldir, ldir_image)
+#' @param ldir_image_info Result from canonicalize_ldir_image() or NULL
+#' @param stage     Current pipeline stage label (default "started")
+#' @return Invisible path to the manifest file
+write_manifest <- function(run_dir, run_id, config,
+                            input_paths = list(),
+                            ldir_image_info = NULL,
+                            stage = "started") {
+  manifest_path <- file.path(run_dir, "manifest.json")
+
+  # --- Git commit ---
+  git_commit <- tryCatch(
+    trimws(system("git rev-parse HEAD 2>/dev/null", intern = TRUE)[1]),
+    error = function(e) NA_character_
+  )
+  if (length(git_commit) == 0 || startsWith(git_commit, "fatal")) {
+    git_commit <- NA_character_
+  }
+
+  # --- Input file info ---
+  inputs_info <- lapply(names(input_paths), function(nm) {
+    p <- input_paths[[nm]]
+    if (is.null(p) || !nzchar(p)) return(list(name = nm, path = NULL))
+    list(
+      name     = nm,
+      path     = p,
+      basename = basename(p),
+      md5      = file_md5(p),
+      size_bytes = if (file.exists(p)) file.info(p)$size else NA_integer_
+    )
+  })
+  names(inputs_info) <- names(input_paths)
+
+  # --- Config snapshot (key values only) ---
+  cfg_keys <- c("ldir_scan_diameter_um", "ldir_flip_y_for_alignment",
+                 "min_quality_ftir", "min_quality_raman", "min_size_um",
+                 "ransac_iterations", "icp_max_iter", "match_radius_um")
+  cfg_snap <- lapply(cfg_keys, function(k) config[[k]])
+  names(cfg_snap) <- cfg_keys
+  # Remove NULLs
+  cfg_snap <- cfg_snap[!vapply(cfg_snap, is.null, logical(1))]
+
+  manifest <- list(
+    run_id          = run_id,
+    timestamp       = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
+    stage           = stage,
+    git_commit      = git_commit,
+    r_version       = paste(R.version$major, R.version$minor, sep = "."),
+    platform        = R.version$platform,
+    user            = Sys.info()[["user"]],
+    config_snapshot = cfg_snap,
+    inputs          = inputs_info,
+    ldir_image      = ldir_image_info
+  )
+
+  # Serialize to JSON (using jsonlite if available, else simple fallback)
+  if (requireNamespace("jsonlite", quietly = TRUE)) {
+    json_str <- jsonlite::toJSON(manifest, pretty = TRUE, auto_unbox = TRUE,
+                                  null = "null", na = "null")
+  } else {
+    # Minimal fallback: key=value style text (not strict JSON but readable)
+    json_str <- paste(
+      "{",
+      paste0('  "run_id": "', manifest$run_id, '",'),
+      paste0('  "timestamp": "', manifest$timestamp, '",'),
+      paste0('  "stage": "', manifest$stage, '",'),
+      paste0('  "git_commit": "', ifelse(is.na(manifest$git_commit), "", manifest$git_commit), '"'),
+      "}",
+      sep = "\n"
+    )
+  }
+
+  writeLines(json_str, manifest_path)
+  log_message("  Manifest written: ", manifest_path,
+              " (stage=", stage, ", git=",
+              ifelse(is.na(git_commit), "N/A",
+                     substr(git_commit, 1, 8)), ")")
+  invisible(manifest_path)
+}
+
+
+#' Update the stage field in an existing manifest
+#'
+#' @param run_dir   Run output directory
+#' @param stage     New stage label
+#' @param error_msg Optional error message if pipeline failed
+update_manifest_stage <- function(run_dir, stage, error_msg = NULL) {
+  manifest_path <- file.path(run_dir, "manifest.json")
+  if (!file.exists(manifest_path)) return(invisible(NULL))
+
+  tryCatch({
+    if (requireNamespace("jsonlite", quietly = TRUE)) {
+      m <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+      m$stage <- stage
+      if (!is.null(error_msg)) m$error <- error_msg
+      m$updated_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
+      writeLines(jsonlite::toJSON(m, pretty = TRUE, auto_unbox = TRUE,
+                                   null = "null", na = "null"),
+                 manifest_path)
+    }
+  }, error = function(e) {
+    log_message("  update_manifest_stage failed: ", e$message, level = "WARN")
+  })
+  invisible(manifest_path)
+}
+
+
+#' Read manifest.json from a run directory
+#'
+#' @param run_dir Run output directory
+#' @return Named list (from JSON), or a minimal list with is_missing=TRUE
+read_manifest <- function(run_dir) {
+  manifest_path <- file.path(run_dir, "manifest.json")
+  if (!file.exists(manifest_path)) {
+    return(list(
+      is_missing  = TRUE,
+      run_id      = basename(run_dir),
+      timestamp   = NA_character_,
+      git_commit  = NA_character_,
+      stage       = NA_character_
+    ))
+  }
+  tryCatch({
+    if (requireNamespace("jsonlite", quietly = TRUE)) {
+      m <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+      m$is_missing <- FALSE
+      return(m)
+    }
+    # Minimal fallback (no jsonlite)
+    list(is_missing = FALSE, run_id = basename(run_dir),
+         timestamp = NA_character_, git_commit = NA_character_,
+         stage = "unknown")
+  }, error = function(e) {
+    list(is_missing = TRUE, run_id = basename(run_dir),
+         timestamp = NA_character_, git_commit = NA_character_,
+         stage = "error_reading_manifest", error = e$message)
+  })
+}
+
+
+# ---------------------------------------------------------------------------
 # Encoding safety for column names
 # ---------------------------------------------------------------------------
 

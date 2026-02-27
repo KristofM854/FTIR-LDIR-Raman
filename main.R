@@ -114,6 +114,51 @@ config$ldir_image <- if (exists("ldir_image")) ldir_image else NULL
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
 
+# --- Collect input file paths for provenance ---
+.run_input_paths <- list(
+  ftir       = if (!is.null(config$ftir_path)  && nzchar(config$ftir_path))  config$ftir_path  else NULL,
+  raman      = if (!is.null(config$raman_path) && nzchar(config$raman_path)) config$raman_path else NULL,
+  ldir       = if (!is.null(config$ldir_path)  && nzchar(config$ldir_path))  config$ldir_path  else NULL,
+  ldir_image = if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) config$ldir_image else NULL,
+  ftir_image = if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) config$ftir_image else NULL
+)
+.run_input_paths <- .run_input_paths[!vapply(.run_input_paths, is.null, logical(1))]
+
+# --- Canonicalize LDIR image and create preview in inputs/ ---
+.ldir_image_info <- NULL
+if (!is.null(config$ldir_image) && nzchar(config$ldir_image) &&
+    file.exists(config$ldir_image)) {
+  inputs_dir <- file.path(config$output_dir, "inputs")
+  .ldir_image_info <- canonicalize_ldir_image(
+    src_path      = config$ldir_image,
+    inputs_dir    = inputs_dir,
+    max_preview_px = 1600L
+  )
+  # Update config$ldir_image to point to the canonical PNG so all downstream
+  # code works with a guaranteed-PNG regardless of original format.
+  if (!is.null(.ldir_image_info$canonical_path) &&
+      file.exists(.ldir_image_info$canonical_path)) {
+    log_message("Using canonical PNG for LDIR processing: ",
+                .ldir_image_info$canonical_path)
+    config$ldir_image_canonical <- .ldir_image_info$canonical_path
+    config$ldir_image_preview   <- .ldir_image_info$preview_path
+  }
+}
+
+# --- Write run manifest (provenance) as early as possible ---
+tryCatch({
+  write_manifest(
+    run_dir         = config$output_dir,
+    run_id          = basename(config$output_dir),
+    config          = config,
+    input_paths     = .run_input_paths,
+    ldir_image_info = .ldir_image_info,
+    stage           = "started"
+  )
+}, error = function(e) {
+  log_message("  Could not write manifest: ", e$message, level = "WARN")
+})
+
 # --- Debug mode setup (Step 0: bulletproof) ---
 # Set config$debug <- TRUE before sourcing to enable debug artifacts.
 # Writes to an absolute path so nothing can silently swallow errors.
@@ -183,16 +228,21 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
 
   # Compute scan bounds from image dimensions and 25 µm grid step.
   # The PerkinElmer Spotlight renders ~6 image pixels per grid cell.
-  ftir_img_raw <- png::readPNG(config$ftir_image)
-  ftir_grid_nx <- round((ncol(ftir_img_raw) + 1) / 6)
-  ftir_grid_ny <- round((nrow(ftir_img_raw) + 1) / 6)
-  ftir_scan_bounds <- list(
-    x_min = 0,
-    x_max = ftir_grid_nx * 25,
-    y_min = 0,
-    y_max = ftir_grid_ny * 25
-  )
-  rm(ftir_img_raw)
+  ftir_img_raw <- read_image_any(config$ftir_image, verbose = TRUE)
+  if (is.null(ftir_img_raw)) {
+    log_message("  WARNING: could not read FTIR image — skipping image extraction",
+                level = "WARN")
+  } else {
+    ftir_grid_nx <- round((ncol(ftir_img_raw) + 1) / 6)
+    ftir_grid_ny <- round((nrow(ftir_img_raw) + 1) / 6)
+    ftir_scan_bounds <- list(
+      x_min = 0,
+      x_max = ftir_grid_nx * 25,
+      y_min = 0,
+      y_max = ftir_grid_ny * 25
+    )
+    rm(ftir_img_raw)
+  }
   log_message("  Scan bounds: [0, ", ftir_scan_bounds$x_max, "] x [0, ",
               ftir_scan_bounds$y_max, "] µm")
 
@@ -460,6 +510,17 @@ if (has_ldir && !is.null(ldir_raw)) {
   if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) {
     log_message("Extracting LDIR coordinates from companion image")
 
+    # Prefer the canonical PNG (format-guaranteed) produced by canonicalize_ldir_image().
+    # Fall back to the original path if canonicalization was skipped.
+    ldir_img_for_extraction <- if (!is.null(config$ldir_image_canonical) &&
+                                    file.exists(config$ldir_image_canonical)) {
+      log_message("  Using canonical PNG: ", config$ldir_image_canonical)
+      config$ldir_image_canonical
+    } else {
+      log_message("  Using original image (no canonical available): ", config$ldir_image)
+      config$ldir_image
+    }
+
     # Compute scan bounds from configured scan diameter (circular filter)
     # Used as fallback for size estimation; actual µm mapping uses scan-circle
     ldir_scan_diam <- config$ldir_scan_diameter_um
@@ -471,7 +532,7 @@ if (has_ldir && !is.null(ldir_raw)) {
 
     # Step 1: Circle-calibrated extraction (replaces full-image bounds mapping)
     ldir_image_particles <- extract_ldir_image_coords(
-      config$ldir_image,
+      ldir_img_for_extraction,
       scan_bounds    = ldir_scan_bounds,
       expected_count = nrow(ldir_clean),
       config         = config
@@ -962,7 +1023,9 @@ export_results(
   match_result, agreement, diagnostics,
   icp_result, norm_result, config,
   ftir_scan_bounds = ftir_scan_bounds,
-  ldir_results     = ldir_results
+  ldir_results     = ldir_results,
+  input_paths      = .run_input_paths,
+  ldir_image_info  = .ldir_image_info
 )
 
 # Export composite matches if found

@@ -21,7 +21,10 @@
 
 #' Extract particle coordinates from an instrument chemical image
 #'
-#' @param image_path  Path to PNG image file
+#' Accepts PNG, JPEG, TIFF, BMP, WEBP regardless of file extension.
+#' Uses magick for format-agnostic reading (with pkg-specific fallbacks).
+#'
+#' @param image_path  Path to image file (PNG/JPEG/TIFF/BMP/WEBP)
 #' @param scan_bounds Named list with x_min, x_max, y_min, y_max in um
 #'   defining the physical area the image covers. If NULL, uses pixel coords.
 #' @param adaptive_radius  Radius (in downsampled pixels) for the local mean
@@ -50,12 +53,13 @@ extract_particles_from_image <- function(image_path,
                                           instrument = "IMAGE") {
   log_message("Extracting particles from image: ", basename(image_path))
 
-  if (!requireNamespace("png", quietly = TRUE)) {
-    stop("Package 'png' required. Install with: install.packages('png')")
+  # --- 1. Read image (format-agnostic via magick / fallback) ---
+  img <- read_image_any(image_path)
+  if (is.null(img)) {
+    stop("Could not read image: ", image_path,
+         "\n  Detected format: ", guess_image_type(image_path),
+         "\n  Install the 'magick' package for broadest format support.")
   }
-
-  # --- 1. Read image ---
-  img <- png::readPNG(image_path)
   h_full <- nrow(img)
   w_full <- ncol(img)
   n_ch   <- if (length(dim(img)) == 3) dim(img)[3] else 1
