@@ -713,17 +713,15 @@ server <- function(input, output, session) {
     if (is.null(raw)) return(NULL)
     ldir_df <- ldir_df_full()
     if (!is.null(ldir_df) && nrow(ldir_df) > 0 &&
-        any(!is.na(ldir_df$x_orig))) {
+        any(is.finite(ldir_df$x_orig)) && any(is.finite(ldir_df$y_orig))) {
       ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
       oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
-      xvals <- ldir_df$x_orig[!is.na(ldir_df$x_orig)]
-      yvals <- ldir_df$y_orig[!is.na(ldir_df$y_orig)]
-      # Compute scan extent: round up max coordinate to nearest 1000 µm
-      extent <- max(ceiling(max(xvals) / 1000) * 1000,
-                    ceiling(max(yvals) / 1000) * 1000)
+      xvals <- ldir_df$x_orig[is.finite(ldir_df$x_orig)]
+      yvals <- ldir_df$y_orig[is.finite(ldir_df$y_orig)]
+      b <- compute_image_bounds(raw, xvals, yvals, padding_um = 150)
       return(list(raster = raw,
-                  xmin = 0 + ox, xmax = extent + ox,
-                  ymin = 0 + oy, ymax = extent + oy))
+                  xmin = b$xmin + ox, xmax = b$xmax + ox,
+                  ymin = b$ymin + oy, ymax = b$ymax + oy))
     }
     NULL
   })
@@ -750,22 +748,22 @@ server <- function(input, output, session) {
   # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
     raw <- load_image_raster(input$ftir_image_upload$datapath)
-    if (!is.null(raw)) ftir_raw_image(raw)
+    ftir_raw_image(raw)
   })
 
   observeEvent(input$raman_image_upload, {
     raw <- load_image_raster(input$raman_image_upload$datapath)
-    if (!is.null(raw)) raman_tab_image(raw)
+    raman_tab_image(raw)
   })
 
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
-    if (!is.null(raw)) overlay_raw_image(raw)
+    overlay_raw_image(raw)
   })
 
   observeEvent(input$ldir_image_upload, {
     raw <- load_image_raster(input$ldir_image_upload$datapath)
-    if (!is.null(raw)) ldir_raw_image(raw)
+    ldir_raw_image(raw)
   })
 
   # ------------------------------------------------------------------

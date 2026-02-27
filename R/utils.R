@@ -376,20 +376,18 @@ read_image_any <- function(path, verbose = TRUE) {
   if (requireNamespace("magick", quietly = TRUE)) {
     tryCatch({
       img_mg <- magick::image_read(path)
+      if (length(img_mg) > 1) img_mg <- img_mg[1]
       info   <- magick::image_info(img_mg)
       log_message("  magick: ", info$format, " ", info$width, "x", info$height)
 
       # Flatten to RGB (drop alpha if present; we re-add as 0/1 if needed)
       img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
                                         type = "TrueColor")
-      # Export as raw bitmap
+      # Export as bitmap
       raw_data <- magick::image_data(img_rgb, channels = "rgb")
-      # raw_data is a raw array: dim = c(3, width, height)  (channel, col, row)
-      h  <- dim(raw_data)[3]
-      w  <- dim(raw_data)[2]
-      nc <- dim(raw_data)[1]
-      # Rearrange to [row, col, channel] and convert to 0–1
-      arr <- array(as.integer(raw_data) / 255, dim = c(nc, w, h))
+      vals <- if (is.character(raw_data)) strtoi(raw_data, base = 16L)
+              else as.integer(raw_data)
+      arr <- array(vals / 255, dim = dim(raw_data))
       arr <- aperm(arr, c(3, 2, 1))   # -> [height, width, channel]
       return(arr)
     }, error = function(e) {
