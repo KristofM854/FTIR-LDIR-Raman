@@ -651,6 +651,24 @@ compute_bounds <- function(...) {
   )
 }
 
+
+
+# Detect image format from file signature (magic bytes)
+# Returns: PNG, JPEG, TIFF, BMP, WEBP, or unknown
+sniff_image_type <- function(path) {
+  if (is.null(path) || !file.exists(path)) return("unknown")
+  hdr <- tryCatch(as.integer(readBin(path, "raw", n = 12)), error = function(e) integer(0))
+  if (length(hdr) < 4) return("unknown")
+  if (hdr[1] == 137 && hdr[2] == 80 && hdr[3] == 78 && hdr[4] == 71) return("PNG")
+  if (hdr[1] == 255 && hdr[2] == 216 && hdr[3] == 255) return("JPEG")
+  if ((hdr[1] == 73 && hdr[2] == 73 && hdr[3] == 42 && hdr[4] == 0) ||
+      (hdr[1] == 77 && hdr[2] == 77 && hdr[3] == 0 && hdr[4] == 42)) return("TIFF")
+  if (hdr[1] == 66 && hdr[2] == 77) return("BMP")
+  if (length(hdr) >= 12 && hdr[1] == 82 && hdr[2] == 73 && hdr[3] == 70 && hdr[4] == 70 &&
+      hdr[9] == 87 && hdr[10] == 69 && hdr[11] == 66 && hdr[12] == 80) return("WEBP")
+  "unknown"
+}
+
 # ---------------------------------------------------------------------------
 # Load an image (any format) as a raster array for ggplot annotation.
 # Accepts PNG, JPEG, TIFF, BMP, WEBP regardless of extension.
@@ -685,6 +703,9 @@ load_image_raster <- function(path) {
 
   # Fallback: extension-based
   ext <- tolower(tools::file_ext(path))
+  if (!requireNamespace("magick", quietly = TRUE) && ext %in% c("tif", "tiff", "bmp", "webp")) {
+    warning("Install magick for TIFF/BMP/WEBP support in the Shiny viewer.")
+  }
   if (ext %in% c("jpg", "jpeg")) {
     raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
     if (is.null(raw)) raw <- tryCatch(png::readPNG(path), error = function(e) NULL)

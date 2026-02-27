@@ -47,6 +47,8 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       fileInput(paste0(id_prefix, "_image_upload"), "Background Image",
                 accept = c("image/png", "image/jpeg", "image/tiff",
                            ".tif", ".tiff", ".bmp", ".webp")),
+      actionButton(paste0(id_prefix, "_reset_manifest_image"), "Reset to manifest image",
+                   class = "btn-default btn-sm"),
       fluidRow(
         column(6, numericInput(paste0(id_prefix, "_img_offset_x"),
                                "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -140,6 +142,8 @@ ui <- fluidPage(
           fileInput("ldir_image_upload", "Background Image",
                     accept = c("image/png", "image/jpeg", "image/tiff", "image/bmp", "image/webp",
                                ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")),
+          actionButton("ldir_reset_manifest_image", "Reset to manifest image",
+                       class = "btn-default btn-sm"),
           fluidRow(
             column(6, numericInput("ldir_img_offset_x",
                                    "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -262,6 +266,8 @@ ui <- fluidPage(
           hr(),
           fileInput("overlay_image_upload", "Background Image",
                     accept = c("image/png", "image/jpeg")),
+          actionButton("overlay_reset_manifest_image", "Reset to manifest image",
+                       class = "btn-default btn-sm"),
           fluidRow(
             column(6, numericInput("overlay_img_offset_x",
                                    "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -307,7 +313,10 @@ ui <- fluidPage(
                          class = "btn-primary", icon = icon("refresh")),
             hr(),
             h4("Run Provenance"),
-            uiOutput("run_provenance_ui")
+            uiOutput("run_provenance_ui"),
+            br(),
+            h4("Images Loaded"),
+            uiOutput("images_loaded_ui")
           )
         )
       )
@@ -379,6 +388,8 @@ server <- function(input, output, session) {
       message("[Particle Viewer] Switching to run: ", chosen)
       selected_run_dir(chosen)
       uploaded_data(NULL)   # clear any uploaded data when selecting a run
+      ftir_image_source("manifest"); raman_image_source("manifest")
+      overlay_image_source("manifest"); ldir_image_source("manifest")
     }
   })
 
@@ -388,6 +399,8 @@ server <- function(input, output, session) {
     if (!is.null(chosen) && nzchar(chosen) && dir.exists(chosen)) {
       selected_run_dir(chosen)
       uploaded_data(NULL)
+      ftir_image_source("manifest"); raman_image_source("manifest")
+      overlay_image_source("manifest"); ldir_image_source("manifest")
     }
   }, ignoreInit = TRUE)
 
@@ -417,6 +430,58 @@ server <- function(input, output, session) {
     if (is.null(run_dir)) return(list(is_missing = TRUE))
     load_run_manifest(run_dir)
   })
+
+
+  # Image source/provenance state
+  ftir_image_source <- reactiveVal("manifest")
+  raman_image_source <- reactiveVal("manifest")
+  ldir_image_source <- reactiveVal("manifest")
+  overlay_image_source <- reactiveVal("manifest")
+
+  ftir_image_meta <- reactiveVal(list(source = "manifest", path = NA_character_, format = "unknown", width = NA_integer_, height = NA_integer_))
+  raman_image_meta <- reactiveVal(list(source = "manifest", path = NA_character_, format = "unknown", width = NA_integer_, height = NA_integer_))
+  ldir_image_meta <- reactiveVal(list(source = "manifest", path = NA_character_, format = "unknown", width = NA_integer_, height = NA_integer_))
+  overlay_image_meta <- reactiveVal(list(source = "manifest", path = NA_character_, format = "unknown", width = NA_integer_, height = NA_integer_))
+
+  set_image_meta <- function(meta_val, source, path, raw) {
+    meta_val(list(
+      source = source,
+      path = if (!is.null(path)) path else NA_character_,
+      format = if (!is.null(path)) sniff_image_type(path) else "unknown",
+      width = if (!is.null(raw)) ncol(raw) else NA_integer_,
+      height = if (!is.null(raw)) nrow(raw) else NA_integer_
+    ))
+  }
+
+  manifest_image_aspect <- function(manifest, input_name) {
+    if (is.null(manifest$image_assets) || is.null(manifest$image_assets[[input_name]])) return(NA_real_)
+    a <- manifest$image_assets[[input_name]]
+    for (k in c("canonical", "preview", "original")) {
+      node <- a[[k]]
+      if (!is.null(node$width) && !is.null(node$height) && !is.na(node$width) && !is.na(node$height) && node$height > 0)
+        return(as.numeric(node$width) / as.numeric(node$height))
+    }
+    NA_real_
+  }
+
+  maybe_warn_aspect <- function(raw, manifest_key, label) {
+    if (is.null(raw)) return(invisible(NULL))
+    m <- active_manifest()
+    if (isTRUE(m$is_missing)) return(invisible(NULL))
+    ref_aspect <- manifest_image_aspect(m, manifest_key)
+    up_aspect <- ncol(raw) / nrow(raw)
+    if (is.finite(ref_aspect) && is.finite(up_aspect) && ref_aspect > 0) {
+      rel_diff <- abs(up_aspect - ref_aspect) / ref_aspect
+      if (rel_diff > 0.03) {
+        showNotification(
+          paste0(label, " upload aspect ratio differs from manifest by ",
+                 round(rel_diff * 100, 1),
+                 "%; overlays may be incorrect (likely crop/FOV mismatch)."),
+          type = "warning", duration = 8
+        )
+      }
+    }
+  }
 
   # Provenance panel UI
   output$run_provenance_ui <- renderUI({
@@ -520,6 +585,33 @@ server <- function(input, output, session) {
     )
   })
 
+
+  output$images_loaded_ui <- renderUI({
+    rows <- list(
+      list(inst = "FTIR", meta = ftir_image_meta()),
+      list(inst = "Raman", meta = raman_image_meta()),
+      list(inst = "LDIR", meta = ldir_image_meta()),
+      list(inst = "Overlay", meta = overlay_image_meta())
+    )
+    body <- lapply(rows, function(r) {
+      m <- r$meta
+      dims <- if (!is.null(m$width) && !is.na(m$width) && !is.null(m$height) && !is.na(m$height)) {
+        paste0(m$width, " x ", m$height)
+      } else "N/A"
+      tags$tr(
+        tags$td(tags$b(r$inst)),
+        tags$td(if (!is.null(m$source)) m$source else "N/A"),
+        tags$td(code(if (!is.null(m$path)) m$path else "N/A")),
+        tags$td(if (!is.null(m$format)) m$format else "unknown"),
+        tags$td(dims)
+      )
+    })
+    tags$table(class = "hover-tbl",
+      tags$tr(tags$th("Instrument"), tags$th("Source"), tags$th("Path"), tags$th("Detected format"), tags$th("Decoded dims")),
+      body
+    )
+  })
+
   has_data <- reactive({
     d <- run_data()
     !is.null(d$matched) || !is.null(d$unmatched_ftir) || !is.null(d$unmatched_raman)
@@ -610,22 +702,26 @@ server <- function(input, output, session) {
   })
 
   # FTIR image bounds in original coordinates.
-  # Priority: 1) from transform_params.txt, 2) from image dims, 3) from particles.
+  # Priority: 1) transform_params bounds, 2) particle-coord aspect-preserving bounds,
+  # 3) legacy pixel-based estimate only when particles are unavailable.
   ftir_img_bounds <- reactive({
-    # Try saved scan bounds from pipeline output
     tr <- run_data()$transform
     if (!is.null(tr$ftir_scan_bounds)) return(tr$ftir_scan_bounds)
 
-    # Estimate from image dimensions (grid geometry)
     raw_ftir_img <- ftir_raw_image()
     ftir_d <- ftir_df_full()
-    if (!is.null(raw_ftir_img)) {
-      px <- if (!is.null(ftir_d) && nrow(ftir_d) > 0) ftir_d$x_orig else NULL
-      py <- if (!is.null(ftir_d) && nrow(ftir_d) > 0) ftir_d$y_orig else NULL
-      return(estimate_ftir_scan_bounds(raw_ftir_img, px, py))
+
+    if (!is.null(raw_ftir_img) && !is.null(ftir_d) && nrow(ftir_d) > 0 &&
+        any(is.finite(ftir_d$x_orig)) && any(is.finite(ftir_d$y_orig))) {
+      xvals <- ftir_d$x_orig[is.finite(ftir_d$x_orig)]
+      yvals <- ftir_d$y_orig[is.finite(ftir_d$y_orig)]
+      return(compute_image_bounds(raw_ftir_img, xvals, yvals, padding_um = 300))
     }
 
-    # Fallback: round up particle coords to nearest 500 µm
+    if (!is.null(raw_ftir_img)) {
+      return(estimate_ftir_scan_bounds(raw_ftir_img, NULL, NULL))
+    }
+
     if (!is.null(ftir_d) && nrow(ftir_d) > 0) {
       return(list(xmin = 0,
                   xmax = ceiling(max(ftir_d$x_orig, na.rm = TRUE) / 500) * 500,
@@ -726,6 +822,40 @@ server <- function(input, output, session) {
     NULL
   })
 
+  # Load background images from selected-run manifest unless user switched source to upload.
+  observe({
+    m <- active_manifest()
+    if (isTRUE(m$is_missing)) {
+      if (identical(ftir_image_source(), "manifest")) { ftir_raw_image(NULL); set_image_meta(ftir_image_meta, "manifest", NULL, NULL) }
+      if (identical(raman_image_source(), "manifest")) { raman_tab_image(NULL); set_image_meta(raman_image_meta, "manifest", NULL, NULL) }
+      if (identical(overlay_image_source(), "manifest")) { overlay_raw_image(NULL); set_image_meta(overlay_image_meta, "manifest", NULL, NULL) }
+      if (identical(ldir_image_source(), "manifest")) { ldir_raw_image(NULL); set_image_meta(ldir_image_meta, "manifest", NULL, NULL) }
+      return()
+    }
+
+    ftir_path  <- manifest_image_path(m, "ftir_image", preferred = "canonical")
+    raman_path <- manifest_image_path(m, "raman_image", preferred = "canonical")
+    ldir_path  <- manifest_image_path(m, "ldir_image", preferred = "canonical")
+
+    if (identical(ftir_image_source(), "manifest")) {
+      raw <- load_image_raster(ftir_path)
+      ftir_raw_image(raw)
+      set_image_meta(ftir_image_meta, "manifest", ftir_path, raw)
+    }
+    if (identical(raman_image_source(), "manifest")) {
+      raman_raw <- load_image_raster(raman_path)
+      raman_tab_image(raman_raw)
+      set_image_meta(raman_image_meta, "manifest", raman_path, raman_raw)
+    }
+    if (identical(overlay_image_source(), "manifest")) {
+      raman_raw2 <- load_image_raster(raman_path)
+      overlay_raw_image(raman_raw2)
+      set_image_meta(overlay_image_meta, "manifest", raman_path, raman_raw2)
+    }
+    if (identical(ldir_image_source(), "manifest")) {
+      raw <- load_image_raster(ldir_path)
+      ldir_raw_image(raw)
+      set_image_meta(ldir_image_meta, "manifest", ldir_path, raw)
   # Load background images strictly from the selected run manifest.
   observe({
     m <- active_manifest()
@@ -734,6 +864,17 @@ server <- function(input, output, session) {
       return()
     }
 
+  observeEvent(selected_run_dir(), {
+    ftir_image_source("manifest")
+    raman_image_source("manifest")
+    overlay_image_source("manifest")
+    ldir_image_source("manifest")
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$ftir_reset_manifest_image, { ftir_image_source("manifest") })
+  observeEvent(input$raman_reset_manifest_image, { raman_image_source("manifest") })
+  observeEvent(input$overlay_reset_manifest_image, { overlay_image_source("manifest") })
+  observeEvent(input$ldir_reset_manifest_image, { ldir_image_source("manifest") })
     ftir_path  <- manifest_image_path(m, "ftir_image", preferred = "preview")
     raman_path <- manifest_image_path(m, "raman_image", preferred = "preview")
     ldir_path  <- manifest_image_path(m, "ldir_image", preferred = "preview")
@@ -748,21 +889,37 @@ server <- function(input, output, session) {
   # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
     raw <- load_image_raster(input$ftir_image_upload$datapath)
+    ftir_image_source("upload")
+    ftir_raw_image(raw)
+    set_image_meta(ftir_image_meta, "upload", input$ftir_image_upload$datapath, raw)
+    maybe_warn_aspect(raw, "ftir_image", "FTIR")
     ftir_raw_image(raw)
   })
 
   observeEvent(input$raman_image_upload, {
     raw <- load_image_raster(input$raman_image_upload$datapath)
+    raman_image_source("upload")
+    raman_tab_image(raw)
+    set_image_meta(raman_image_meta, "upload", input$raman_image_upload$datapath, raw)
+    maybe_warn_aspect(raw, "raman_image", "Raman")
     raman_tab_image(raw)
   })
 
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
+    overlay_image_source("upload")
+    overlay_raw_image(raw)
+    set_image_meta(overlay_image_meta, "upload", input$overlay_image_upload$datapath, raw)
+    maybe_warn_aspect(raw, "raman_image", "Overlay")
     overlay_raw_image(raw)
   })
 
   observeEvent(input$ldir_image_upload, {
     raw <- load_image_raster(input$ldir_image_upload$datapath)
+    ldir_image_source("upload")
+    ldir_raw_image(raw)
+    set_image_meta(ldir_image_meta, "upload", input$ldir_image_upload$datapath, raw)
+    maybe_warn_aspect(raw, "ldir_image", "LDIR")
     ldir_raw_image(raw)
   })
 
@@ -1051,7 +1208,7 @@ server <- function(input, output, session) {
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
                  geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 3.5, fontface = "bold",
+                            vjust = -0.35, size = 3.5, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -1506,7 +1663,7 @@ server <- function(input, output, session) {
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
                  geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 3.5, fontface = "bold",
+                            vjust = -0.35, size = 3.5, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -1857,7 +2014,7 @@ server <- function(input, output, session) {
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
                  geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 3.5, fontface = "bold",
+                            vjust = -0.35, size = 3.5, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -1873,7 +2030,7 @@ server <- function(input, output, session) {
                            shape = 8, size = 8, stroke = 2,
                            colour = "#FF6600") +
                geom_text(data = pin_df, aes(x = x, y = label_y, label = label),
-                          vjust = 0, size = 4, fontface = "bold",
+                          vjust = -0.35, size = 4, fontface = "bold",
                           colour = "#FF6600")
     }
 
