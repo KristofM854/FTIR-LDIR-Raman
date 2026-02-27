@@ -85,6 +85,22 @@ load_run_manifest <- function(run_dir) {
   })
 }
 
+
+
+# Resolve a manifest image asset path (preview/canonical/original) for an instrument.
+manifest_image_path <- function(manifest, input_name, preferred = c("preview", "canonical", "original")) {
+  preferred <- match.arg(preferred)
+  if (is.null(manifest$image_assets) || is.null(manifest$image_assets[[input_name]])) return(NULL)
+  asset <- manifest$image_assets[[input_name]]
+  node <- asset[[preferred]]
+  if (!is.null(node$path) && file.exists(node$path)) return(node$path)
+  # Fallback order
+  for (alt in c("preview", "canonical", "original")) {
+    node_alt <- asset[[alt]]
+    if (!is.null(node_alt$path) && file.exists(node_alt$path)) return(node_alt$path)
+  }
+  NULL
+}
 # ---------------------------------------------------------------------------
 # Locate pipeline output.
 # Supports two layouts:
