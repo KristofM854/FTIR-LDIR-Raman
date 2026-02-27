@@ -85,6 +85,22 @@ load_run_manifest <- function(run_dir) {
   })
 }
 
+
+
+# Resolve a manifest image asset path (preview/canonical/original) for an instrument.
+manifest_image_path <- function(manifest, input_name, preferred = c("preview", "canonical", "original")) {
+  preferred <- match.arg(preferred)
+  if (is.null(manifest$image_assets) || is.null(manifest$image_assets[[input_name]])) return(NULL)
+  asset <- manifest$image_assets[[input_name]]
+  node <- asset[[preferred]]
+  if (!is.null(node$path) && file.exists(node$path)) return(node$path)
+  # Fallback order
+  for (alt in c("preview", "canonical", "original")) {
+    node_alt <- asset[[alt]]
+    if (!is.null(node_alt$path) && file.exists(node_alt$path)) return(node_alt$path)
+  }
+  NULL
+}
 # ---------------------------------------------------------------------------
 # Locate pipeline output.
 # Supports two layouts:
@@ -650,13 +666,18 @@ load_image_raster <- function(path) {
   if (requireNamespace("magick", quietly = TRUE)) {
     raw <- tryCatch({
       img_mg  <- magick::image_read(path)
+      # Use first frame only (avoids accidental frame mosaics/tiling)
+      if (length(img_mg) > 1) img_mg <- img_mg[1]
       img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
                                         type = "TrueColor")
       raw_data <- magick::image_data(img_rgb, channels = "rgb")
-      h  <- dim(raw_data)[3]
-      w  <- dim(raw_data)[2]
-      nc <- dim(raw_data)[1]
-      arr <- array(as.integer(raw_data) / 255, dim = c(nc, w, h))
+      # magick may return raw bytes or hex strings depending on backend/version
+      vals <- if (is.character(raw_data)) {
+        strtoi(raw_data, base = 16L)
+      } else {
+        as.integer(raw_data)
+      }
+      arr <- array(vals / 255, dim = dim(raw_data))
       aperm(arr, c(3, 2, 1))
     }, error = function(e) NULL)
     if (!is.null(raw)) return(raw)
