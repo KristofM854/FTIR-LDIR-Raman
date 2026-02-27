@@ -119,6 +119,12 @@ ui <- fluidPage(
                              selected = c("matched", "unmatched"), inline = TRUE),
           selectInput("ldir_highlight_particle", "Highlight Particle",
                       choices = c("None"), selected = "None"),
+          fluidRow(
+            column(8, textInput("ldir_highlight_pattern", NULL,
+                                placeholder = "IDs: 1-10, MP_*, or MP_1,MP_5")),
+            column(4, actionButton("ldir_highlight_apply", "Apply",
+                                   class = "btn-sm", style = "margin-top: 25px;"))
+          ),
           hr(),
           h4("Image Overlay"),
           checkboxGroupInput("ldir_overlay_mode", "Display",
@@ -132,8 +138,8 @@ ui <- fluidPage(
               h5("Summary"), textOutput("ldir_summary_text")),
           hr(),
           fileInput("ldir_image_upload", "Background Image",
-                    accept = c("image/png", "image/jpeg", "image/tiff",
-                               ".tif", ".tiff", ".bmp", ".webp")),
+                    accept = c("image/png", "image/jpeg", "image/tiff", "image/bmp", "image/webp",
+                               ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")),
           fluidRow(
             column(6, numericInput("ldir_img_offset_x",
                                    "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -438,9 +444,15 @@ server <- function(input, output, session) {
         nm   <- if (!is.null(inp$name)) inp$name else "?"
         base <- if (!is.null(inp$basename)) inp$basename else
                   if (!is.null(inp$path)) basename(inp$path) else "N/A"
-        md5  <- if (!is.null(inp$md5) && !is.na(inp$md5))
-                  substr(inp$md5, 1, 12) else "N/A"
-        tags$tr(tags$td(tags$b(nm)), tags$td(base), tags$td(code(md5)))
+        md5  <- if (!is.null(inp$md5) && !is.na(inp$md5)) inp$md5 else "N/A"
+        pth  <- if (!is.null(inp$path)) inp$path else "N/A"
+        fmt  <- if (!is.null(inp$format)) inp$format else "N/A"
+        dims <- if (!is.null(inp$width) && !is.na(inp$width) &&
+                    !is.null(inp$height) && !is.na(inp$height)) {
+          paste0(inp$width, " x ", inp$height)
+        } else "N/A"
+        tags$tr(tags$td(tags$b(nm)), tags$td(base), tags$td(code(md5)),
+                tags$td(code(pth)), tags$td(dims), tags$td(fmt))
       })
     }, error = function(e) list())
 
@@ -497,7 +509,8 @@ server <- function(input, output, session) {
         div(
           h5("Input Files"),
           tags$table(class = "hover-tbl",
-            tags$tr(tags$th("Input"), tags$th("File"), tags$th("MD5 (12 chars)")),
+            tags$tr(tags$th("Input"), tags$th("File"), tags$th("MD5"),
+                    tags$th("Absolute path"), tags$th("Dims"), tags$th("Format")),
             input_rows
           )
         )
@@ -715,29 +728,23 @@ server <- function(input, output, session) {
     NULL
   })
 
-  # Auto-load default images from project root
+  # Load background images strictly from the selected run manifest.
   observe({
-    default_ftir <- file.path("..", "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png")
-    if (!file.exists(default_ftir)) return()
-    raw <- load_image_raster(default_ftir)
-    if (!is.null(raw)) ftir_raw_image(raw)
-  })
-
-  observe({
-    default_raman <- file.path("..", "raman_resized.jpg")
-    if (!file.exists(default_raman)) return()
-    raw <- load_image_raster(default_raman)
-    if (!is.null(raw)) {
-      overlay_raw_image(raw)
-      raman_tab_image(raw)   # Same image on Raman tab for consistency
+    m <- active_manifest()
+    if (isTRUE(m$is_missing)) {
+      ftir_raw_image(NULL); raman_tab_image(NULL); overlay_raw_image(NULL); ldir_raw_image(NULL)
+      return()
     }
-  })
 
-  observe({
-    default_ldir <- file.path("..", "Comparstic LDIR F2Ba_G3B AU 240925.png")
-    if (!file.exists(default_ldir)) return()
-    raw <- load_image_raster(default_ldir)
-    if (!is.null(raw)) ldir_raw_image(raw)
+    ftir_path  <- manifest_image_path(m, "ftir_image", preferred = "preview")
+    raman_path <- manifest_image_path(m, "raman_image", preferred = "preview")
+    ldir_path  <- manifest_image_path(m, "ldir_image", preferred = "preview")
+
+    ftir_raw_image(load_image_raster(ftir_path))
+    raman_raw <- load_image_raster(raman_path)
+    raman_tab_image(raman_raw)
+    overlay_raw_image(raman_raw)
+    ldir_raw_image(load_image_raster(ldir_path))
   })
 
   # Handle uploaded images
@@ -1040,7 +1047,7 @@ server <- function(input, output, session) {
       if (!is.null(hl) && nrow(hl) > 0) {
         # Y-offset scales with plot extent so label doesn't overlap the circle
         y_span <- diff(bounds$y)
-        y_nudge <- y_span * 0.03   # 3% of visible y-range
+        y_nudge <- y_span * 0.05   # 5% of visible y-range
         hl$label_y <- hl$y + y_nudge
         p <- p + geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
@@ -1495,7 +1502,7 @@ server <- function(input, output, session) {
           else list(x = c(0, 13000), y = c(0, 13000))
         }
         y_span   <- diff(bounds_ldir$y)
-        y_nudge  <- y_span * 0.03
+        y_nudge  <- y_span * 0.05
         hl$label_y <- hl$y + y_nudge
         p <- p + geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
@@ -1836,7 +1843,7 @@ server <- function(input, output, session) {
       list(ids = input$overlay_ldir_particles,  df = dfs$ldir,  col = "#d62728")
     )
     y_span_ov <- diff(bounds$y)
-    y_nudge_ov <- y_span_ov * 0.03
+    y_nudge_ov <- y_span_ov * 0.05
 
     for (spec in hl_specs) {
       sel_ids <- spec$ids
