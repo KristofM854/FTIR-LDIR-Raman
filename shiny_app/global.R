@@ -666,13 +666,18 @@ load_image_raster <- function(path) {
   if (requireNamespace("magick", quietly = TRUE)) {
     raw <- tryCatch({
       img_mg  <- magick::image_read(path)
+      # Use first frame only (avoids accidental frame mosaics/tiling)
+      if (length(img_mg) > 1) img_mg <- img_mg[1]
       img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
                                         type = "TrueColor")
       raw_data <- magick::image_data(img_rgb, channels = "rgb")
-      h  <- dim(raw_data)[3]
-      w  <- dim(raw_data)[2]
-      nc <- dim(raw_data)[1]
-      arr <- array(as.integer(raw_data) / 255, dim = c(nc, w, h))
+      # magick may return raw bytes or hex strings depending on backend/version
+      vals <- if (is.character(raw_data)) {
+        strtoi(raw_data, base = 16L)
+      } else {
+        as.integer(raw_data)
+      }
+      arr <- array(vals / 255, dim = dim(raw_data))
       aperm(arr, c(3, 2, 1))
     }, error = function(e) NULL)
     if (!is.null(raw)) return(raw)
