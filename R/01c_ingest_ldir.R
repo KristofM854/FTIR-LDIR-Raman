@@ -389,12 +389,28 @@ extract_ldir_image_coords <- function(image_path,
   # Use a wrapper that returns particles with centroid_px_x, centroid_px_y columns
   # (pixel-space centroids before µm mapping)
   pixel_particles <- .extract_ldir_pixel_centroids(
-    image_path, scan_bounds, expected_count
+    image_path, scan_bounds, expected_count, circle_info
   )
 
   if (is.null(pixel_particles) || nrow(pixel_particles) == 0) {
     log_message("  No particles extracted from LDIR image")
     return(.empty_image_df())
+  }
+
+  # --- Step 2b: Remove particles outside the scan circle ---
+  # The Python pipeline applies a circle mask, but the R fallback may not.
+  # Guard with a generous 5 % tolerance to keep edge-touching particles.
+  if (circle_info$radius_px > 0 &&
+      all(c("centroid_px_x", "centroid_px_y") %in% names(pixel_particles))) {
+    dist2 <- (pixel_particles$centroid_px_x - circle_info$cx_px)^2 +
+              (pixel_particles$centroid_px_y - circle_info$cy_px)^2
+    inside <- dist2 <= (circle_info$radius_px * 1.05)^2
+    n_outside <- sum(!inside)
+    if (n_outside > 0) {
+      log_message("  Circle post-filter: removed ", n_outside,
+                  " particles outside scan circle (kept ", sum(inside), ")")
+      pixel_particles <- pixel_particles[inside, ]
+    }
   }
 
   # --- Step 3: Remap pixel centroids → µm using scan-circle calibration ---
@@ -433,14 +449,29 @@ extract_ldir_image_coords <- function(image_path,
 #' @param image_path Path to LDIR PNG image file
 #' @param scan_bounds Physical scan bounds in µm
 #' @param expected_count Expected number of particles
+#' @param circle_info Result from detect_ldir_scan_circle() (optional).
+#'   When provided, the scan circle is applied as a mask in the Python
+#'   backend and in the R saturation fallback.
 #' @return Data frame with centroid_px_x, centroid_px_y, and standard columns
-.extract_ldir_pixel_centroids <- function(image_path, scan_bounds, expected_count) {
+.extract_ldir_pixel_centroids <- function(image_path, scan_bounds, expected_count,
+                                          circle_info = NULL) {
+  # Extract circle parameters for Python (use -1 to signal "no mask")
+  cx <- if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0))
+          circle_info$cx_px else -1.0
+  cy <- if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0))
+          circle_info$cy_px else -1.0
+  cr <- if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0))
+          circle_info$radius_px else -1.0
+
   # --- Try Python backend first (preferred) ---
   py_result <- tryCatch({
     detect_particles_python(
       image_path     = image_path,
       scan_bounds    = scan_bounds,
-      expected_count = expected_count
+      expected_count = expected_count,
+      circle_cx      = cx,
+      circle_cy      = cy,
+      circle_r       = cr
     )
   }, error = function(e) {
     log_message("  Python detector error: ", conditionMessage(e))
@@ -499,7 +530,7 @@ extract_ldir_image_coords <- function(image_path,
     if (mean_sat > 0.15) {
       log_message("  Using saturation-based extraction (colored LDIR image)")
       result <- .extract_ldir_saturation_px(img, h_full, w_full, scan_bounds,
-                                             expected_count)
+                                             expected_count, circle_info)
     } else {
       log_message("  Using adaptive-threshold extraction (grayscale image)")
       result <- .extract_ldir_adaptive_px(image_path, h_full, w_full,
@@ -518,7 +549,8 @@ extract_ldir_image_coords <- function(image_path,
 #'
 #' Same algorithm as .extract_ldir_saturation but returns centroid_px_x/y
 #' in addition to x_um/y_um (which are computed for size filtering only).
-.extract_ldir_saturation_px <- function(img, h, w, scan_bounds, expected_count) {
+.extract_ldir_saturation_px <- function(img, h, w, scan_bounds, expected_count,
+                                         circle_info = NULL) {
   r_ch <- img[,,1]; g_ch <- img[,,2]; b_ch <- img[,,3]
 
   mx <- pmax(r_ch, g_ch, b_ch)
@@ -526,6 +558,17 @@ extract_ldir_image_coords <- function(image_path,
   sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
 
   binary <- sat > 0.3 & mx > 0.08
+
+  # Mask out pixels outside the scan circle
+  if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0)) {
+    cx <- circle_info$cx_px
+    cy <- circle_info$cy_px
+    r  <- circle_info$radius_px
+    rows_m <- matrix(seq_len(h), nrow = h, ncol = w)
+    cols_m <- matrix(seq_len(w), nrow = h, ncol = w, byrow = TRUE)
+    in_circle <- (rows_m - cy)^2 + (cols_m - cx)^2 <= (r * 1.05)^2
+    binary <- binary & in_circle
+  }
 
   n_fg <- sum(binary)
   log_message("  Saturation threshold: ", n_fg, " foreground pixels (",
