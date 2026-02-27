@@ -102,6 +102,48 @@ manifest_image_path <- function(manifest, input_name, preferred = c("preview", "
   NULL
 }
 # ---------------------------------------------------------------------------
+# Extract canonical image paths from a run manifest.
+# Returns a named list: list(ftir = path|NULL, raman = path|NULL, ldir = path|NULL)
+# Paths are verified to exist; falls back to inputs/ folder filenames if needed.
+# ---------------------------------------------------------------------------
+get_run_image_paths <- function(manifest, run_dir) {
+  out <- list(ftir = NULL, raman = NULL, ldir = NULL)
+  if (is.null(manifest) || isTRUE(manifest$is_missing)) return(out)
+
+  images <- manifest$images
+
+  # Backward compat: older manifests stored only ldir_image at top level
+  if (is.null(images)) {
+    if (!is.null(manifest$ldir_image$canonical_path)) {
+      cp <- manifest$ldir_image$canonical_path
+      if (file.exists(cp)) {
+        out$ldir <- cp
+      } else {
+        fb <- file.path(run_dir, "inputs", "ldir_image_canonical.png")
+        if (file.exists(fb)) out$ldir <- fb
+      }
+    }
+    return(out)
+  }
+
+  for (instr in c("ftir", "raman", "ldir")) {
+    cp <- images[[instr]][["canonical_path"]]
+    if (!is.null(cp) && nzchar(cp)) {
+      if (file.exists(cp)) {
+        out[[instr]] <- cp
+      } else {
+        # Fallback: look relative to run_dir/inputs/
+        fb <- file.path(run_dir, "inputs",
+                        paste0(instr, "_image_canonical.png"))
+        if (file.exists(fb)) out[[instr]] <- fb
+      }
+    }
+  }
+  out
+}
+
+
+# ---------------------------------------------------------------------------
 # Locate pipeline output.
 # Supports two layouts:
 #   1. Subdirectory runs:  output/2026-02-16_6/matched_particles.csv

@@ -523,40 +523,50 @@ server <- function(input, output, session) {
       })
     }, error = function(e) list())
 
-    # LDIR image info
-    ldir_info_ui <- tryCatch({
-      li <- m$ldir_image
-      if (is.null(li)) return(NULL)
-      fmt      <- if (!is.null(li$detected_format)) li$detected_format else "?"
-      magick_f <- if (!is.null(li$magick_format)) li$magick_format else "?"
-      orig_dim <- if (!is.null(li$orig_width))
-                    paste0(li$orig_width, " x ", li$orig_height) else "?"
-      canon_dim <- if (!is.null(li$canonical_width))
-                    paste0(li$canonical_width, " x ", li$canonical_height) else "?"
-      prev_sc  <- if (!is.null(li$preview_scale))
-                    paste0(round(li$preview_scale * 100), "%") else "?"
-      fmt_match <- if (!is.null(li$detected_format) && !is.null(li$orig_basename)) {
-        ext <- toupper(tools::file_ext(li$orig_basename))
-        if (nzchar(ext) && fmt != ext && fmt != "unknown")
-          tags$span(class = "label label-warning",
-                    paste0("Extension mismatch: .", tolower(ext), " but signature=", fmt))
-        else NULL
-      } else NULL
+    # Instrument image info — reads from manifest$images (new) or manifest$ldir_image (old)
+    images_src <- if (!is.null(m$images)) m$images else {
+      if (!is.null(m$ldir_image)) list(ldir = m$ldir_image) else list()
+    }
+    images_ui_panels <- tryCatch({
+      if (length(images_src) == 0) return(list())
+      lapply(names(images_src), function(instr) {
+        li <- images_src[[instr]]
+        if (is.null(li)) return(NULL)
+        fmt       <- if (!is.null(li$detected_format)) li$detected_format else "?"
+        orig_dim  <- if (!is.null(li$orig_width) && !is.na(li$orig_width))
+                       paste0(li$orig_width, " x ", li$orig_height) else "?"
+        canon_dim <- if (!is.null(li$canonical_width) && !is.na(li$canonical_width))
+                       paste0(li$canonical_width, " x ", li$canonical_height) else "?"
+        prev_sc   <- if (!is.null(li$preview_scale) && !is.na(li$preview_scale))
+                       paste0(round(li$preview_scale * 100), "%") else "?"
+        md5_short <- if (!is.null(li$md5) && !is.na(li$md5))
+                       substr(li$md5, 1, 12) else "N/A"
+        orig_bn   <- if (!is.null(li$orig_basename) && nzchar(li$orig_basename))
+                       li$orig_basename else "?"
+        ext_warn  <- tryCatch({
+          ext <- toupper(tools::file_ext(orig_bn))
+          if (nzchar(ext) && toupper(fmt) != ext && fmt != "unknown")
+            tags$span(class = "label label-warning",
+                      paste0("Extension mismatch: .", tolower(ext),
+                             " but signature=", fmt))
+          else NULL
+        }, error = function(e) NULL)
 
-      div(
-        h5("LDIR Image"),
-        fmt_match,
-        tags$table(class = "hover-tbl",
-          tags$tr(tags$th("Field"), tags$th("Value")),
-          tags$tr(tags$td("Original file"), tags$td(code(li$orig_basename))),
-          tags$tr(tags$td("Detected format"), tags$td(tags$b(fmt))),
-          tags$tr(tags$td("magick format"), tags$td(magick_f)),
-          tags$tr(tags$td("Original dimensions"), tags$td(orig_dim)),
-          tags$tr(tags$td("Canonical PNG dims"), tags$td(canon_dim)),
-          tags$tr(tags$td("Preview scale"), tags$td(prev_sc))
+        div(
+          h5(paste0(toupper(instr), " Image")),
+          ext_warn,
+          tags$table(class = "hover-tbl",
+            tags$tr(tags$th("Field"), tags$th("Value")),
+            tags$tr(tags$td("Original file"),      tags$td(code(orig_bn))),
+            tags$tr(tags$td("Detected format"),    tags$td(tags$b(fmt))),
+            tags$tr(tags$td("Original dims"),      tags$td(orig_dim)),
+            tags$tr(tags$td("Canonical PNG dims"), tags$td(canon_dim)),
+            tags$tr(tags$td("Preview scale"),      tags$td(prev_sc)),
+            tags$tr(tags$td("MD5 (12 chars)"),     tags$td(code(md5_short)))
+          )
         )
-      )
-    }, error = function(e) NULL)
+      })
+    }, error = function(e) list())
 
     tagList(
       div(class = if (stage_val == "export_complete") "alert alert-success"
@@ -583,7 +593,7 @@ server <- function(input, output, session) {
         )
       } else NULL,
       br(),
-      ldir_info_ui
+      images_ui_panels
     )
   })
 
