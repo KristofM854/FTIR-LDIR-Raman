@@ -13,7 +13,7 @@
 
 # Instrument detection patterns (case-insensitive)
 .INSTRUMENT_PATTERNS <- list(
-  FTIR  = "FTIR|Spotlight|infrared|IR\\b|FT-IR",
+  FTIR  = "FTIR|Spotlight|infrared|FT-IR",
   Raman = "Raman",
   LDIR  = "LDIR|8700"
 )
