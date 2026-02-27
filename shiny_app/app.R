@@ -856,8 +856,13 @@ server <- function(input, output, session) {
       raw <- load_image_raster(ldir_path)
       ldir_raw_image(raw)
       set_image_meta(ldir_image_meta, "manifest", ldir_path, raw)
+  # Load background images strictly from the selected run manifest.
+  observe({
+    m <- active_manifest()
+    if (isTRUE(m$is_missing)) {
+      ftir_raw_image(NULL); raman_tab_image(NULL); overlay_raw_image(NULL); ldir_raw_image(NULL)
+      return()
     }
-  })
 
   observeEvent(selected_run_dir(), {
     ftir_image_source("manifest")
@@ -870,6 +875,16 @@ server <- function(input, output, session) {
   observeEvent(input$raman_reset_manifest_image, { raman_image_source("manifest") })
   observeEvent(input$overlay_reset_manifest_image, { overlay_image_source("manifest") })
   observeEvent(input$ldir_reset_manifest_image, { ldir_image_source("manifest") })
+    ftir_path  <- manifest_image_path(m, "ftir_image", preferred = "preview")
+    raman_path <- manifest_image_path(m, "raman_image", preferred = "preview")
+    ldir_path  <- manifest_image_path(m, "ldir_image", preferred = "preview")
+
+    ftir_raw_image(load_image_raster(ftir_path))
+    raman_raw <- load_image_raster(raman_path)
+    raman_tab_image(raman_raw)
+    overlay_raw_image(raman_raw)
+    ldir_raw_image(load_image_raster(ldir_path))
+  })
 
   # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
@@ -878,6 +893,7 @@ server <- function(input, output, session) {
     ftir_raw_image(raw)
     set_image_meta(ftir_image_meta, "upload", input$ftir_image_upload$datapath, raw)
     maybe_warn_aspect(raw, "ftir_image", "FTIR")
+    ftir_raw_image(raw)
   })
 
   observeEvent(input$raman_image_upload, {
@@ -886,6 +902,7 @@ server <- function(input, output, session) {
     raman_tab_image(raw)
     set_image_meta(raman_image_meta, "upload", input$raman_image_upload$datapath, raw)
     maybe_warn_aspect(raw, "raman_image", "Raman")
+    raman_tab_image(raw)
   })
 
   observeEvent(input$overlay_image_upload, {
@@ -894,6 +911,7 @@ server <- function(input, output, session) {
     overlay_raw_image(raw)
     set_image_meta(overlay_image_meta, "upload", input$overlay_image_upload$datapath, raw)
     maybe_warn_aspect(raw, "raman_image", "Overlay")
+    overlay_raw_image(raw)
   })
 
   observeEvent(input$ldir_image_upload, {
@@ -902,6 +920,7 @@ server <- function(input, output, session) {
     ldir_raw_image(raw)
     set_image_meta(ldir_image_meta, "upload", input$ldir_image_upload$datapath, raw)
     maybe_warn_aspect(raw, "ldir_image", "LDIR")
+    ldir_raw_image(raw)
   })
 
   # ------------------------------------------------------------------
