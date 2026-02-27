@@ -12,15 +12,41 @@
 #' @param config Configuration list
 #' @param ftir_scan_bounds Optional scan bounds
 #' @param ldir_results Optional list of LDIR pipeline results
+#' @param input_paths Named list of input file paths used in this run
+#'   (e.g. list(ftir = "...", raman = "...", ldir = "...", ldir_image = "..."))
+#' @param ldir_image_info Result from canonicalize_ldir_image() or NULL
 #' @return Invisible NULL
 export_results <- function(match_result, agreement, diagnostics,
                            icp_result, norm_result, config,
                            ftir_scan_bounds = NULL,
-                           ldir_results = NULL) {
+                           ldir_results = NULL,
+                           input_paths = list(),
+                           ldir_image_info = NULL) {
   out_dir <- config$output_dir
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
   log_message("Exporting results to: ", out_dir)
+
+  # --- 0. Finalize manifest (mark stage as "export") ---
+  run_id <- basename(out_dir)
+  tryCatch({
+    manifest_path <- file.path(out_dir, "manifest.json")
+    if (file.exists(manifest_path)) {
+      update_manifest_stage(out_dir, stage = "export_complete")
+    } else {
+      # Write fresh manifest if not already present (backward-compat)
+      write_manifest(
+        run_dir         = out_dir,
+        run_id          = run_id,
+        config          = config,
+        input_paths     = input_paths,
+        ldir_image_info = ldir_image_info,
+        stage           = "export_complete"
+      )
+    }
+  }, error = function(e) {
+    log_message("  Could not write/update manifest: ", e$message, level = "WARN")
+  })
 
   # --- 1. Matched particle table ---
   if (nrow(match_result$matched) > 0) {
