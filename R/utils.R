@@ -410,35 +410,40 @@ read_image_any <- function(path, verbose = TRUE) {
 
 #' Canonicalize an LDIR image to PNG and create a preview
 #'
+#' Canonicalize an instrument image: copy original, write lossless PNG, generate preview.
+#'
 #' Copies the original file, writes a canonical PNG (lossless), and a
 #' downscaled preview for the Shiny viewer.  Returns a list of provenance
 #' info suitable for inclusion in the run manifest.
 #'
+#' @param instrument Instrument name: "ftir", "raman", or "ldir"
 #' @param src_path Source image path (any format)
 #' @param inputs_dir Destination directory (output/<run>/inputs/)
 #' @param max_preview_px Maximum dimension (width or height) of the preview
-#' @return Named list: detected_format, orig_width, orig_height,
+#' @return Named list: detected_format, orig_width, orig_height, md5,
 #'   canonical_path, canonical_width, canonical_height,
 #'   preview_path, preview_width, preview_height, preview_scale
 canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
                                           max_preview_px = 2000L) {
   if (!dir.exists(inputs_dir)) dir.create(inputs_dir, recursive = TRUE)
 
+  prefix   <- paste0(tolower(instrument), "_image_")
   detected <- guess_image_type(src_path)
-  ext_orig  <- tools::file_ext(src_path)
+  ext_orig <- tools::file_ext(src_path)
   if (nchar(ext_orig) == 0) ext_orig <- tolower(detected)
   inst <- tolower(instrument)
 
   result <- list(
     instrument       = instrument,
     detected_format  = detected,
-    orig_path        = src_path,
-    orig_basename    = basename(src_path)
+    orig_path        = normalizePath(src_path, mustWork = FALSE),
+    orig_basename    = basename(src_path),
+    md5              = file_md5(src_path)
   )
 
   if (!requireNamespace("magick", quietly = TRUE)) {
-    log_message("  magick not available; skipping LDIR image canonicalization",
-                level = "WARN")
+    log_message("  magick not available; skipping ", instrument,
+                " image canonicalization", level = "WARN")
     return(result)
   }
 
@@ -446,15 +451,15 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     img_mg <- magick::image_read(src_path)
     info   <- magick::image_info(img_mg)
 
-    result$orig_width  <- info$width
-    result$orig_height <- info$height
+    result$orig_width    <- info$width
+    result$orig_height   <- info$height
     result$magick_format <- info$format
 
     # --- Copy original under inputs/ with detected extension ---
     orig_dest <- file.path(inputs_dir,
                            paste0(inst, "_image_original.", tolower(ext_orig)))
     file.copy(src_path, orig_dest, overwrite = TRUE)
-    result$orig_dest <- orig_dest
+    result$orig_dest <- normalizePath(orig_dest, mustWork = FALSE)
 
     # --- Write canonical PNG ---
     canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.png"))
@@ -463,7 +468,7 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     result$canonical_path   <- canon_path
     result$canonical_width  <- canon_info$width
     result$canonical_height <- canon_info$height
-    log_message("  Canonical PNG: ", canon_path,
+    log_message("  [", instrument, "] Canonical PNG: ", canon_path,
                 " (", canon_info$width, "x", canon_info$height, ")")
 
     # --- Preview (downscaled) ---
@@ -481,11 +486,12 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     result$preview_width  <- prev_info$width
     result$preview_height <- prev_info$height
     result$preview_scale  <- prev_info$width / info$width
-    log_message("  Preview PNG: ", prev_path,
+    log_message("  [", instrument, "] Preview PNG: ", prev_path,
                 " (", prev_info$width, "x", prev_info$height, ")")
 
   }, error = function(e) {
-    log_message("  canonicalize_ldir_image error: ", e$message, level = "WARN")
+    log_message("  canonicalize_instrument_image [", instrument, "] error: ",
+                e$message, level = "WARN")
   })
 
   result
@@ -524,23 +530,30 @@ file_md5 <- function(path) {
 #'
 #' Records authoritative provenance for every pipeline run: run ID,
 #' timestamp, git commit, R session, config snapshot, input file hashes,
-#' and LDIR image details.
+#' and instrument image details.
 #'
 #' The manifest is written early (at run start) and updated by
-#' update_manifest() as the pipeline progresses.
+#' update_manifest_stage() as the pipeline progresses.
 #'
-#' @param run_dir   Run output directory
-#' @param run_id    Character run ID (e.g. "2026-02-27_1")
-#' @param config    Config list from make_config()
-#' @param input_paths Named list of input file paths (ftir, raman, ldir, ldir_image)
-#' @param ldir_image_info Result from canonicalize_ldir_image() or NULL
-#' @param stage     Current pipeline stage label (default "started")
+#' @param run_dir     Run output directory
+#' @param run_id      Character run ID (e.g. "2026-02-27_1")
+#' @param config      Config list from make_config()
+#' @param input_paths Named list of input file paths (ftir, raman, ldir, ...)
+#' @param images_info Named list of canonicalize_instrument_image() results
+#'   keyed by instrument ("ftir", "raman", "ldir"). Supersedes ldir_image_info.
+#' @param ldir_image_info Deprecated; use images_info$ldir instead
+#' @param stage       Current pipeline stage label (default "started")
 #' @return Invisible path to the manifest file
 write_manifest <- function(run_dir, run_id, config,
                             input_paths = list(),
+                            images_info = list(),
                             ldir_image_info = NULL,
                             image_infos = list(),
                             stage = "started") {
+  # Backward compat: merge ldir_image_info into images_info if needed
+  if (!is.null(ldir_image_info) && is.null(images_info$ldir)) {
+    images_info$ldir <- ldir_image_info
+  }
   manifest_path <- file.path(run_dir, "manifest.json")
 
   # --- Git commit ---
