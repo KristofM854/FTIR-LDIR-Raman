@@ -715,12 +715,11 @@ server <- function(input, output, session) {
       oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
       xvals <- ldir_df$x_orig[!is.na(ldir_df$x_orig)]
       yvals <- ldir_df$y_orig[!is.na(ldir_df$y_orig)]
-      # Compute scan extent: round up max coordinate to nearest 1000 µm
-      extent <- max(ceiling(max(xvals) / 1000) * 1000,
-                    ceiling(max(yvals) / 1000) * 1000)
+      # Coordinates are circle-calibrated and centred at (0,0); use symmetric bounds
+      half_um <- max(ceiling(max(abs(c(xvals, yvals))) / 500) * 500, 1000)
       return(list(raster = raw,
-                  xmin = 0 + ox, xmax = extent + ox,
-                  ymin = 0 + oy, ymax = extent + oy))
+                  xmin = -half_um + ox, xmax = half_um + ox,
+                  ymin = -half_um + oy, ymax = half_um + oy))
     }
     NULL
   })
