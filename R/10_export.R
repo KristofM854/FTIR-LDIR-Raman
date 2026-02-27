@@ -14,14 +14,15 @@
 #' @param ldir_results Optional list of LDIR pipeline results
 #' @param input_paths Named list of input file paths used in this run
 #'   (e.g. list(ftir = "...", raman = "...", ldir = "...", ldir_image = "..."))
-#' @param ldir_image_info Result from canonicalize_ldir_image() or NULL
+#' @param images_info Named list of canonicalize_instrument_image() results
+#'   keyed by instrument ("ftir", "raman", "ldir")
 #' @return Invisible NULL
 export_results <- function(match_result, agreement, diagnostics,
                            icp_result, norm_result, config,
                            ftir_scan_bounds = NULL,
                            ldir_results = NULL,
                            input_paths = list(),
-                           ldir_image_info = NULL) {
+                           images_info = list()) {
   out_dir <- config$output_dir
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
@@ -36,12 +37,12 @@ export_results <- function(match_result, agreement, diagnostics,
     } else {
       # Write fresh manifest if not already present (backward-compat)
       write_manifest(
-        run_dir         = out_dir,
-        run_id          = run_id,
-        config          = config,
-        input_paths     = input_paths,
-        ldir_image_info = ldir_image_info,
-        stage           = "export_complete"
+        run_dir     = out_dir,
+        run_id      = run_id,
+        config      = config,
+        input_paths = input_paths,
+        images_info = images_info,
+        stage       = "export_complete"
       )
     }
   }, error = function(e) {

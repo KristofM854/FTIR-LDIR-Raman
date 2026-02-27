@@ -68,17 +68,19 @@ if (input_mode == "interactive") {
   ftir_file      <- grouped$FTIR$tabular
   ftir_image     <- grouped$FTIR$image
   raman_file     <- grouped$Raman$tabular
+  raman_image    <- grouped$Raman$image
   ldir_file      <- grouped$LDIR$tabular
   ldir_image     <- grouped$LDIR$image
 
 } else {
   # ------ Mode 1: Hardcoded paths ------
   # Defaults for test data (set these before sourcing, or leave for defaults)
-  if (!exists("ftir_file"))  ftir_file  <- NULL
-  if (!exists("raman_file")) raman_file <- NULL
-  if (!exists("ldir_file"))  ldir_file  <- NULL
-  if (!exists("ftir_image")) ftir_image <- NULL
-  if (!exists("ldir_image")) ldir_image <- NULL
+  if (!exists("ftir_file"))   ftir_file   <- NULL
+  if (!exists("raman_file"))  raman_file  <- NULL
+  if (!exists("ldir_file"))   ldir_file   <- NULL
+  if (!exists("ftir_image"))  ftir_image  <- NULL
+  if (!exists("raman_image")) raman_image <- NULL
+  if (!exists("ldir_image"))  ldir_image  <- NULL
 
   # Prompt for mandatory files if not set
   if (is.null(ftir_file)) {
@@ -107,53 +109,58 @@ config <- make_config(
 )
 
 # Store LDIR path in config
-config$ldir_path  <- if (exists("ldir_file"))  ldir_file  else NULL
-config$ftir_image <- if (exists("ftir_image")) ftir_image else NULL
-config$ldir_image <- if (exists("ldir_image")) ldir_image else NULL
+config$ldir_path   <- if (exists("ldir_file"))   ldir_file   else NULL
+config$ftir_image  <- if (exists("ftir_image"))  ftir_image  else NULL
+config$raman_image <- if (exists("raman_image")) raman_image else NULL
+config$ldir_image  <- if (exists("ldir_image"))  ldir_image  else NULL
 
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
 
 # --- Collect input file paths for provenance ---
 .run_input_paths <- list(
-  ftir       = if (!is.null(config$ftir_path)  && nzchar(config$ftir_path))  config$ftir_path  else NULL,
-  raman      = if (!is.null(config$raman_path) && nzchar(config$raman_path)) config$raman_path else NULL,
-  ldir       = if (!is.null(config$ldir_path)  && nzchar(config$ldir_path))  config$ldir_path  else NULL,
-  ldir_image = if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) config$ldir_image else NULL,
-  ftir_image = if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) config$ftir_image else NULL
+  ftir        = if (!is.null(config$ftir_path)   && nzchar(config$ftir_path))   config$ftir_path   else NULL,
+  raman       = if (!is.null(config$raman_path)  && nzchar(config$raman_path))  config$raman_path  else NULL,
+  ldir        = if (!is.null(config$ldir_path)   && nzchar(config$ldir_path))   config$ldir_path   else NULL,
+  ftir_image  = if (!is.null(config$ftir_image)  && nzchar(config$ftir_image))  config$ftir_image  else NULL,
+  raman_image = if (!is.null(config$raman_image) && nzchar(config$raman_image)) config$raman_image else NULL,
+  ldir_image  = if (!is.null(config$ldir_image)  && nzchar(config$ldir_image))  config$ldir_image  else NULL
 )
 .run_input_paths <- .run_input_paths[!vapply(.run_input_paths, is.null, logical(1))]
 
-# --- Canonicalize LDIR image and create preview in inputs/ ---
-.ldir_image_info <- NULL
-if (!is.null(config$ldir_image) && nzchar(config$ldir_image) &&
-    file.exists(config$ldir_image)) {
-  inputs_dir <- file.path(config$output_dir, "inputs")
-  .ldir_image_info <- canonicalize_ldir_image(
-    src_path      = config$ldir_image,
-    inputs_dir    = inputs_dir,
-    max_preview_px = 1600L
+# --- Canonicalize all instrument images and create previews in inputs/ ---
+.images_info  <- list()
+.inputs_dir   <- file.path(config$output_dir, "inputs")
+
+for (.instr in c("ftir", "raman", "ldir")) {
+  .img_path <- switch(.instr,
+    ftir  = config$ftir_image,
+    raman = config$raman_image,
+    ldir  = config$ldir_image
   )
-  # Update config$ldir_image to point to the canonical PNG so all downstream
-  # code works with a guaranteed-PNG regardless of original format.
-  if (!is.null(.ldir_image_info$canonical_path) &&
-      file.exists(.ldir_image_info$canonical_path)) {
-    log_message("Using canonical PNG for LDIR processing: ",
-                .ldir_image_info$canonical_path)
-    config$ldir_image_canonical <- .ldir_image_info$canonical_path
-    config$ldir_image_preview   <- .ldir_image_info$preview_path
+  if (!is.null(.img_path) && nzchar(.img_path) && file.exists(.img_path)) {
+    .info <- canonicalize_instrument_image(.instr, .img_path, .inputs_dir, 2000L)
+    .images_info[[.instr]] <- .info
+    # For LDIR: update config to use the canonical PNG downstream
+    if (.instr == "ldir" && !is.null(.info$canonical_path) &&
+        file.exists(.info$canonical_path)) {
+      log_message("Using canonical PNG for LDIR processing: ",
+                  .info$canonical_path)
+      config$ldir_image_canonical <- .info$canonical_path
+      config$ldir_image_preview   <- .info$preview_path
+    }
   }
 }
 
 # --- Write run manifest (provenance) as early as possible ---
 tryCatch({
   write_manifest(
-    run_dir         = config$output_dir,
-    run_id          = basename(config$output_dir),
-    config          = config,
-    input_paths     = .run_input_paths,
-    ldir_image_info = .ldir_image_info,
-    stage           = "started"
+    run_dir     = config$output_dir,
+    run_id      = basename(config$output_dir),
+    config      = config,
+    input_paths = .run_input_paths,
+    images_info = .images_info,
+    stage       = "started"
   )
 }, error = function(e) {
   log_message("  Could not write manifest: ", e$message, level = "WARN")
@@ -1025,7 +1032,7 @@ export_results(
   ftir_scan_bounds = ftir_scan_bounds,
   ldir_results     = ldir_results,
   input_paths      = .run_input_paths,
-  ldir_image_info  = .ldir_image_info
+  images_info      = .images_info
 )
 
 # Export composite matches if found
