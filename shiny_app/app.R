@@ -2,6 +2,8 @@
 # app.R — Multi-Instrument Particle Viewer (Shiny + ggplot2)
 # =============================================================================
 
+# NOTE: keep syntax parse-safe for plain `shiny::runApp("shiny_app")` loading on Windows.
+
 source("global.R")
 
 # ============================================================================
