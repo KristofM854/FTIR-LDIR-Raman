@@ -125,20 +125,32 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
 }
 
 
-#' Detect the scan circle inside an LDIR PNG image
+#' Detect the scan circle inside an LDIR image (any format)
 #'
 #' Converts the image to a binary mask of the scan area, then fits a circle
 #' using edge detection and least-squares circle fitting.
 #'
-#' @param image_path Path to LDIR PNG image file
+#' Accepts PNG, JPEG, TIFF, BMP, WEBP regardless of file extension.
+#' Uses magick for robust multi-format reading (with png::readPNG fallback).
+#'
+#' @param image_path Path to LDIR image file
 #' @return List with cx_px, cy_px, radius_px, width, height, edge_gap_px,
 #'   export_type ("scan_only" or "full_field")
 detect_ldir_scan_circle <- function(image_path) {
-  if (!requireNamespace("png", quietly = TRUE)) {
-    stop("Package 'png' required. Install with: install.packages('png')")
+  detected_fmt <- guess_image_type(image_path)
+  ext_type     <- toupper(tools::file_ext(image_path))
+  if (detected_fmt != "unknown" && detected_fmt != ext_type) {
+    log_message("  detect_ldir_scan_circle: extension=", ext_type,
+                " but signature=", detected_fmt, " — using magick", level = "WARN")
   }
 
-  img <- png::readPNG(image_path)
+  img <- read_image_any(image_path, verbose = FALSE)
+  if (is.null(img)) {
+    stop("Could not read LDIR image: ", image_path,
+         "\n  Detected format: ", detected_fmt,
+         "\n  Make sure 'magick' package is installed.")
+  }
+
   h <- nrow(img)
   w <- ncol(img)
   n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1
@@ -228,14 +240,19 @@ detect_ldir_scan_circle <- function(image_path) {
 
 #' Save scan circle debug diagnostic image
 #'
-#' Overlays detected circle + center crosshair on the original LDIR PNG.
+#' Overlays detected circle + center crosshair on the original LDIR image.
+#' Accepts any image format supported by magick.
 #'
-#' @param image_path Path to original LDIR PNG
+#' @param image_path Path to original LDIR image (any format)
 #' @param circle_info Result from detect_ldir_scan_circle()
 #' @param output_path Path to write the debug PNG
 save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
   tryCatch({
-    img <- png::readPNG(image_path)
+    img <- read_image_any(image_path, verbose = FALSE)
+    if (is.null(img)) {
+      log_message("  save_ldir_circle_debug: could not read image", level = "WARN")
+      return(invisible(NULL))
+    }
     h <- nrow(img)
     w <- ncol(img)
 
@@ -317,11 +334,15 @@ map_pixels_to_um_circle <- function(cx_particle_px, cy_particle_px,
 }
 
 
-#' Extract LDIR particle coordinates from the companion PNG image
+#' Extract LDIR particle coordinates from the companion image
 #'
-#' The Agilent 8700 LDIR exports a particle map PNG where particles are
-#' rendered as colored markers on a near-black background. This function
+#' The Agilent 8700 LDIR exports a particle map image where particles are
+#' rendered as colored markers on a near-black background.  This function
 #' detects those markers and extracts centroids.
+#'
+#' Accepted formats: PNG, JPEG (.jpg/.jpeg), TIFF (.tif/.tiff), BMP, WEBP.
+#' Format is detected from magic bytes, not the file extension, so a JPEG
+#' file named .png is handled correctly.
 #'
 #' Strategy:
 #'   1. Primary: Python backend (scipy/numpy) with iterative sigma-clipping
@@ -334,7 +355,7 @@ map_pixels_to_um_circle <- function(cx_particle_px, cy_particle_px,
 #' After extraction, pixel centroids are remapped to µm using scan-circle
 #' calibration (not full-image bounds) for robustness to margins/padding.
 #'
-#' @param image_path Path to LDIR PNG image file
+#' @param image_path Path to LDIR image file (PNG/JPEG/TIFF/BMP/WEBP)
 #' @param scan_bounds Physical scan bounds in µm (list with x_min, x_max, y_min, y_max)
 #' @param expected_count Expected number of particles (from Excel data)
 #' @param config Optional config list (for debug output and scan diameter)
@@ -453,11 +474,13 @@ extract_ldir_image_coords <- function(image_path,
   # --- Fallback: R-based extraction ---
   log_message("  Falling back to R-based extraction")
 
-  if (!requireNamespace("png", quietly = TRUE)) {
-    stop("Package 'png' required. Install with: install.packages('png')")
+  img <- read_image_any(image_path)
+  if (is.null(img)) {
+    log_message("  Could not read LDIR image for R-based extraction: ",
+                image_path, level = "WARN")
+    return(.empty_image_df())
   }
 
-  img <- png::readPNG(image_path)
   h_full <- nrow(img)
   w_full <- ncol(img)
   n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1

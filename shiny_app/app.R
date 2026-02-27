@@ -31,14 +31,22 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
                          choices = c("matched", "unmatched"),
                          selected = c("matched", "unmatched"), inline = TRUE),
+      # Particle highlight: selectInput for single choice, plus text pattern box
       selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
                   choices = c("None"), selected = "None"),
+      fluidRow(
+        column(8, textInput(paste0(id_prefix, "_highlight_pattern"), NULL,
+                            placeholder = "IDs: 1-10, MP_*, or MP_1,MP_5")),
+        column(4, actionButton(paste0(id_prefix, "_highlight_apply"), "Apply",
+                               class = "btn-sm", style = "margin-top: 25px;"))
+      ),
       hr(),
       div(class = "info-box",
           h5("Summary"), textOutput(paste0(id_prefix, "_summary_text"))),
       hr(),
       fileInput(paste0(id_prefix, "_image_upload"), "Background Image",
-                accept = c("image/png", "image/jpeg")),
+                accept = c("image/png", "image/jpeg", "image/tiff",
+                           ".tif", ".tiff", ".bmp", ".webp")),
       fluidRow(
         column(6, numericInput(paste0(id_prefix, "_img_offset_x"),
                                "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -124,7 +132,8 @@ ui <- fluidPage(
               h5("Summary"), textOutput("ldir_summary_text")),
           hr(),
           fileInput("ldir_image_upload", "Background Image",
-                    accept = c("image/png", "image/jpeg")),
+                    accept = c("image/png", "image/jpeg", "image/tiff",
+                               ".tif", ".tiff", ".bmp", ".webp")),
           fluidRow(
             column(6, numericInput("ldir_img_offset_x",
                                    "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -277,7 +286,28 @@ ui <- fluidPage(
       )
     ),
 
-    # Tab 5: Data Upload (fallback)
+    # Tab 5: Run Selector + Provenance
+    tabPanel("Run Info",
+      fluidRow(
+        column(8, offset = 2,
+          div(class = "info-box", style = "margin-top: 20px;",
+            h4("Run Selector"),
+            p(class = "text-muted",
+              "Select which pipeline run to view. The newest run is selected by default.",
+              "Changing the run reloads all data in all tabs."),
+            selectInput("run_selector", "Available Runs",
+                        choices = character(0), selected = NULL, width = "100%"),
+            actionButton("run_reload", "Reload Selected Run",
+                         class = "btn-primary", icon = icon("refresh")),
+            hr(),
+            h4("Run Provenance"),
+            uiOutput("run_provenance_ui")
+          )
+        )
+      )
+    ),
+
+    # Tab 6: Data Upload (fallback)
     tabPanel("Upload Data",
       fluidRow(
         column(6, offset = 3,
@@ -314,26 +344,167 @@ server <- function(input, output, session) {
   # ------------------------------------------------------------------
   # Load data (graceful when no pipeline output exists)
   # ------------------------------------------------------------------
-  run_info <- find_latest_run()
-  if (is.null(run_info)) {
+
+  # Populate run selector on startup
+  all_runs_available <- list_all_runs()
+  if (length(all_runs_available) == 0) {
     message("[Particle Viewer] No pipeline output found in ../output/")
     message("[Particle Viewer] Working directory: ", getwd())
     message("[Particle Viewer] Use the 'Upload Data' tab to load CSV files manually.")
   } else {
-    message("[Particle Viewer] Loading data from: ", run_info$dir,
-            " (format: ", run_info$format, ")")
+    message("[Particle Viewer] Found ", length(all_runs_available), " run(s). Newest: ",
+            names(all_runs_available)[1])
+    updateSelectInput(session, "run_selector",
+                      choices = all_runs_available,
+                      selected = all_runs_available[1])
   }
 
   # Reactive value that can be updated by CSV uploads
   uploaded_data <- reactiveVal(NULL)
 
+  # Reactive value: currently selected run directory (responds to selector + reload)
+  selected_run_dir <- reactiveVal(
+    if (length(all_runs_available) > 0) all_runs_available[[1]] else NULL
+  )
+
+  observeEvent(input$run_reload, {
+    chosen <- input$run_selector
+    if (!is.null(chosen) && nzchar(chosen) && dir.exists(chosen)) {
+      message("[Particle Viewer] Switching to run: ", chosen)
+      selected_run_dir(chosen)
+      uploaded_data(NULL)   # clear any uploaded data when selecting a run
+    }
+  })
+
+  # Auto-select when dropdown changes (without requiring the reload button)
+  observeEvent(input$run_selector, {
+    chosen <- input$run_selector
+    if (!is.null(chosen) && nzchar(chosen) && dir.exists(chosen)) {
+      selected_run_dir(chosen)
+      uploaded_data(NULL)
+    }
+  }, ignoreInit = TRUE)
+
   run_data <- reactive({
     # User uploads take priority
     ud <- uploaded_data()
     if (!is.null(ud)) return(ud)
-    # Then try auto-detected pipeline output
-    if (is.null(run_info)) return(list())
-    load_run_data(run_info)
+
+    # Use selected run directory
+    run_dir <- selected_run_dir()
+    if (is.null(run_dir) || !dir.exists(run_dir)) {
+      # Fallback: try find_latest_run()
+      ri <- find_latest_run()
+      if (is.null(ri)) return(list())
+      return(load_run_data(ri))
+    }
+
+    run_info_sel <- list(dir = run_dir, format = "subdir")
+    load_run_data(run_info_sel)
+  })
+
+  # Active manifest (changes with run selection)
+  active_manifest <- reactive({
+    ud <- uploaded_data()
+    if (!is.null(ud)) return(list(is_missing = TRUE, run_id = "uploaded"))
+    run_dir <- selected_run_dir()
+    if (is.null(run_dir)) return(list(is_missing = TRUE))
+    load_run_manifest(run_dir)
+  })
+
+  # Provenance panel UI
+  output$run_provenance_ui <- renderUI({
+    m <- active_manifest()
+
+    if (isTRUE(m$is_missing)) {
+      warn_box <- div(class = "alert alert-warning",
+        tags$b("No manifest.json found for this run."),
+        tags$p("Runs created before manifest support was added will not have provenance data.",
+               "Re-run the pipeline to generate a manifest.")
+      )
+      return(warn_box)
+    }
+
+    run_id_val  <- if (!is.null(m$run_id)) m$run_id else "unknown"
+    ts_val      <- if (!is.null(m$timestamp) && !is.na(m$timestamp)) m$timestamp else "N/A"
+    git_val     <- if (!is.null(m$git_commit) && !is.na(m$git_commit) && nzchar(m$git_commit))
+                     m$git_commit else "N/A"
+    stage_val   <- if (!is.null(m$stage)) m$stage else "unknown"
+
+    # Input files
+    input_rows <- tryCatch({
+      if (is.null(m$inputs) || length(m$inputs) == 0) return(list())
+      lapply(m$inputs, function(inp) {
+        nm   <- if (!is.null(inp$name)) inp$name else "?"
+        base <- if (!is.null(inp$basename)) inp$basename else
+                  if (!is.null(inp$path)) basename(inp$path) else "N/A"
+        md5  <- if (!is.null(inp$md5) && !is.na(inp$md5))
+                  substr(inp$md5, 1, 12) else "N/A"
+        tags$tr(tags$td(tags$b(nm)), tags$td(base), tags$td(code(md5)))
+      })
+    }, error = function(e) list())
+
+    # LDIR image info
+    ldir_info_ui <- tryCatch({
+      li <- m$ldir_image
+      if (is.null(li)) return(NULL)
+      fmt      <- if (!is.null(li$detected_format)) li$detected_format else "?"
+      magick_f <- if (!is.null(li$magick_format)) li$magick_format else "?"
+      orig_dim <- if (!is.null(li$orig_width))
+                    paste0(li$orig_width, " x ", li$orig_height) else "?"
+      canon_dim <- if (!is.null(li$canonical_width))
+                    paste0(li$canonical_width, " x ", li$canonical_height) else "?"
+      prev_sc  <- if (!is.null(li$preview_scale))
+                    paste0(round(li$preview_scale * 100), "%") else "?"
+      fmt_match <- if (!is.null(li$detected_format) && !is.null(li$orig_basename)) {
+        ext <- toupper(tools::file_ext(li$orig_basename))
+        if (nzchar(ext) && fmt != ext && fmt != "unknown")
+          tags$span(class = "label label-warning",
+                    paste0("Extension mismatch: .", tolower(ext), " but signature=", fmt))
+        else NULL
+      } else NULL
+
+      div(
+        h5("LDIR Image"),
+        fmt_match,
+        tags$table(class = "hover-tbl",
+          tags$tr(tags$th("Field"), tags$th("Value")),
+          tags$tr(tags$td("Original file"), tags$td(code(li$orig_basename))),
+          tags$tr(tags$td("Detected format"), tags$td(tags$b(fmt))),
+          tags$tr(tags$td("magick format"), tags$td(magick_f)),
+          tags$tr(tags$td("Original dimensions"), tags$td(orig_dim)),
+          tags$tr(tags$td("Canonical PNG dims"), tags$td(canon_dim)),
+          tags$tr(tags$td("Preview scale"), tags$td(prev_sc))
+        )
+      )
+    }, error = function(e) NULL)
+
+    tagList(
+      div(class = if (stage_val == "export_complete") "alert alert-success"
+                  else "alert alert-info",
+        tags$b(paste0("Run: ", run_id_val)),
+        tags$span(paste0(" | Stage: ", stage_val))
+      ),
+      tags$table(class = "hover-tbl",
+        tags$tr(tags$th("Field"), tags$th("Value")),
+        tags$tr(tags$td(tags$b("Run ID")),    tags$td(run_id_val)),
+        tags$tr(tags$td(tags$b("Timestamp")), tags$td(ts_val)),
+        tags$tr(tags$td(tags$b("Git commit")),tags$td(code(git_val))),
+        tags$tr(tags$td(tags$b("Stage")),     tags$td(stage_val))
+      ),
+      br(),
+      if (length(input_rows) > 0) {
+        div(
+          h5("Input Files"),
+          tags$table(class = "hover-tbl",
+            tags$tr(tags$th("Input"), tags$th("File"), tags$th("MD5 (12 chars)")),
+            input_rows
+          )
+        )
+      } else NULL,
+      br(),
+      ldir_info_ui
+    )
   })
 
   has_data <- reactive({
@@ -764,6 +935,37 @@ server <- function(input, output, session) {
     updateTextInput(session, "overlay_ldir_pattern", value = "")
   })
 
+  # Pattern Apply buttons for single-instrument viewer highlight text boxes
+  # These update the selectInput highlight_particle to the parsed set.
+  single_highlight_ids <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL)
+
+  observeEvent(input$ftir_highlight_apply, {
+    pat <- input$ftir_highlight_pattern
+    df  <- ftir_df_full()
+    if (is.null(df) || nrow(df) == 0 || is.null(pat) || nchar(trimws(pat)) == 0) return()
+    ids <- parse_particle_selection(trimws(pat), unique(df$particle_id))
+    single_highlight_ids$ftir <- if (length(ids) == 0) NULL else ids
+    updateTextInput(session, "ftir_highlight_pattern", value = "")
+  })
+
+  observeEvent(input$raman_highlight_apply, {
+    pat <- input$raman_highlight_pattern
+    df  <- raman_df_full()
+    if (is.null(df) || nrow(df) == 0 || is.null(pat) || nchar(trimws(pat)) == 0) return()
+    ids <- parse_particle_selection(trimws(pat), unique(df$particle_id))
+    single_highlight_ids$raman <- if (length(ids) == 0) NULL else ids
+    updateTextInput(session, "raman_highlight_pattern", value = "")
+  })
+
+  observeEvent(input$ldir_highlight_apply, {
+    pat <- input$ldir_highlight_pattern
+    df  <- ldir_df_full()
+    if (is.null(df) || nrow(df) == 0 || is.null(pat) || nchar(trimws(pat)) == 0) return()
+    ids <- parse_particle_selection(trimws(pat), unique(df$particle_id))
+    single_highlight_ids$ldir <- if (length(ids) == 0) NULL else ids
+    updateTextInput(session, "ldir_highlight_pattern", value = "")
+  })
+
   # ==================================================================
   # Helper: generic instrument filter
   # ==================================================================
@@ -823,21 +1025,28 @@ server <- function(input, output, session) {
         legend.position  = "bottom"
       )
 
-    # Highlight selected particle — ALWAYS shown even if filtered out.
+    # Highlight selected particle(s) — ALWAYS shown even if filtered out.
     # First try the filtered df, then fall back to full_df (unfiltered).
-    if (!is.null(highlight_id) && highlight_id != "None") {
+    # highlight_id can be a character vector (multiple IDs from pattern select)
+    # or a single ID (from the selectInput dropdown).
+    if (!is.null(highlight_id) && length(highlight_id) > 0 &&
+        !identical(highlight_id, "None") && !identical(highlight_id, character(0))) {
       hl <- NULL
       if ("particle_id" %in% names(df))
-        hl <- df[df$particle_id == highlight_id, ]
+        hl <- df[df$particle_id %in% highlight_id, ]
       if ((is.null(hl) || nrow(hl) == 0) && !is.null(full_df) &&
           "particle_id" %in% names(full_df))
-        hl <- full_df[full_df$particle_id == highlight_id, ]
+        hl <- full_df[full_df$particle_id %in% highlight_id, ]
       if (!is.null(hl) && nrow(hl) > 0) {
+        # Y-offset scales with plot extent so label doesn't overlap the circle
+        y_span <- diff(bounds$y)
+        y_nudge <- y_span * 0.03   # 3% of visible y-range
+        hl$label_y <- hl$y + y_nudge
         p <- p + geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
-                            vjust = -1.5, size = 3.5, fontface = "bold",
+                 geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
+                            vjust = 0, size = 3.5, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -972,10 +1181,17 @@ server <- function(input, output, session) {
               panel.background = element_rect(fill = "grey98", colour = NA))
       return(add_image_bg(p, img))
     }
+    # Combine selectInput highlight + pattern-matched highlights
+    hl_single <- input$ftir_highlight_particle
+    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+      unique(c(hl_single, single_highlight_ids$ftir))
+    } else {
+      single_highlight_ids$ftir
+    }
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
-                 highlight_id = input$ftir_highlight_particle,
+                 highlight_id = hl_ids,
                  full_df = full_ftir)
   })
 
@@ -1052,10 +1268,16 @@ server <- function(input, output, session) {
               panel.background = element_rect(fill = "grey98", colour = NA))
       return(add_image_bg(p, img))
     }
+    hl_single <- input$raman_highlight_particle
+    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+      unique(c(hl_single, single_highlight_ids$raman))
+    } else {
+      single_highlight_ids$raman
+    }
     make_scatter(df_disp, img, bounds,
                  paste0("Raman Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
-                 highlight_id = input$raman_highlight_particle,
+                 highlight_id = hl_ids,
                  full_df = full_raman)
   })
 
@@ -1247,24 +1469,39 @@ server <- function(input, output, session) {
     # Size legend (single scale for all layers)
     p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
 
-    # Highlight selected particle — always shown even if filtered out
-    hl_id <- input$ldir_highlight_particle
-    if (!is.null(hl_id) && hl_id != "None") {
-      hl <- if (nrow(df_disp) > 0) df_disp[df_disp$particle_id == hl_id, ] else data.frame()
+    # Highlight selected particle(s) — always shown even if filtered out
+    hl_single <- input$ldir_highlight_particle
+    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+      unique(c(hl_single, single_highlight_ids$ldir))
+    } else {
+      single_highlight_ids$ldir
+    }
+
+    if (!is.null(hl_ids) && length(hl_ids) > 0) {
+      hl <- if (nrow(df_disp) > 0) df_disp[df_disp$particle_id %in% hl_ids, ] else data.frame()
       # Fall back to full unfiltered data (native coords) if particle is filtered out
       if (nrow(hl) == 0) {
         full_ldir <- ldir_df_full()
         if (!is.null(full_ldir) && nrow(full_ldir) > 0) {
           full_ldir$x <- full_ldir$x_orig; full_ldir$y <- full_ldir$y_orig
-          hl <- full_ldir[full_ldir$particle_id == hl_id, ]
+          hl <- full_ldir[full_ldir$particle_id %in% hl_ids, ]
         }
       }
       if (nrow(hl) > 0) {
+        bounds_ldir <- if (!is.null(zoom$ldir)) zoom$ldir else {
+          if (nrow(df_disp) > 0)
+            list(x = range(df_disp$x, na.rm = TRUE),
+                 y = range(df_disp$y, na.rm = TRUE))
+          else list(x = c(0, 13000), y = c(0, 13000))
+        }
+        y_span   <- diff(bounds_ldir$y)
+        y_nudge  <- y_span * 0.03
+        hl$label_y <- hl$y + y_nudge
         p <- p + geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
-                            vjust = -1.5, size = 3.5, fontface = "bold",
+                 geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
+                            vjust = 0, size = 3.5, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -1598,6 +1835,9 @@ server <- function(input, output, session) {
       list(ids = input$overlay_raman_particles, df = dfs$raman, col = "#1f77b4"),
       list(ids = input$overlay_ldir_particles,  df = dfs$ldir,  col = "#d62728")
     )
+    y_span_ov <- diff(bounds$y)
+    y_nudge_ov <- y_span_ov * 0.03
+
     for (spec in hl_specs) {
       sel_ids <- spec$ids
       if (is.null(sel_ids) || length(sel_ids) == 0) next
@@ -1605,13 +1845,14 @@ server <- function(input, output, session) {
       if (is.null(inst_df) || nrow(inst_df) == 0) next
       hl <- inst_df[inst_df$particle_id %in% sel_ids, ]
       if (nrow(hl) > 0) {
+        hl$label_y <- hl$y + y_nudge_ov
         p <- p + geom_point(data = hl, aes(x = x, y = y),
                              shape = 19, size = 5, colour = spec$col) +
                  geom_point(data = hl, aes(x = x, y = y),
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = y, label = particle_id),
-                            vjust = -2.8, size = 3.5, fontface = "bold",
+                 geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
+                            vjust = 0, size = 3.5, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -1619,13 +1860,15 @@ server <- function(input, output, session) {
     # Also highlight pinned particle (from click or dropdown selection)
     pin <- pinned_overlay()
     if (!is.null(pin) && !is.null(pin$x) && !is.null(pin$y)) {
+      pin_label_y <- pin$y + y_nudge_ov
       pin_df <- data.frame(x = pin$x, y = pin$y,
+                           label_y = pin_label_y,
                            label = if (!is.null(pin$particle_id)) pin$particle_id else "")
       p <- p + geom_point(data = pin_df, aes(x = x, y = y),
                            shape = 8, size = 8, stroke = 2,
                            colour = "#FF6600") +
-               geom_text(data = pin_df, aes(x = x, y = y, label = label),
-                          vjust = -2, size = 4, fontface = "bold",
+               geom_text(data = pin_df, aes(x = x, y = label_y, label = label),
+                          vjust = 0, size = 4, fontface = "bold",
                           colour = "#FF6600")
     }
 

@@ -7,6 +7,85 @@ library(ggplot2)
 library(png)
 
 # ---------------------------------------------------------------------------
+# List ALL available runs in the output directory (newest first).
+# Returns a named character vector suitable for selectInput choices:
+#   names = display labels (run_id + git short + timestamp)
+#   values = run directory paths
+# ---------------------------------------------------------------------------
+list_all_runs <- function(output_dir = file.path("..", "output")) {
+  if (!dir.exists(output_dir)) return(character(0))
+
+  # Subdirectory runs with matched_particles.csv
+  runs <- list.dirs(output_dir, recursive = FALSE, full.names = TRUE)
+  runs <- runs[file.exists(file.path(runs, "matched_particles.csv"))]
+
+  if (length(runs) == 0) return(character(0))
+
+  # Sort newest first
+  runs <- runs[order(file.mtime(runs), decreasing = TRUE)]
+
+  # Build display labels (include manifest info if available)
+  labels <- vapply(runs, function(run_dir) {
+    run_id <- basename(run_dir)
+    m_path <- file.path(run_dir, "manifest.json")
+    if (file.exists(m_path) && requireNamespace("jsonlite", quietly = TRUE)) {
+      m <- tryCatch(
+        jsonlite::fromJSON(m_path, simplifyVector = FALSE),
+        error = function(e) NULL
+      )
+      if (!is.null(m)) {
+        ts  <- if (!is.null(m$timestamp)) substr(m$timestamp, 1, 16) else ""
+        git <- if (!is.null(m$git_commit) && !is.na(m$git_commit) &&
+                   nzchar(m$git_commit))
+                 paste0(" [", substr(m$git_commit, 1, 7), "]") else ""
+        stg <- if (!is.null(m$stage)) paste0(" (", m$stage, ")") else ""
+        return(paste0(run_id, git, stg))
+      }
+    }
+    # Fallback: run_id + mtime
+    mtime <- format(file.mtime(run_dir), "%Y-%m-%d %H:%M")
+    paste0(run_id, " [", mtime, "]")
+  }, character(1))
+
+  setNames(runs, labels)
+}
+
+# ---------------------------------------------------------------------------
+# Load manifest.json from a run directory (graceful fallback if absent).
+# ---------------------------------------------------------------------------
+load_run_manifest <- function(run_dir) {
+  m_path <- file.path(run_dir, "manifest.json")
+  if (!file.exists(m_path)) {
+    return(list(
+      is_missing = TRUE,
+      run_id     = basename(run_dir),
+      timestamp  = NA_character_,
+      git_commit = NA_character_,
+      stage      = NA_character_,
+      inputs     = list(),
+      ldir_image = NULL,
+      config_snapshot = list()
+    ))
+  }
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    return(list(is_missing = FALSE, run_id = basename(run_dir),
+                timestamp = NA_character_, git_commit = NA_character_,
+                stage = "unknown", inputs = list(),
+                ldir_image = NULL, config_snapshot = list()))
+  }
+  tryCatch({
+    m <- jsonlite::fromJSON(m_path, simplifyVector = FALSE)
+    m$is_missing <- FALSE
+    m
+  }, error = function(e) {
+    list(is_missing = TRUE, run_id = basename(run_dir),
+         timestamp = NA_character_, git_commit = NA_character_,
+         stage = "error", error = e$message, inputs = list(),
+         ldir_image = NULL, config_snapshot = list())
+  })
+}
+
+# ---------------------------------------------------------------------------
 # Locate pipeline output.
 # Supports two layouts:
 #   1. Subdirectory runs:  output/2026-02-16_6/matched_particles.csv
@@ -557,16 +636,34 @@ compute_bounds <- function(...) {
 }
 
 # ---------------------------------------------------------------------------
-# Load an image (PNG or JPEG) as a raster array for ggplot annotation.
+# Load an image (any format) as a raster array for ggplot annotation.
+# Accepts PNG, JPEG, TIFF, BMP, WEBP regardless of extension.
+# Uses magick for broadest format support, with pkg-specific fallbacks.
 # annotation_raster places row 1 at ymax (top of plot).  Standard images
 # already have row 1 = top of the visual image, which corresponds to max-Y
 # in Cartesian / stage coordinates.  So NO vertical flip is needed.
 # ---------------------------------------------------------------------------
 load_image_raster <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
-  ext <- tolower(tools::file_ext(path))
 
-  raw <- NULL
+  # Preferred: magick (handles all formats, detects by magic bytes)
+  if (requireNamespace("magick", quietly = TRUE)) {
+    raw <- tryCatch({
+      img_mg  <- magick::image_read(path)
+      img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
+                                        type = "TrueColor")
+      raw_data <- magick::image_data(img_rgb, channels = "rgb")
+      h  <- dim(raw_data)[3]
+      w  <- dim(raw_data)[2]
+      nc <- dim(raw_data)[1]
+      arr <- array(as.integer(raw_data) / 255, dim = c(nc, w, h))
+      aperm(arr, c(3, 2, 1))
+    }, error = function(e) NULL)
+    if (!is.null(raw)) return(raw)
+  }
+
+  # Fallback: extension-based
+  ext <- tolower(tools::file_ext(path))
   if (ext %in% c("jpg", "jpeg")) {
     raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
     if (is.null(raw)) raw <- tryCatch(png::readPNG(path), error = function(e) NULL)
@@ -575,8 +672,6 @@ load_image_raster <- function(path) {
     if (is.null(raw) && requireNamespace("jpeg", quietly = TRUE))
       raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
   }
-  if (is.null(raw)) return(NULL)
-
   raw
 }
 
