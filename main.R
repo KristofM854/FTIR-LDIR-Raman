@@ -58,7 +58,7 @@ source("R/10_export.R")
 # --- Input mode selection ---
 # Set input_mode <- "interactive" before sourcing for file picker dialogs.
 # Default: "hardcoded" — uses ftir_file / raman_file / ldir_file variables.
-if (!exists("input_mode")) input_mode <- "hardcoded"
+if (!exists("input_mode")) input_mode <- "interactive"
 
 if (input_mode == "interactive") {
   # ------ Mode 2: Interactive file picker ------
