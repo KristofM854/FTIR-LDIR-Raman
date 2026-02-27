@@ -734,9 +734,9 @@ server <- function(input, output, session) {
       return()
     }
 
-    ftir_path  <- manifest_image_path(m, "ftir_image", preferred = "canonical")
-    raman_path <- manifest_image_path(m, "raman_image", preferred = "canonical")
-    ldir_path  <- manifest_image_path(m, "ldir_image", preferred = "canonical")
+    ftir_path  <- manifest_image_path(m, "ftir_image", preferred = "preview")
+    raman_path <- manifest_image_path(m, "raman_image", preferred = "preview")
+    ldir_path  <- manifest_image_path(m, "ldir_image", preferred = "preview")
 
     ftir_raw_image(load_image_raster(ftir_path))
     raman_raw <- load_image_raster(raman_path)
