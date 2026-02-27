@@ -58,7 +58,7 @@ source("R/10_export.R")
 # --- Input mode selection ---
 # Set input_mode <- "interactive" before sourcing for file picker dialogs.
 # Default: "hardcoded" — uses ftir_file / raman_file / ldir_file variables.
-if (!exists("input_mode")) input_mode <- "hardcoded"
+if (!exists("input_mode")) input_mode <- "interactive"
 
 if (input_mode == "interactive") {
   # ------ Mode 2: Interactive file picker ------
@@ -75,8 +75,8 @@ if (input_mode == "interactive") {
 } else {
   # ------ Mode 1: Hardcoded paths ------
   # Defaults for test data (set these before sourcing, or leave for defaults)
-  if (!exists("ftir_file"))   ftir_file   <- NULL
-  if (!exists("raman_file"))  raman_file  <- NULL
+  if (!exists("ftir_file"))  ftir_file  <- NULL
+  if (!exists("raman_file")) raman_file <- NULL
   if (!exists("ldir_file"))   ldir_file   <- NULL
   if (!exists("ftir_image"))  ftir_image  <- NULL
   if (!exists("raman_image")) raman_image <- NULL
@@ -109,7 +109,7 @@ config <- make_config(
 )
 
 # Store LDIR path in config
-config$ldir_path   <- if (exists("ldir_file"))   ldir_file   else NULL
+config$ldir_path  <- if (exists("ldir_file"))  ldir_file  else NULL
 config$ftir_image  <- if (exists("ftir_image"))  ftir_image  else NULL
 config$raman_image <- if (exists("raman_image")) raman_image else NULL
 config$ldir_image  <- if (exists("ldir_image"))  ldir_image  else NULL
@@ -119,48 +119,65 @@ config$output_dir <- make_run_dir(config$output_dir)
 
 # --- Collect input file paths for provenance ---
 .run_input_paths <- list(
-  ftir        = if (!is.null(config$ftir_path)   && nzchar(config$ftir_path))   config$ftir_path   else NULL,
-  raman       = if (!is.null(config$raman_path)  && nzchar(config$raman_path))  config$raman_path  else NULL,
-  ldir        = if (!is.null(config$ldir_path)   && nzchar(config$ldir_path))   config$ldir_path   else NULL,
+  ftir       = if (!is.null(config$ftir_path)  && nzchar(config$ftir_path))  config$ftir_path  else NULL,
+  raman      = if (!is.null(config$raman_path) && nzchar(config$raman_path)) config$raman_path else NULL,
+  ldir       = if (!is.null(config$ldir_path)  && nzchar(config$ldir_path))  config$ldir_path  else NULL,
+  ldir_image  = if (!is.null(config$ldir_image)  && nzchar(config$ldir_image))  config$ldir_image  else NULL,
   ftir_image  = if (!is.null(config$ftir_image)  && nzchar(config$ftir_image))  config$ftir_image  else NULL,
-  raman_image = if (!is.null(config$raman_image) && nzchar(config$raman_image)) config$raman_image else NULL,
-  ldir_image  = if (!is.null(config$ldir_image)  && nzchar(config$ldir_image))  config$ldir_image  else NULL
+  raman_image = if (!is.null(config$raman_image) && nzchar(config$raman_image)) config$raman_image else NULL
 )
 .run_input_paths <- .run_input_paths[!vapply(.run_input_paths, is.null, logical(1))]
 
-# --- Canonicalize all instrument images and create previews in inputs/ ---
-.images_info  <- list()
-.inputs_dir   <- file.path(config$output_dir, "inputs")
+# --- Canonicalize instrument images and create previews in inputs/ ---
+.ftir_image_info <- NULL
+.raman_image_info <- NULL
+.ldir_image_info <- NULL
+inputs_dir <- file.path(config$output_dir, "inputs")
 
-for (.instr in c("ftir", "raman", "ldir")) {
-  .img_path <- switch(.instr,
-    ftir  = config$ftir_image,
-    raman = config$raman_image,
-    ldir  = config$ldir_image
+if (!is.null(config$ftir_image) && nzchar(config$ftir_image) && file.exists(config$ftir_image)) {
+  .ftir_image_info <- canonicalize_instrument_image(
+    src_path = config$ftir_image,
+    inputs_dir = inputs_dir,
+    instrument = "ftir",
+    max_preview_px = 2000L
   )
-  if (!is.null(.img_path) && nzchar(.img_path) && file.exists(.img_path)) {
-    .info <- canonicalize_instrument_image(.instr, .img_path, .inputs_dir, 2000L)
-    .images_info[[.instr]] <- .info
-    # For LDIR: update config to use the canonical PNG downstream
-    if (.instr == "ldir" && !is.null(.info$canonical_path) &&
-        file.exists(.info$canonical_path)) {
-      log_message("Using canonical PNG for LDIR processing: ",
-                  .info$canonical_path)
-      config$ldir_image_canonical <- .info$canonical_path
-      config$ldir_image_preview   <- .info$preview_path
-    }
+}
+if (!is.null(config$raman_image) && nzchar(config$raman_image) && file.exists(config$raman_image)) {
+  .raman_image_info <- canonicalize_instrument_image(
+    src_path = config$raman_image,
+    inputs_dir = inputs_dir,
+    instrument = "raman",
+    max_preview_px = 2000L
+  )
+}
+if (!is.null(config$ldir_image) && nzchar(config$ldir_image) && file.exists(config$ldir_image)) {
+  .ldir_image_info <- canonicalize_instrument_image(
+    src_path = config$ldir_image,
+    inputs_dir = inputs_dir,
+    instrument = "ldir",
+    max_preview_px = 2000L
+  )
+  if (!is.null(.ldir_image_info$canonical_path) && file.exists(.ldir_image_info$canonical_path)) {
+    log_message("Using canonical PNG for LDIR processing: ", .ldir_image_info$canonical_path)
+    config$ldir_image_canonical <- .ldir_image_info$canonical_path
+    config$ldir_image_preview   <- .ldir_image_info$preview_path
   }
 }
 
 # --- Write run manifest (provenance) as early as possible ---
 tryCatch({
   write_manifest(
-    run_dir     = config$output_dir,
-    run_id      = basename(config$output_dir),
-    config      = config,
-    input_paths = .run_input_paths,
-    images_info = .images_info,
-    stage       = "started"
+    run_dir         = config$output_dir,
+    run_id          = basename(config$output_dir),
+    config          = config,
+    input_paths     = .run_input_paths,
+    ldir_image_info = .ldir_image_info,
+    image_infos     = list(
+      ftir_image = .ftir_image_info,
+      raman_image = .raman_image_info,
+      ldir_image = .ldir_image_info
+    ),
+    stage           = "started"
   )
 }, error = function(e) {
   log_message("  Could not write manifest: ", e$message, level = "WARN")
@@ -1032,7 +1049,12 @@ export_results(
   ftir_scan_bounds = ftir_scan_bounds,
   ldir_results     = ldir_results,
   input_paths      = .run_input_paths,
-  images_info      = .images_info
+  ldir_image_info  = .ldir_image_info,
+  image_infos      = list(
+    ftir_image = .ftir_image_info,
+    raman_image = .raman_image_info,
+    ldir_image = .ldir_image_info
+  )
 )
 
 # Export composite matches if found

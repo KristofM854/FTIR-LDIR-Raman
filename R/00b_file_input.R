@@ -13,7 +13,7 @@
 
 # Instrument detection patterns (case-insensitive)
 .INSTRUMENT_PATTERNS <- list(
-  FTIR  = "FTIR|Spotlight|infrared|IR\\b|FT-IR",
+  FTIR  = "FTIR|Spotlight|infrared|FT-IR",
   Raman = "Raman",
   LDIR  = "LDIR|8700"
 )
@@ -43,7 +43,7 @@ detect_instrument <- function(filepath) {
 #' @return Character: "tabular" or "image"
 detect_file_type <- function(filepath) {
   ext <- tolower(tools::file_ext(filepath))
-  if (ext %in% c("png", "jpg", "jpeg", "tif", "tiff", "bmp")) {
+  if (ext %in% c("png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp")) {
     return("image")
   }
   "tabular"
@@ -67,7 +67,7 @@ collect_files_interactive <- function() {
   files <- list()
   message("=== Multi-Instrument File Input ===")
   message("Select data files one at a time. Press Cancel when done.")
-  message("Supported formats: .csv, .xlsx, .xls (tabular), .png (image)")
+  message("Supported formats: .csv, .xlsx, .xls (tabular), image: png/jpg/jpeg/tif/tiff/bmp/webp")
   message("")
 
   repeat {

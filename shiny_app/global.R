@@ -85,6 +85,22 @@ load_run_manifest <- function(run_dir) {
   })
 }
 
+
+
+# Resolve a manifest image asset path (preview/canonical/original) for an instrument.
+manifest_image_path <- function(manifest, input_name, preferred = c("preview", "canonical", "original")) {
+  preferred <- match.arg(preferred)
+  if (is.null(manifest$image_assets) || is.null(manifest$image_assets[[input_name]])) return(NULL)
+  asset <- manifest$image_assets[[input_name]]
+  node <- asset[[preferred]]
+  if (!is.null(node$path) && file.exists(node$path)) return(node$path)
+  # Fallback order
+  for (alt in c("preview", "canonical", "original")) {
+    node_alt <- asset[[alt]]
+    if (!is.null(node_alt$path) && file.exists(node_alt$path)) return(node_alt$path)
+  }
+  NULL
+}
 # ---------------------------------------------------------------------------
 # Extract canonical image paths from a run manifest.
 # Returns a named list: list(ftir = path|NULL, raman = path|NULL, ldir = path|NULL)
@@ -677,6 +693,24 @@ compute_bounds <- function(...) {
   )
 }
 
+
+
+# Detect image format from file signature (magic bytes)
+# Returns: PNG, JPEG, TIFF, BMP, WEBP, or unknown
+sniff_image_type <- function(path) {
+  if (is.null(path) || !file.exists(path)) return("unknown")
+  hdr <- tryCatch(as.integer(readBin(path, "raw", n = 12)), error = function(e) integer(0))
+  if (length(hdr) < 4) return("unknown")
+  if (hdr[1] == 137 && hdr[2] == 80 && hdr[3] == 78 && hdr[4] == 71) return("PNG")
+  if (hdr[1] == 255 && hdr[2] == 216 && hdr[3] == 255) return("JPEG")
+  if ((hdr[1] == 73 && hdr[2] == 73 && hdr[3] == 42 && hdr[4] == 0) ||
+      (hdr[1] == 77 && hdr[2] == 77 && hdr[3] == 0 && hdr[4] == 42)) return("TIFF")
+  if (hdr[1] == 66 && hdr[2] == 77) return("BMP")
+  if (length(hdr) >= 12 && hdr[1] == 82 && hdr[2] == 73 && hdr[3] == 70 && hdr[4] == 70 &&
+      hdr[9] == 87 && hdr[10] == 69 && hdr[11] == 66 && hdr[12] == 80) return("WEBP")
+  "unknown"
+}
+
 # ---------------------------------------------------------------------------
 # Load an image (any format) as a raster array for ggplot annotation.
 # Accepts PNG, JPEG, TIFF, BMP, WEBP regardless of extension.
@@ -692,13 +726,18 @@ load_image_raster <- function(path) {
   if (requireNamespace("magick", quietly = TRUE)) {
     raw <- tryCatch({
       img_mg  <- magick::image_read(path)
+      # Use first frame only (avoids accidental frame mosaics/tiling)
+      if (length(img_mg) > 1) img_mg <- img_mg[1]
       img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
                                         type = "TrueColor")
       raw_data <- magick::image_data(img_rgb, channels = "rgb")
-      h  <- dim(raw_data)[3]
-      w  <- dim(raw_data)[2]
-      nc <- dim(raw_data)[1]
-      arr <- array(as.integer(raw_data) / 255, dim = c(nc, w, h))
+      # magick may return raw bytes or hex strings depending on backend/version
+      vals <- if (is.character(raw_data)) {
+        strtoi(raw_data, base = 16L)
+      } else {
+        as.integer(raw_data)
+      }
+      arr <- array(vals / 255, dim = dim(raw_data))
       aperm(arr, c(3, 2, 1))
     }, error = function(e) NULL)
     if (!is.null(raw)) return(raw)
@@ -706,6 +745,9 @@ load_image_raster <- function(path) {
 
   # Fallback: extension-based
   ext <- tolower(tools::file_ext(path))
+  if (!requireNamespace("magick", quietly = TRUE) && ext %in% c("tif", "tiff", "bmp", "webp")) {
+    warning("Install magick for TIFF/BMP/WEBP support in the Shiny viewer.")
+  }
   if (ext %in% c("jpg", "jpeg")) {
     raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
     if (is.null(raw)) raw <- tryCatch(png::readPNG(path), error = function(e) NULL)
