@@ -376,20 +376,18 @@ read_image_any <- function(path, verbose = TRUE) {
   if (requireNamespace("magick", quietly = TRUE)) {
     tryCatch({
       img_mg <- magick::image_read(path)
+      if (length(img_mg) > 1) img_mg <- img_mg[1]
       info   <- magick::image_info(img_mg)
       log_message("  magick: ", info$format, " ", info$width, "x", info$height)
 
       # Flatten to RGB (drop alpha if present; we re-add as 0/1 if needed)
       img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
                                         type = "TrueColor")
-      # Export as raw bitmap
+      # Export as bitmap
       raw_data <- magick::image_data(img_rgb, channels = "rgb")
-      # raw_data is a raw array: dim = c(3, width, height)  (channel, col, row)
-      h  <- dim(raw_data)[3]
-      w  <- dim(raw_data)[2]
-      nc <- dim(raw_data)[1]
-      # Rearrange to [row, col, channel] and convert to 0–1
-      arr <- array(as.integer(raw_data) / 255, dim = c(nc, w, h))
+      vals <- if (is.character(raw_data)) strtoi(raw_data, base = 16L)
+              else as.integer(raw_data)
+      arr <- array(vals / 255, dim = dim(raw_data))
       arr <- aperm(arr, c(3, 2, 1))   # -> [height, width, channel]
       return(arr)
     }, error = function(e) {
@@ -422,15 +420,17 @@ read_image_any <- function(path, verbose = TRUE) {
 #' @return Named list: detected_format, orig_width, orig_height,
 #'   canonical_path, canonical_width, canonical_height,
 #'   preview_path, preview_width, preview_height, preview_scale
-canonicalize_ldir_image <- function(src_path, inputs_dir,
-                                     max_preview_px = 1600L) {
+canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
+                                          max_preview_px = 2000L) {
   if (!dir.exists(inputs_dir)) dir.create(inputs_dir, recursive = TRUE)
 
   detected <- guess_image_type(src_path)
   ext_orig  <- tools::file_ext(src_path)
   if (nchar(ext_orig) == 0) ext_orig <- tolower(detected)
+  inst <- tolower(instrument)
 
   result <- list(
+    instrument       = instrument,
     detected_format  = detected,
     orig_path        = src_path,
     orig_basename    = basename(src_path)
@@ -452,12 +452,12 @@ canonicalize_ldir_image <- function(src_path, inputs_dir,
 
     # --- Copy original under inputs/ with detected extension ---
     orig_dest <- file.path(inputs_dir,
-                           paste0("ldir_image_original.", tolower(ext_orig)))
+                           paste0(inst, "_image_original.", tolower(ext_orig)))
     file.copy(src_path, orig_dest, overwrite = TRUE)
     result$orig_dest <- orig_dest
 
     # --- Write canonical PNG ---
-    canon_path <- file.path(inputs_dir, "ldir_image_canonical.png")
+    canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.png"))
     magick::image_write(img_mg, path = canon_path, format = "png")
     canon_info <- magick::image_info(magick::image_read(canon_path))
     result$canonical_path   <- canon_path
@@ -474,7 +474,7 @@ canonicalize_ldir_image <- function(src_path, inputs_dir,
     } else {
       prev_mg   <- img_mg
     }
-    prev_path <- file.path(inputs_dir, "ldir_image_preview.png")
+    prev_path <- file.path(inputs_dir, paste0(inst, "_image_preview.png"))
     magick::image_write(prev_mg, path = prev_path, format = "png")
     prev_info <- magick::image_info(prev_mg)
     result$preview_path   <- prev_path
@@ -489,6 +489,17 @@ canonicalize_ldir_image <- function(src_path, inputs_dir,
   })
 
   result
+}
+
+
+canonicalize_ldir_image <- function(src_path, inputs_dir,
+                                     max_preview_px = 2000L) {
+  canonicalize_instrument_image(
+    src_path = src_path,
+    inputs_dir = inputs_dir,
+    instrument = "ldir",
+    max_preview_px = max_preview_px
+  )
 }
 
 
@@ -528,6 +539,7 @@ file_md5 <- function(path) {
 write_manifest <- function(run_dir, run_id, config,
                             input_paths = list(),
                             ldir_image_info = NULL,
+                            image_infos = list(),
                             stage = "started") {
   manifest_path <- file.path(run_dir, "manifest.json")
 
@@ -541,18 +553,66 @@ write_manifest <- function(run_dir, run_id, config,
   }
 
   # --- Input file info ---
+  image_names <- c("ftir_image", "raman_image", "ldir_image")
+  detect_input_dims <- function(path) {
+    if (!file.exists(path) || !requireNamespace("magick", quietly = TRUE)) {
+      return(list(width = NA_integer_, height = NA_integer_))
+    }
+    tryCatch({
+      info <- magick::image_info(magick::image_read(path))
+      list(width = as.integer(info$width), height = as.integer(info$height))
+    }, error = function(e) list(width = NA_integer_, height = NA_integer_))
+  }
+
   inputs_info <- lapply(names(input_paths), function(nm) {
     p <- input_paths[[nm]]
     if (is.null(p) || !nzchar(p)) return(list(name = nm, path = NULL))
+    abs_path <- tryCatch(normalizePath(p, winslash = "/", mustWork = FALSE),
+                         error = function(e) p)
+    ext <- toupper(tools::file_ext(p))
+    fmt <- if (nm %in% image_names) guess_image_type(p) else if (nzchar(ext)) ext else "unknown"
+    dims <- if (nm %in% image_names) detect_input_dims(p) else list(width = NA_integer_, height = NA_integer_)
     list(
-      name     = nm,
-      path     = p,
-      basename = basename(p),
-      md5      = file_md5(p),
-      size_bytes = if (file.exists(p)) file.info(p)$size else NA_integer_
+      name       = nm,
+      path       = abs_path,
+      basename   = basename(p),
+      md5        = file_md5(p),
+      size_bytes = if (file.exists(p)) file.info(p)$size else NA_integer_,
+      format     = fmt,
+      width      = dims$width,
+      height     = dims$height
     )
   })
   names(inputs_info) <- names(input_paths)
+
+  image_assets <- list()
+  for (nm in names(image_infos)) {
+    info_obj <- image_infos[[nm]]
+    if (is.null(info_obj) || is.null(info_obj$orig_dest)) next
+    image_assets[[nm]] <- list(
+      original = list(
+        path = normalizePath(info_obj$orig_dest, winslash = "/", mustWork = FALSE),
+        md5 = file_md5(info_obj$orig_dest),
+        format = if (!is.null(info_obj$detected_format)) info_obj$detected_format else "unknown",
+        width = info_obj$orig_width,
+        height = info_obj$orig_height
+      ),
+      canonical = list(
+        path = if (!is.null(info_obj$canonical_path)) normalizePath(info_obj$canonical_path, winslash = "/", mustWork = FALSE) else NULL,
+        md5 = if (!is.null(info_obj$canonical_path)) file_md5(info_obj$canonical_path) else NA_character_,
+        format = "PNG",
+        width = info_obj$canonical_width,
+        height = info_obj$canonical_height
+      ),
+      preview = list(
+        path = if (!is.null(info_obj$preview_path)) normalizePath(info_obj$preview_path, winslash = "/", mustWork = FALSE) else NULL,
+        md5 = if (!is.null(info_obj$preview_path)) file_md5(info_obj$preview_path) else NA_character_,
+        format = "PNG",
+        width = info_obj$preview_width,
+        height = info_obj$preview_height
+      )
+    )
+  }
 
   # --- Config snapshot (key values only) ---
   cfg_keys <- c("ldir_scan_diameter_um", "ldir_flip_y_for_alignment",
@@ -573,6 +633,7 @@ write_manifest <- function(run_dir, run_id, config,
     user            = Sys.info()[["user"]],
     config_snapshot = cfg_snap,
     inputs          = inputs_info,
+    image_assets    = image_assets,
     ldir_image      = ldir_image_info
   )
 
