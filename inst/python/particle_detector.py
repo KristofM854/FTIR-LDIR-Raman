@@ -108,6 +108,26 @@ def correct_background(gray, grid_rows=4, grid_cols=4, bg_sigma=30.0,
     }
 
 
+def apply_circle_mask(arr, cx, cy, radius, fill_value=0.0):
+    """Zero out pixels outside the scan circle.
+
+    Args:
+        arr: 2D float64 array.
+        cx, cy: Circle centre in pixels (float).
+        radius: Circle radius in pixels (float).
+        fill_value: Value written outside the circle (default 0.0).
+
+    Returns:
+        2D float64 array with pixels outside circle set to fill_value.
+    """
+    h, w = arr.shape
+    yy, xx = np.ogrid[:h, :w]
+    outside = (xx - cx) ** 2 + (yy - cy) ** 2 > radius ** 2
+    out = arr.copy()
+    out[outside] = fill_value
+    return out
+
+
 def detect_particles(corrected, threshold=25.0, min_area=20):
     """Global thresholding + connected component analysis.
 
@@ -242,7 +262,7 @@ def extract_properties(corrected, labeled, n_particles,
 
 
 def auto_tune_threshold(corrected, target_count, min_area=20,
-                         low=10.0, high=100.0, max_iter=25, tol=3):
+                         low=5.0, high=250.0, max_iter=25, tol=3):
     """Binary search for threshold that gives closest to target_count.
 
     Args:
@@ -287,7 +307,8 @@ def auto_tune_threshold(corrected, target_count, min_area=20,
 
 def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
                        bg_sigma=30.0, clip_sigma=3.0, max_iter=10,
-                       threshold=25.0, min_area=20, target_count=0):
+                       threshold=25.0, min_area=20, target_count=0,
+                       circle_cx=-1.0, circle_cy=-1.0, circle_r=-1.0):
     """Convenience function: runs the entire pipeline in one call.
 
     This is the main entry point from R.
@@ -295,6 +316,10 @@ def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
     Args:
         image_path: Path to LDIR mosaic PNG.
         target_count: If > 0, auto-tune threshold to match this count.
+        circle_cx, circle_cy, circle_r: Scan-circle centre and radius in
+            pixels.  When circle_r > 0, pixels outside the circle are
+            zeroed after background correction so they cannot be detected
+            as particles.
         All other args: algorithm parameters (see individual functions).
 
     Returns:
@@ -313,6 +338,12 @@ def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
         data['gray'], grid_rows, grid_cols,
         bg_sigma, clip_sigma, max_iter
     )
+
+    corrected = bg_result['corrected']
+    if circle_r > 0:
+        corrected = apply_circle_mask(corrected, circle_cx, circle_cy, circle_r)
+        bg_result = dict(bg_result)          # copy so we can update
+        bg_result['corrected'] = corrected
 
     if target_count > 0:
         # Auto-tune threshold to match expected particle count
