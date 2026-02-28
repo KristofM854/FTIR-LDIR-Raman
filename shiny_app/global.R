@@ -728,9 +728,11 @@ load_image_raster <- function(path) {
       img_mg  <- magick::image_read(path)
       # Use first frame only (avoids accidental frame mosaics/tiling)
       if (length(img_mg) > 1) img_mg <- img_mg[1]
-      img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
-                                        type = "TrueColor")
-      raw_data <- magick::image_data(img_rgb, channels = "rgb")
+      # Use sRGB to preserve display-gamma colours (not linear RGB).
+      # Do NOT strip alpha — FTIR images have transparent scan areas that
+      # must remain transparent so the scatter plot shows through.
+      img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
+      raw_data <- magick::image_data(img_rgb, channels = "rgba")
       # magick may return raw bytes or hex strings depending on backend/version
       vals <- if (is.character(raw_data)) {
         strtoi(raw_data, base = 16L)
@@ -738,7 +740,7 @@ load_image_raster <- function(path) {
         as.integer(raw_data)
       }
       arr <- array(vals / 255, dim = dim(raw_data))
-      aperm(arr, c(3, 2, 1))
+      aperm(arr, c(3, 2, 1))   # [4, W, H] -> [H, W, 4] (RGBA raster)
     }, error = function(e) NULL)
     if (!is.null(raw)) return(raw)
   }

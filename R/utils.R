@@ -380,15 +380,16 @@ read_image_any <- function(path, verbose = TRUE) {
       info   <- magick::image_info(img_mg)
       log_message("  magick: ", info$format, " ", info$width, "x", info$height)
 
-      # Flatten to RGB (drop alpha if present; we re-add as 0/1 if needed)
-      img_rgb <- magick::image_convert(img_mg, colorspace = "RGB",
-                                        type = "TrueColor")
-      # Export as bitmap
-      raw_data <- magick::image_data(img_rgb, channels = "rgb")
+      # Use sRGB to preserve display-gamma colours (not linear RGB).
+      # Keep alpha channel so images with transparent areas (e.g. FTIR RGBA PNGs)
+      # remain transparent rather than being composited against black.
+      img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
+      # Export as RGBA bitmap (4 channels; images without alpha get A=255)
+      raw_data <- magick::image_data(img_rgb, channels = "rgba")
       vals <- if (is.character(raw_data)) strtoi(raw_data, base = 16L)
               else as.integer(raw_data)
       arr <- array(vals / 255, dim = dim(raw_data))
-      arr <- aperm(arr, c(3, 2, 1))   # -> [height, width, channel]
+      arr <- aperm(arr, c(3, 2, 1))   # [4, W, H] -> [H, W, 4] (RGBA raster)
       return(arr)
     }, error = function(e) {
       log_message("  magick failed (", e$message, "), trying pkg fallback",
