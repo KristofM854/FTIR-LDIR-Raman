@@ -636,8 +636,7 @@ server <- function(input, output, session) {
   # Raw image rasters
   # ------------------------------------------------------------------
   ftir_raw_image    <- reactiveVal(NULL)   # FTIR "Average Abs" image
-  raman_tab_image   <- reactiveVal(NULL)   # Raman tab: user-uploaded image only
-  overlay_raw_image <- reactiveVal(NULL)   # Overlay tab: raman_resized.jpg (auto-loaded)
+  raman_image       <- reactiveVal(NULL)   # Raman microscope image (Raman tab + Overlay tab)
   ldir_raw_image    <- reactiveVal(NULL)   # LDIR particle map image
 
   # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
@@ -656,9 +655,9 @@ server <- function(input, output, session) {
   })
 
   # Raman tab: image placed at native Raman particle bounds, preserving aspect ratio.
-  # Auto-loaded from raman_resized.jpg, same image as overlay tab.
+  # Same physical image as the Overlay tab — both show the Raman microscope photo.
   raman_native_image_info <- reactive({
-    raw <- raman_tab_image()
+    raw <- raman_image()
     if (is.null(raw)) return(NULL)
     raman_df <- raman_df_full()
     if (!is.null(raman_df) && nrow(raman_df) > 0) {
@@ -675,11 +674,11 @@ server <- function(input, output, session) {
     NULL
   })
 
-  # Overlay tab: raman_resized.jpg placed at Raman particle extent in
+  # Overlay tab: Raman microscope image placed at Raman particle extent in
   # normalized (centered) coordinates.  Uses same aspect-ratio-preserving
   # logic as the Raman native tab so the image appears identical in both views.
   overlay_image_info <- reactive({
-    raw <- overlay_raw_image()
+    raw <- raman_image()
     if (is.null(raw)) return(NULL)
     raman_d <- raman_df_full()
     if (is.null(raman_d) || nrow(raman_d) == 0) return(NULL)
@@ -729,8 +728,7 @@ server <- function(input, output, session) {
     run_dir <- selected_run_dir()
     if (is.null(run_dir) || !dir.exists(run_dir)) {
       ftir_raw_image(NULL)
-      overlay_raw_image(NULL)
-      raman_tab_image(NULL)
+      raman_image(NULL)
       ldir_raw_image(NULL)
       return()
     }
@@ -746,13 +744,9 @@ server <- function(input, output, session) {
 
     if (!is.null(img$raman)) {
       raw <- load_image_raster(img$raman)
-      if (!is.null(raw)) {
-        raman_tab_image(raw)
-        overlay_raw_image(raw)
-      }
+      if (!is.null(raw)) raman_image(raw)
     } else {
-      raman_tab_image(NULL)
-      overlay_raw_image(NULL)
+      raman_image(NULL)
     }
 
     if (!is.null(img$ldir)) {
@@ -771,12 +765,12 @@ server <- function(input, output, session) {
 
   observeEvent(input$raman_image_upload, {
     raw <- load_image_raster(input$raman_image_upload$datapath)
-    if (!is.null(raw)) raman_tab_image(raw)
+    if (!is.null(raw)) raman_image(raw)
   })
 
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
-    if (!is.null(raw)) overlay_raw_image(raw)
+    if (!is.null(raw)) raman_image(raw)
   })
 
   observeEvent(input$ldir_image_upload, {
