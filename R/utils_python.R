@@ -75,7 +75,9 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
                                      expected_count = NULL,
                                      grid_rows = 4L, grid_cols = 4L,
                                      bg_sigma = 30, threshold = 25,
-                                     min_area = 20L) {
+                                     min_area = 20L,
+                                     circle_cx = -1.0, circle_cy = -1.0,
+                                     circle_r = -1.0) {
 
   if (!setup_python_detector()) return(NULL)
 
@@ -97,7 +99,10 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
       max_iter = 10L,
       threshold = as.double(threshold),
       min_area = as.integer(min_area),
-      target_count = target
+      target_count = target,
+      circle_cx = as.double(circle_cx),
+      circle_cy = as.double(circle_cy),
+      circle_r  = as.double(circle_r)
     )
   }, error = function(e) {
     log_message("  [ERROR] Python detection failed: ", conditionMessage(e))
