@@ -75,7 +75,7 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
                                      expected_count = NULL,
                                      grid_rows = 4L, grid_cols = 4L,
                                      bg_sigma = 30, threshold = 25,
-                                     min_area = 20L,
+                                     min_area = 10L,
                                      circle_cx = -1.0, circle_cy = -1.0,
                                      circle_r = -1.0) {
 
