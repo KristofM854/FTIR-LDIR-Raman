@@ -1350,10 +1350,15 @@ server <- function(input, output, session) {
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
 
-    # Try Python background correction for the processed view
-    ldir_img_path <- file.path("..", "Comparstic LDIR F2Ba_G3B AU 240925.png")
+    # Try Python background correction for the processed view.
+    # Use the canonical LDIR path from the active manifest (no hardcoded filenames).
+    ldir_img_path <- tryCatch({
+      m <- active_manifest()
+      cp <- m$images$ldir$canonical_path
+      if (!is.null(cp) && nzchar(cp) && file.exists(cp)) cp else NULL
+    }, error = function(e) NULL)
     py_ok <- tryCatch({
-      if (file.exists(ldir_img_path) &&
+      if (!is.null(ldir_img_path) &&
           requireNamespace("reticulate", quietly = TRUE)) {
         py_script <- file.path("..", "inst", "python", "particle_detector.py")
         if (file.exists(py_script)) {
@@ -1701,7 +1706,7 @@ server <- function(input, output, session) {
         legend.position  = "bottom"
       )
 
-    # Background image: raman_resized.jpg placed at Raman-normalized bounds
+    # Background image: Raman microscope image placed at Raman-normalized bounds
     p <- add_image_bg(p, overlay_image_info())
 
     # FTIR-Raman match lines: connect each matched FTIR point to its Raman pair.
