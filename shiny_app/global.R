@@ -86,7 +86,6 @@ load_run_manifest <- function(run_dir) {
 }
 
 
-
 # Resolve a manifest image asset path (preview/canonical/original) for an instrument.
 manifest_image_path <- function(manifest, input_name, preferred = c("preview", "canonical", "original")) {
   preferred <- match.arg(preferred)
@@ -101,6 +100,45 @@ manifest_image_path <- function(manifest, input_name, preferred = c("preview", "
   }
   NULL
 }
+
+load_png_raster <- function(path) {
+  if (is.null(path) || !nzchar(path) || !file.exists(path)) return(NULL)
+  png::readPNG(path)
+}
+
+# points_df must have numeric columns x and y (in µm)
+# If your columns are named differently, rename before calling.
+build_single_view_plot <- function(points_df, bg_png_path = NULL) {
+  stopifnot(is.data.frame(points_df))
+  if (!all(c("x", "y") %in% names(points_df))) {
+    stop("points_df must contain columns x and y")
+  }
+  
+  x_rng <- range(points_df$x, na.rm = TRUE)
+  y_rng <- range(points_df$y, na.rm = TRUE)
+  
+  # background
+  bg_layer <- NULL
+  if (!is.null(bg_png_path) && file.exists(bg_png_path)) {
+    bg <- load_png_raster(bg_png_path)
+    if (!is.null(bg)) {
+      bg_layer <- annotation_raster(bg, xmin=x_rng[1], xmax=x_rng[2], ymin=y_rng[1], ymax=y_rng[2])
+    }
+  }
+  
+  # aesthetics fallbacks
+  if (!("match_status" %in% names(points_df))) points_df$match_status <- "unknown"
+  if (!("feret_max_um" %in% names(points_df))) points_df$feret_max_um <- 50
+  
+  ggplot(points_df, aes(x = x, y = y)) +
+    bg_layer +
+    geom_point(aes(color = match_status, size = feret_max_um), alpha = 0.9) +
+    coord_fixed(expand = FALSE) +
+    scale_x_continuous(limits = x_rng, expand = c(0, 0)) +
+    scale_y_continuous(limits = y_rng, expand = c(0, 0)) +
+    theme_minimal()
+}
+
 # ---------------------------------------------------------------------------
 # Extract canonical image paths from a run manifest.
 # Returns a named list: list(ftir = path|NULL, raman = path|NULL, ldir = path|NULL)
@@ -109,39 +147,19 @@ manifest_image_path <- function(manifest, input_name, preferred = c("preview", "
 get_run_image_paths <- function(manifest, run_dir) {
   out <- list(ftir = NULL, raman = NULL, ldir = NULL)
   if (is.null(manifest) || isTRUE(manifest$is_missing)) return(out)
-
-  images <- manifest$images
-
-  # Backward compat: older manifests stored only ldir_image at top level
-  if (is.null(images)) {
-    if (!is.null(manifest$ldir_image$canonical_path)) {
-      cp <- manifest$ldir_image$canonical_path
-      if (file.exists(cp)) {
-        out$ldir <- cp
-      } else {
-        fb <- file.path(run_dir, "inputs", "ldir_image_canonical.png")
-        if (file.exists(fb)) out$ldir <- fb
-      }
-    }
-    return(out)
-  }
-
-  for (instr in c("ftir", "raman", "ldir")) {
-    cp <- images[[instr]][["canonical_path"]]
-    if (!is.null(cp) && nzchar(cp)) {
-      if (file.exists(cp)) {
-        out[[instr]] <- cp
-      } else {
-        # Fallback: look relative to run_dir/inputs/
-        fb <- file.path(run_dir, "inputs",
-                        paste0(instr, "_image_canonical.png"))
-        if (file.exists(fb)) out[[instr]] <- fb
-      }
-    }
-  }
+  
+  # NEW: prefer manifest$image_assets
+  out$ftir  <- manifest_image_path(manifest, "ftir_image",  preferred = "canonical")
+  out$raman <- manifest_image_path(manifest, "raman_image", preferred = "canonical")
+  out$ldir  <- manifest_image_path(manifest, "ldir_image",  preferred = "canonical")
+  
+  # Fallback to run_dir/inputs naming convention (relative)
+  if (is.null(out$ftir))  { fb <- file.path(run_dir, "inputs", "ftir_image_canonical.png");  if (file.exists(fb)) out$ftir  <- fb }
+  if (is.null(out$raman)) { fb <- file.path(run_dir, "inputs", "raman_image_canonical.png"); if (file.exists(fb)) out$raman <- fb }
+  if (is.null(out$ldir))  { fb <- file.path(run_dir, "inputs", "ldir_image_canonical.png");  if (file.exists(fb)) out$ldir  <- fb }
+  
   out
 }
-
 
 # ---------------------------------------------------------------------------
 # Locate pipeline output.
