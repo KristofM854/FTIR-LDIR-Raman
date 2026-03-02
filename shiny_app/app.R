@@ -760,6 +760,7 @@ server <- function(input, output, session) {
   # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
     raw <- load_image_raster(input$ftir_image_upload$datapath)
+    message("FTIR upload raster dim: ", paste(dim(raw), collapse=" x "))
     if (!is.null(raw)) ftir_raw_image(raw)
   })
 
@@ -1162,6 +1163,29 @@ server <- function(input, output, session) {
     filter_instrument(df, ftir_quality_range_d(), ftir_size_range_d(),
                       input$ftir_material_filter, input$ftir_match_filter)
   })
+  
+  ftir_points_df <- reactive({
+    df <- ftir_df_full()
+    if (is.null(df) || nrow(df) == 0) return(data.frame())
+    df %>%
+      dplyr::mutate(
+        x = x_orig,
+        y = y_orig
+      )
+  })
+  
+  ftir_bg_path <- reactive({
+    req(selected_run_manifest())
+    manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+  })
+  
+  output$ftir_single_plot <- renderPlot({
+    req(ftir_points_df())
+    build_single_view_plot(
+      points_df = ftir_points_df(),
+      bg_png_path = ftir_bg_path()
+    )
+  })
 
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
@@ -1170,6 +1194,7 @@ server <- function(input, output, session) {
     # untransformed background image (Cartesian, y increases upward).
     df_disp <- df
     b_ftir <- ftir_img_bounds()
+    message("FTIR bounds xmin/xmax/ymin/ymax: ", paste(unlist(b_ftir), collapse=", "))
     if (nrow(df_disp) > 0) {
       df_disp$x <- df_disp$x_orig
       df_disp$y <- df_disp$y_orig
