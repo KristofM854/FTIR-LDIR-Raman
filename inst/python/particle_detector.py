@@ -128,7 +128,7 @@ def apply_circle_mask(arr, cx, cy, radius, fill_value=0.0):
     return out
 
 
-def detect_particles(corrected, threshold=25.0, min_area=20):
+def detect_particles(corrected, threshold=25.0, min_area=10):
     """Global thresholding + connected component analysis.
 
     IMPORTANT: Detection is GLOBAL (whole image), not per-tile,
@@ -261,8 +261,8 @@ def extract_properties(corrected, labeled, n_particles,
     return result
 
 
-def auto_tune_threshold(corrected, target_count, min_area=20,
-                         low=5.0, high=250.0, max_iter=25, tol=3):
+def auto_tune_threshold(corrected, target_count, min_area=10,
+                         low=5.0, high=250.0, max_iter=50, tol=0):
     """Binary search for threshold that gives closest to target_count.
 
     Args:
@@ -307,7 +307,7 @@ def auto_tune_threshold(corrected, target_count, min_area=20,
 
 def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
                        bg_sigma=30.0, clip_sigma=3.0, max_iter=10,
-                       threshold=25.0, min_area=20, target_count=0,
+                       threshold=25.0, min_area=10, target_count=0,
                        circle_cx=-1.0, circle_cy=-1.0, circle_r=-1.0):
     """Convenience function: runs the entire pipeline in one call.
 
