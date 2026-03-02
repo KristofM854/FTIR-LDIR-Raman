@@ -739,44 +739,39 @@ sniff_image_type <- function(path) {
 # ---------------------------------------------------------------------------
 load_image_raster <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
-
-  # Preferred: magick (handles all formats, detects by magic bytes)
+  
+  # --- HARD BYPASS: PNG should never go through magick (prevents tiling/colour issues) ---
+  if (sniff_image_type(path) == "PNG") {
+    return(tryCatch(png::readPNG(path), error = function(e) NULL))
+  }
+  
+  # --- Optionally: also bypass magick for JPEG ---
+  if (sniff_image_type(path) == "JPEG" && requireNamespace("jpeg", quietly = TRUE)) {
+    return(tryCatch(jpeg::readJPEG(path), error = function(e) NULL))
+  }
+  
+  # Preferred: magick for the remaining formats (TIFF/BMP/WEBP/etc.)
   if (requireNamespace("magick", quietly = TRUE)) {
     raw <- tryCatch({
       img_mg  <- magick::image_read(path)
-      # Use first frame only (avoids accidental frame mosaics/tiling)
       if (length(img_mg) > 1) img_mg <- img_mg[1]
-      # Use sRGB to preserve display-gamma colours (not linear RGB).
-      # Do NOT strip alpha — FTIR images have transparent scan areas that
-      # must remain transparent so the scatter plot shows through.
       img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
       raw_data <- magick::image_data(img_rgb, channels = "rgba")
-      # magick may return raw bytes or hex strings depending on backend/version
-      vals <- if (is.character(raw_data)) {
-        strtoi(raw_data, base = 16L)
-      } else {
-        as.integer(raw_data)
-      }
-      arr <- array(vals / 255, dim = dim(raw_data))
-      aperm(arr, c(3, 2, 1))   # [4, W, H] -> [H, W, 4] (RGBA raster)
+      
+      vals <- if (is.character(raw_data)) strtoi(raw_data, base = 16L) else as.integer(raw_data)
+      arr  <- array(vals / 255, dim = dim(raw_data))
+      aperm(arr, c(3, 2, 1))  # [4, W, H] -> [H, W, 4]
     }, error = function(e) NULL)
+    
     if (!is.null(raw)) return(raw)
   }
-
-  # Fallback: extension-based
+  
+  # Final fallback: extension-based
   ext <- tolower(tools::file_ext(path))
-  if (!requireNamespace("magick", quietly = TRUE) && ext %in% c("tif", "tiff", "bmp", "webp")) {
-    warning("Install magick for TIFF/BMP/WEBP support in the Shiny viewer.")
+  if (ext %in% c("jpg", "jpeg") && requireNamespace("jpeg", quietly = TRUE)) {
+    return(tryCatch(jpeg::readJPEG(path), error = function(e) NULL))
   }
-  if (ext %in% c("jpg", "jpeg")) {
-    raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
-    if (is.null(raw)) raw <- tryCatch(png::readPNG(path), error = function(e) NULL)
-  } else {
-    raw <- tryCatch(png::readPNG(path), error = function(e) NULL)
-    if (is.null(raw) && requireNamespace("jpeg", quietly = TRUE))
-      raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
-  }
-  raw
+  tryCatch(png::readPNG(path), error = function(e) NULL)
 }
 
 # ---------------------------------------------------------------------------
