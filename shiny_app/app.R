@@ -640,38 +640,40 @@ server <- function(input, output, session) {
   ldir_raw_image    <- reactiveVal(NULL)   # LDIR particle map image
 
   # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
-  # Particles on the FTIR tab are shown at x_orig/y_orig (FTIR instrument frame),
-  # so the image just needs to sit at [xmin, xmax] × [ymin, ymax] in that same frame.
-  # User fine-tuning offsets shift the image position without changing its extent.
+  # FTIR image placed at the actual particle extent (x_orig / y_orig).
+  # Using particle positions for bounds is more reliable than heuristic scan-area
+  # estimation from pixel counts, which produced wrong bounds → tiled appearance.
   ftir_native_image_info <- reactive({
     raw <- ftir_raw_image()
     if (is.null(raw)) return(NULL)
-    b <- ftir_img_bounds()
-    if (is.null(b)) return(NULL)
+    ftir_d <- ftir_df_full()
+    if (is.null(ftir_d) || nrow(ftir_d) == 0) return(NULL)
+    x_vals <- ftir_d$x_orig[is.finite(ftir_d$x_orig)]
+    y_vals <- ftir_d$y_orig[is.finite(ftir_d$y_orig)]
+    if (length(x_vals) == 0) return(NULL)
     ox <- if (!is.null(input$ftir_img_offset_x)) input$ftir_img_offset_x else 0
     oy <- if (!is.null(input$ftir_img_offset_y)) input$ftir_img_offset_y else 0
-    list(raster = raw, xmin = b$xmin + ox, xmax = b$xmax + ox,
-         ymin = b$ymin + oy, ymax = b$ymax + oy)
+    list(raster = raw,
+         xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
+         ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
   })
 
-  # Raman tab: image placed at native Raman particle bounds, preserving aspect ratio.
+  # Raman tab: image placed at the actual particle extent (x_orig / y_orig).
   # Same physical image as the Overlay tab — both show the Raman microscope photo.
+  # Direct particle bounds avoids aspect-ratio distortion from compute_image_bounds().
   raman_native_image_info <- reactive({
     raw <- raman_image()
     if (is.null(raw)) return(NULL)
     raman_df <- raman_df_full()
-    if (!is.null(raman_df) && nrow(raman_df) > 0) {
-      ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
-      oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
-      b <- compute_image_bounds(raw,
-                                raman_df$x_orig[!is.na(raman_df$x_orig)],
-                                raman_df$y_orig[!is.na(raman_df$y_orig)],
-                                padding_um = 300)
-      return(list(raster = raw,
-                  xmin = b$xmin + ox, xmax = b$xmax + ox,
-                  ymin = b$ymin + oy, ymax = b$ymax + oy))
-    }
-    NULL
+    if (is.null(raman_df) || nrow(raman_df) == 0) return(NULL)
+    x_vals <- raman_df$x_orig[is.finite(raman_df$x_orig)]
+    y_vals <- raman_df$y_orig[is.finite(raman_df$y_orig)]
+    if (length(x_vals) == 0) return(NULL)
+    ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
+    oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
+    list(raster = raw,
+         xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
+         ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
   })
 
   # Overlay tab: Raman microscope image placed at Raman particle extent in
@@ -1189,12 +1191,36 @@ server <- function(input, output, session) {
 
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
-    # Display in native FTIR instrument frame.
-    # Use untransformed FTIR coordinates directly — they already match the
-    # untransformed background image (Cartesian, y increases upward).
+    # Display in native FTIR instrument frame (x_orig / y_orig).
     df_disp <- df
-    b_ftir <- ftir_img_bounds()
-    message("FTIR bounds xmin/xmax/ymin/ymax: ", paste(unlist(b_ftir), collapse=", "))
+    if (nrow(df_disp) > 0) {
+      df_disp$x <- df_disp$x_orig
+      df_disp$y <- df_disp$y_orig
+    }
+
+    img <- ftir_native_image_info()
+
+    # Full (unfiltered) FTIR data for highlight fallback and bounds when filtered to 0
+    full_ftir <- ftir_df_full()
+    if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
+      full_ftir$x <- full_ftir$x_orig
+      full_ftir$y <- full_ftir$y_orig
+    }
+
+    # Bounds derived from particle coordinates — never from scan-area estimation.
+    # When filters remove all particles, use the full dataset so the background
+    # image remains correctly positioned.
+    bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
+      ref <- if (nrow(df_disp) > 0) df_disp
+             else if (!is.null(full_ftir) && nrow(full_ftir) > 0) full_ftir
+             else NULL
+      if (!is.null(ref) && any(is.finite(ref$x))) {
+        pad <- 300
+        list(x = c(min(ref$x, na.rm = TRUE) - pad, max(ref$x, na.rm = TRUE) + pad),
+             y = c(min(ref$y, na.rm = TRUE) - pad, max(ref$y, na.rm = TRUE) + pad))
+      } else list(x = c(0, 10000), y = c(0, 10000))
+    }
+
     if (nrow(df_disp) == 0) {
       # still show background in correct orientation/scale even with 0 points
       # use full FTIR to get bounds (or store bounds separately)
@@ -1360,10 +1386,15 @@ server <- function(input, output, session) {
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
 
-    # Try Python background correction for the processed view
-    ldir_img_path <- file.path("..", "Comparstic LDIR F2Ba_G3B AU 240925.png")
+    # Try Python background correction for the processed view.
+    # Use the canonical LDIR path from the active manifest (no hardcoded filenames).
+    ldir_img_path <- tryCatch({
+      m <- active_manifest()
+      cp <- m$images$ldir$canonical_path
+      if (!is.null(cp) && nzchar(cp) && file.exists(cp)) cp else NULL
+    }, error = function(e) NULL)
     py_ok <- tryCatch({
-      if (file.exists(ldir_img_path) &&
+      if (!is.null(ldir_img_path) &&
           requireNamespace("reticulate", quietly = TRUE)) {
         py_script <- file.path("..", "inst", "python", "particle_detector.py")
         if (file.exists(py_script)) {
@@ -1711,7 +1742,7 @@ server <- function(input, output, session) {
         legend.position  = "bottom"
       )
 
-    # Background image: raman_resized.jpg placed at Raman-normalized bounds
+    # Background image: Raman microscope image placed at Raman-normalized bounds
     p <- add_image_bg(p, overlay_image_info())
 
     # FTIR-Raman match lines: connect each matched FTIR point to its Raman pair.
