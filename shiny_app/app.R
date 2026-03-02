@@ -762,6 +762,7 @@ server <- function(input, output, session) {
   # Handle uploaded images
   observeEvent(input$ftir_image_upload, {
     raw <- load_image_raster(input$ftir_image_upload$datapath)
+    message("FTIR upload raster dim: ", paste(dim(raw), collapse=" x "))
     if (!is.null(raw)) ftir_raw_image(raw)
   })
 
@@ -1164,6 +1165,29 @@ server <- function(input, output, session) {
     filter_instrument(df, ftir_quality_range_d(), ftir_size_range_d(),
                       input$ftir_material_filter, input$ftir_match_filter)
   })
+  
+  ftir_points_df <- reactive({
+    df <- ftir_df_full()
+    if (is.null(df) || nrow(df) == 0) return(data.frame())
+    df %>%
+      dplyr::mutate(
+        x = x_orig,
+        y = y_orig
+      )
+  })
+  
+  ftir_bg_path <- reactive({
+    req(selected_run_manifest())
+    manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+  })
+  
+  output$ftir_single_plot <- renderPlot({
+    req(ftir_points_df())
+    build_single_view_plot(
+      points_df = ftir_points_df(),
+      bg_png_path = ftir_bg_path()
+    )
+  })
 
   output$ftir_plot <- renderPlot({
     df <- ftir_filtered()
@@ -1198,12 +1222,24 @@ server <- function(input, output, session) {
     }
 
     if (nrow(df_disp) == 0) {
-      p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
-        labs(title = "FTIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-        theme_minimal(base_size = 13) +
-        theme(plot.background = element_rect(fill = "white", colour = NA),
-              panel.background = element_rect(fill = "grey98", colour = NA))
-      return(add_image_bg(p, img))
+      # still show background in correct orientation/scale even with 0 points
+      # use full FTIR to get bounds (or store bounds separately)
+      full_ftir <- ftir_df_full()
+      if (is.null(full_ftir) || nrow(full_ftir) == 0) {
+        # last resort: show image without points using a default 0..1 bounds
+        df0 <- data.frame(x = c(0, 1), y = c(0, 1), match_status = "none", feret_max_um = 1)
+        bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+        return(build_single_view_plot(df0, bg))
+      }
+      
+      df0 <- full_ftir %>% dplyr::mutate(
+        x = x_orig,
+        y = y_orig,
+        match_status = "none",
+        feret_max_um = 1
+      )
+      bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+      return(build_single_view_plot(df0, bg))
     }
     # Combine selectInput highlight + pattern-matched highlights
     hl_single <- input$ftir_highlight_particle
