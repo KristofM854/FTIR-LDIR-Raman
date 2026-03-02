@@ -580,7 +580,7 @@ extract_ldir_image_coords <- function(image_path,
 
   if (n_components == 0) return(.empty_image_df())
 
-  min_pixels <- 15
+  min_pixels <- 10
   fg_idx    <- which(binary, arr.ind = TRUE)
   fg_labels <- lab_mat[binary]
   tab       <- tabulate(fg_labels, nbins = n_components)
