@@ -1195,33 +1195,25 @@ server <- function(input, output, session) {
     df_disp <- df
     b_ftir <- ftir_img_bounds()
     message("FTIR bounds xmin/xmax/ymin/ymax: ", paste(unlist(b_ftir), collapse=", "))
-    if (nrow(df_disp) > 0) {
-      df_disp$x <- df_disp$x_orig
-      df_disp$y <- df_disp$y_orig
-    }
-
-    bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
-      if (!is.null(b_ftir)) list(x = c(b_ftir$xmin - 200, b_ftir$xmax + 200),
-                                  y = c(b_ftir$ymin - 200, b_ftir$ymax + 200))
-      else compute_bounds(df_disp, NULL)
-    }
-
-    img <- ftir_native_image_info()
-
-    # Full (unfiltered) FTIR data for highlight fallback
-    full_ftir <- ftir_df_full()
-    if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
-      full_ftir$x <- full_ftir$x_orig
-      full_ftir$y <- full_ftir$y_orig
-    }
-
     if (nrow(df_disp) == 0) {
-      p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
-        labs(title = "FTIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-        theme_minimal(base_size = 13) +
-        theme(plot.background = element_rect(fill = "white", colour = NA),
-              panel.background = element_rect(fill = "grey98", colour = NA))
-      return(add_image_bg(p, img))
+      # still show background in correct orientation/scale even with 0 points
+      # use full FTIR to get bounds (or store bounds separately)
+      full_ftir <- ftir_df_full()
+      if (is.null(full_ftir) || nrow(full_ftir) == 0) {
+        # last resort: show image without points using a default 0..1 bounds
+        df0 <- data.frame(x = c(0, 1), y = c(0, 1), match_status = "none", feret_max_um = 1)
+        bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+        return(build_single_view_plot(df0, bg))
+      }
+      
+      df0 <- full_ftir %>% dplyr::mutate(
+        x = x_orig,
+        y = y_orig,
+        match_status = "none",
+        feret_max_um = 1
+      )
+      bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+      return(build_single_view_plot(df0, bg))
     }
     # Combine selectInput highlight + pattern-matched highlights
     hl_single <- input$ftir_highlight_particle
