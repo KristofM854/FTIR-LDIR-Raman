@@ -244,17 +244,20 @@ if (has_ldir) {
   log_message("LDIR: not provided — skipping LDIR analysis")
 }
 
-# --- FTIR image-based coordinate extraction (if image provided) ---
+# --- FTIR image scan bounds (for background display only) ---
+# FTIR particle µm coordinates come directly from the Excel data file.
+# The FTIR image is ONLY used as a background in the single FTIR viewer.
+# No particle extraction is performed on the FTIR image.
 ftir_scan_bounds <- NULL
 if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
   log_message(strrep("-", 50))
-  log_message("FTIR image-based particle extraction")
+  log_message("FTIR image: computing scan bounds for viewer background")
 
-  # Compute scan bounds from image dimensions and 25 µm grid step.
-  # The PerkinElmer Spotlight renders ~6 image pixels per grid cell.
+  # Estimate scan bounds from image dimensions and 25 µm grid step.
+  # The PerkinElmer Spotlight renders ~6 image pixels per 25 µm grid cell.
   ftir_img_raw <- read_image_any(config$ftir_image, verbose = TRUE)
   if (is.null(ftir_img_raw)) {
-    log_message("  WARNING: could not read FTIR image — skipping image extraction",
+    log_message("  WARNING: could not read FTIR image — scan bounds unavailable",
                 level = "WARN")
   } else {
     ftir_grid_nx <- round((ncol(ftir_img_raw) + 1) / 6)
@@ -266,23 +269,9 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
       y_max = ftir_grid_ny * 25
     )
     rm(ftir_img_raw)
+    log_message("  Scan bounds: [0, ", ftir_scan_bounds$x_max, "] x [0, ",
+                ftir_scan_bounds$y_max, "] µm")
   }
-  log_message("  Scan bounds: [0, ", ftir_scan_bounds$x_max, "] x [0, ",
-              ftir_scan_bounds$y_max, "] µm")
-
-  ftir_from_image <- extract_particles_from_image(
-    config$ftir_image,
-    scan_bounds     = ftir_scan_bounds,
-    adaptive_radius = 75L,
-    adaptive_offset = 0.02,
-    min_pixels      = 4,
-    min_size_um     = 20,
-    expected_count  = nrow(ftir_raw),
-    instrument      = "FTIR"
-  )
-
-  log_message("Image extraction: ", nrow(ftir_from_image),
-              " particles from FTIR image")
 }
 
 # ---------------------------------------------------------------------------
