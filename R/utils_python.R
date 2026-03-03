@@ -19,11 +19,19 @@ setup_python_detector <- function() {
   }
 
   # Verify required Python packages; auto-install via pip if missing
+  # But first: only attempt install if Python is actually available.
   required  <- c("numpy", "scipy", "PIL")
   pip_names <- c(numpy = "numpy", scipy = "scipy", PIL = "Pillow")
 
   missing_pkgs <- required[!vapply(required, reticulate::py_module_available, logical(1))]
   if (length(missing_pkgs) > 0) {
+    # Check if ANY Python is available before attempting install
+    if (!reticulate::py_available()) {
+      log_message("  [WARN] Python not installed on this system — Python detector disabled")
+      log_message("  Falling back to R-based particle extraction")
+      return(invisible(FALSE))
+    }
+
     pip_missing <- unname(pip_names[missing_pkgs])
     log_message("  Python packages missing: ", paste(pip_missing, collapse = ", "),
                 " — attempting auto-install via pip")
