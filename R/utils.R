@@ -464,7 +464,12 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
 
     # --- Write canonical PNG ---
     canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.png"))
-    magick::image_write(img_mg, path = canon_path, format = "png")
+    if (identical(detected, "PNG")) {
+      # Lossless: byte-identical copy avoids magick re-encode / colour-management drift
+      file.copy(src_path, canon_path, overwrite = TRUE)
+    } else {
+      magick::image_write(img_mg, path = canon_path, format = "png")
+    }
     canon_info <- magick::image_info(magick::image_read(canon_path))
     result$canonical_path   <- canon_path
     result$canonical_width  <- canon_info$width
