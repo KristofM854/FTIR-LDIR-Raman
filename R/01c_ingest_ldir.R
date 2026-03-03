@@ -153,26 +153,56 @@ detect_ldir_scan_circle <- function(image_path) {
 
   h <- nrow(img)
   w <- ncol(img)
-  n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1
 
-  # Convert to a foreground mask: any pixel that is not near-black
+  # Helper: sanity-check a candidate circle and return TRUE if plausible
+  .circle_sane <- function(cx, cy, r, w, h) {
+    cx_ok <- abs(cx - w / 2) < 0.15 * w
+    cy_ok <- abs(cy - h / 2) < 0.15 * h
+    r_ok  <- r > 0.38 * min(w, h) && r < 0.54 * min(w, h)
+    cx_ok && cy_ok && r_ok
+  }
+
+  # Image-centre fallback used when every method fails sanity check
+  .fallback <- function(w, h) {
+    r <- min(w, h) / 2 * 0.95
+    edge_gap <- min(w, h) / 2 - r
+    list(cx_px = w / 2, cy_px = h / 2, radius_px = r,
+         width = w, height = h,
+         edge_gap_px = edge_gap, export_type = "scan_only", detected = FALSE)
+  }
+
+  # --- Primary: Python connected-component method (most robust) ---
+  py_circle <- tryCatch(
+    detect_ldir_scan_circle_python(image_path),
+    error = function(e) NULL
+  )
+  if (!is.null(py_circle)) {
+    if (.circle_sane(py_circle$cx_px, py_circle$cy_px, py_circle$radius_px, w, h)) {
+      log_message("  Scan circle (Python CC): center=(",
+                  round(py_circle$cx_px, 1), ", ", round(py_circle$cy_px, 1),
+                  "), radius=", round(py_circle$radius_px, 1), " px, gap=",
+                  round(py_circle$edge_gap_px, 1), " -> ", py_circle$export_type)
+      return(py_circle)
+    }
+    log_message("  Python circle failed sanity check (cx=",
+                round(py_circle$cx_px, 1), ", cy=", round(py_circle$cy_px, 1),
+                ", r=", round(py_circle$radius_px, 1), ") — trying R fallback",
+                level = "WARN")
+  }
+
+  # --- Fallback: R algebraic edge-fit ---
+  n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1
   if (n_ch >= 3) {
     brightness <- pmax(img[,,1], img[,,2], img[,,3])
   } else {
     brightness <- if (n_ch == 1) img else img[,,1]
   }
 
-  # Threshold: pixels brighter than a low percentile are "scan area"
   thresh <- max(0.05, quantile(brightness, 0.10))
   mask <- brightness > thresh
 
-  # Find bounding edge pixels of the mask (contour approximation)
-  # For each row, find leftmost and rightmost foreground pixel
-  # For each column, find topmost and bottommost foreground pixel
   edge_points_row <- integer(0)
   edge_points_col <- integer(0)
-
-  # Sample rows and columns for speed
   row_sample <- seq(1, h, by = max(1, h %/% 200))
   for (r in row_sample) {
     fg_cols <- which(mask[r, ])
@@ -191,44 +221,43 @@ detect_ldir_scan_circle <- function(image_path) {
   }
 
   if (length(edge_points_row) < 10) {
-    log_message("  Scan circle detection: too few edge points, falling back to image bounds",
+    log_message("  Scan circle: too few edge points — using image-centre defaults",
                 level = "WARN")
-    return(list(
-      cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
-      width = w, height = h,
-      edge_gap_px = 0, export_type = "scan_only", detected = FALSE
-    ))
+    return(.fallback(w, h))
   }
 
-  # Least-squares circle fit (algebraic method)
-  # Minimize sum((x-cx)^2 + (y-cy)^2 - r^2)^2
-  # Linearized: x^2 + y^2 = 2*cx*x + 2*cy*y + (r^2 - cx^2 - cy^2)
   x_e <- as.numeric(edge_points_col)
   y_e <- as.numeric(edge_points_row)
-  A <- cbind(x_e, y_e, 1)
+  A     <- cbind(x_e, y_e, 1)
   b_vec <- x_e^2 + y_e^2
-  fit <- tryCatch(qr.solve(A, b_vec), error = function(e) NULL)
+  fit   <- tryCatch(qr.solve(A, b_vec), error = function(e) NULL)
 
   if (is.null(fit)) {
-    log_message("  Scan circle fit failed, falling back to image bounds", level = "WARN")
-    return(list(
-      cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
-      width = w, height = h,
-      edge_gap_px = 0, export_type = "scan_only", detected = FALSE
-    ))
+    log_message("  Scan circle: algebraic fit failed — using image-centre defaults",
+                level = "WARN")
+    return(.fallback(w, h))
   }
 
-  cx_px <- fit[1] / 2
-  cy_px <- fit[2] / 2
+  cx_px    <- fit[1] / 2
+  cy_px    <- fit[2] / 2
   radius_px <- sqrt(fit[3] + cx_px^2 + cy_px^2)
 
-  # Classify export type
+  # Sanity check on algebraic result
+  if (!.circle_sane(cx_px, cy_px, radius_px, w, h)) {
+    log_message("  Scan circle: algebraic result failed sanity check (cx=",
+                round(cx_px, 1), ", cy=", round(cy_px, 1),
+                ", r=", round(radius_px, 1), ") — using image-centre defaults",
+                level = "WARN")
+    return(.fallback(w, h))
+  }
+
   edge_gap_px <- min(cx_px, cy_px, w - cx_px, h - cy_px) - radius_px
   export_type <- if (abs(edge_gap_px) <= 15) "scan_only" else "full_field"
 
-  log_message("  Scan circle: center=(", round(cx_px, 1), ", ", round(cy_px, 1),
-              "), radius=", round(radius_px, 1), " px")
-  log_message("  Edge gap: ", round(edge_gap_px, 1), " px -> ", export_type)
+  log_message("  Scan circle (R algebraic): center=(",
+              round(cx_px, 1), ", ", round(cy_px, 1),
+              "), radius=", round(radius_px, 1), " px, gap=",
+              round(edge_gap_px, 1), " -> ", export_type)
 
   list(
     cx_px = cx_px, cy_px = cy_px, radius_px = radius_px,
@@ -294,22 +323,84 @@ save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
 }
 
 
-#' Write scan circle export type info to a text file
+#' Save pixel-space centroid overlay for extraction quality diagnosis
 #'
-#' @param circle_info Result from detect_ldir_scan_circle()
-#' @param output_path Path to write the text file
-save_ldir_export_type <- function(circle_info, output_path) {
+#' Draws detected centroids (in pixel space) on top of the original LDIR image.
+#' If centroids look correct here but µm coords are compressed/stretched,
+#' the fault lies in the pixel→µm mapping (wrong radius_px or scan_diam_um).
+#'
+#' @param image_path   Path to original LDIR image
+#' @param pixel_df     Data frame with centroid_px_x, centroid_px_y columns
+#' @param circle_info  Result from detect_ldir_scan_circle()
+#' @param output_path  Path for the debug PNG
+save_ldir_centroids_px_debug <- function(image_path, pixel_df, circle_info, output_path) {
+  tryCatch({
+    img <- read_image_any(image_path, verbose = FALSE)
+    if (is.null(img)) return(invisible(NULL))
+    h <- nrow(img); w <- ncol(img)
+    cx_pts <- pixel_df$centroid_px_x
+    cy_pts <- pixel_df$centroid_px_y
+    grDevices::png(output_path, width = w, height = h)
+    par(mar = c(0, 0, 0, 0))
+    plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1), asp = 1, axes = FALSE,
+         xlab = "", ylab = "")
+    if (length(dim(img)) == 3) graphics::rasterImage(img, 1, h, w, 1)
+    if (!is.null(circle_info) && isTRUE(circle_info$detected)) {
+      theta <- seq(0, 2 * pi, length.out = 360)
+      lines(circle_info$cx_px + circle_info$radius_px * cos(theta),
+            circle_info$cy_px + circle_info$radius_px * sin(theta),
+            col = "red", lwd = 2)
+    }
+    points(cx_pts, cy_pts, pch = 3, cex = 0.6, col = "cyan", lwd = 1)
+    title(main = paste0(nrow(pixel_df), " centroids (pixel space)"), line = -2,
+          col.main = "yellow", cex.main = 1.2)
+    grDevices::dev.off()
+    log_message("  Saved centroid pixel overlay: ", output_path)
+  }, error = function(e) {
+    log_message("  Could not save centroid pixel debug: ", e$message, level = "WARN")
+  })
+}
+
+
+#' Write LDIR calibration numbers to a text file for diagnosis
+#'
+#' Shows all the numbers that go into the pixel→µm mapping, plus a
+#' fill_fraction diagnostic: if particles reach only ~90 % of the expected
+#' half-extent, radius_px or scan_diam_um is likely wrong.
+#'
+#' @param circle_info     Result from detect_ldir_scan_circle()
+#' @param scan_diam_um    Physical scan diameter used (µm)
+#' @param scale_um_per_px Derived scale factor (µm/pixel)
+#' @param n_particles     Number of particles after mapping
+#' @param max_abs_um      Maximum absolute µm coordinate (diagnostic)
+#' @param output_path     Path for the calibration text file
+save_ldir_calibration <- function(circle_info, scan_diam_um, scale_um_per_px,
+                                   n_particles, max_abs_um, output_path) {
+  expected_half <- scan_diam_um / 2
+  compression_pct <- if (!is.na(max_abs_um) && max_abs_um > 0)
+    round((max_abs_um / expected_half) * 100, 1) else NA_real_
   lines <- c(
-    paste0("image_width:  ", circle_info$width),
-    paste0("image_height: ", circle_info$height),
-    paste0("center_px:    (", round(circle_info$cx_px, 2), ", ",
-           round(circle_info$cy_px, 2), ")"),
-    paste0("radius_px:    ", round(circle_info$radius_px, 2)),
-    paste0("edge_gap_px:  ", round(circle_info$edge_gap_px, 2)),
-    paste0("export_type:  ", circle_info$export_type),
-    paste0("detected:     ", circle_info$detected)
+    paste0("# LDIR pixel-to-um calibration — generated ", Sys.time()),
+    "",
+    paste0("image_width_px:    ", circle_info$width),
+    paste0("image_height_px:   ", circle_info$height),
+    paste0("circle_cx_px:      ", round(circle_info$cx_px, 2)),
+    paste0("circle_cy_px:      ", round(circle_info$cy_px, 2)),
+    paste0("circle_radius_px:  ", round(circle_info$radius_px, 2)),
+    paste0("edge_gap_px:       ", round(circle_info$edge_gap_px, 2)),
+    paste0("export_type:       ", circle_info$export_type),
+    paste0("circle_detected:   ", circle_info$detected),
+    "",
+    paste0("scan_diameter_um:  ", scan_diam_um),
+    paste0("scale_um_per_px:   ", round(scale_um_per_px, 4)),
+    "",
+    paste0("n_particles:       ", n_particles),
+    paste0("max_abs_um:        ", round(max_abs_um, 1)),
+    paste0("fill_fraction_pct: ", compression_pct,
+           "  (expected ~100 if scale correct, <90 => radius_px too large)")
   )
   writeLines(lines, output_path)
+  log_message("  Saved calibration info: ", output_path)
 }
 
 
@@ -377,17 +468,16 @@ extract_ldir_image_coords <- function(image_path,
     13000
   }
 
-  # Save debug artifacts if debug mode enabled
-  if (!is.null(config) && isTRUE(config$debug) && !is.null(config$debug_dir)) {
+  # Save circle debug artifacts (always written, not just debug mode,
+  # because they are lightweight and critical for diagnosing extraction quality)
+  debug_dir <- if (!is.null(config) && !is.null(config$debug_dir)) config$debug_dir else NULL
+  if (!is.null(debug_dir)) {
     save_ldir_circle_debug(image_path, circle_info,
-                           file.path(config$debug_dir, "ldir_circle_debug.png"))
-    save_ldir_export_type(circle_info,
-                          file.path(config$debug_dir, "export_type.txt"))
+                           file.path(debug_dir, "ldir_circle_debug.png"))
   }
 
   # --- Step 2: Extract particle pixel centroids ---
-  # Use a wrapper that returns particles with centroid_px_x, centroid_px_y columns
-  # (pixel-space centroids before µm mapping)
+  # Returns particles with centroid_px_x, centroid_px_y in pixel coordinates
   pixel_particles <- .extract_ldir_pixel_centroids(
     image_path, scan_bounds, expected_count, circle_info
   )
@@ -397,7 +487,16 @@ extract_ldir_image_coords <- function(image_path,
     return(.empty_image_df())
   }
 
-  # --- Step 2b: Remove particles outside the scan circle ---
+  # --- Step 2b: Save pixel-space centroid overlay (always; key diagnostic) ---
+  if (!is.null(debug_dir) &&
+      all(c("centroid_px_x", "centroid_px_y") %in% names(pixel_particles))) {
+    save_ldir_centroids_px_debug(
+      image_path, pixel_particles, circle_info,
+      file.path(debug_dir, "ldir_centroids_px_debug.png")
+    )
+  }
+
+  # --- Step 2c: Remove particles outside the scan circle ---
   # The Python pipeline applies a circle mask, but the R fallback may not.
   # Guard with a generous 5 % tolerance to keep edge-touching particles.
   if (circle_info$radius_px > 0 &&
@@ -432,9 +531,32 @@ extract_ldir_image_coords <- function(image_path,
   attr(pixel_particles, "circle_radius_px") <- circle_info$radius_px
   attr(pixel_particles, "scale_um_per_px") <- scale_um_per_px
 
+  # --- Step E: Quantitative compression check ---
+  # max_abs_um should be ~= scan_diam_um/2. Consistently <90% means
+  # radius_px is too large (scale_um_per_px too small) — likely the
+  # circle detection is fitting a circle larger than the actual scan area.
+  max_abs_um <- max(abs(c(pixel_particles$x_um, pixel_particles$y_um)),
+                    na.rm = TRUE)
+  fill_pct <- round(max_abs_um / (scan_diam_um / 2) * 100, 1)
+
   log_message("  Circle-calibrated mapping: scale=",
               round(scale_um_per_px, 3), " µm/px, ",
               nrow(pixel_particles), " particles")
+  log_message("  Extent check: max_abs_um=", round(max_abs_um, 1),
+              " µm  (", fill_pct, "% of ", scan_diam_um / 2, " µm half-extent)",
+              if (fill_pct < 85) " ← LOW: circle radius may be too large" else "")
+
+  # --- Save calibration text file (always, not just debug mode) ---
+  if (!is.null(debug_dir)) {
+    save_ldir_calibration(
+      circle_info     = circle_info,
+      scan_diam_um    = scan_diam_um,
+      scale_um_per_px = scale_um_per_px,
+      n_particles     = nrow(pixel_particles),
+      max_abs_um      = max_abs_um,
+      output_path     = file.path(debug_dir, "ldir_calibration.txt")
+    )
+  }
 
   pixel_particles
 }
