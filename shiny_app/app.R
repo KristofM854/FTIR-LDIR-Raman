@@ -715,9 +715,16 @@ server <- function(input, output, session) {
     if (is.null(raw)) return(NULL)
     ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
     oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
-    # Start from scan radius (13000 µm diameter / 2 = 6500 µm)
-    half_um <- 6500L
-    # Widen if any particle coordinates actually exceed 6500 µm
+    # Start from scan radius derived from the pipeline's ldir_scan_diameter_um.
+    # Read from manifest config_snapshot so this always matches the mapping used
+    # during extraction. Default 13000 µm (13 mm filter) if not in manifest.
+    scan_diam_um <- tryCatch({
+      m <- active_manifest()
+      d <- m$config_snapshot$ldir_scan_diameter_um
+      if (!is.null(d) && is.numeric(d) && d > 0) as.integer(d) else 13000L
+    }, error = function(e) 13000L)
+    half_um <- as.integer(scan_diam_um / 2L)
+    # Widen if any particle coordinates actually exceed the expected half-extent
     ldir_df <- ldir_df_full()
     if (!is.null(ldir_df) && nrow(ldir_df) > 0) {
       xvals <- ldir_df$x_orig[is.finite(ldir_df$x_orig)]

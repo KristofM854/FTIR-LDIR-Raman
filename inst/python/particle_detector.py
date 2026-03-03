@@ -305,6 +305,86 @@ def auto_tune_threshold(corrected, target_count, min_area=10,
     }
 
 
+def detect_scan_circle(image_path):
+    """Robust scan circle detection using connected-component analysis.
+
+    Approach:
+      1. Load grayscale and apply Gaussian smoothing (suppresses particles).
+      2. Threshold at the 80th percentile to isolate the bright scan disk.
+      3. Morphological opening (removes bright specks outside the disk).
+      4. Keep only the largest connected component.
+      5. Derive centre from component centroid; radius from the 95th
+         percentile of boundary-pixel distances (robust to small notches).
+
+    This is substantially more robust than the R algebraic edge-fit because
+    it is not fooled by bright single particles near the image boundary.
+
+    Args:
+        image_path: Path to LDIR image file.
+
+    Returns:
+        dict with cx (float), cy (float), r (float),
+        width (int), height (int), method (str).
+        On failure returns image-centre defaults.
+    """
+    try:
+        data = load_and_prepare(image_path)
+        gray = data['gray']
+        h, w = gray.shape
+
+        # Smooth heavily so particles don't bias the disk mask
+        smoothed = gaussian_filter(gray, sigma=max(h, w) * 0.01)
+
+        # Threshold: pixels above 80th percentile are "scan area"
+        thresh = float(np.percentile(smoothed, 80))
+        disk_mask = smoothed > thresh
+
+        # Morphological opening: remove small bright specks
+        struct = ndimage.generate_binary_structure(2, 2)
+        opened = ndimage.binary_opening(disk_mask, structure=struct,
+                                         iterations=max(3, int(min(h, w) * 0.005)))
+
+        # Keep largest connected component
+        labeled_disk, n_comp = label(opened)
+        if n_comp == 0:
+            raise ValueError("no foreground components found")
+        sizes = ndimage.sum(opened, labeled_disk, range(1, n_comp + 1))
+        largest_label = int(np.argmax(sizes)) + 1
+        disk_only = labeled_disk == largest_label
+
+        # Centre from centroid of the largest component
+        cy_c, cx_c = center_of_mass(disk_only)
+
+        # Radius: 95th-percentile distance of boundary pixels from centre
+        # (robust to the occasional notch or clipped edge)
+        eroded = ndimage.binary_erosion(disk_only, structure=struct)
+        boundary = disk_only & ~eroded
+        by, bx = np.where(boundary)
+        if len(bx) < 20:
+            raise ValueError("too few boundary pixels")
+        dists = np.sqrt((bx - cx_c) ** 2 + (by - cy_c) ** 2)
+        radius = float(np.percentile(dists, 95))
+
+        return {
+            'cx': float(cx_c), 'cy': float(cy_c), 'r': float(radius),
+            'width': int(w), 'height': int(h),
+            'method': 'python_cc'
+        }
+
+    except Exception as e:
+        # Graceful fallback to image-centre defaults
+        try:
+            data = load_and_prepare(image_path)
+            h, w = data['height'], data['width']
+        except Exception:
+            h, w = 0, 0
+        return {
+            'cx': w / 2.0, 'cy': h / 2.0, 'r': min(w, h) / 2.0 * 0.95,
+            'width': int(w), 'height': int(h),
+            'method': 'fallback_center'
+        }
+
+
 def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
                        bg_sigma=30.0, clip_sigma=3.0, max_iter=10,
                        threshold=25.0, min_area=10, target_count=0,

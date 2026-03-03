@@ -180,3 +180,53 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
 
   particles
 }
+
+
+#' Detect the LDIR scan circle using the Python connected-component method
+#'
+#' Calls detect_scan_circle() from particle_detector.py, which is more robust
+#' than the R algebraic edge-fit against bright particles near the image boundary.
+#'
+#' @param image_path Character. Path to the LDIR image file.
+#' @return A list compatible with detect_ldir_scan_circle() output:
+#'   cx_px, cy_px, radius_px, width, height, edge_gap_px, export_type, detected.
+#'   Returns NULL if Python is unavailable.
+detect_ldir_scan_circle_python <- function(image_path) {
+  if (!setup_python_detector()) return(NULL)
+  if (!file.exists(image_path)) return(NULL)
+
+  result <- tryCatch({
+    detect_scan_circle(image_path)
+  }, error = function(e) {
+    log_message("  [WARN] Python circle detection failed: ", conditionMessage(e))
+    NULL
+  })
+
+  if (is.null(result)) return(NULL)
+
+  cx  <- as.numeric(result$cx)
+  cy  <- as.numeric(result$cy)
+  r   <- as.numeric(result$r)
+  w   <- as.integer(result$width)
+  h   <- as.integer(result$height)
+  met <- as.character(result$method)
+
+  edge_gap <- min(cx, cy, w - cx, h - cy) - r
+  export_type <- if (abs(edge_gap) <= 15) "scan_only" else "full_field"
+
+  log_message("  Python circle detection (", met, "): center=(",
+              round(cx, 1), ", ", round(cy, 1), "), radius=", round(r, 1),
+              " px, edge_gap=", round(edge_gap, 1))
+
+  list(
+    cx_px       = cx,
+    cy_px       = cy,
+    radius_px   = r,
+    width       = w,
+    height      = h,
+    edge_gap_px = edge_gap,
+    export_type = export_type,
+    detected    = TRUE,
+    method      = met
+  )
+}
