@@ -700,29 +700,37 @@ server <- function(input, output, session) {
          ymin = b$ymin + oy, ymax = b$ymax + oy)
   })
 
-  # LDIR tab: image placed at LDIR scan area bounds.
-  # The pipeline now outputs LDIR coordinates in Cartesian convention
-  # (y increases upward), matching Raman.  annotation_raster places
-  # row 1 at ymax (top of plot).  Since the PNG also has row 1 = top
-  # of the physical filter = high y in Cartesian, this is correct
-  # without any image flip.
+  # LDIR tab: image placed at the full scan-circle extent.
+  # LDIR coordinates are circle-calibrated and centred at (0,0) via
+  # map_pixels_to_um_circle(), so the scan area spans ±(scan_diameter/2) µm.
+  # annotation_raster places row 1 at ymax.  Since row 1 of the PNG is the
+  # top of the physical scan = high positive y in circle coords, no row-flip
+  # is needed.
+  # IMPORTANT: use the scan diameter (6500 µm half-extent) as the floor —
+  # never just the particle data range, because sparse joins leave most
+  # particles without coordinates, causing asymmetric bounds and a
+  # stretched/clipped image.
   ldir_native_image_info <- reactive({
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
+    ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
+    oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
+    # Start from scan radius (13000 µm diameter / 2 = 6500 µm)
+    half_um <- 6500L
+    # Widen if any particle coordinates actually exceed 6500 µm
     ldir_df <- ldir_df_full()
-    if (!is.null(ldir_df) && nrow(ldir_df) > 0 &&
-        any(!is.na(ldir_df$x_orig))) {
-      ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
-      oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
-      xvals <- ldir_df$x_orig[!is.na(ldir_df$x_orig)]
-      yvals <- ldir_df$y_orig[!is.na(ldir_df$y_orig)]
-      # Coordinates are circle-calibrated and centred at (0,0); use symmetric bounds
-      half_um <- max(ceiling(max(abs(c(xvals, yvals))) / 500) * 500, 1000)
-      return(list(raster = raw,
-                  xmin = -half_um + ox, xmax = half_um + ox,
-                  ymin = -half_um + oy, ymax = half_um + oy))
+    if (!is.null(ldir_df) && nrow(ldir_df) > 0) {
+      xvals <- ldir_df$x_orig[is.finite(ldir_df$x_orig)]
+      yvals <- ldir_df$y_orig[is.finite(ldir_df$y_orig)]
+      if (length(xvals) > 0 && length(yvals) > 0) {
+        max_abs <- max(abs(c(xvals, yvals)))
+        if (max_abs > half_um)
+          half_um <- ceiling(max_abs / 500) * 500
+      }
     }
-    NULL
+    list(raster = raw,
+         xmin = -half_um + ox, xmax = half_um + ox,
+         ymin = -half_um + oy, ymax = half_um + oy)
   })
 
   # Load instrument images from the run manifest (manifest-driven, no hardcoded paths)
@@ -1458,19 +1466,12 @@ server <- function(input, output, session) {
     df <- ldir_filtered()
     overlay_mode <- input$ldir_overlay_mode
 
-    # Display in native LDIR frame (x_orig, y_orig)
+    # Display in native LDIR frame (x_orig, y_orig) — no transform applied here.
+    # Transforms are only used for the Overlay tab (Raman frame).
     df_disp <- df
     if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
 
-    bounds <- if (!is.null(zoom$ldir)) zoom$ldir else {
-      if (nrow(df_disp) > 0) {
-        pad <- 500
-        list(x = c(min(df_disp$x, na.rm = TRUE) - pad, max(df_disp$x, na.rm = TRUE) + pad),
-             y = c(min(df_disp$y, na.rm = TRUE) - pad, max(df_disp$y, na.rm = TRUE) + pad))
-      } else list(x = c(-1000, 14000), y = c(-1000, 14000))
-    }
-
-    # Choose image based on overlay mode
+    # Choose image first so we can use its bounds as the viewport.
     img <- NULL
     if ("processed_image" %in% overlay_mode) {
       img <- ldir_processed_image_info()
@@ -1478,6 +1479,19 @@ server <- function(input, output, session) {
     if (is.null(img) && "raw_image" %in% overlay_mode) {
       img <- ldir_native_image_info()
     }
+
+    # Viewport priority:
+    # 1. User zoom (brush) — always honoured
+    # 2. Image bounds — when an image is shown, the viewport must cover the full
+    #    scan circle; basing it on sparse particle coords distorts the image.
+    # 3. Particle data range — fallback when no image is loaded.
+    bounds <- if (!is.null(zoom$ldir)) zoom$ldir else if (!is.null(img)) {
+      list(x = c(img$xmin, img$xmax), y = c(img$ymin, img$ymax))
+    } else if (nrow(df_disp) > 0 && any(is.finite(df_disp$x))) {
+      pad <- 500
+      list(x = c(min(df_disp$x, na.rm = TRUE) - pad, max(df_disp$x, na.rm = TRUE) + pad),
+           y = c(min(df_disp$y, na.rm = TRUE) - pad, max(df_disp$y, na.rm = TRUE) + pad))
+    } else list(x = c(-7000, 7000), y = c(-7000, 7000))
 
     n_extracted <- 0
     extracted <- ldir_extracted_pts()
