@@ -223,14 +223,6 @@ apply_transform_points <- function(x, y, M) {
   )
 }
 
-#' Compose two 3x3 transforms: apply T1 first, then T2
-#' @param T1 3x3 matrix (applied first)
-#' @param T2 3x3 matrix (applied second)
-#' @return 3x3 matrix T2 %*% T1
-compose_transforms <- function(T1, T2) {
-  T2 %*% T1
-}
-
 #' Extract human-readable parameters from a 3x3 similarity transform matrix
 #' @param M 3x3 homogeneous similarity transform matrix
 #' @return List with scale, rotation_deg, tx, ty, reflected
@@ -256,52 +248,6 @@ extract_transform_params <- function(M) {
   )
 }
 
-#' Create a translation-only 3x3 matrix
-make_translation_matrix <- function(tx, ty) {
-  M <- diag(3)
-  M[1, 3] <- tx
-  M[2, 3] <- ty
-  M
-}
-
-#' Create a rotation-only 3x3 matrix (rotation about origin)
-#' @param angle_deg Rotation angle in degrees
-make_rotation_matrix <- function(angle_deg) {
-  theta <- angle_deg * pi / 180
-  ct <- cos(theta)
-  st <- sin(theta)
-  matrix(c(ct, st, 0,
-           -st, ct, 0,
-           0, 0, 1), nrow = 3, byrow = FALSE)
-}
-
-#' Create a y-axis reflection matrix
-make_mirror_y_matrix <- function() {
-  matrix(c(1, 0, 0,
-           0, -1, 0,
-           0, 0, 1), nrow = 3, byrow = FALSE)
-}
-
-# ---------------------------------------------------------------------------
-# Nearest-neighbor helpers
-# ---------------------------------------------------------------------------
-
-#' Find nearest neighbors using RANN
-#' @param query_x, query_y Coordinates of query points
-#' @param ref_x, ref_y Coordinates of reference points
-#' @param k Number of neighbors to return
-#' @return List with nn_idx (indices into ref) and nn_dist (distances)
-find_nearest_neighbors <- function(query_x, query_y, ref_x, ref_y, k = 1) {
-  query_mat <- cbind(query_x, query_y)
-  ref_mat   <- cbind(ref_x, ref_y)
-
-  nn <- RANN::nn2(data = ref_mat, query = query_mat, k = k)
-
-  list(
-    nn_idx  = nn$nn.idx,
-    nn_dist = nn$nn.dists
-  )
-}
 
 # ---------------------------------------------------------------------------
 # Image type detection and canonicalization (magick-based)
@@ -633,6 +579,13 @@ write_manifest <- function(run_dir, run_id, config,
     )
   }
 
+  # Build clean images dict for provenance panel (keys: "ftir", "raman", "ldir")
+  images_clean <- list()
+  for (nm in names(image_infos)) {
+    clean_nm <- gsub("_image$", "", nm)
+    if (!is.null(image_infos[[nm]])) images_clean[[clean_nm]] <- image_infos[[nm]]
+  }
+
   # --- Config snapshot (key values only) ---
   cfg_keys <- c("ldir_scan_diameter_um", "ldir_flip_y_for_alignment",
                  "min_quality_ftir", "min_quality_raman", "min_size_um",
@@ -653,6 +606,7 @@ write_manifest <- function(run_dir, run_id, config,
     config_snapshot = cfg_snap,
     inputs          = inputs_info,
     image_assets    = image_assets,
+    images          = if (length(images_clean) > 0) images_clean else NULL,
     ldir_image      = ldir_image_info
   )
 
@@ -705,39 +659,6 @@ update_manifest_stage <- function(run_dir, stage, error_msg = NULL) {
     log_message("  update_manifest_stage failed: ", e$message, level = "WARN")
   })
   invisible(manifest_path)
-}
-
-
-#' Read manifest.json from a run directory
-#'
-#' @param run_dir Run output directory
-#' @return Named list (from JSON), or a minimal list with is_missing=TRUE
-read_manifest <- function(run_dir) {
-  manifest_path <- file.path(run_dir, "manifest.json")
-  if (!file.exists(manifest_path)) {
-    return(list(
-      is_missing  = TRUE,
-      run_id      = basename(run_dir),
-      timestamp   = NA_character_,
-      git_commit  = NA_character_,
-      stage       = NA_character_
-    ))
-  }
-  tryCatch({
-    if (requireNamespace("jsonlite", quietly = TRUE)) {
-      m <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
-      m$is_missing <- FALSE
-      return(m)
-    }
-    # Minimal fallback (no jsonlite)
-    list(is_missing = FALSE, run_id = basename(run_dir),
-         timestamp = NA_character_, git_commit = NA_character_,
-         stage = "unknown")
-  }, error = function(e) {
-    list(is_missing = TRUE, run_id = basename(run_dir),
-         timestamp = NA_character_, git_commit = NA_character_,
-         stage = "error_reading_manifest", error = e$message)
-  })
 }
 
 
