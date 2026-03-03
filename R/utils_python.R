@@ -18,13 +18,31 @@ setup_python_detector <- function() {
     return(invisible(FALSE))
   }
 
-  # Verify required Python packages
-  required <- c("numpy", "scipy", "PIL")
-  for (pkg in required) {
-    if (!reticulate::py_module_available(pkg)) {
-      log_message("  [WARN] Python package '", pkg, "' not found — ",
-                  "install with: pip install ",
-                  ifelse(pkg == "PIL", "Pillow", pkg))
+  # Verify required Python packages; auto-install via pip if missing
+  required  <- c("numpy", "scipy", "PIL")
+  pip_names <- c(numpy = "numpy", scipy = "scipy", PIL = "Pillow")
+
+  missing_pkgs <- required[!vapply(required, reticulate::py_module_available, logical(1))]
+  if (length(missing_pkgs) > 0) {
+    pip_missing <- unname(pip_names[missing_pkgs])
+    log_message("  Python packages missing: ", paste(pip_missing, collapse = ", "),
+                " — attempting auto-install via pip")
+    tryCatch({
+      reticulate::py_install(pip_missing, pip = TRUE)
+      log_message("  Auto-install succeeded")
+    }, error = function(e) {
+      log_message("  [WARN] Auto-install failed: ", conditionMessage(e),
+                  " — install manually with: pip install ",
+                  paste(pip_missing, collapse = " "))
+    })
+    # Re-check after attempted install
+    still_missing <- missing_pkgs[
+      !vapply(missing_pkgs, reticulate::py_module_available, logical(1))
+    ]
+    if (length(still_missing) > 0) {
+      log_message("  [WARN] Python packages still unavailable after install attempt: ",
+                  paste(unname(pip_names[still_missing]), collapse = ", "),
+                  " — Python detector disabled")
       return(invisible(FALSE))
     }
   }
