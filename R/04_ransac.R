@@ -278,6 +278,193 @@ ransac_align <- function(ftir_df, raman_df, config) {
 }
 
 
+# =============================================================================
+# Descriptor-based RANSAC alignment (optional Tier 2 replacement)
+# =============================================================================
+
+#' Compute per-particle descriptors for descriptor-based RANSAC
+#'
+#' Adds two columns to the data frame:
+#'   log_size        — log1p(feret_max_um), robust size descriptor
+#'   local_density_um — mean distance to k nearest neighbours (k=5 by default)
+#'
+#' @param df    Data frame with feret_max_um and coordinate columns x_col/y_col
+#' @param k     Number of nearest neighbours for density (default 5)
+#' @param x_col Column name for x-coordinates (default "x_norm")
+#' @param y_col Column name for y-coordinates (default "y_norm")
+#' @return df with log_size and local_density_um added
+compute_particle_descriptors <- function(df, k = 5,
+                                          x_col = "x_norm",
+                                          y_col = "y_norm") {
+  df$log_size <- log1p(pmax(0, df$feret_max_um))
+
+  coords  <- cbind(df[[x_col]], df[[y_col]])
+  n_valid <- nrow(coords)
+  if (n_valid < 2) {
+    df$local_density_um <- NA_real_
+    return(df)
+  }
+  k_actual <- min(k + 1L, n_valid)  # +1 because nn2 includes self
+  nn       <- RANN::nn2(data = coords, query = coords, k = k_actual)
+  # exclude self (first column distance = 0)
+  dists_ex_self <- nn$nn.dists[, -1, drop = FALSE]
+  df$local_density_um <- if (ncol(dists_ex_self) > 0) {
+    rowMeans(dists_ex_self)
+  } else {
+    NA_real_
+  }
+  df
+}
+
+
+#' Descriptor-based RANSAC similarity alignment (optional Tier 2)
+#'
+#' Generates candidate correspondences using log-size similarity, then runs
+#' RANSAC to find the best similarity transform, refines with all inliers,
+#' and applies scale / rotation guardrails to avoid degenerate solutions.
+#'
+#' Returns the same structure as ransac_align() for drop-in compatibility.
+#' Returns NULL if RANSAC cannot find a transform meeting the constraints.
+#'
+#' @param ldir_df   LDIR data frame with x_norm, y_norm, feret_max_um
+#' @param raman_df  Raman data frame with x_norm, y_norm, feret_max_um
+#' @param config    Pipeline config (for logging)
+#' @param size_tol  Maximum |log_size_ldir - log_size_raman| for candidates
+#' @param n_ransac  Number of RANSAC iterations
+#' @param n_sample  Points per RANSAC sample (minimum 3)
+#' @param inlier_threshold_um  Distance threshold for inlier counting (µm)
+#' @param scale_min  Minimum acceptable scale factor
+#' @param scale_max  Maximum acceptable scale factor
+#' @param rot_limit_deg  Maximum |rotation| in degrees
+descriptor_ransac_align <- function(ldir_df, raman_df, config,
+                                     size_tol            = 0.5,
+                                     n_ransac            = 500L,
+                                     n_sample            = 3L,
+                                     inlier_threshold_um = 500,
+                                     scale_min           = 0.8,
+                                     scale_max           = 1.25,
+                                     rot_limit_deg       = 45) {
+  log_message("  Descriptor RANSAC: computing particle descriptors…")
+
+  ldir_d  <- compute_particle_descriptors(ldir_df,  x_col = "x_norm", y_col = "y_norm")
+  raman_d <- compute_particle_descriptors(raman_df, x_col = "x_norm", y_col = "y_norm")
+
+  # --- Candidate pair lists: for each LDIR particle, Raman candidates by size ---
+  candidates <- lapply(seq_len(nrow(ldir_d)), function(i) {
+    which(abs(raman_d$log_size - ldir_d$log_size[i]) < size_tol)
+  })
+  eligible <- which(lengths(candidates) >= 1L)
+
+  if (length(eligible) < n_sample) {
+    log_message("  Descriptor RANSAC: too few eligible pairs (",
+                length(eligible), ") — aborting", level = "WARN")
+    return(NULL)
+  }
+
+  log_message("  Descriptor RANSAC: ", nrow(ldir_d), " LDIR pts, ",
+              nrow(raman_d), " Raman pts, ",
+              length(eligible), " eligible LDIR pts")
+
+  best_inliers <- 0L
+  best_tf      <- NULL
+
+  for (iter in seq_len(n_ransac)) {
+    # Sample n_sample distinct LDIR particles with candidates
+    sel <- sample(eligible, min(n_sample, length(eligible)), replace = FALSE)
+
+    # For each selected LDIR point draw one random Raman candidate
+    raman_sel <- vapply(sel, function(i) {
+      cands <- candidates[[i]]
+      cands[sample.int(length(cands), 1L)]
+    }, integer(1L))
+
+    tf <- tryCatch(
+      estimate_similarity_transform(
+        ldir_d$x_norm[sel],  ldir_d$y_norm[sel],
+        raman_d$x_norm[raman_sel], raman_d$y_norm[raman_sel],
+        allow_reflection = FALSE   # avoid reflection ambiguity in RANSAC sampling
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(tf)) next
+    if (tf$scale < scale_min || tf$scale > scale_max) next
+    if (abs(tf$rotation_deg) > rot_limit_deg) next
+
+    # Count inliers across all LDIR particles
+    tf_pts <- apply_transform_points(ldir_d$x_norm, ldir_d$y_norm, tf$matrix)
+    nn <- RANN::nn2(
+      cbind(raman_d$x_norm, raman_d$y_norm),
+      cbind(tf_pts$x_transformed, tf_pts$y_transformed),
+      k = 1
+    )
+    n_in <- sum(nn$nn.dists[, 1] < inlier_threshold_um)
+    if (n_in > best_inliers) {
+      best_inliers <- n_in
+      best_tf      <- tf
+    }
+  }
+
+  if (is.null(best_tf)) {
+    log_message("  Descriptor RANSAC: no valid transform found after ",
+                n_ransac, " iterations", level = "WARN")
+    return(NULL)
+  }
+
+  log_message("  Descriptor RANSAC best: scale=", round(best_tf$scale, 4),
+              ", rot=", round(best_tf$rotation_deg, 2),
+              "°, inliers=", best_inliers, "/", nrow(ldir_d))
+
+  # --- Refine with all inliers from the best model ---
+  tf_pts_best <- apply_transform_points(ldir_d$x_norm, ldir_d$y_norm, best_tf$matrix)
+  nn_final    <- RANN::nn2(
+    cbind(raman_d$x_norm, raman_d$y_norm),
+    cbind(tf_pts_best$x_transformed, tf_pts_best$y_transformed),
+    k = 1
+  )
+  inlier_mask <- nn_final$nn.dists[, 1] < inlier_threshold_um
+  raman_inlier_idx <- nn_final$nn.idx[inlier_mask, 1]
+
+  if (sum(inlier_mask) >= 3L) {
+    refined_tf <- tryCatch(
+      estimate_similarity_transform(
+        ldir_d$x_norm[inlier_mask],  ldir_d$y_norm[inlier_mask],
+        raman_d$x_norm[raman_inlier_idx], raman_d$y_norm[raman_inlier_idx]
+      ),
+      error = function(e) best_tf
+    )
+  } else {
+    refined_tf <- best_tf
+  }
+
+  log_message("  Descriptor RANSAC refined: scale=", round(refined_tf$scale, 4),
+              ", rot=", round(refined_tf$rotation_deg, 2),
+              "°, rms=", round(refined_tf$residual_rms, 1), " \u00b5m")
+
+  params <- list(
+    scale        = refined_tf$scale,
+    rotation_deg = refined_tf$rotation_deg,
+    reflected    = isTRUE(refined_tf$reflected),
+    tx           = refined_tf$tx,
+    ty           = refined_tf$ty
+  )
+  list(
+    transform    = refined_tf$matrix,
+    params       = params,
+    n_inliers    = sum(inlier_mask),
+    inlier_frac  = mean(inlier_mask),
+    rms          = refined_tf$residual_rms,
+    inlier_pairs = data.frame(
+      ldir_idx  = which(inlier_mask),
+      raman_idx = raman_inlier_idx,
+      stringsAsFactors = FALSE
+    ),
+    diagnostics  = list(method = "descriptor_ransac",
+                        n_ransac_iterations = n_ransac,
+                        size_tol = size_tol)
+  )
+}
+
+
 #' Build a 3x3 transform matrix from coarse rotation + optional mirror + translation
 build_coarse_transform_with_translation <- function(angle_deg, mirror, tx, ty) {
   theta <- angle_deg * pi / 180
