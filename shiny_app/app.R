@@ -401,7 +401,7 @@ server <- function(input, output, session) {
 
     run_info_sel <- list(dir = run_dir, format = "subdir")
     load_run_data(run_info_sel)
-  })
+  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
 
   # Active manifest (changes with run selection)
   active_manifest <- reactive({
@@ -525,7 +525,7 @@ server <- function(input, output, session) {
   instrument_dfs <- reactive({
     if (!has_data()) return(list(ftir = NULL, raman = NULL, ldir = NULL))
     build_instrument_dfs(run_data())
-  })
+  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
 
   # Per-instrument full-data reactives (avoid repeated instrument_dfs()$ftir calls)
   ftir_df_full  <- reactive({ instrument_dfs()$ftir })
@@ -1413,7 +1413,8 @@ server <- function(input, output, session) {
           requireNamespace("reticulate", quietly = TRUE)) {
         py_script <- file.path("..", "inst", "python", "particle_detector.py")
         if (file.exists(py_script)) {
-          reticulate::source_python(py_script)
+          if (!exists("load_and_prepare", envir = globalenv()))
+            reticulate::source_python(py_script)
           data <- load_and_prepare(ldir_img_path)
           bg <- correct_background(data$gray)
           corr <- bg$corrected
