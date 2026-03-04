@@ -276,14 +276,21 @@ detect_ldir_scan_circle <- function(image_path) {
 #' @param circle_info Result from detect_ldir_scan_circle()
 #' @param output_path Path to write the debug PNG
 save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
+  # Background image source: `image_path` argument (canonical PNG if canonicalization ran,
+  # else original LDIR source file).  Rendered via read_image_canonical() -> [H,W,3] uint8 RGB
+  # -> as.raster(img, max=255L) -> graphics::rasterImage().
   tryCatch({
-    img <- read_image_any(image_path, verbose = FALSE)
-    if (is.null(img)) {
+    canon <- read_image_canonical(image_path, verbose = FALSE)
+    if (is.null(canon)) {
       log_message("  save_ldir_circle_debug: could not read image", level = "WARN")
       return(invisible(NULL))
     }
-    h <- nrow(img)
-    w <- ncol(img)
+    img <- canon$img_rgb
+    h <- canon$height
+    w <- canon$width
+
+    assert_not_tiled_montage(img, tag = basename(image_path),
+                              strict = isTRUE(getOption("ldir_strict_sanity")))
 
     cx <- circle_info$cx_px
     cy <- circle_info$cy_px
@@ -292,15 +299,9 @@ save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
     grDevices::png(output_path, width = w, height = h)
     par(mar = c(0, 0, 0, 0))
 
-    # Plot image
-    if (length(dim(img)) == 3) {
-      plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1),
-           xlab = "", ylab = "", asp = 1, axes = FALSE)
-      graphics::rasterImage(img, 1, h, w, 1)
-    } else {
-      plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1),
-           xlab = "", ylab = "", asp = 1, axes = FALSE)
-    }
+    plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1),
+         xlab = "", ylab = "", asp = 1, axes = FALSE)
+    graphics::rasterImage(as.raster(img, max = 255L), 1, h, w, 1)
 
     # Draw detected circle
     theta <- seq(0, 2 * pi, length.out = 360)
@@ -334,17 +335,23 @@ save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
 #' @param circle_info  Result from detect_ldir_scan_circle()
 #' @param output_path  Path for the debug PNG
 save_ldir_centroids_px_debug <- function(image_path, pixel_df, circle_info, output_path) {
+  # Background image source: `image_path` argument (canonical PNG if canonicalization ran,
+  # else original LDIR source file).  Rendered via read_image_canonical() -> [H,W,3] uint8 RGB
+  # -> as.raster(img, max=255L) -> graphics::rasterImage().
   tryCatch({
-    img <- read_image_any(image_path, verbose = FALSE)
-    if (is.null(img)) return(invisible(NULL))
-    h <- nrow(img); w <- ncol(img)
+    canon <- read_image_canonical(image_path, verbose = FALSE)
+    if (is.null(canon)) return(invisible(NULL))
+    img <- canon$img_rgb
+    h <- canon$height; w <- canon$width
+    assert_not_tiled_montage(img, tag = basename(image_path),
+                              strict = isTRUE(getOption("ldir_strict_sanity")))
     cx_pts <- pixel_df$centroid_px_x
     cy_pts <- pixel_df$centroid_px_y
     grDevices::png(output_path, width = w, height = h)
     par(mar = c(0, 0, 0, 0))
     plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1), asp = 1, axes = FALSE,
          xlab = "", ylab = "")
-    if (length(dim(img)) == 3) graphics::rasterImage(img, 1, h, w, 1)
+    graphics::rasterImage(as.raster(img, max = 255L), 1, h, w, 1)
     if (!is.null(circle_info) && isTRUE(circle_info$detected)) {
       theta <- seq(0, 2 * pi, length.out = 360)
       lines(circle_info$cx_px + circle_info$radius_px * cos(theta),
@@ -404,6 +411,25 @@ save_ldir_calibration <- function(circle_info, scan_diam_um, scale_um_per_px,
 }
 
 
+#' Single source of truth for the LDIR µm-per-pixel scale factor
+#'
+#' Priority: (1) explicit config override, (2) pre-computed in circle_info,
+#' (3) derived from scan diameter / detected radius.
+#'
+#' @param circle_info Result from detect_ldir_scan_circle()
+#' @param config      Optional pipeline config list
+#' @return Numeric: µm per pixel
+ldir_um_per_px <- function(circle_info, config = NULL) {
+  if (!is.null(config$ldir_um_per_px) && is.numeric(config$ldir_um_per_px) &&
+      config$ldir_um_per_px > 0)
+    return(config$ldir_um_per_px)
+  if (!is.null(circle_info$scale_um_per_px) && circle_info$scale_um_per_px > 0)
+    return(circle_info$scale_um_per_px)
+  scan_r_um <- (config$ldir_scan_diameter_um %||% 13000) / 2
+  scan_r_um / circle_info$radius_px
+}
+
+
 #' Map particle pixel centroids to µm using scan-circle calibration
 #'
 #' Uses the detected scan circle center and radius to compute a
@@ -459,6 +485,26 @@ extract_ldir_image_coords <- function(image_path,
 
   # --- Step 1: Detect scan circle for calibrated mapping ---
   circle_info <- detect_ldir_scan_circle(image_path)
+
+  # --- Manual circle override + hard failure guard ---
+  if (!isTRUE(circle_info$detected)) {
+    mc <- if (!is.null(config)) config$ldir_circle_manual else NULL
+    if (!is.null(mc) && is.numeric(mc$cx) && is.numeric(mc$cy) && is.numeric(mc$r)) {
+      log_message("  Using manual circle override: cx=", mc$cx,
+                  " cy=", mc$cy, " r=", mc$r)
+      circle_info <- list(
+        cx_px      = mc$cx, cy_px = mc$cy, radius_px = mc$r,
+        width      = circle_info$width,  height    = circle_info$height,
+        edge_gap_px = NA_real_,          export_type = "manual",
+        detected   = TRUE,               method     = "manual"
+      )
+    } else {
+      stop("LDIR circle detection failed for: ", image_path, "\n",
+           "  Cannot compute reliable LDIR coordinates.\n",
+           "  Either fix the LDIR image or set in config:\n",
+           "    config$ldir_circle_manual = list(cx = <px>, cy = <px>, r = <px>)")
+    }
+  }
 
   scan_diam_um <- if (!is.null(config$ldir_scan_diameter_um)) {
     config$ldir_scan_diameter_um
