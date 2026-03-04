@@ -3,6 +3,17 @@
 # =============================================================================
 
 #' Create default configuration
+#' 
+#' # ---- Python configuration (must run before any reticulate use) ----
+
+Sys.setenv(RETICULATE_USE_UV = "0")  # prevents uv auto-install attempts
+
+if (requireNamespace("reticulate", quietly = TRUE)) {
+  reticulate::use_python(
+    "C:/Program Files/Python314/python.exe",
+    required = TRUE
+  )
+}
 #'
 #' Returns a list of all pipeline parameters. Modify this function or override
 #' individual values in main.R to adjust the pipeline behavior.
