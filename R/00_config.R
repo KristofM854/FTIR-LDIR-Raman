@@ -61,6 +61,11 @@ make_config <- function(ftir_path  = NULL,
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
     icp_max_rotation_deg = 90,    # |rotation| above this → WARN (likely spurious)
 
+    # Manual scan-circle override (pixels). NULL = auto-detect (recommended).
+    # Set when detect_ldir_scan_circle() fails and prints the hard-stop message:
+    #   config$ldir_circle_manual = list(cx = 1000, cy = 1000, r = 950)
+    ldir_circle_manual = NULL,
+
     # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
     # Example: c("A3" = "A3", "MP_11" = "Raman_190")
     # NULL = no explicit map, fall back to size-based landmark RANSAC

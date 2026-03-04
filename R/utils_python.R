@@ -204,12 +204,20 @@ detect_ldir_scan_circle_python <- function(image_path) {
 
   if (is.null(result)) return(NULL)
 
+  # Reject the Python fallback: fallback_center is image-centre + 95% radius,
+  # indistinguishable from a real detection but unreliable.
+  met <- as.character(result$method)
+  if (identical(met, "fallback_center")) {
+    log_message("  Python circle detection returned fallback_center — treating as failure",
+                level = "WARN")
+    return(NULL)
+  }
+
   cx  <- as.numeric(result$cx)
   cy  <- as.numeric(result$cy)
   r   <- as.numeric(result$r)
   w   <- as.integer(result$width)
   h   <- as.integer(result$height)
-  met <- as.character(result$method)
 
   edge_gap <- min(cx, cy, w - cx, h - cy) - r
   export_type <- if (abs(edge_gap) <= 15) "scan_only" else "full_field"
