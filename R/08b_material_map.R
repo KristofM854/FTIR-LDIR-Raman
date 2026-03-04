@@ -155,35 +155,6 @@ classify_category_vec <- function(families) {
 }
 
 
-#' Score tiered agreement between two material names
-#'
-#' Returns one of:
-#'   "Exact"   — same canonical family AND same canonical name
-#'   "Family"  — same family but different canonical name
-#'   "Disagree" — different families
-#'
-#' @param ftir_name Raw FTIR material name
-#' @param raman_name Raw Raman material name
-#' @param families Polymer family definitions
-#' @return Character scalar: "Exact", "Family", or "Disagree"
-score_tiered_agreement <- function(ftir_name, raman_name,
-                                   families = default_polymer_families) {
-  ftir_fam  <- classify_family(ftir_name, families)
-  raman_fam <- classify_family(raman_name, families)
-
-  if (ftir_fam == "Unknown" || raman_fam == "Unknown") return("Disagree")
-  if (ftir_fam != raman_fam) return("Disagree")
-
-  # Same family — check if canonical names match exactly
-  ftir_canon  <- toupper(trimws(ftir_name))
-  raman_canon <- toupper(trimws(raman_name))
-  if (ftir_canon == raman_canon) return("Exact")
-
-  # Same family, different raw names: still "Family"
-  "Family"
-}
-
-
 #' Vectorized tiered agreement scoring
 #'
 #' @param ftir_names Character vector of raw FTIR material names
