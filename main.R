@@ -49,6 +49,7 @@ source("R/07_match.R")
 source("R/08_agreement.R")
 source("R/08b_material_map.R")
 source("R/09_diagnostics.R")
+source("R/10_alignment_diagnostics.R")
 source("R/10_export.R")
 
 # ---------------------------------------------------------------------------
@@ -699,31 +700,58 @@ if (has_ldir && !is.null(ldir_raw)) {
         n_inliers = ldir_landmark_result$n_inliers
       )
     } else if (!use_procrustes_final) {
-      # Tier 2: Material-based RANSAC (fallback)
+      # Tier 2: Material-based RANSAC (default) or descriptor RANSAC (opt-in)
       log_message(strrep("-", 50))
-      log_message("  LDIR Tier 2: Material-based RANSAC alignment")
-      ldir_for_align <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
-      if (!is.null(config$align_ldir_materials)) {
-        ldir_mat_mask <- grepl(
-          paste(config$align_ldir_materials, collapse = "|"),
-          ldir_for_align$material, ignore.case = TRUE
-        )
-        if (sum(ldir_mat_mask) >= 4) {
-          ldir_for_align <- ldir_for_align[ldir_mat_mask, ]
-        } else {
-          log_message("  Insufficient LDIR anchor materials (",
-                      sum(ldir_mat_mask),
-                      ") — using all LDIR particles for alignment")
+
+      if (isTRUE(config$ldir_use_descriptor_ransac)) {
+        log_message("  LDIR Tier 2: Descriptor RANSAC alignment")
+        ldir_for_align <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+        log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
+
+        ldir_ransac <- tryCatch({
+          descriptor_ransac_align(
+            ldir_for_align, raman_norm_align, config,
+            scale_min     = config$icp_min_scale        %||% 0.5,
+            scale_max     = config$icp_max_scale        %||% 2.0,
+            rot_limit_deg = config$icp_max_rotation_deg %||% 90
+          )
+        }, error = function(e) {
+          log_message("  Descriptor RANSAC failed: ", e$message, level = "WARN")
+          NULL
+        })
+
+        if (is.null(ldir_ransac)) {
+          log_message("  Descriptor RANSAC returned NULL — falling back to material RANSAC",
+                      level = "WARN")
+          config$ldir_use_descriptor_ransac <- FALSE  # force fallback in logging
         }
       }
-      log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
 
-      ldir_ransac <- tryCatch({
-        ransac_align(ldir_for_align, raman_norm_align, config)
-      }, error = function(e) {
-        log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
-        NULL
-      })
+      if (!isTRUE(config$ldir_use_descriptor_ransac)) {
+        log_message("  LDIR Tier 2: Material-based RANSAC alignment")
+        ldir_for_align <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
+        if (!is.null(config$align_ldir_materials)) {
+          ldir_mat_mask <- grepl(
+            paste(config$align_ldir_materials, collapse = "|"),
+            ldir_for_align$material, ignore.case = TRUE
+          )
+          if (sum(ldir_mat_mask) >= 4) {
+            ldir_for_align <- ldir_for_align[ldir_mat_mask, ]
+          } else {
+            log_message("  Insufficient LDIR anchor materials (",
+                        sum(ldir_mat_mask),
+                        ") — using all LDIR particles for alignment")
+          }
+        }
+        log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
+
+        ldir_ransac <- tryCatch({
+          ransac_align(ldir_for_align, raman_norm_align, config)
+        }, error = function(e) {
+          log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
+          NULL
+        })
+      }
     } else {
       # Procrustes locked — still set ldir_ransac from Procrustes for logging
       ldir_ransac <- list(
@@ -837,16 +865,60 @@ if (has_ldir && !is.null(ldir_raw)) {
       ldir_aligned$y_aligned <- ldir_tf$y_transformed
       # Tag which transform path was used (for provenance in debug CSV)
       ldir_aligned$align_method <- if (use_procrustes_final) "procrustes" else
-                                    if (use_ldir_landmark) "landmark_ransac" else "ransac_icp"
+                                    if (use_ldir_landmark) "landmark_ransac" else
+                                    if (isTRUE(config$ldir_use_descriptor_ransac))
+                                      "descriptor_ransac" else "ransac_icp"
 
-      # Unconditional LDIR–Raman overlay diagnostic (always written; lightweight)
+      # --- Transform guardrails ---
       tryCatch({
-        diag_dir <- file.path(config$output_dir, "debug")
+        .M      <- ldir_icp$transform
+        .a      <- .M[1, 1]; .b <- .M[2, 1]
+        .tf_sc  <- sqrt(.a^2 + .b^2)
+        .tf_rot <- atan2(.b, .a) * 180 / pi
+        .tf_tx  <- .M[1, 3]; .tf_ty <- .M[2, 3]
+        .fov_um <- config$ldir_scan_diameter_um %||% 13000
+        if (.tf_sc < (config$icp_min_scale %||% 0.5) ||
+            .tf_sc > (config$icp_max_scale %||% 2.0))
+          log_message("  ALIGNMENT GUARDRAIL: scale=", round(.tf_sc, 3),
+                      " outside [", config$icp_min_scale %||% 0.5, ", ",
+                      config$icp_max_scale %||% 2.0,
+                      "] — transform may be unreliable", level = "WARN")
+        if (abs(.tf_rot) > (config$icp_max_rotation_deg %||% 90))
+          log_message("  ALIGNMENT GUARDRAIL: rotation=", round(.tf_rot, 1),
+                      "\u00b0 > ", config$icp_max_rotation_deg %||% 90,
+                      "\u00b0 — likely spurious rotation", level = "WARN")
+        if (sqrt(.tf_tx^2 + .tf_ty^2) > .fov_um)
+          log_message("  ALIGNMENT GUARDRAIL: translation=",
+                      round(sqrt(.tf_tx^2 + .tf_ty^2)), " \u00b5m > FOV (",
+                      .fov_um, " \u00b5m) — possible offset error", level = "WARN")
+      }, error = function(e)
+        log_message("  Guardrail check failed: ", e$message, level = "WARN"))
+
+      # --- Alignment diagnostics (residuals, quiver, stats, audit) ---
+      tryCatch({
+        .residuals_for_overlay <- compute_alignment_residuals(ldir_aligned, raman_clean)
+        write_alignment_diagnostics(
+          ldir_aligned     = ldir_aligned,
+          raman_clean      = raman_clean,
+          ldir_norm_params = ldir_norm_params,
+          norm_result      = norm_result,
+          ldir_icp         = ldir_icp,
+          config           = config
+        )
+      }, error = function(e) {
+        log_message("  Alignment diagnostics failed: ", e$message, level = "WARN")
+        .residuals_for_overlay <- NULL
+      })
+
+      # --- Overlay diagnostic PNG (with optional residual arrows) ---
+      tryCatch({
+        diag_dir   <- file.path(config$output_dir, "debug")
         if (!dir.exists(diag_dir)) dir.create(diag_dir, recursive = TRUE)
         ldir_diag  <- ldir_aligned[is.finite(ldir_aligned$x_aligned) &
                                     is.finite(ldir_aligned$y_aligned), ]
         raman_diag <- raman_clean[is.finite(raman_clean$x_norm) &
                                    is.finite(raman_clean$y_norm), ]
+
         p_overlay <- ggplot2::ggplot() +
           ggplot2::geom_point(data = raman_diag,
                               ggplot2::aes(x = x_norm, y = y_norm),
@@ -857,15 +929,54 @@ if (has_ldir && !is.null(ldir_raw)) {
           ggplot2::coord_fixed() + ggplot2::theme_minimal() +
           ggplot2::labs(
             title    = "LDIR-Raman overlay diagnostic",
-            subtitle = paste0("LDIR: green triangles (x_aligned/y_aligned)  |  ",
-                              "Raman: blue circles (x_norm/y_norm)"),
+            subtitle = paste0("LDIR: green \u25b2 (x_aligned/y_aligned)  |  ",
+                              "Raman: blue \u25cb (x_norm/y_norm)  |  ",
+                              "Orange arrows: residuals (up to 150)"),
             x = "\u00b5m", y = "\u00b5m"
           )
+
+        # Add residual arrows if available (downsampled to 150)
+        if (exists(".residuals_for_overlay") &&
+            !is.null(.residuals_for_overlay) &&
+            nrow(.residuals_for_overlay) > 0) {
+          arrow_df <- if (nrow(.residuals_for_overlay) > 150)
+            .residuals_for_overlay[sample.int(nrow(.residuals_for_overlay), 150), ]
+          else .residuals_for_overlay
+          p_overlay <- p_overlay +
+            ggplot2::geom_segment(
+              data = arrow_df,
+              ggplot2::aes(x = ldir_x_aligned, y = ldir_y_aligned,
+                           xend = raman_x_norm,  yend = raman_y_norm),
+              colour = "orange", alpha = 0.45, linewidth = 0.35,
+              arrow  = ggplot2::arrow(length = ggplot2::unit(0.06, "inches"),
+                                      type   = "open")
+            )
+        }
+
         ggplot2::ggsave(file.path(diag_dir, "ldir_raman_overlay_diag.png"),
                         p_overlay, width = 8, height = 8, dpi = 150)
         log_message("  Overlay diagnostic saved: ", diag_dir, "/ldir_raman_overlay_diag.png")
       }, error = function(e)
         log_message("  Could not save overlay diagnostic: ", e$message, level = "WARN"))
+
+      # --- Persist alignment method + matrix to manifest ---
+      tryCatch({
+        .align_method_str <- ldir_aligned$align_method[1] %||% "ransac_icp"
+        update_manifest_ldir_circle(config$output_dir, .ldir_circle_info)  # refresh
+        m_path <- file.path(config$output_dir, "manifest.json")
+        if (file.exists(m_path) && requireNamespace("jsonlite", quietly = TRUE)) {
+          m_upd <- jsonlite::fromJSON(m_path, simplifyVector = FALSE)
+          m_upd$ldir_raman_alignment_method <- .align_method_str
+          m_upd$ldir_raman_similarity_matrix <- lapply(
+            seq_len(nrow(ldir_icp$transform)),
+            function(i) as.numeric(ldir_icp$transform[i, ])
+          )
+          writeLines(jsonlite::toJSON(m_upd, pretty = TRUE, auto_unbox = TRUE,
+                                       null = "null", na = "null"), m_path)
+        }
+      }, error = function(e)
+        log_message("  Could not persist alignment to manifest: ", e$message,
+                    level = "WARN"))
 
       # Step 4: Assert aligned coordinates exist before any plotting
       stopifnot(all(c("x_aligned", "y_aligned") %in% colnames(ldir_aligned)))
