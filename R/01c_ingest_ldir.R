@@ -468,10 +468,23 @@ extract_ldir_image_coords <- function(image_path,
     13000
   }
 
-  # Save circle debug artifacts (always written, not just debug mode,
-  # because they are lightweight and critical for diagnosing extraction quality)
-  debug_dir <- if (!is.null(config) && !is.null(config$debug_dir)) config$debug_dir else NULL
-  if (!is.null(debug_dir)) {
+  # Pixel-space diagnostic images are written unconditionally to the run's
+  # debug/ subfolder (output_dir/debug/).  If debug=TRUE the same images are
+  # also written to config$debug_dir for backward compatibility.
+  debug_dir       <- if (!is.null(config) && !is.null(config$debug_dir)) config$debug_dir else NULL
+  pixel_diag_dir  <- if (!is.null(config) && !is.null(config$output_dir)) {
+    file.path(config$output_dir, "debug")
+  } else {
+    debug_dir   # fallback: use debug_dir if output_dir not set
+  }
+  if (!is.null(pixel_diag_dir)) {
+    if (!dir.exists(pixel_diag_dir))
+      dir.create(pixel_diag_dir, recursive = TRUE, showWarnings = FALSE)
+    save_ldir_circle_debug(image_path, circle_info,
+                           file.path(pixel_diag_dir, "ldir_circle_detection.png"))
+  }
+  # Also write to legacy debug_dir when debug=TRUE and it differs from pixel_diag_dir
+  if (!is.null(debug_dir) && !identical(debug_dir, pixel_diag_dir)) {
     save_ldir_circle_debug(image_path, circle_info,
                            file.path(debug_dir, "ldir_circle_debug.png"))
   }
@@ -488,12 +501,20 @@ extract_ldir_image_coords <- function(image_path,
   }
 
   # --- Step 2b: Save pixel-space centroid overlay (always; key diagnostic) ---
-  if (!is.null(debug_dir) &&
-      all(c("centroid_px_x", "centroid_px_y") %in% names(pixel_particles))) {
-    save_ldir_centroids_px_debug(
-      image_path, pixel_particles, circle_info,
-      file.path(debug_dir, "ldir_centroids_px_debug.png")
-    )
+  if (all(c("centroid_px_x", "centroid_px_y") %in% names(pixel_particles))) {
+    if (!is.null(pixel_diag_dir)) {
+      save_ldir_centroids_px_debug(
+        image_path, pixel_particles, circle_info,
+        file.path(pixel_diag_dir, "ldir_pixel_overlay.png")
+      )
+    }
+    # Legacy debug_dir write
+    if (!is.null(debug_dir) && !identical(debug_dir, pixel_diag_dir)) {
+      save_ldir_centroids_px_debug(
+        image_path, pixel_particles, circle_info,
+        file.path(debug_dir, "ldir_centroids_px_debug.png")
+      )
+    }
   }
 
   # --- Step 2c: Remove particles outside the scan circle ---
