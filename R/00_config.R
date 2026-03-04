@@ -51,6 +51,16 @@ make_config <- function(ftir_path  = NULL,
     # Set to the instrument-specific value, e.g. raman_um_per_px = 2.5
     raman_um_per_px = NULL,
 
+    # --- Descriptor RANSAC (optional Tier 2 replacement) ---
+    # Set TRUE to use descriptor-based RANSAC instead of the coarse-grid material
+    # RANSAC for LDIR→Raman alignment.  Backward-compatible default: FALSE.
+    ldir_use_descriptor_ransac = FALSE,
+
+    # Transform guardrail thresholds (applied to every alignment path):
+    icp_min_scale        = 0.5,   # scale below this → WARN (likely degenerate)
+    icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
+    icp_max_rotation_deg = 90,    # |rotation| above this → WARN (likely spurious)
+
     # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
     # Example: c("A3" = "A3", "MP_11" = "Raman_190")
     # NULL = no explicit map, fall back to size-based landmark RANSAC
