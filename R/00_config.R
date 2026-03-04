@@ -43,7 +43,13 @@ make_config <- function(ftir_path  = NULL,
                              "Polycarbonate"),
     ldir_quality_threshold = 0.6,  # Agilent quality score (0-1)
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
-    ldir_flip_y_for_alignment = TRUE,  # negate y_norm to undo image Y-flip
+    ldir_flip_y_for_alignment = FALSE, # map_pixels_to_um_circle already inverts y;
+                                       # Raman y is also upward — no second flip needed
+
+    # Fixed µm-per-pixel scale for the Raman microscope image.
+    # NULL = fall back to particle-extent method (may cause systematic viewer drift).
+    # Set to the instrument-specific value, e.g. raman_um_per_px = 2.5
+    raman_um_per_px = NULL,
 
     # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
     # Example: c("A3" = "A3", "MP_11" = "Raman_190")

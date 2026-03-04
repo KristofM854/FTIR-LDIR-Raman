@@ -544,11 +544,21 @@ if (has_ldir && !is.null(ldir_raw)) {
     )
 
     # Step 1: Circle-calibrated extraction (replaces full-image bounds mapping)
-    ldir_image_particles <- extract_ldir_image_coords(
+    # Returns list(particles = ..., circle_info = ...)
+    ldir_extract_result  <- extract_ldir_image_coords(
       ldir_img_for_extraction,
       scan_bounds    = ldir_scan_bounds,
       expected_count = nrow(ldir_clean),
       config         = config
+    )
+    ldir_image_particles <- ldir_extract_result$particles
+    .ldir_circle_info    <- ldir_extract_result$circle_info
+
+    # Persist circle calibration to manifest so Shiny can compute correct bounds
+    tryCatch(
+      update_manifest_ldir_circle(config$output_dir, .ldir_circle_info),
+      error = function(e)
+        log_message("  Could not update manifest ldir_circle: ", e$message, level = "WARN")
     )
 
     # Save raw image-extracted coordinates (before join) for Shiny viewer
@@ -828,6 +838,34 @@ if (has_ldir && !is.null(ldir_raw)) {
       # Tag which transform path was used (for provenance in debug CSV)
       ldir_aligned$align_method <- if (use_procrustes_final) "procrustes" else
                                     if (use_ldir_landmark) "landmark_ransac" else "ransac_icp"
+
+      # Unconditional LDIR–Raman overlay diagnostic (always written; lightweight)
+      tryCatch({
+        diag_dir <- file.path(config$output_dir, "debug")
+        if (!dir.exists(diag_dir)) dir.create(diag_dir, recursive = TRUE)
+        ldir_diag  <- ldir_aligned[is.finite(ldir_aligned$x_aligned) &
+                                    is.finite(ldir_aligned$y_aligned), ]
+        raman_diag <- raman_clean[is.finite(raman_clean$x_norm) &
+                                   is.finite(raman_clean$y_norm), ]
+        p_overlay <- ggplot2::ggplot() +
+          ggplot2::geom_point(data = raman_diag,
+                              ggplot2::aes(x = x_norm, y = y_norm),
+                              shape = 1, colour = "steelblue", alpha = 0.5, size = 1.5) +
+          ggplot2::geom_point(data = ldir_diag,
+                              ggplot2::aes(x = x_aligned, y = y_aligned),
+                              shape = 2, colour = "forestgreen", alpha = 0.5, size = 1.5) +
+          ggplot2::coord_fixed() + ggplot2::theme_minimal() +
+          ggplot2::labs(
+            title    = "LDIR-Raman overlay diagnostic",
+            subtitle = paste0("LDIR: green triangles (x_aligned/y_aligned)  |  ",
+                              "Raman: blue circles (x_norm/y_norm)"),
+            x = "\u00b5m", y = "\u00b5m"
+          )
+        ggplot2::ggsave(file.path(diag_dir, "ldir_raman_overlay_diag.png"),
+                        p_overlay, width = 8, height = 8, dpi = 150)
+        log_message("  Overlay diagnostic saved: ", diag_dir, "/ldir_raman_overlay_diag.png")
+      }, error = function(e)
+        log_message("  Could not save overlay diagnostic: ", e$message, level = "WARN"))
 
       # Step 4: Assert aligned coordinates exist before any plotting
       stopifnot(all(c("x_aligned", "y_aligned") %in% colnames(ldir_aligned)))
