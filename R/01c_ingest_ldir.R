@@ -484,7 +484,7 @@ extract_ldir_image_coords <- function(image_path,
 
   if (is.null(pixel_particles) || nrow(pixel_particles) == 0) {
     log_message("  No particles extracted from LDIR image")
-    return(.empty_image_df())
+    return(list(particles = .empty_image_df(), circle_info = circle_info))
   }
 
   # --- Step 2b: Save pixel-space centroid overlay (always; key diagnostic) ---
@@ -525,7 +525,10 @@ extract_ldir_image_coords <- function(image_path,
   pixel_particles$y_um <- um_coords$y_um
   pixel_particles$coord_source <- "circle_calibrated"
 
-  # Store calibration metadata as attributes
+  # Augment circle_info with derived scale so callers have a single object
+  circle_info$scale_um_per_px <- scale_um_per_px
+
+  # Store calibration metadata as attributes (backward compat)
   attr(pixel_particles, "circle_cx_px") <- circle_info$cx_px
   attr(pixel_particles, "circle_cy_px") <- circle_info$cy_px
   attr(pixel_particles, "circle_radius_px") <- circle_info$radius_px
@@ -547,7 +550,20 @@ extract_ldir_image_coords <- function(image_path,
               if (fill_pct < 85) " ← LOW: circle radius may be too large" else "")
 
   # --- Save calibration text file (always, not just debug mode) ---
-  if (!is.null(debug_dir)) {
+  output_dir <- if (!is.null(config) && !is.null(config$output_dir)) config$output_dir else NULL
+  calib_dir  <- output_dir %||% debug_dir
+  if (!is.null(calib_dir)) {
+    save_ldir_calibration(
+      circle_info     = circle_info,
+      scan_diam_um    = scan_diam_um,
+      scale_um_per_px = scale_um_per_px,
+      n_particles     = nrow(pixel_particles),
+      max_abs_um      = max_abs_um,
+      output_path     = file.path(calib_dir, "ldir_calibration.txt")
+    )
+  }
+  if (!is.null(debug_dir) && !is.null(output_dir) && debug_dir != output_dir) {
+    # Also write to debug dir for backward compat when debug=TRUE
     save_ldir_calibration(
       circle_info     = circle_info,
       scan_diam_um    = scan_diam_um,
@@ -558,7 +574,7 @@ extract_ldir_image_coords <- function(image_path,
     )
   }
 
-  pixel_particles
+  list(particles = pixel_particles, circle_info = circle_info)
 }
 
 

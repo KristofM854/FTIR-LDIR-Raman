@@ -662,6 +662,40 @@ update_manifest_stage <- function(run_dir, stage, error_msg = NULL) {
 }
 
 
+#' Persist LDIR circle calibration in manifest
+#'
+#' Reads the run manifest, adds/replaces the `ldir_circle` key with the circle
+#' calibration values needed by the Shiny viewer to compute correct image bounds,
+#' then rewrites the manifest.
+#'
+#' @param run_dir Path to the run output directory containing manifest.json
+#' @param circle_info Named list with cx_px, cy_px, radius_px, scale_um_per_px,
+#'   width (image_width_px), height (image_height_px)
+update_manifest_ldir_circle <- function(run_dir, circle_info) {
+  manifest_path <- file.path(run_dir, "manifest.json")
+  if (!file.exists(manifest_path)) return(invisible(NULL))
+  tryCatch({
+    if (requireNamespace("jsonlite", quietly = TRUE)) {
+      m <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+      m$ldir_circle <- list(
+        cx_px           = circle_info$cx_px,
+        cy_px           = circle_info$cy_px,
+        radius_px       = circle_info$radius_px,
+        scale_um_per_px = circle_info$scale_um_per_px,
+        image_width_px  = circle_info$width,
+        image_height_px = circle_info$height
+      )
+      writeLines(jsonlite::toJSON(m, pretty = TRUE, auto_unbox = TRUE,
+                                   null = "null", na = "null"),
+                 manifest_path)
+    }
+  }, error = function(e) {
+    log_message("  update_manifest_ldir_circle failed: ", e$message, level = "WARN")
+  })
+  invisible(manifest_path)
+}
+
+
 # ---------------------------------------------------------------------------
 # Encoding safety for column names
 # ---------------------------------------------------------------------------

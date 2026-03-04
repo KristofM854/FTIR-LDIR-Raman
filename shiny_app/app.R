@@ -633,6 +633,45 @@ server <- function(input, output, session) {
   })
 
   # ------------------------------------------------------------------
+  # Helper: write overlay contract JSON for viewer debugging
+  # ------------------------------------------------------------------
+  # Writes a small JSON file that records the image bounds and particle bounds
+  # for a given instrument viewer, allowing off-line comparison of the two.
+  # The "delta" fields show how much the particle extent deviates from the image
+  # placement — ideally all deltas are < 500 µm.
+  write_overlay_contract <- function(instrument, image_info, points_df, run_dir) {
+    if (is.null(image_info) || is.null(run_dir)) return(invisible(NULL))
+    debug_dir <- file.path(run_dir, "debug")
+    if (!dir.exists(debug_dir))
+      tryCatch(dir.create(debug_dir, recursive = TRUE), error = function(e) NULL)
+    x <- if (!is.null(points_df)) points_df$x_orig[is.finite(points_df$x_orig)] else numeric(0)
+    y <- if (!is.null(points_df)) points_df$y_orig[is.finite(points_df$y_orig)] else numeric(0)
+    info <- list(
+      instrument       = instrument,
+      image_bounds_um  = list(xmin = image_info$xmin, xmax = image_info$xmax,
+                              ymin = image_info$ymin, ymax = image_info$ymax),
+      points_bounds_um = list(xmin = if (length(x) > 0) min(x) else NA_real_,
+                              xmax = if (length(x) > 0) max(x) else NA_real_,
+                              ymin = if (length(y) > 0) min(y) else NA_real_,
+                              ymax = if (length(y) > 0) max(y) else NA_real_),
+      n_points         = length(x)
+    )
+    info$delta_bounds_um <- list(
+      xmin = info$points_bounds_um$xmin - info$image_bounds_um$xmin,
+      xmax = info$points_bounds_um$xmax - info$image_bounds_um$xmax,
+      ymin = info$points_bounds_um$ymin - info$image_bounds_um$ymin,
+      ymax = info$points_bounds_um$ymax - info$image_bounds_um$ymax
+    )
+    path <- file.path(debug_dir, paste0("overlay_contract_", instrument, ".json"))
+    tryCatch(
+      writeLines(jsonlite::toJSON(info, pretty = TRUE, auto_unbox = TRUE, null = "null"),
+                 path),
+      error = function(e) NULL
+    )
+    invisible(path)
+  }
+
+  # ------------------------------------------------------------------
   # Raw image rasters
   # ------------------------------------------------------------------
   ftir_raw_image    <- reactiveVal(NULL)   # FTIR "Average Abs" image
@@ -658,19 +697,38 @@ server <- function(input, output, session) {
          ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
   })
 
-  # Raman tab: image placed at the actual particle extent (x_orig / y_orig).
-  # Same physical image as the Overlay tab — both show the Raman microscope photo.
-  # Direct particle bounds avoids aspect-ratio distortion from compute_image_bounds().
+  # Raman tab: image placed using a fixed µm/pixel scale when available
+  # (raman_um_per_px in config), centred on the particle cloud centroid.
+  # Falls back to the particle-extent method when the scale is not configured.
   raman_native_image_info <- reactive({
     raw <- raman_image()
     if (is.null(raw)) return(NULL)
     raman_df <- raman_df_full()
-    if (is.null(raman_df) || nrow(raman_df) == 0) return(NULL)
-    x_vals <- raman_df$x_orig[is.finite(raman_df$x_orig)]
-    y_vals <- raman_df$y_orig[is.finite(raman_df$y_orig)]
-    if (length(x_vals) == 0) return(NULL)
     ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
     oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
+
+    x_vals <- if (!is.null(raman_df)) raman_df$x_orig[is.finite(raman_df$x_orig)] else numeric(0)
+    y_vals <- if (!is.null(raman_df)) raman_df$y_orig[is.finite(raman_df$y_orig)] else numeric(0)
+
+    # Fixed-scale placement (correct when raman_um_per_px is configured)
+    um_per_px <- tryCatch({
+      d <- active_manifest()$config_snapshot$raman_um_per_px
+      if (!is.null(d) && is.numeric(d) && d > 0) d else NULL
+    }, error = function(e) NULL)
+
+    if (!is.null(um_per_px)) {
+      h_px <- nrow(raw); w_px <- ncol(raw)
+      cx_um <- if (length(x_vals) > 0) mean(x_vals) else 0
+      cy_um <- if (length(y_vals) > 0) mean(y_vals) else 0
+      half_w <- w_px * um_per_px / 2
+      half_h <- h_px * um_per_px / 2
+      return(list(raster = raw,
+                  xmin = cx_um - half_w + ox, xmax = cx_um + half_w + ox,
+                  ymin = cy_um - half_h + oy, ymax = cy_um + half_h + oy))
+    }
+
+    # Fallback: particle-extent method (may cause systematic drift)
+    if (length(x_vals) == 0) return(NULL)
     list(raster = raw,
          xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
          ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
@@ -715,11 +773,25 @@ server <- function(input, output, session) {
     if (is.null(raw)) return(NULL)
     ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
     oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
-    # Start from scan radius derived from the pipeline's ldir_scan_diameter_um.
-    # Read from manifest config_snapshot so this always matches the mapping used
-    # during extraction. Default 13000 µm (13 mm filter) if not in manifest.
+
+    m <- tryCatch(active_manifest(), error = function(e) NULL)
+
+    # Circle-based bounds: derive exact image placement from scan-circle calibration.
+    # cx_px/cy_px are the circle centre in pixel space; scale_um_per_px converts
+    # pixels to µm.  The image spans from -cx_px*scale to (w-cx_px)*scale in x
+    # and from (cy_px-h)*scale to cy_px*scale in y (y upward, row 0 = ymax).
+    ci <- if (!is.null(m)) m$ldir_circle else NULL
+    if (!is.null(ci) && !is.null(ci$scale_um_per_px) && ci$scale_um_per_px > 0) {
+      s  <- ci$scale_um_per_px
+      cx <- ci$cx_px;  cy <- ci$cy_px
+      w  <- ci$image_width_px;  h <- ci$image_height_px
+      return(list(raster = raw,
+                  xmin = -cx * s + ox,      xmax = (w - cx) * s + ox,
+                  ymin = (cy - h) * s + oy, ymax = cy * s + oy))
+    }
+
+    # Fallback: symmetric ±half_um from scan diameter (old behaviour)
     scan_diam_um <- tryCatch({
-      m <- active_manifest()
       d <- m$config_snapshot$ldir_scan_diameter_um
       if (!is.null(d) && is.numeric(d) && d > 0) as.integer(d) else 13000L
     }, error = function(e) 13000L)
@@ -738,6 +810,24 @@ server <- function(input, output, session) {
     list(raster = raw,
          xmin = -half_um + ox, xmax = half_um + ox,
          ymin = -half_um + oy, ymax = half_um + oy)
+  })
+
+  # Write overlay contract JSONs whenever image info or particles change.
+  # These lightweight JSON files record image placement vs. particle extent,
+  # making it easy to verify alignment without opening the Shiny app.
+  observe({
+    ii  <- raman_native_image_info()
+    df  <- raman_df_full()
+    run <- selected_run_dir()
+    if (!is.null(ii) && !is.null(run))
+      write_overlay_contract("raman", ii, df, run)
+  })
+  observe({
+    ii  <- ldir_native_image_info()
+    df  <- ldir_df_full()
+    run <- selected_run_dir()
+    if (!is.null(ii) && !is.null(run))
+      write_overlay_contract("ldir", ii, df, run)
   })
 
   # Load instrument images from the run manifest (manifest-driven, no hardcoded paths)
