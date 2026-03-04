@@ -583,6 +583,15 @@ if (has_ldir && !is.null(ldir_raw)) {
 
     n_with_coords <- sum(!is.na(ldir_with_coords$x_um))
     has_ldir_coords <- n_with_coords >= 10
+
+    # Guard: skip alignment if the circle was not reliably detected — coordinates
+    # derived from image-centre fallback are not trustworthy enough for alignment.
+    if (has_ldir_coords && !isTRUE(.ldir_circle_info$detected)) {
+      log_message("  LDIR circle not reliably detected — skipping LDIR alignment",
+                  level = "WARN")
+      has_ldir_coords <- FALSE
+    }
+
     log_message("  LDIR particles with coordinates: ", n_with_coords,
                 " of ", nrow(ldir_with_coords))
   }

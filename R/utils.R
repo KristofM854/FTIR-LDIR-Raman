@@ -355,6 +355,127 @@ read_image_any <- function(path, verbose = TRUE) {
 }
 
 
+#' Read an image and return a normalised [H, W, 3] uint8 RGB array
+#'
+#' Wraps read_image_any() and guarantees the output is an integer array with
+#' dimensions [H, W, 3] (rows, cols, RGB channels) in the 0-255 range.
+#' RGBA images are composited over a white background (alpha pre-multiplied).
+#' Grayscale images are replicated to three channels.
+#'
+#' @param path    Image file path
+#' @param verbose Passed to read_image_any()
+#' @return List with img_rgb ([H,W,3] integer), width, height, format; or NULL on failure
+read_image_canonical <- function(path, verbose = FALSE) {
+  arr <- read_image_any(path, verbose = verbose)   # [H, W, C], values 0-1 float
+  if (is.null(arr)) return(NULL)
+
+  # Ensure 3-dim array even for a 2-D grayscale result
+  if (length(dim(arr)) < 3) {
+    arr <- array(arr, dim = c(nrow(arr), ncol(arr), 1L))
+  }
+
+  h    <- dim(arr)[1]
+  w    <- dim(arr)[2]
+  n_ch <- dim(arr)[3]
+
+  if (n_ch == 1L) {
+    rgb <- array(round(arr[,,1] * 255), dim = c(h, w, 3L))
+  } else if (n_ch == 3L) {
+    rgb <- array(round(arr * 255), dim = c(h, w, 3L))
+  } else {
+    # n_ch >= 4: composite over white background
+    alpha <- arr[,,4]
+    rgb   <- array(0L, dim = c(h, w, 3L))
+    for (k in 1:3) rgb[,,k] <- round((arr[,,k] * alpha + (1 - alpha)) * 255)
+  }
+  storage.mode(rgb) <- "integer"
+  list(img_rgb = rgb, width = w, height = h,
+       format = guess_image_type(path))
+}
+
+
+#' Downsample a [H, W, 3] uint8 array to at most max_dim on its longest side
+#'
+#' Uses magick for quality-preserving resizing when available; falls back to
+#' nearest-neighbour sub-sampling.
+#'
+#' @param img_rgb [H, W, 3] integer array (0-255)
+#' @param max_dim Maximum size of the longest dimension
+#' @return Downsampled [H2, W2, 3] integer array (or img_rgb unchanged if small enough)
+make_preview_image <- function(img_rgb, max_dim = 1200L) {
+  h <- nrow(img_rgb); w <- ncol(img_rgb)
+  if (max(h, w) <= max_dim) return(img_rgb)
+  scale <- max_dim / max(h, w)
+  nh <- as.integer(round(h * scale))
+  nw <- as.integer(round(w * scale))
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    tryCatch({
+      # magick::image_read accepts [H,W,3] integer 0-255 directly
+      mg  <- magick::image_read(img_rgb)
+      mg  <- magick::image_scale(mg, paste0(nw, "x", nh, "!"))
+      raw <- magick::image_data(
+               magick::image_convert(mg, colorspace = "sRGB"),
+               channels = "rgb")
+      vals <- if (is.character(raw)) strtoi(raw, base = 16L) else as.integer(raw)
+      out  <- array(vals, dim = c(3L, nw, nh))
+      out  <- aperm(out, c(3L, 2L, 1L))        # [3,W,H] -> [H,W,3]
+      storage.mode(out) <- "integer"
+      return(out)
+    }, error = function(e) NULL)
+  }
+
+  # Fallback: nearest-neighbour
+  row_idx <- as.integer(round(seq(1, h, length.out = nh)))
+  col_idx <- as.integer(round(seq(1, w, length.out = nw)))
+  img_rgb[row_idx, col_idx, , drop = FALSE]
+}
+
+
+#' Warn (or stop) when an image appears to be a tiled / repeated montage
+#'
+#' Compares mean and SD of luminance in each quadrant.  If at least two pairs
+#' of quadrants are near-identical the image is likely a repeated mosaic layout
+#' rather than a single continuous scan field.
+#'
+#' @param img_rgb [H, W, 3] integer array (0-255), or a 2-D grayscale array
+#' @param tag     Short name used in the warning message (e.g. basename)
+#' @param strict  If TRUE, stop() instead of log a warning
+#' @return Invisibly: number of near-identical quadrant pairs found (0-6)
+assert_not_tiled_montage <- function(img_rgb, tag, strict = FALSE) {
+  if (is.null(img_rgb) || length(dim(img_rgb)) < 2) return(invisible(0L))
+  h <- nrow(img_rgb); w <- ncol(img_rgb)
+
+  lum <- if (length(dim(img_rgb)) == 3) {
+    (img_rgb[,,1] + img_rgb[,,2] + img_rgb[,,3]) / 3
+  } else {
+    img_rgb
+  }
+
+  quad <- list(
+    lum[seq_len(h %/% 2L),        seq_len(w %/% 2L)],
+    lum[seq_len(h %/% 2L),        seq(w %/% 2L + 1L, w)],
+    lum[seq(h %/% 2L + 1L, h),    seq_len(w %/% 2L)],
+    lum[seq(h %/% 2L + 1L, h),    seq(w %/% 2L + 1L, w)]
+  )
+  stats_q <- lapply(quad, function(q)
+    c(mean(q, na.rm = TRUE), stats::sd(q, na.rm = TRUE)))
+
+  pairs <- utils::combn(4L, 2L, simplify = FALSE)
+  n_near <- sum(vapply(pairs, function(ij) {
+    abs(stats_q[[ij[1]]][1] - stats_q[[ij[2]]][1]) < 0.03 * 255 &&
+    abs(stats_q[[ij[1]]][2] - stats_q[[ij[2]]][2]) < 0.03 * 255
+  }, logical(1L)))
+
+  if (n_near >= 2L) {
+    msg <- paste0("Image '", tag, "' appears tiled/repeated: ", n_near,
+                  " quadrant pairs are near-identical. Check LDIR image source.")
+    if (strict) stop(msg) else log_message("  WARN: ", msg, level = "WARN")
+  }
+  invisible(n_near)
+}
+
+
 #' Canonicalize an LDIR image to PNG and create a preview
 #'
 #' Canonicalize an instrument image: copy original, write lossless PNG, generate preview.
@@ -683,7 +804,27 @@ update_manifest_ldir_circle <- function(run_dir, circle_info) {
         radius_px       = circle_info$radius_px,
         scale_um_per_px = circle_info$scale_um_per_px,
         image_width_px  = circle_info$width,
-        image_height_px = circle_info$height
+        image_height_px = circle_info$height,
+        method          = circle_info$method %||% "unknown",
+        detected        = isTRUE(circle_info$detected)
+      )
+      m$coord_frames <- list(
+        ldir_native_px = list(
+          origin  = "image_top_left",
+          x_dir   = "right",
+          y_dir   = "down",
+          unit    = "pixels"
+        ),
+        ldir_centered_um = list(
+          origin  = "scan_circle_center",
+          x_dir   = "right",
+          y_dir   = "up",
+          unit    = "micrometres",
+          formula = list(
+            x_um = "(x_px - cx_px) * um_per_px",
+            y_um = "(cy_px - y_px) * um_per_px"
+          )
+        )
       )
       writeLines(jsonlite::toJSON(m, pretty = TRUE, auto_unbox = TRUE,
                                    null = "null", na = "null"),
