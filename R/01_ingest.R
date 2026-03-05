@@ -258,3 +258,25 @@ ingest_raman <- function(filepath, sheet = "Long_Table") {
 
   df
 }
+
+
+# ---------------------------------------------------------------------------
+# FTIR Bruker ingestion (thin alias — same tabular format as PerkinElmer for now)
+# ---------------------------------------------------------------------------
+
+#' Ingest FTIR Bruker particle data
+#'
+#' Reads a Bruker OPUS / ALPHA export using the same column-mapping logic
+#' as ingest_ftir().  The source_instrument column is set to "FTIR_bruker"
+#' so the viewer can distinguish the two FTIR devices.
+#'
+#' @param filepath Path to the FTIR Bruker data file
+#' @param sheet Sheet name for Excel files
+#' @return Data frame with the same standardized columns as ingest_ftir()
+ingest_ftir_bruker <- function(filepath, sheet = "Long_Table") {
+  log_message("Reading FTIR (Bruker) data from: ", filepath)
+  df <- ingest_ftir(filepath, sheet = sheet)
+  df$source_instrument <- "FTIR_bruker"
+  log_message("  FTIR (Bruker): ", nrow(df), " particles")
+  df
+}

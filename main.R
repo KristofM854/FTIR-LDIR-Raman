@@ -66,22 +66,26 @@ if (input_mode == "interactive") {
   file_manifest <- collect_files_interactive()
   grouped       <- group_files_by_instrument(file_manifest)
 
-  ftir_file      <- grouped$FTIR$tabular
-  ftir_image     <- grouped$FTIR$image
-  raman_file     <- grouped$Raman$tabular
-  raman_image    <- grouped$Raman$image
-  ldir_file      <- grouped$LDIR$tabular
-  ldir_image     <- grouped$LDIR$image
+  ftir_file         <- grouped$FTIR_perkin$tabular
+  ftir_image        <- grouped$FTIR_perkin$image
+  ftir_bruker_file  <- grouped$FTIR_bruker$tabular
+  ftir_bruker_image <- grouped$FTIR_bruker$image
+  raman_file        <- grouped$Raman$tabular
+  raman_image       <- grouped$Raman$image
+  ldir_file         <- grouped$LDIR$tabular
+  ldir_image        <- grouped$LDIR$image
 
 } else {
   # ------ Mode 1: Hardcoded paths ------
   # Defaults for test data (set these before sourcing, or leave for defaults)
-  if (!exists("ftir_file"))  ftir_file  <- NULL
-  if (!exists("raman_file")) raman_file <- NULL
-  if (!exists("ldir_file"))   ldir_file   <- NULL
-  if (!exists("ftir_image"))  ftir_image  <- NULL
-  if (!exists("raman_image")) raman_image <- NULL
-  if (!exists("ldir_image"))  ldir_image  <- NULL
+  if (!exists("ftir_file"))         ftir_file         <- NULL
+  if (!exists("raman_file"))        raman_file        <- NULL
+  if (!exists("ldir_file"))         ldir_file         <- NULL
+  if (!exists("ftir_image"))        ftir_image        <- NULL
+  if (!exists("raman_image"))       raman_image       <- NULL
+  if (!exists("ldir_image"))        ldir_image        <- NULL
+  if (!exists("ftir_bruker_file"))  ftir_bruker_file  <- NULL
+  if (!exists("ftir_bruker_image")) ftir_bruker_image <- NULL
 
   # Prompt for mandatory files if not set
   if (is.null(ftir_file)) {
@@ -109,11 +113,13 @@ config <- make_config(
   output_dir = "output"
 )
 
-# Store LDIR path in config
-config$ldir_path  <- if (exists("ldir_file"))  ldir_file  else NULL
-config$ftir_image  <- if (exists("ftir_image"))  ftir_image  else NULL
-config$raman_image <- if (exists("raman_image")) raman_image else NULL
-config$ldir_image  <- if (exists("ldir_image"))  ldir_image  else NULL
+# Store optional device paths in config
+config$ldir_path         <- if (exists("ldir_file"))         ldir_file         else NULL
+config$ftir_bruker_path  <- if (exists("ftir_bruker_file"))  ftir_bruker_file  else NULL
+config$ftir_image        <- if (exists("ftir_image"))        ftir_image        else NULL
+config$raman_image       <- if (exists("raman_image"))       raman_image       else NULL
+config$ldir_image        <- if (exists("ldir_image"))        ldir_image        else NULL
+config$ftir_bruker_image <- if (exists("ftir_bruker_image")) ftir_bruker_image else NULL
 
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
@@ -243,6 +249,16 @@ if (has_ldir) {
   log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
 } else {
   log_message("LDIR: not provided — skipping LDIR analysis")
+}
+
+# --- FTIR Bruker (optional, viewer-only — no cross-instrument alignment) ---
+ftir_bruker_raw <- NULL
+has_ftir_bruker <- !is.null(config$ftir_bruker_path) && nzchar(config$ftir_bruker_path)
+if (has_ftir_bruker) {
+  ftir_bruker_raw <- ingest_ftir_bruker(config$ftir_bruker_path)
+  log_message("FTIR (Bruker) data loaded: ", nrow(ftir_bruker_raw), " particles")
+} else {
+  log_message("FTIR (Bruker): not provided — skipping")
 }
 
 # --- FTIR image scan bounds (for background display only) ---
@@ -1204,6 +1220,14 @@ export_results(
     ldir_image = .ldir_image_info
   )
 )
+
+# Export FTIR Bruker particles (viewer-only; no cross-instrument alignment)
+if (!is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
+  write.csv(ftir_bruker_raw,
+            file.path(config$output_dir, "unmatched_ftir_bruker.csv"),
+            row.names = FALSE)
+  log_message("  Wrote unmatched_ftir_bruker.csv (", nrow(ftir_bruker_raw), " particles)")
+}
 
 # Export composite matches if found
 if (nrow(composites) > 0) {
