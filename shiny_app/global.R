@@ -201,10 +201,11 @@ load_run_data <- function(run_info) {
   if (run_info$format == "subdir") {
     # Simple: files have fixed names in a subdirectory
     file_map <- list(
-      matched         = "matched_particles.csv",
-      unmatched_ftir  = "unmatched_ftir.csv",
-      unmatched_raman = "unmatched_raman.csv",
-      agreement       = "agreement_summary.csv"
+      matched               = "matched_particles.csv",
+      unmatched_ftir        = "unmatched_ftir.csv",
+      unmatched_raman       = "unmatched_raman.csv",
+      agreement             = "agreement_summary.csv",
+      unmatched_ftir_bruker = "unmatched_ftir_bruker.csv"
     )
     for (nm in names(file_map)) {
       fp <- file.path(run_info$dir, file_map[[nm]])
@@ -215,9 +216,9 @@ load_run_data <- function(run_info) {
 
     # LDIR files (optional)
     ldir_map <- list(
-      ldir_raman_matched  = "ldir_raman_matched.csv",
-      unmatched_ldir      = "unmatched_ldir.csv",
-      triplets            = "triplets_3way.csv",
+      ldir_raman_matched   = "ldir_raman_matched.csv",
+      unmatched_ldir       = "unmatched_ldir.csv",
+      triplets             = "triplets_3way.csv",
       ldir_image_extracted = "ldir_image_extracted.csv"
     )
     for (nm in names(ldir_map)) {
@@ -521,7 +522,55 @@ build_instrument_dfs <- function(data) {
   }
   result$ldir <- if (length(ldir_parts) > 0) do.call(rbind, ldir_parts) else NULL
 
+  # --- FTIR Bruker (viewer-only, from unmatched_ftir_bruker.csv) ---
+  if (!is.null(data$unmatched_ftir_bruker) && nrow(data$unmatched_ftir_bruker) > 0) {
+    u <- data$unmatched_ftir_bruker
+    # Column names from ingest_ftir_bruker match unmatched_ftir layout
+    result$ftir_bruker <- data.frame(
+      particle_id  = u$particle_id,
+      x            = u$x_um,
+      y            = u$y_um,
+      x_orig       = u$x_um,
+      y_orig       = u$y_um,
+      area_um2     = u$area_um2,
+      major_um     = u$major_um,
+      minor_um     = u$minor_um,
+      feret_max    = u$feret_max_um,
+      material     = u$material,
+      quality      = u$quality,
+      match_status = "unmatched",
+      match_id     = NA_integer_,
+      stringsAsFactors = FALSE
+    )
+  } else {
+    result$ftir_bruker <- NULL
+  }
+
   result
+}
+
+
+# ---------------------------------------------------------------------------
+# Synthetic plastic families (mirror of 08b_material_map.R; Shiny doesn't
+# source the pipeline R/ directory).
+# ---------------------------------------------------------------------------
+.synthetic_families <- c("PET", "PP", "PE", "PS", "PVC", "PA", "PC",
+                          "PMMA", "PU", "PTFE", "ABS", "Rubber")
+
+#' Count particles per synthetic plastic family in a device data frame.
+#'
+#' @param df Device data frame from build_instrument_dfs() (must have a
+#'   \code{material} column).
+#' @return data.frame(material, n) sorted descending by n, or an empty frame
+#'   when no synthetic plastics are found.
+summarise_plastics <- function(df) {
+  if (is.null(df) || nrow(df) == 0 || !"material" %in% names(df))
+    return(data.frame(material = character(0), n = integer(0)))
+  sub <- df[df$material %in% .synthetic_families, ]
+  if (nrow(sub) == 0)
+    return(data.frame(material = character(0), n = integer(0)))
+  tbl <- sort(table(sub$material), decreasing = TRUE)
+  data.frame(material = names(tbl), n = as.integer(tbl), stringsAsFactors = FALSE)
 }
 
 # ---------------------------------------------------------------------------
