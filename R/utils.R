@@ -379,16 +379,29 @@ read_image_canonical <- function(path, verbose = FALSE) {
   n_ch <- dim(arr)[3]
 
   if (n_ch == 1L) {
-    rgb <- array(round(arr[,,1] * 255), dim = c(h, w, 3L))
+    base <- round(arr[,,1] * 255)
+    rgb  <- array(0L, dim = c(h, w, 3L))
+    rgb[,,1] <- base; rgb[,,2] <- base; rgb[,,3] <- base
   } else if (n_ch == 3L) {
-    rgb <- array(round(arr * 255), dim = c(h, w, 3L))
+    rgb <- round(arr[,,1:3, drop = FALSE] * 255)
   } else {
     # n_ch >= 4: composite over white background
     alpha <- arr[,,4]
-    rgb   <- array(0L, dim = c(h, w, 3L))
+    rgb   <- array(0, dim = c(h, w, 3L))
     for (k in 1:3) rgb[,,k] <- round((arr[,,k] * alpha + (1 - alpha)) * 255)
   }
   storage.mode(rgb) <- "integer"
+
+  stopifnot(
+    length(rgb) == h * w * 3L,
+    dim(rgb)[1] == h, dim(rgb)[2] == w, dim(rgb)[3] == 3L
+  )
+
+  if (isTRUE(verbose)) {
+    log_message("  read_image_canonical: dim=", paste(dim(rgb), collapse = "x"),
+                " range=", paste(range(rgb), collapse = ".."))
+  }
+
   list(img_rgb = rgb, width = w, height = h,
        format = guess_image_type(path))
 }
