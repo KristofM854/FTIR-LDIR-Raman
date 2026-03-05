@@ -136,7 +136,7 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
 #' @param image_path Path to LDIR image file
 #' @return List with cx_px, cy_px, radius_px, width, height, edge_gap_px,
 #'   export_type ("scan_only" or "full_field")
-detect_ldir_scan_circle <- function(image_path) {
+detect_ldir_scan_circle <- function(image_path, config = NULL) {
   detected_fmt <- guess_image_type(image_path)
   ext_type     <- toupper(tools::file_ext(image_path))
   if (detected_fmt != "unknown" && detected_fmt != ext_type) {
@@ -154,6 +154,16 @@ detect_ldir_scan_circle <- function(image_path) {
   h <- nrow(img)
   w <- ncol(img)
 
+  # --- Forced mosaic mode: skip circle detection entirely ---
+  export_fmt <- if (!is.null(config$ldir_export_format)) config$ldir_export_format else "auto"
+  if (identical(export_fmt, "mosaic")) {
+    log_message("  Scan circle: ldir_export_format='mosaic' -- using full-image bounds")
+    return(list(cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
+                width = w, height = h, edge_gap_px = 0,
+                export_type = "mosaic_full_field",
+                detected = TRUE, method = "mosaic_forced"))
+  }
+
   # Helper: sanity-check a candidate circle and return TRUE if plausible
   .circle_sane <- function(cx, cy, r, w, h) {
     cx_ok <- abs(cx - w / 2) < 0.15 * w
@@ -162,8 +172,39 @@ detect_ldir_scan_circle <- function(image_path) {
     cx_ok && cy_ok && r_ok
   }
 
-  # Image-centre fallback used when every method fails sanity check
-  .fallback <- function(w, h) {
+  # Quadrant-similarity check on float [0,1] brightness matrix
+  .is_tiled_mosaic <- function(brightness) {
+    bh <- nrow(brightness); bw <- ncol(brightness)
+    hh <- bh %/% 2L; hw <- bw %/% 2L
+    quad <- list(
+      brightness[seq_len(hh),       seq_len(hw)],
+      brightness[seq_len(hh),       seq(hw + 1L, bw)],
+      brightness[seq(hh + 1L, bh),  seq_len(hw)],
+      brightness[seq(hh + 1L, bh),  seq(hw + 1L, bw)]
+    )
+    stats_q <- lapply(quad, function(q)
+      c(mean(q, na.rm = TRUE), stats::sd(q, na.rm = TRUE)))
+    pairs <- list(c(1,2), c(1,3), c(1,4), c(2,3), c(2,4), c(3,4))
+    n_near <- sum(vapply(pairs, function(ij) {
+      abs(stats_q[[ij[1]]][1] - stats_q[[ij[2]]][1]) < 0.03 &&
+      abs(stats_q[[ij[1]]][2] - stats_q[[ij[2]]][2]) < 0.03
+    }, logical(1L)))
+    n_near >= 2L
+  }
+
+  # Image-centre fallback used when every method fails sanity check.
+  # If the image looks like a tiled mosaic (auto mode), use full-image bounds
+  # with detected=TRUE so the pipeline continues.
+  .fallback <- function(w, h, brightness = NULL) {
+    if (!is.null(brightness) && !identical(export_fmt, "circular") &&
+        .is_tiled_mosaic(brightness)) {
+      log_message("  Scan circle: no circle found, image appears tiled -- ",
+                  "using full-image bounds")
+      return(list(cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
+                  width = w, height = h, edge_gap_px = 0,
+                  export_type = "mosaic_full_field",
+                  detected = TRUE, method = "mosaic_auto"))
+    }
     r <- min(w, h) / 2 * 0.95
     edge_gap <- min(w, h) / 2 - r
     list(cx_px = w / 2, cy_px = h / 2, radius_px = r,
@@ -223,7 +264,7 @@ detect_ldir_scan_circle <- function(image_path) {
   if (length(edge_points_row) < 10) {
     log_message("  Scan circle: too few edge points — using image-centre defaults",
                 level = "WARN")
-    return(.fallback(w, h))
+    return(.fallback(w, h, brightness))
   }
 
   x_e <- as.numeric(edge_points_col)
@@ -235,7 +276,7 @@ detect_ldir_scan_circle <- function(image_path) {
   if (is.null(fit)) {
     log_message("  Scan circle: algebraic fit failed — using image-centre defaults",
                 level = "WARN")
-    return(.fallback(w, h))
+    return(.fallback(w, h, brightness))
   }
 
   cx_px    <- fit[1] / 2
@@ -248,7 +289,7 @@ detect_ldir_scan_circle <- function(image_path) {
                 round(cx_px, 1), ", cy=", round(cy_px, 1),
                 ", r=", round(radius_px, 1), ") — using image-centre defaults",
                 level = "WARN")
-    return(.fallback(w, h))
+    return(.fallback(w, h, brightness))
   }
 
   edge_gap_px <- min(cx_px, cy_px, w - cx_px, h - cy_px) - radius_px
@@ -262,7 +303,8 @@ detect_ldir_scan_circle <- function(image_path) {
   list(
     cx_px = cx_px, cy_px = cy_px, radius_px = radius_px,
     width = w, height = h,
-    edge_gap_px = edge_gap_px, export_type = export_type, detected = TRUE
+    edge_gap_px = edge_gap_px, export_type = export_type,
+    detected = TRUE, method = "r_algebraic"
   )
 }
 
@@ -484,7 +526,7 @@ extract_ldir_image_coords <- function(image_path,
   log_message("Extracting LDIR particle coordinates from image")
 
   # --- Step 1: Detect scan circle for calibrated mapping ---
-  circle_info <- detect_ldir_scan_circle(image_path)
+  circle_info <- detect_ldir_scan_circle(image_path, config = config)
 
   # --- Manual circle override + hard failure guard ---
   if (!isTRUE(circle_info$detected)) {
