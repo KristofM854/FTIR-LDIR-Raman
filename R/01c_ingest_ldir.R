@@ -322,6 +322,12 @@ save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
   # else original LDIR source file).  Rendered via read_image_canonical() -> [H,W,3] uint8 RGB
   # -> as.raster(img, max=255L) -> graphics::rasterImage().
   tryCatch({
+    # If output_path is a directory, auto-create a filename
+    if (dir.exists(output_path)) {
+      output_path <- file.path(output_path, "ldir_circle_detection.png")
+    }
+    dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
+
     canon <- read_image_canonical(image_path, verbose = FALSE)
     if (is.null(canon)) {
       log_message("  save_ldir_circle_debug: could not read image", level = "WARN")
@@ -334,11 +340,15 @@ save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
     assert_not_tiled_montage(img, tag = basename(image_path),
                               strict = isTRUE(getOption("ldir_strict_sanity")))
 
+    log_message("  circle_debug img: dim=", paste(dim(img), collapse = "x"),
+                " range=", paste(range(img), collapse = ".."))
+
     cx <- circle_info$cx_px
     cy <- circle_info$cy_px
     r  <- circle_info$radius_px
 
     grDevices::png(output_path, width = w, height = h)
+    on.exit(grDevices::dev.off(), add = TRUE)
     par(mar = c(0, 0, 0, 0))
 
     plot(1, type = "n", xlim = c(1, w), ylim = c(h, 1),
@@ -358,7 +368,6 @@ save_ldir_circle_debug <- function(image_path, circle_info, output_path) {
                               round(circle_info$edge_gap_px, 0), "px"),
          col = "yellow", cex = 1.5)
 
-    grDevices::dev.off()
     log_message("  Saved scan circle debug: ", output_path)
   }, error = function(e) {
     log_message("  Could not save circle debug image: ", e$message, level = "WARN")
