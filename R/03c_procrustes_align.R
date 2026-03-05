@@ -22,12 +22,16 @@
 #' @param df Data frame with x_um, y_um (must have at least some non-NA rows)
 #' @param flip_y Logical. If TRUE negate y after centering (undo image Y-flip).
 #' @param scale_coords Logical. If TRUE divide by RMS distance from centroid.
+#' @param rotate_deg Integer. In-plane rotation applied after centering, before
+#'   flip_y. Must be one of {0, 90, -90, 180}. Use -90 to correct the
+#'   LDIR instrument export convention (90° CW mismatch vs Raman).
 #' @param debug_dir Optional path. If set, writes ldir_norm_params.json there.
 #' @return List with:
 #'   df          — original df with x_norm, y_norm columns added/replaced
-#'   norm_params — list(centroid_x, centroid_y, scale_factor, y_flip_applied)
+#'   norm_params — list(centroid_x, centroid_y, scale_factor, y_flip_applied,
+#'                      rotate_deg_applied)
 normalize_coords_ldir <- function(df, flip_y = TRUE, scale_coords = FALSE,
-                                   debug_dir = NULL) {
+                                   rotate_deg = 0, debug_dir = NULL) {
 
   valid <- !is.na(df$x_um) & !is.na(df$y_um)
   if (sum(valid) < 2) {
@@ -36,7 +40,14 @@ normalize_coords_ldir <- function(df, flip_y = TRUE, scale_coords = FALSE,
     df$y_norm <- df$y_um
     return(list(df = df,
                 norm_params = list(centroid_x = 0, centroid_y = 0,
-                                   scale_factor = 1, y_flip_applied = flip_y)))
+                                   scale_factor = 1, y_flip_applied = flip_y,
+                                   rotate_deg_applied = rotate_deg)))
+  }
+
+  # Guardrail: only exact multiples of 90 are permitted
+  if (!rotate_deg %in% c(0L, 90L, -90L, 180L)) {
+    stop("normalize_coords_ldir: rotate_deg must be one of {0, 90, -90, 180}, got: ",
+         rotate_deg)
   }
 
   cx <- mean(df$x_um[valid])
@@ -45,29 +56,36 @@ normalize_coords_ldir <- function(df, flip_y = TRUE, scale_coords = FALSE,
   x_c <- df$x_um - cx
   y_c <- df$y_um - cy
 
+  # Apply rotation after centering, before flip_y and scale
+  rot <- rotate_coords_90(x_c, y_c, rotate_deg)
+  x_r <- rot$x
+  y_r <- rot$y
+
   # Scale
   sf <- 1.0
   if (scale_coords) {
-    rms <- sqrt(mean(x_c[valid]^2 + y_c[valid]^2))
+    rms <- sqrt(mean(x_r[valid]^2 + y_r[valid]^2))
     if (rms > 0) sf <- rms
   }
 
-  df$x_norm <- x_c / sf
-  df$y_norm  <- if (flip_y) -(y_c / sf) else (y_c / sf)
+  df$x_norm <- x_r / sf
+  df$y_norm  <- if (flip_y) -(y_r / sf) else (y_r / sf)
 
   norm_params <- list(
-    centroid_x     = cx,
-    centroid_y     = cy,
-    scale_factor   = sf,
-    y_flip_applied = flip_y,
-    n_valid        = sum(valid),
-    x_norm_range   = range(df$x_norm[valid]),
-    y_norm_range   = range(df$y_norm[valid])
+    centroid_x         = cx,
+    centroid_y         = cy,
+    scale_factor       = sf,
+    y_flip_applied     = flip_y,
+    rotate_deg_applied = rotate_deg,
+    n_valid            = sum(valid),
+    x_norm_range       = range(df$x_norm[valid]),
+    y_norm_range       = range(df$y_norm[valid])
   )
 
   log_message("  LDIR normalize: centroid=(", round(cx, 1), ", ", round(cy, 1), ")",
               ", scale=", round(sf, 4),
               ", y_flip=", flip_y,
+              ", rotate_deg=", rotate_deg,
               ", n=", sum(valid))
 
   # Write JSON if debug enabled
@@ -76,15 +94,16 @@ normalize_coords_ldir <- function(df, flip_y = TRUE, scale_coords = FALSE,
     tryCatch({
       json_lines <- c(
         "{",
-        paste0('  "centroid_x": ',     round(cx, 6), ","),
-        paste0('  "centroid_y": ',     round(cy, 6), ","),
-        paste0('  "scale_factor": ',   round(sf, 6), ","),
-        paste0('  "y_flip_applied": ', tolower(as.character(flip_y)), ","),
-        paste0('  "n_valid": ',        sum(valid), ","),
-        paste0('  "x_norm_min": ',     round(min(df$x_norm[valid]), 2), ","),
-        paste0('  "x_norm_max": ',     round(max(df$x_norm[valid]), 2), ","),
-        paste0('  "y_norm_min": ',     round(min(df$y_norm[valid]), 2), ","),
-        paste0('  "y_norm_max": ',     round(max(df$y_norm[valid]), 2)),
+        paste0('  "centroid_x": ',         round(cx, 6),    ","),
+        paste0('  "centroid_y": ',         round(cy, 6),    ","),
+        paste0('  "scale_factor": ',       round(sf, 6),    ","),
+        paste0('  "y_flip_applied": ',     tolower(as.character(flip_y)), ","),
+        paste0('  "rotate_deg_applied": ', rotate_deg,      ","),
+        paste0('  "n_valid": ',            sum(valid),      ","),
+        paste0('  "x_norm_min": ',         round(min(df$x_norm[valid]), 2), ","),
+        paste0('  "x_norm_max": ',         round(max(df$x_norm[valid]), 2), ","),
+        paste0('  "y_norm_min": ',         round(min(df$y_norm[valid]), 2), ","),
+        paste0('  "y_norm_max": ',         round(max(df$y_norm[valid]), 2)),
         "}"
       )
       writeLines(json_lines, json_path)

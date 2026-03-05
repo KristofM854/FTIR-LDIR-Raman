@@ -249,6 +249,27 @@ extract_transform_params <- function(M) {
 }
 
 
+#' Apply a multiple-of-90° in-plane rotation to centred (x, y) coordinate vectors
+#'
+#' Positive degrees = counter-clockwise; negative = clockwise (y-up convention).
+#' Only exact multiples of 90 are accepted — no free-angle rotations.
+#'
+#' @param x,y Numeric vectors (centred, same length).
+#' @param deg Integer. Must be in {0, 90, -90, 180}.
+#' @return List with rotated \code{x} and \code{y} vectors.
+rotate_coords_90 <- function(x, y, deg) {
+  d <- as.integer(round(deg)) %% 360L
+  if (d < 0L) d <- d + 360L
+  switch(as.character(d),
+    "0"   = list(x =  x, y =  y),
+    "90"  = list(x = -y, y =  x),   # counter-clockwise
+    "180" = list(x = -x, y = -y),
+    "270" = list(x =  y, y = -x),   # equivalent to -90 / clockwise
+    stop("rotate_coords_90: deg must be a multiple of 90, got: ", deg)
+  )
+}
+
+
 # ---------------------------------------------------------------------------
 # Image type detection and canonicalization (magick-based)
 # ---------------------------------------------------------------------------
