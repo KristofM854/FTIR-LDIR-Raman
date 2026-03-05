@@ -219,12 +219,27 @@ detect_ldir_scan_circle_python <- function(image_path) {
   w   <- as.integer(result$width)
   h   <- as.integer(result$height)
 
+  # Sanity: circle values must be inside image dimensions and radius positive
+  if (!(cx > 0 && cx < w && cy > 0 && cy < h && r > 0)) {
+    log_message("  Python circle detection: out-of-bounds result (cx=", round(cx, 1),
+                ", cy=", round(cy, 1), ", r=", round(r, 1),
+                ", w=", w, ", h=", h, ") — treating as failure",
+                level = "WARN")
+    return(NULL)
+  }
+
   edge_gap <- min(cx, cy, w - cx, h - cy) - r
   export_type <- if (abs(edge_gap) <= 15) "scan_only" else "full_field"
 
   log_message("  Python circle detection (", met, "): center=(",
               round(cx, 1), ", ", round(cy, 1), "), radius=", round(r, 1),
               " px, edge_gap=", round(edge_gap, 1))
+
+  if (edge_gap < -100) {
+    log_message("  Python circle: edge_gap=", round(edge_gap, 1),
+                " px (< -100) — detection likely wrong; results may be unreliable",
+                level = "WARN")
+  }
 
   list(
     cx_px       = cx,
