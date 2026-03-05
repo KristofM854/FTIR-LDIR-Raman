@@ -77,6 +77,10 @@ make_config <- function(ftir_path  = NULL,
     #   config$ldir_circle_manual = list(cx = 1000, cy = 1000, r = 950)
     ldir_circle_manual = NULL,
 
+    # LDIR export format: "auto" (detect circle vs mosaic), "circular" (require circle),
+    # "mosaic" (force full-image mapping, skip circle detection).
+    ldir_export_format = "auto",
+
     # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
     # Example: c("A3" = "A3", "MP_11" = "Raman_190")
     # NULL = no explicit map, fall back to size-based landmark RANSAC
