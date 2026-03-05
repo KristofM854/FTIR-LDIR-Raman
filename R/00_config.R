@@ -56,6 +56,9 @@ make_config <- function(ftir_path  = NULL,
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
     ldir_flip_y_for_alignment = FALSE, # map_pixels_to_um_circle already inverts y;
                                        # Raman y is also upward — no second flip needed
+    ldir_rotate_deg_for_alignment = -90, # clockwise rotation applied before alignment;
+                                          # corrects instrument export convention vs Raman.
+                                          # must be one of: 0, 90, -90, 180
 
     # Fixed µm-per-pixel scale for the Raman microscope image.
     # NULL = fall back to particle-extent method (may cause systematic viewer drift).

@@ -616,6 +616,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       ldir_with_coords,
       flip_y       = isTRUE(config$ldir_flip_y_for_alignment),
       scale_coords = isTRUE(config$normalize_scale),
+      rotate_deg   = config$ldir_rotate_deg_for_alignment %||% 0,
       debug_dir    = if (isTRUE(config$debug)) config$debug_dir else NULL
     )
     ldir_with_coords <- ldir_norm_result$df
