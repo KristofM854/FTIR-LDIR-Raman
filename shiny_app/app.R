@@ -288,13 +288,13 @@ ui <- fluidPage(
                                  style = "float:right; font-size:12px;"))
           ),
           checkboxGroupInput("overlay_layers", NULL,
-                             choices = c("Matched pairs" = "matched",
-                                         "Unmatched FTIR" = "unmatched_ftir",
-                                         "Unmatched Raman" = "unmatched_raman",
-                                         "FTIR-Raman lines" = "match_lines",
-                                         "LDIR matched" = "ldir_matched",
-                                         "LDIR unmatched" = "ldir_unmatched",
-                                         "LDIR-Raman lines" = "ldir_lines",
+                             choices = c("FTIR\u2194Raman matched" = "matched",
+                                         "FTIR unmatched (vs Raman)" = "unmatched_ftir",
+                                         "Raman unmatched (vs FTIR)" = "unmatched_raman",
+                                         "FTIR\u2194Raman match lines" = "match_lines",
+                                         "LDIR\u2194Raman matched" = "ldir_matched",
+                                         "LDIR unmatched (vs Raman)" = "ldir_unmatched",
+                                         "LDIR\u2194Raman match lines" = "ldir_lines",
                                          "Triple matches only" = "triple_only"),
                              selected = c("matched", "unmatched_ftir",
                                           "unmatched_raman", "ldir_matched"),
@@ -347,9 +347,20 @@ ui <- fluidPage(
       fluidRow(
         column(10, offset = 1,
           div(class = "info-box", style = "margin-top: 20px;",
+            h4("Material Comparison Across Instruments"),
+            p(class = "text-muted",
+              "Select a material family to compare counts across all instruments."),
+            fluidRow(
+              column(4, selectInput("summary_material_select", "Material Family",
+                                    choices = c("PE"), selected = "PE")),
+              column(8, plotOutput("summary_material_barplot", height = "350px"))
+            )
+          ),
+          hr(),
+          div(class = "info-box",
             h4("Plastics by Instrument"),
             p(class = "text-muted",
-              "Synthetic plastic particle counts per device (all loaded data; no filters applied)."),
+              "Material family counts per device (all loaded data; no filters applied)."),
             uiOutput("summary_plastics_wide")
           )
         )
@@ -485,6 +496,74 @@ server <- function(input, output, session) {
   # ==================================================================
   # SUMMARY TAB
   # ==================================================================
+
+  # Update material family dropdown when data changes
+  observe({
+    dfs <- instrument_dfs()
+    all_mats <- character(0)
+    for (nm in c("ftir", "ftir_bruker", "raman", "ldir")) {
+      d <- dfs[[nm]]
+      if (!is.null(d) && nrow(d) > 0 && "material" %in% names(d)) {
+        fams <- classify_family_vec(d$material)
+        all_mats <- c(all_mats, fams)
+      }
+    }
+    all_mats <- sort(unique(all_mats[!is.na(all_mats) & all_mats != "Other"]))
+    if (length(all_mats) == 0) all_mats <- "PE"
+    sel <- if ("PE" %in% all_mats) "PE" else all_mats[1]
+    updateSelectInput(session, "summary_material_select",
+                      choices = all_mats, selected = sel)
+  })
+
+  # Interactive barplot: count of selected material family across instruments
+  output$summary_material_barplot <- renderPlot({
+    dfs <- instrument_dfs()
+    sel_fam <- input$summary_material_select
+    if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
+
+    device_names <- c("FTIR (PerkinElmer)" = "ftir",
+                      "FTIR (Bruker)" = "ftir_bruker",
+                      "Raman" = "raman", "LDIR" = "ldir")
+    device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c",
+                       "FTIR (Bruker)" = "#9467bd",
+                       "Raman" = "#1f77b4", "LDIR" = "#d62728")
+    counts <- vapply(names(device_names), function(dev_label) {
+      d <- dfs[[ device_names[[dev_label]] ]]
+      if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(0L)
+      sum(classify_family_vec(d$material) == sel_fam, na.rm = TRUE)
+    }, integer(1))
+
+    # Only show instruments that have data
+    has_data <- counts > 0 | vapply(names(device_names), function(dev_label) {
+      d <- dfs[[ device_names[[dev_label]] ]]
+      !is.null(d) && nrow(d) > 0
+    }, logical(1))
+    counts <- counts[has_data]
+    if (length(counts) == 0) {
+      plot.new()
+      text(0.5, 0.5, "No data available", cex = 1.2, col = "#6c757d")
+      return(NULL)
+    }
+
+    bar_df <- data.frame(
+      instrument = factor(names(counts), levels = names(counts)),
+      count = as.integer(counts),
+      stringsAsFactors = FALSE
+    )
+    ggplot2::ggplot(bar_df, ggplot2::aes(x = instrument, y = count, fill = instrument)) +
+      ggplot2::geom_col(width = 0.6) +
+      ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.5, size = 4.5) +
+      ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
+      ggplot2::labs(x = NULL, y = "Particle Count",
+                    title = paste0(sel_fam, " across instruments")) +
+      ggplot2::theme_minimal(base_size = 14) +
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"),
+        axis.text.x = ggplot2::element_text(size = 12),
+        panel.grid.major.x = ggplot2::element_blank()
+      ) +
+      ggplot2::expand_limits(y = max(counts) * 1.15)
+  })
 
   output$summary_plastics_wide <- renderUI({
     dfs <- instrument_dfs()
@@ -1309,7 +1388,7 @@ server <- function(input, output, session) {
   # ==================================================================
   make_scatter <- function(df, img_info, bounds, title,
                             match_colours = NULL, highlight_id = NULL,
-                            full_df = NULL) {
+                            full_df = NULL, match_labels = NULL) {
 
     p <- ggplot(df, aes(x = x, y = y))
 
@@ -1320,8 +1399,12 @@ server <- function(input, output, session) {
     p <- p + geom_point(aes(colour = match_status, size = feret_max),
                          alpha = 0.7)
 
-    if (!is.null(match_colours))
-      p <- p + scale_colour_manual(values = match_colours)
+    if (!is.null(match_colours)) {
+      if (!is.null(match_labels))
+        p <- p + scale_colour_manual(values = match_colours, labels = match_labels)
+      else
+        p <- p + scale_colour_manual(values = match_colours)
+    }
 
     p <- p +
       scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12)) +
@@ -1658,6 +1741,7 @@ server <- function(input, output, session) {
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
+                 match_labels = c(matched = "matched to Raman", unmatched = "unmatched"),
                  highlight_id = hl_ids,
                  full_df = full_ftir)
   })
@@ -1666,7 +1750,7 @@ server <- function(input, output, session) {
     df <- ftir_filtered()
     if (nrow(df) == 0) return("No pipeline data loaded")
     paste0(nrow(df), " particles | ",
-           sum(df$match_status == "matched"), " matched | ",
+           sum(df$match_status == "matched"), " matched to Raman | ",
            length(unique(df$material)), " materials")
   })
 
@@ -1752,6 +1836,7 @@ server <- function(input, output, session) {
     make_scatter(df_disp, img, bounds,
                  paste0("Raman Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
+                 match_labels = c(matched = "matched to FTIR", unmatched = "unmatched"),
                  highlight_id = hl_ids,
                  full_df = full_raman)
   })
@@ -1760,7 +1845,7 @@ server <- function(input, output, session) {
     df <- raman_filtered()
     if (nrow(df) == 0) return("No pipeline data loaded")
     paste0(nrow(df), " particles | ",
-           sum(df$match_status == "matched"), " matched | ",
+           sum(df$match_status == "matched"), " matched to FTIR | ",
            length(unique(df$material)), " materials")
   })
 
@@ -1958,7 +2043,9 @@ server <- function(input, output, session) {
                                 size = feret_max),
                             alpha = 0.7) +
         scale_colour_manual(values = c(matched = "#d62728",
-                                        unmatched = "#bcbd22"))
+                                        unmatched = "#bcbd22"),
+                             labels = c(matched = "matched to Raman",
+                                        unmatched = "unmatched"))
     }
 
     # Size legend (single scale for all layers)
@@ -2010,7 +2097,7 @@ server <- function(input, output, session) {
     n_ext <- if (!is.null(extracted)) nrow(extracted) else 0
     if (nrow(df) == 0 && n_ext == 0) return("No LDIR data loaded")
     paste0(nrow(df), " Excel-joined | ",
-           sum(df$match_status == "matched"), " matched | ",
+           sum(df$match_status == "matched"), " matched to Raman | ",
            n_ext, " image-extracted | ",
            length(unique(df$material)), " materials")
   })
@@ -2097,6 +2184,7 @@ server <- function(input, output, session) {
     make_scatter(df_disp, NULL, bounds,
                  paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#9467bd", unmatched = "#8c564b"),
+                 match_labels = c(matched = "matched to Raman", unmatched = "unmatched"),
                  highlight_id = hl_ids,
                  full_df = full_fb)
   })
@@ -2479,10 +2567,10 @@ server <- function(input, output, session) {
     n_ldir <- if (!is.null(dfs$ldir)) nrow(dfs$ldir) else 0
     n_ldir_m <- if (!is.null(dfs$ldir)) sum(dfs$ldir$match_status == "matched") else 0
     n_trip <- nrow(triplets)
-    paste0(nrow(m), " FTIR-Raman pairs | ",
-           n_um_f, " unmatched FTIR | ",
-           n_um_r, " unmatched Raman | ",
-           n_ldir_m, "/", n_ldir, " LDIR matched | ",
+    paste0(nrow(m), " FTIR\u2194Raman pairs | ",
+           n_um_f, " FTIR unmatched (vs Raman) | ",
+           n_um_r, " Raman unmatched (vs FTIR) | ",
+           n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched | ",
            n_trip, " triple matches")
   })
 
