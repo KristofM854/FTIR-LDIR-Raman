@@ -148,8 +148,10 @@ ui <- fluidPage(
           checkboxGroupInput("ldir_match_filter", "Match Status",
                              choices = c("matched", "unmatched"),
                              selected = c("matched", "unmatched"), inline = TRUE),
-          sliderInput("ldir_score_range", "Match Score (composite)",
+          sliderInput("ldir_score_range", "Match Score (LDIR\u2194Raman)",
                       min = 0, max = 20, value = c(0, 20), step = 0.1),
+          sliderInput("ldir_coord_cost_range", "Coord Match Cost (image\u2194Excel)",
+                      min = 0, max = 10, value = c(0, 10), step = 0.05),
           selectInput("ldir_highlight_particle", "Highlight Particle",
                       choices = c("None"), selected = "None"),
           hr(),
@@ -781,6 +783,7 @@ server <- function(input, output, session) {
   ldir_quality_range_d        <- debounce(reactive(input$ldir_quality_range), 300)
   ldir_size_range_d           <- debounce(reactive(input$ldir_size_range), 300)
   ldir_score_range_d          <- debounce(reactive(input$ldir_score_range), 300)
+  ldir_coord_cost_range_d     <- debounce(reactive(input$ldir_coord_cost_range), 300)
   ftir_bruker_quality_range_d <- debounce(reactive(input$ftir_bruker_quality_range), 300)
   ftir_bruker_size_range_d    <- debounce(reactive(input$ftir_bruker_size_range), 300)
   # Overlay global
@@ -1233,6 +1236,13 @@ server <- function(input, output, session) {
       if (is.finite(score_max) && score_max > 0) {
         updateSliderInput(session, "ldir_score_range",
                           min = 0, max = score_max, value = c(0, score_max))
+      }
+      cost_max <- if ("coord_match_cost" %in% names(ldir)) {
+        ceiling(max(ldir$coord_match_cost, na.rm = TRUE) * 20) / 20
+      } else NA_real_
+      if (is.finite(cost_max) && cost_max > 0) {
+        updateSliderInput(session, "ldir_coord_cost_range",
+                          min = 0, max = cost_max, value = c(0, cost_max))
       }
 
       # Overlay per-instrument
@@ -1905,11 +1915,17 @@ server <- function(input, output, session) {
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     df <- filter_instrument(df, ldir_quality_range_d(), ldir_size_range_d(),
                             input$ldir_material_filter, input$ldir_match_filter)
-    # Apply match score filter: keep unscored (unmatched/NA) + within range
+    # Apply match score filter (LDIR↔Raman): keep NA (unmatched) + within range
     if ("match_score" %in% names(df) && !is.null(ldir_score_range_d())) {
       score_r <- ldir_score_range_d()
       df <- df[is.na(df$match_score) |
                (df$match_score >= score_r[1] & df$match_score <= score_r[2]), ]
+    }
+    # Apply coord match cost filter (image↔Excel): keep NA + within range
+    if ("coord_match_cost" %in% names(df) && !is.null(ldir_coord_cost_range_d())) {
+      cost_r <- ldir_coord_cost_range_d()
+      df <- df[is.na(df$coord_match_cost) |
+               (df$coord_match_cost >= cost_r[1] & df$coord_match_cost <= cost_r[2]), ]
     }
     df
   })
