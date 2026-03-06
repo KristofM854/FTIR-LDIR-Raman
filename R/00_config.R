@@ -80,7 +80,7 @@ make_config <- function(ftir_path  = NULL,
     # FALSE: skip circle detection entirely and map the full image to scan bounds.
     #        Use this when the LDIR image already covers the full scan field without
     #        a visible circular crop (e.g. tiled mosaic exports).
-    ldir_use_circle_detection = TRUE,
+    ldir_use_circle_detection = FALSE,
 
     # Manual scan-circle override (pixels). NULL = auto-detect (recommended).
     # Set when detect_ldir_scan_circle() fails and prints the hard-stop message:
