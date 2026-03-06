@@ -6,6 +6,10 @@ library(shiny)
 library(ggplot2)
 library(png)
 
+# Source canonical material classification from pipeline
+# (classify_family_vec, classify_category, classify_category_vec, etc.)
+source(file.path("..", "R", "08b_material_map.R"), local = TRUE)
+
 # ---------------------------------------------------------------------------
 # List ALL available runs in the output directory (newest first).
 # Returns a named character vector suitable for selectInput choices:
@@ -15,9 +19,11 @@ library(png)
 list_all_runs <- function(output_dir = file.path("..", "output")) {
   if (!dir.exists(output_dir)) return(character(0))
 
-  # Subdirectory runs with matched_particles.csv
+  # Subdirectory runs: detect both staged (05_matches/) and legacy (flat) layouts
   runs <- list.dirs(output_dir, recursive = FALSE, full.names = TRUE)
-  runs <- runs[file.exists(file.path(runs, "matched_particles.csv"))]
+  has_staged <- file.exists(file.path(runs, "05_matches", "matched_ftir_perkin_raman.csv"))
+  has_legacy <- file.exists(file.path(runs, "matched_particles.csv"))
+  runs <- runs[has_staged | has_legacy]
 
   if (length(runs) == 0) return(character(0))
 
@@ -27,7 +33,8 @@ list_all_runs <- function(output_dir = file.path("..", "output")) {
   # Build display labels (include manifest info if available)
   labels <- vapply(runs, function(run_dir) {
     run_id <- basename(run_dir)
-    m_path <- file.path(run_dir, "manifest.json")
+    m_path <- file.path(run_dir, "00_manifest", "manifest.json")
+    if (!file.exists(m_path)) m_path <- file.path(run_dir, "manifest.json")
     if (file.exists(m_path) && requireNamespace("jsonlite", quietly = TRUE)) {
       m <- tryCatch(
         jsonlite::fromJSON(m_path, simplifyVector = FALSE),
@@ -54,7 +61,9 @@ list_all_runs <- function(output_dir = file.path("..", "output")) {
 # Load manifest.json from a run directory (graceful fallback if absent).
 # ---------------------------------------------------------------------------
 load_run_manifest <- function(run_dir) {
-  m_path <- file.path(run_dir, "manifest.json")
+  # Check staged location first, then legacy
+  m_path <- file.path(run_dir, "00_manifest", "manifest.json")
+  if (!file.exists(m_path)) m_path <- file.path(run_dir, "manifest.json")
   if (!file.exists(m_path)) {
     return(list(
       is_missing = TRUE,
@@ -171,10 +180,11 @@ get_run_image_paths <- function(manifest, run_dir) {
 find_latest_run <- function(output_dir = file.path("..", "output")) {
   if (!dir.exists(output_dir)) return(NULL)
 
-  # --- Try subdirectory format first ---
+  # --- Try subdirectory format first (staged or legacy) ---
   runs <- list.dirs(output_dir, recursive = FALSE, full.names = TRUE)
-  # Keep only dirs that actually contain a matched_particles.csv
-  runs <- runs[file.exists(file.path(runs, "matched_particles.csv"))]
+  has_staged <- file.exists(file.path(runs, "05_matches", "matched_ftir_perkin_raman.csv"))
+  has_legacy <- file.exists(file.path(runs, "matched_particles.csv"))
+  runs <- runs[has_staged | has_legacy]
   if (length(runs) > 0) {
     runs <- runs[order(file.mtime(runs), decreasing = TRUE)]
     return(list(dir = runs[1], format = "subdir"))
@@ -199,31 +209,57 @@ load_run_data <- function(run_info) {
   data <- list(run_dir = run_info$dir)
 
   if (run_info$format == "subdir") {
-    # Simple: files have fixed names in a subdirectory
+    rd <- run_info$dir
+    is_staged <- dir.exists(file.path(rd, "05_matches"))
+
+    # Helper: resolve file from staged path, fall back to legacy flat path
+    resolve <- function(staged_rel, legacy_rel) {
+      if (is_staged) {
+        fp <- file.path(rd, staged_rel)
+        if (file.exists(fp)) return(fp)
+      }
+      fp2 <- file.path(rd, legacy_rel)
+      if (file.exists(fp2)) return(fp2)
+      NULL
+    }
+
+    # Core match files (staged names ← Part D pairwise naming)
     file_map <- list(
-      matched               = "matched_particles.csv",
-      unmatched_ftir        = "unmatched_ftir.csv",
-      unmatched_raman       = "unmatched_raman.csv",
-      agreement             = "agreement_summary.csv",
-      unmatched_ftir_bruker = "unmatched_ftir_bruker.csv"
+      matched               = c("05_matches/matched_ftir_perkin_raman.csv",
+                                 "matched_particles.csv"),
+      unmatched_ftir        = c("05_matches/unmatched_ftir_perkin_vs_raman.csv",
+                                 "unmatched_ftir.csv"),
+      unmatched_raman       = c("05_matches/unmatched_raman_vs_ftir_perkin.csv",
+                                 "unmatched_raman.csv"),
+      agreement             = c("06_agreement/agreement_summary.csv",
+                                 "agreement_summary.csv"),
+      unmatched_ftir_bruker = c("05_matches/unmatched_ftir_bruker.csv",
+                                 "unmatched_ftir_bruker.csv")
     )
     for (nm in names(file_map)) {
-      fp <- file.path(run_info$dir, file_map[[nm]])
-      if (file.exists(fp)) data[[nm]] <- read.csv(fp, stringsAsFactors = FALSE)
+      fp <- resolve(file_map[[nm]][1], file_map[[nm]][2])
+      if (!is.null(fp)) data[[nm]] <- read.csv(fp, stringsAsFactors = FALSE)
     }
-    tp <- file.path(run_info$dir, "transform_params.txt")
-    if (file.exists(tp)) data$transform <- parse_transform_params(tp)
+
+    # Transform params
+    tp <- resolve("04_alignment/transform_params_ftir_perkin_raman.txt",
+                  "transform_params.txt")
+    if (!is.null(tp)) data$transform <- parse_transform_params(tp)
 
     # LDIR files (optional)
     ldir_map <- list(
-      ldir_raman_matched   = "ldir_raman_matched.csv",
-      unmatched_ldir       = "unmatched_ldir.csv",
-      triplets             = "triplets_3way.csv",
-      ldir_image_extracted = "ldir_image_extracted.csv"
+      ldir_raman_matched   = c("05_matches/matched_ldir_raman.csv",
+                                "ldir_raman_matched.csv"),
+      unmatched_ldir       = c("05_matches/unmatched_ldir_vs_raman.csv",
+                                "unmatched_ldir.csv"),
+      triplets             = c("05_matches/triplets_3way.csv",
+                                "triplets_3way.csv"),
+      ldir_image_extracted = c("02_joined/ldir_image_extracted.csv",
+                                "ldir_image_extracted.csv")
     )
     for (nm in names(ldir_map)) {
-      fp <- file.path(run_info$dir, ldir_map[[nm]])
-      if (file.exists(fp)) data[[nm]] <- read.csv(fp, stringsAsFactors = FALSE)
+      fp <- resolve(ldir_map[[nm]][1], ldir_map[[nm]][2])
+      if (!is.null(fp)) data[[nm]] <- read.csv(fp, stringsAsFactors = FALSE)
     }
 
   } else {
@@ -424,7 +460,7 @@ estimate_ftir_scan_bounds <- function(img_raster, particle_x_um = NULL,
 build_instrument_dfs <- function(data) {
   result <- list()
 
-  # --- FTIR ---
+  # --- FTIR (PerkinElmer) ---
   ftir_parts <- list()
   if (!is.null(data$matched) && nrow(data$matched) > 0) {
     m <- data$matched
@@ -437,6 +473,7 @@ build_instrument_dfs <- function(data) {
       feret_max = m$ftir_feret_max_um,
       material = m$ftir_material, quality = m$ftir_quality,
       match_status = "matched", match_id = m$match_id,
+      matched_to_raman = TRUE,
       stringsAsFactors = FALSE)
   }
   if (!is.null(data$unmatched_ftir) && nrow(data$unmatched_ftir) > 0) {
@@ -450,6 +487,7 @@ build_instrument_dfs <- function(data) {
       feret_max = u$feret_max_um,
       material = u$material, quality = u$quality,
       match_status = "unmatched", match_id = NA_integer_,
+      matched_to_raman = FALSE,
       stringsAsFactors = FALSE)
   }
   result$ftir <- do.call(rbind, ftir_parts)
@@ -467,6 +505,7 @@ build_instrument_dfs <- function(data) {
       feret_max = m$raman_feret_max_um,
       material = m$raman_material, quality = m$raman_quality,
       match_status = "matched", match_id = m$match_id,
+      matched_to_ftir_perkin = TRUE,
       stringsAsFactors = FALSE)
   }
   if (!is.null(data$unmatched_raman) && nrow(data$unmatched_raman) > 0) {
@@ -480,9 +519,19 @@ build_instrument_dfs <- function(data) {
       feret_max = u$feret_max_um,
       material = u$material, quality = u$quality,
       match_status = "unmatched", match_id = NA_integer_,
+      matched_to_ftir_perkin = FALSE,
       stringsAsFactors = FALSE)
   }
   result$raman <- do.call(rbind, raman_parts)
+
+  # Add LDIR→Raman match flag if LDIR-Raman match data available
+  if (!is.null(result$raman) && nrow(result$raman) > 0 &&
+      !is.null(data$ldir_raman_matched) && nrow(data$ldir_raman_matched) > 0) {
+    result$raman$matched_to_ldir <- result$raman$particle_id %in%
+      data$ldir_raman_matched$raman_particle_id
+  } else if (!is.null(result$raman) && nrow(result$raman) > 0) {
+    result$raman$matched_to_ldir <- FALSE
+  }
 
   # --- LDIR ---
   ldir_parts <- list()
@@ -504,6 +553,7 @@ build_instrument_dfs <- function(data) {
       feret_max = m$ldir_feret_max_um,
       material = m$ldir_material, quality = m$ldir_quality,
       match_status = "matched", match_id = m$match_id,
+      matched_to_raman = TRUE,
       stringsAsFactors = FALSE)
   }
   if (!is.null(data$unmatched_ldir) && nrow(data$unmatched_ldir) > 0) {
@@ -518,6 +568,7 @@ build_instrument_dfs <- function(data) {
       feret_max = u$feret_max_um,
       material = u$material, quality = u$quality,
       match_status = "unmatched", match_id = NA_integer_,
+      matched_to_raman = FALSE,
       stringsAsFactors = FALSE)
   }
   result$ldir <- if (length(ldir_parts) > 0) do.call(rbind, ldir_parts) else NULL
@@ -551,26 +602,40 @@ build_instrument_dfs <- function(data) {
 
 
 # ---------------------------------------------------------------------------
-# Synthetic plastic families (mirror of 08b_material_map.R; Shiny doesn't
-# source the pipeline R/ directory).
+# Plastics summary using canonical classify_family_vec() from 08b_material_map.R
 # ---------------------------------------------------------------------------
-.synthetic_families <- c("PET", "PP", "PE", "PS", "PVC", "PA", "PC",
-                          "PMMA", "PU", "PTFE", "ABS", "Rubber")
 
-#' Count particles per synthetic plastic family in a device data frame.
+#' Count unique particles per polymer family and category in a device data frame.
+#'
+#' Uses classify_family_vec() to map raw material names to canonical families,
+#' then classify_category() to group into Synthetic/Semi-synthetic/Natural.
 #'
 #' @param df Device data frame from build_instrument_dfs() (must have a
 #'   \code{material} column).
-#' @return data.frame(material, n) sorted descending by n, or an empty frame
-#'   when no synthetic plastics are found.
+#' @return data.frame(family, category, n) sorted by category then n desc,
+#'   or an empty frame when no particles have classifiable materials.
 summarise_plastics <- function(df) {
   if (is.null(df) || nrow(df) == 0 || !"material" %in% names(df))
-    return(data.frame(material = character(0), n = integer(0)))
-  sub <- df[df$material %in% .synthetic_families, ]
-  if (nrow(sub) == 0)
-    return(data.frame(material = character(0), n = integer(0)))
-  tbl <- sort(table(sub$material), decreasing = TRUE)
-  data.frame(material = names(tbl), n = as.integer(tbl), stringsAsFactors = FALSE)
+    return(data.frame(family = character(0), category = character(0),
+                      n = integer(0)))
+  families <- classify_family_vec(df$material)
+  categories <- classify_category_vec(families)
+  # Exclude Unknown
+  keep <- families != "Unknown"
+  if (!any(keep))
+    return(data.frame(family = character(0), category = character(0),
+                      n = integer(0)))
+  tbl <- as.data.frame(table(family = families[keep]), stringsAsFactors = FALSE)
+  names(tbl) <- c("family", "n")
+  tbl$n <- as.integer(tbl$n)
+  tbl$category <- classify_category_vec(tbl$family)
+  # Sort: Synthetic first, then Semi-synthetic, then Natural, within each by n desc
+  cat_order <- c("Synthetic", "Semi-synthetic", "Natural/Organic")
+  tbl$cat_rank <- match(tbl$category, cat_order, nomatch = 99)
+  tbl <- tbl[order(tbl$cat_rank, -tbl$n), ]
+  tbl$cat_rank <- NULL
+  rownames(tbl) <- NULL
+  tbl
 }
 
 # ---------------------------------------------------------------------------

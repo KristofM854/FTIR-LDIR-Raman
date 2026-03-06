@@ -66,8 +66,13 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
                  brush  = brushOpts(paste0(id_prefix, "_brush"),
                                     resetOnNew = TRUE),
                  dblclick = paste0(id_prefix, "_dblclick")),
-      tags$p(class = "text-muted",
-             "Drag to zoom in. Double-click to reset. Click a particle to add it to the selection."),
+      fluidRow(
+        column(10, tags$p(class = "text-muted",
+               "Drag to zoom in. Double-click to reset. Click a particle to add it to the selection.")),
+        column(2, actionButton(paste0(id_prefix, "_reset_zoom"), "Reset Zoom",
+                               class = "btn-sm btn-default",
+                               style = "float:right; margin-top:2px;"))
+      ),
       hr(),
       div(class = "info-box",
           h5("Particle Details (hover)"),
@@ -83,7 +88,7 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
           detail_table_ui(paste0(id_prefix, "_selection_info"))),
       hr(),
       div(class = "info-box",
-          h5("Plastics (synthetic)"),
+          h5("Material Summary"),
           uiOutput(paste0(id_prefix, "_plastics_summary")))
     )
   )
@@ -173,8 +178,13 @@ ui <- fluidPage(
                      brush    = brushOpts("ldir_brush",
                                           resetOnNew = TRUE),
                      dblclick = "ldir_dblclick"),
-          tags$p(class = "text-muted",
-                 "Drag to zoom in. Double-click to reset. Click a particle to add it to the selection."),
+          fluidRow(
+            column(10, tags$p(class = "text-muted",
+                   "Drag to zoom in. Double-click to reset. Click a particle to add it to the selection.")),
+            column(2, actionButton("ldir_reset_zoom", "Reset Zoom",
+                                   class = "btn-sm btn-default",
+                                   style = "float:right; margin-top:2px;"))
+          ),
           hr(),
           div(class = "info-box",
               h5("Particle Details (hover)"),
@@ -190,7 +200,7 @@ ui <- fluidPage(
               detail_table_ui("ldir_selection_info")),
           hr(),
           div(class = "info-box",
-              h5("Plastics (synthetic)"),
+              h5("Material Summary"),
               uiOutput("ldir_plastics_summary"))
         )
       )
@@ -309,8 +319,13 @@ ui <- fluidPage(
                      brush = brushOpts("overlay_brush",
                                        resetOnNew = TRUE),
                      dblclick = "overlay_dblclick"),
-          tags$p(class = "text-muted",
-                 "Drag to zoom. Double-click to reset. Click a particle to pin details."),
+          fluidRow(
+            column(10, tags$p(class = "text-muted",
+                   "Drag to zoom. Double-click to reset. Click a particle to pin details.")),
+            column(2, actionButton("overlay_reset_zoom", "Reset Zoom",
+                                   class = "btn-sm btn-default",
+                                   style = "float:right; margin-top:2px;"))
+          ),
           hr(),
           div(class = "info-box",
               fluidRow(
@@ -482,19 +497,29 @@ server <- function(input, output, session) {
       return(tags$p(class = "text-muted", "No data loaded."))
 
     per_dev  <- lapply(devices, summarise_plastics)
-    all_mats <- sort(unique(unlist(lapply(per_dev, `[[`, "material"))))
-    if (length(all_mats) == 0)
-      return(tags$p(class = "text-muted", "No synthetic plastics found."))
+    all_fams <- unique(unlist(lapply(per_dev, `[[`, "family")))
+    if (length(all_fams) == 0)
+      return(tags$p(class = "text-muted", "No classified materials found."))
+
+    # Order by category then alphabetically
+    fam_cats <- classify_category_vec(all_fams)
+    cat_order <- c("Synthetic", "Semi-synthetic", "Natural/Organic", "Unknown")
+    fam_ord <- order(match(fam_cats, cat_order, nomatch = 99), all_fams)
+    all_fams <- all_fams[fam_ord]
+    fam_cats <- fam_cats[fam_ord]
 
     dev_names <- names(devices)
-    header <- tags$tr(tags$th("Material"),
+    header <- tags$tr(tags$th("Family"), tags$th("Category"),
                       lapply(dev_names, tags$th))
-    body_rows <- lapply(all_mats, function(m) {
+    cur_cat <- ""
+    body_rows <- lapply(seq_along(all_fams), function(i) {
+      fam <- all_fams[i]
+      cat <- fam_cats[i]
       cells <- lapply(per_dev, function(dt) {
-        idx <- match(m, dt$material)
+        idx <- match(fam, dt$family)
         tags$td(if (is.na(idx)) "0" else as.character(dt$n[idx]))
       })
-      tags$tr(tags$td(tags$b(m)), cells)
+      tags$tr(tags$td(tags$b(fam)), tags$td(cat), cells)
     })
     tags$table(class = "hover-tbl", header, body_rows)
   })
@@ -1412,6 +1437,13 @@ server <- function(input, output, session) {
   })
   observeEvent(input$overlay_dblclick, { zoom$overlay <- NULL })
 
+  # Reset-zoom buttons (same effect as double-click)
+  observeEvent(input$ftir_reset_zoom,        { zoom$ftir <- NULL })
+  observeEvent(input$raman_reset_zoom,       { zoom$raman <- NULL })
+  observeEvent(input$ldir_reset_zoom,        { zoom$ldir <- NULL })
+  observeEvent(input$ftir_bruker_reset_zoom, { zoom$ftir_bruker <- NULL })
+  observeEvent(input$overlay_reset_zoom,     { zoom$overlay <- NULL })
+
   # ==================================================================
   # Click-to-select handlers for single-instrument viewers
   # ==================================================================
@@ -1507,12 +1539,24 @@ server <- function(input, output, session) {
   make_plastics_summary_ui <- function(df) {
     tbl <- summarise_plastics(df)
     if (nrow(tbl) == 0)
-      return(tags$p(class = "text-muted", "No synthetic plastics detected."))
+      return(tags$p(class = "text-muted", "No classified materials detected."))
+    # Group by category with subheadings
+    ui_rows <- list()
+    cur_cat <- ""
+    for (i in seq_len(nrow(tbl))) {
+      if (tbl$category[i] != cur_cat) {
+        cur_cat <- tbl$category[i]
+        ui_rows[[length(ui_rows) + 1]] <- tags$tr(
+          tags$td(colspan = "2", style = "font-weight: bold; padding-top: 6px;",
+                  cur_cat))
+      }
+      ui_rows[[length(ui_rows) + 1]] <- tags$tr(
+        tags$td(style = "padding-left: 12px;", tbl$family[i]),
+        tags$td(tbl$n[i]))
+    }
     tags$table(class = "hover-tbl",
-      tags$tr(tags$th("Material"), tags$th("Count")),
-      lapply(seq_len(nrow(tbl)), function(i)
-        tags$tr(tags$td(tbl$material[i]), tags$td(tbl$n[i])))
-    )
+      tags$tr(tags$th("Family"), tags$th("Count")),
+      ui_rows)
   }
 
   # ==================================================================

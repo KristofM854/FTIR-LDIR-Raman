@@ -27,16 +27,22 @@ export_results <- function(match_result, agreement, diagnostics,
   out_dir <- config$output_dir
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
+  # Create stage-based subdirectories
+  dirs <- get_output_dirs(out_dir)
+
   log_message("Exporting results to: ", out_dir)
 
   # --- 0. Finalize manifest (mark stage as "export") ---
   run_id <- basename(out_dir)
   tryCatch({
-    manifest_path <- file.path(out_dir, "manifest.json")
+    manifest_path <- file.path(dirs$manifest, "manifest.json")
+    # Also check legacy location for update
+    legacy_manifest <- file.path(out_dir, "manifest.json")
     if (file.exists(manifest_path)) {
       update_manifest_stage(out_dir, stage = "export_complete")
+    } else if (file.exists(legacy_manifest)) {
+      update_manifest_stage(out_dir, stage = "export_complete")
     } else {
-      # Write fresh manifest if not already present (backward-compat)
       write_manifest(
         run_dir         = out_dir,
         run_id          = run_id,
@@ -54,27 +60,27 @@ export_results <- function(match_result, agreement, diagnostics,
   # --- 1. Matched particle table ---
   if (nrow(match_result$matched) > 0) {
     write.csv(match_result$matched,
-              file.path(out_dir, "matched_particles.csv"),
+              file.path(dirs$matches, "matched_ftir_perkin_raman.csv"),
               row.names = FALSE)
-    log_message("  Wrote matched_particles.csv (", nrow(match_result$matched), " pairs)")
+    log_message("  Wrote matched_ftir_perkin_raman.csv (", nrow(match_result$matched), " pairs)")
   }
 
   # --- 2. Unmatched particles ---
   if (nrow(match_result$unmatched_ftir) > 0) {
     write.csv(match_result$unmatched_ftir,
-              file.path(out_dir, "unmatched_ftir.csv"),
+              file.path(dirs$matches, "unmatched_ftir_perkin_vs_raman.csv"),
               row.names = FALSE)
   }
   if (nrow(match_result$unmatched_raman) > 0) {
     write.csv(match_result$unmatched_raman,
-              file.path(out_dir, "unmatched_raman.csv"),
+              file.path(dirs$matches, "unmatched_raman_vs_ftir_perkin.csv"),
               row.names = FALSE)
   }
 
   # --- 3. Transform parameters ---
   params <- icp_result$params
   param_lines <- c(
-    "# FTIR-to-Raman Transform Parameters",
+    "# FTIR_perkin-to-Raman Transform Parameters",
     paste0("# Generated: ", Sys.time()),
     "",
     paste0("scale:        ", round(params$scale, 6)),
@@ -117,17 +123,17 @@ export_results <- function(match_result, agreement, diagnostics,
     paste0("matrix_row3: ", paste(round(icp_result$transform[3, ], 8), collapse = ", "))
   )
   writeLines(param_lines,
-             file.path(out_dir, "transform_params.txt"))
-  log_message("  Wrote transform_params.txt")
+             file.path(dirs$alignment, "transform_params_ftir_perkin_raman.txt"))
+  log_message("  Wrote transform_params_ftir_perkin_raman.txt")
 
   # --- 4. Agreement summary (tiered) ---
   if (!is.null(agreement) && !is.null(agreement$agreement_detail) &&
       nrow(agreement$agreement_detail) > 0) {
     write.csv(agreement$agreement_detail,
-              file.path(out_dir, "agreement_summary.csv"),
+              file.path(dirs$agreement, "agreement_summary.csv"),
               row.names = FALSE)
     write.csv(agreement$summary_df,
-              file.path(out_dir, "agreement_pairwise.csv"),
+              file.path(dirs$agreement, "agreement_pairwise_ftir_perkin_raman.csv"),
               row.names = FALSE)
     log_message("  Wrote agreement CSVs")
   }
@@ -135,7 +141,7 @@ export_results <- function(match_result, agreement, diagnostics,
   # Category summary
   if (!is.null(agreement$category_summary) && nrow(agreement$category_summary) > 0) {
     write.csv(agreement$category_summary,
-              file.path(out_dir, "agreement_by_category.csv"),
+              file.path(dirs$agreement, "agreement_by_category.csv"),
               row.names = FALSE)
     log_message("  Wrote agreement_by_category.csv")
   }
@@ -171,21 +177,20 @@ export_results <- function(match_result, agreement, diagnostics,
   }
 
   writeLines(stats_lines,
-             file.path(out_dir, "match_statistics.txt"))
+             file.path(dirs$diagnostics, "match_statistics.txt"))
   log_message("  Wrote match_statistics.txt")
 
   # --- 6. Triage export: top mismatched/high-risk pairs ---
-  export_triage(match_result, agreement, out_dir)
+  export_triage(match_result, agreement, dirs$diagnostics)
 
   # --- 7. LDIR results ---
   if (!is.null(ldir_results)) {
-    export_ldir_results(ldir_results, out_dir)
+    export_ldir_results(ldir_results, dirs)
   }
 
   # --- 8. Diagnostic plots ---
   if (length(diagnostics) > 0) {
-    plot_dir <- file.path(out_dir, "plots")
-    if (!dir.exists(plot_dir)) dir.create(plot_dir)
+    plot_dir <- dirs$plots
 
     for (plot_name in names(diagnostics)) {
       tryCatch({
@@ -272,20 +277,23 @@ export_triage <- function(match_result, agreement, out_dir, n_top = 50) {
 
 
 #' Export LDIR-specific results
-export_ldir_results <- function(ldir_results, out_dir) {
+#'
+#' @param ldir_results List of LDIR pipeline results
+#' @param dirs Named list of stage directories from get_output_dirs()
+export_ldir_results <- function(ldir_results, dirs) {
   log_message("  Exporting LDIR results")
 
   if (!is.null(ldir_results$ldir_raman_match) &&
       nrow(ldir_results$ldir_raman_match$matched) > 0) {
     write.csv(ldir_results$ldir_raman_match$matched,
-              file.path(out_dir, "ldir_raman_matched.csv"), row.names = FALSE)
+              file.path(dirs$matches, "matched_ldir_raman.csv"), row.names = FALSE)
     log_message("    LDIR-Raman matched: ", nrow(ldir_results$ldir_raman_match$matched))
   }
 
   if (!is.null(ldir_results$ldir_ftir_match) &&
       nrow(ldir_results$ldir_ftir_match$matched) > 0) {
     write.csv(ldir_results$ldir_ftir_match$matched,
-              file.path(out_dir, "ldir_ftir_matched.csv"), row.names = FALSE)
+              file.path(dirs$matches, "matched_ldir_ftir_perkin.csv"), row.names = FALSE)
     log_message("    LDIR-FTIR matched: ", nrow(ldir_results$ldir_ftir_match$matched))
   }
 
@@ -293,14 +301,14 @@ export_ldir_results <- function(ldir_results, out_dir) {
   if (!is.null(ldir_results$ldir_raman_match$unmatched_ldir) &&
       nrow(ldir_results$ldir_raman_match$unmatched_ldir) > 0) {
     write.csv(ldir_results$ldir_raman_match$unmatched_ldir,
-              file.path(out_dir, "unmatched_ldir.csv"), row.names = FALSE)
+              file.path(dirs$matches, "unmatched_ldir_vs_raman.csv"), row.names = FALSE)
     log_message("    Unmatched LDIR: ",
                 nrow(ldir_results$ldir_raman_match$unmatched_ldir))
   }
 
   if (!is.null(ldir_results$triplets) && nrow(ldir_results$triplets) > 0) {
     write.csv(ldir_results$triplets,
-              file.path(out_dir, "triplets_3way.csv"), row.names = FALSE)
+              file.path(dirs$matches, "triplets_3way.csv"), row.names = FALSE)
     log_message("    Three-way triplets: ", nrow(ldir_results$triplets))
   }
 
@@ -316,13 +324,13 @@ export_ldir_results <- function(ldir_results, out_dir) {
       paste0("icp_converged:  ", ldir_results$ldir_icp$converged),
       paste0("icp_final_rms:  ",
              round(tail(ldir_results$ldir_icp$rms_history, 1), 4), " um")
-    ), file.path(out_dir, "ldir_transform_params.txt"))
+    ), file.path(dirs$alignment, "transform_params_ldir_raman.txt"))
   }
 
   if (!is.null(ldir_results$ldir_raman_agreement) &&
       nrow(ldir_results$ldir_raman_agreement$agreement_detail) > 0) {
     write.csv(ldir_results$ldir_raman_agreement$agreement_detail,
-              file.path(out_dir, "ldir_raman_agreement.csv"), row.names = FALSE)
+              file.path(dirs$agreement, "agreement_pairwise_ldir_raman.csv"), row.names = FALSE)
   }
 
   if (!is.null(ldir_results$ldir_clean)) {
@@ -331,7 +339,7 @@ export_ldir_results <- function(ldir_results, out_dir) {
       count    = as.integer(table(ldir_results$ldir_clean$material)),
       stringsAsFactors = FALSE
     )
-    write.csv(ldir_df, file.path(out_dir, "ldir_material_distribution.csv"),
+    write.csv(ldir_df, file.path(dirs$diagnostics, "ldir_material_distribution.csv"),
               row.names = FALSE)
   }
 
@@ -341,14 +349,14 @@ export_ldir_results <- function(ldir_results, out_dir) {
                         "coord_source", "material", "quality", "feret_max_um"),
                       names(ldir_results$ldir_with_coords))
     write.csv(ldir_results$ldir_with_coords[, cols],
-              file.path(out_dir, "ldir_coord_quality.csv"), row.names = FALSE)
+              file.path(dirs$joined, "ldir_coord_quality.csv"), row.names = FALSE)
   }
 
   # Image-extracted coordinates (before Hungarian join) for Shiny viewer
   if (!is.null(ldir_results$ldir_image_extracted) &&
       nrow(ldir_results$ldir_image_extracted) > 0) {
     write.csv(ldir_results$ldir_image_extracted,
-              file.path(out_dir, "ldir_image_extracted.csv"), row.names = FALSE)
+              file.path(dirs$joined, "ldir_image_extracted.csv"), row.names = FALSE)
     log_message("    LDIR image-extracted particles: ",
                 nrow(ldir_results$ldir_image_extracted))
   }
