@@ -235,17 +235,23 @@ log_message(strrep("=", 60))
 log_message("Multi-Instrument Particle Matching Pipeline")
 log_message(strrep("=", 60))
 
+# Create stage-based output directories for audit exports
+.out_dirs <- get_output_dirs(config$output_dir)
+
 # --- FTIR ---
 ftir_raw  <- ingest_ftir(config$ftir_path, sheet = config$ftir_sheet)
+write.csv(ftir_raw, file.path(.out_dirs$ingested, "ftir_perkin_ingested.csv"), row.names = FALSE)
 
 # --- Raman ---
 raman_raw <- ingest_raman(config$raman_path, sheet = config$raman_sheet)
+write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
 
 # --- LDIR (optional) ---
 ldir_raw <- NULL
 has_ldir <- !is.null(config$ldir_path) && nzchar(config$ldir_path)
 if (has_ldir) {
   ldir_raw <- ingest_ldir(config$ldir_path)
+  write.csv(ldir_raw, file.path(.out_dirs$ingested, "ldir_ingested.csv"), row.names = FALSE)
   log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
 } else {
   log_message("LDIR: not provided — skipping LDIR analysis")
@@ -256,6 +262,7 @@ ftir_bruker_raw <- NULL
 has_ftir_bruker <- !is.null(config$ftir_bruker_path) && nzchar(config$ftir_bruker_path)
 if (has_ftir_bruker) {
   ftir_bruker_raw <- ingest_ftir_bruker(config$ftir_bruker_path)
+  write.csv(ftir_bruker_raw, file.path(.out_dirs$ingested, "ftir_bruker_ingested.csv"), row.names = FALSE)
   log_message("FTIR (Bruker) data loaded: ", nrow(ftir_bruker_raw), " particles")
 } else {
   log_message("FTIR (Bruker): not provided — skipping")
@@ -301,7 +308,10 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
 
 # Minimal filtering (just remove invalid coords)
 ftir_clean  <- prefilter_ftir(ftir_raw, min_quality = 0, min_size_um = 0)
+write.csv(ftir_clean, file.path(.out_dirs$prefiltered, "ftir_perkin_prefiltered.csv"), row.names = FALSE)
+
 raman_clean <- prefilter_raman(raman_raw, min_hqi = 0, min_size_um = 0)
+write.csv(raman_clean, file.path(.out_dirs$prefiltered, "raman_prefiltered.csv"), row.names = FALSE)
 
 # Extract PLASTIC particles from FTIR for alignment anchoring
 ftir_plastic_mask <- grepl(
@@ -526,15 +536,8 @@ if (has_ldir && !is.null(ldir_raw)) {
   log_message(strrep("-", 50))
   log_message("LDIR Spatial Pipeline")
 
-  # 12a. Pre-filter LDIR particles
-  ldir_clean <- prefilter_ldir(
-    ldir_raw,
-    min_quality = config$ldir_quality_threshold,
-    min_size_um = config$min_particle_size_um
-  )
-
-  # 12b. Extract coordinates from LDIR image (if available)
-  ldir_with_coords <- ldir_clean
+  # 12a. Extract coordinates from LDIR image BEFORE filtering (join on raw data)
+  ldir_with_coords <- ldir_raw
   has_ldir_coords  <- FALSE
 
   if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) {
@@ -552,7 +555,6 @@ if (has_ldir && !is.null(ldir_raw)) {
     }
 
     # Compute scan bounds from configured scan diameter (circular filter)
-    # Used as fallback for size estimation; actual µm mapping uses scan-circle
     ldir_scan_diam <- config$ldir_scan_diameter_um
     if (is.null(ldir_scan_diam)) ldir_scan_diam <- 13000
     ldir_scan_bounds <- list(
@@ -560,18 +562,17 @@ if (has_ldir && !is.null(ldir_raw)) {
       y_min = 0, y_max = ldir_scan_diam
     )
 
-    # Step 1: Circle-calibrated extraction (replaces full-image bounds mapping)
-    # Returns list(particles = ..., circle_info = ...)
+    # Circle-calibrated extraction — expected_count uses RAW count for best matching
     ldir_extract_result  <- extract_ldir_image_coords(
       ldir_img_for_extraction,
       scan_bounds    = ldir_scan_bounds,
-      expected_count = nrow(ldir_clean),
+      expected_count = nrow(ldir_raw),
       config         = config
     )
     ldir_image_particles <- ldir_extract_result$particles
     .ldir_circle_info    <- ldir_extract_result$circle_info
 
-    # Persist circle calibration to manifest so Shiny can compute correct bounds
+    # Persist circle calibration to manifest
     tryCatch(
       update_manifest_ldir_circle(config$output_dir, .ldir_circle_info),
       error = function(e)
@@ -581,27 +582,27 @@ if (has_ldir && !is.null(ldir_raw)) {
     # Save raw image-extracted coordinates (before join) for Shiny viewer
     ldir_image_extracted <- ldir_image_particles
 
-    # Join image coordinates with Excel data via size-based Hungarian matching
-    ldir_with_coords <- join_ldir_coords(ldir_clean, ldir_image_particles)
+    # Join image coordinates with RAW Excel data via size-based Hungarian matching
+    ldir_with_coords <- join_ldir_coords(ldir_raw, ldir_image_particles)
+    write.csv(ldir_with_coords, file.path(.out_dirs$joined, "ldir_joined_raw.csv"), row.names = FALSE)
 
     # Validate join quality via scan-order correlation
     scan_order <- validate_ldir_scan_order(ldir_with_coords)
     log_message("  Scan order validation: ", scan_order$message)
 
-    # Step 5: Trace A3 — snapshot after coordinate join
+    # Debug traces
     if (isTRUE(config$debug)) {
       trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
-      dump_particle(ldir_clean, trace_ids, "after_ingest", config$debug_dir)
+      dump_particle(ldir_raw, trace_ids, "after_ingest", config$debug_dir)
       dump_particle(ldir_with_coords, trace_ids, "after_coords_join", config$debug_dir)
-      trace_particle_snapshot(ldir_clean, "after_ingest", config)
+      trace_particle_snapshot(ldir_raw, "after_ingest", config)
       trace_particle_snapshot(ldir_with_coords, "after_coords_join", config)
     }
 
     n_with_coords <- sum(!is.na(ldir_with_coords$x_um))
     has_ldir_coords <- n_with_coords >= 10
 
-    # Guard: skip alignment if the circle was not reliably detected — coordinates
-    # derived from image-centre fallback are not trustworthy enough for alignment.
+    # Guard: skip alignment if the circle was not reliably detected
     if (has_ldir_coords && !isTRUE(.ldir_circle_info$detected)) {
       log_message("  LDIR circle not reliably detected — skipping LDIR alignment",
                   level = "WARN")
@@ -611,6 +612,17 @@ if (has_ldir && !is.null(ldir_raw)) {
     log_message("  LDIR particles with coordinates: ", n_with_coords,
                 " of ", nrow(ldir_with_coords))
   }
+
+  # 12b. Pre-filter LDIR particles AFTER coordinate join
+  ldir_clean <- prefilter_ldir(
+    ldir_with_coords,
+    min_quality = config$ldir_quality_threshold,
+    min_size_um = config$min_particle_size_um
+  )
+  write.csv(ldir_clean, file.path(.out_dirs$prefiltered, "ldir_prefiltered.csv"), row.names = FALSE)
+
+  # Update ldir_with_coords to the filtered version for downstream use
+  ldir_with_coords <- ldir_clean
 
   # 12c–j. Spatial alignment & matching (only if coordinates available)
   ldir_raman_match     <- NULL
@@ -989,7 +1001,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       tryCatch({
         .align_method_str <- ldir_aligned$align_method[1] %||% "ransac_icp"
         update_manifest_ldir_circle(config$output_dir, .ldir_circle_info)  # refresh
-        m_path <- file.path(config$output_dir, "manifest.json")
+        m_path <- resolve_manifest_path(config$output_dir)
         if (file.exists(m_path) && requireNamespace("jsonlite", quietly = TRUE)) {
           m_upd <- jsonlite::fromJSON(m_path, simplifyVector = FALSE)
           m_upd$ldir_raman_alignment_method <- .align_method_str
@@ -1221,10 +1233,13 @@ export_results(
   )
 )
 
+# Use stage-based output directories for remaining exports
+.export_dirs <- get_output_dirs(config$output_dir)
+
 # Export FTIR Bruker particles (viewer-only; no cross-instrument alignment)
 if (!is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
   write.csv(ftir_bruker_raw,
-            file.path(config$output_dir, "unmatched_ftir_bruker.csv"),
+            file.path(.export_dirs$matches, "unmatched_ftir_bruker.csv"),
             row.names = FALSE)
   log_message("  Wrote unmatched_ftir_bruker.csv (", nrow(ftir_bruker_raw), " particles)")
 }
@@ -1232,7 +1247,7 @@ if (!is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
 # Export composite matches if found
 if (nrow(composites) > 0) {
   write.csv(composites,
-            file.path(config$output_dir, "composite_matches.csv"),
+            file.path(.export_dirs$matches, "composite_matches.csv"),
             row.names = FALSE)
   log_message("  Wrote composite_matches.csv (", nrow(composites), " composites)")
 }
@@ -1240,7 +1255,7 @@ if (nrow(composites) > 0) {
 # Export TPS assessment
 if (!is.null(tps_assessment$quadrant_residuals)) {
   write.csv(tps_assessment$quadrant_residuals,
-            file.path(config$output_dir, "tps_quadrant_residuals.csv"),
+            file.path(.export_dirs$diagnostics, "tps_quadrant_residuals.csv"),
             row.names = FALSE)
   tps_lines <- c(
     "# TPS (Thin-Plate Spline) Assessment",
@@ -1252,7 +1267,7 @@ if (!is.null(tps_assessment$quadrant_residuals)) {
     paste0("dy_range_um:           ", tps_assessment$dy_range_um),
     paste0("assessment:            ", tps_assessment$message)
   )
-  writeLines(tps_lines, file.path(config$output_dir, "tps_assessment.txt"))
+  writeLines(tps_lines, file.path(.export_dirs$diagnostics, "tps_assessment.txt"))
 }
 
 # ---------------------------------------------------------------------------
