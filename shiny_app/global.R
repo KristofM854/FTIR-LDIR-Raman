@@ -5,6 +5,7 @@
 library(shiny)
 library(ggplot2)
 library(png)
+library(rintrojs)
 
 # Source canonical material classification from pipeline
 # (classify_family_vec, classify_category, classify_category_vec, etc.)
