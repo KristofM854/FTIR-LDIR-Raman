@@ -148,6 +148,8 @@ ui <- fluidPage(
           checkboxGroupInput("ldir_match_filter", "Match Status",
                              choices = c("matched", "unmatched"),
                              selected = c("matched", "unmatched"), inline = TRUE),
+          sliderInput("ldir_score_range", "Match Score (composite)",
+                      min = 0, max = 20, value = c(0, 20), step = 0.1),
           selectInput("ldir_highlight_particle", "Highlight Particle",
                       choices = c("None"), selected = "None"),
           hr(),
@@ -515,9 +517,20 @@ server <- function(input, output, session) {
                       choices = all_mats, selected = sel)
   })
 
+  # Pre-compute per-instrument material family counts (cached per dataset load)
+  instrument_material_counts <- reactive({
+    dfs <- instrument_dfs()
+    device_keys <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
+                     "Raman" = "raman", "LDIR" = "ldir")
+    lapply(device_keys, function(key) {
+      d <- dfs[[key]]
+      if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(NULL)
+      table(classify_family_vec(d$material))
+    })
+  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
+
   # Interactive barplot: count of selected material family across instruments
   output$summary_material_barplot <- renderPlot({
-    dfs <- instrument_dfs()
     sel_fam <- input$summary_material_select
     if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
 
@@ -527,17 +540,16 @@ server <- function(input, output, session) {
     device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c",
                        "FTIR (Bruker)" = "#9467bd",
                        "Raman" = "#1f77b4", "LDIR" = "#d62728")
+    cts <- instrument_material_counts()
     counts <- vapply(names(device_names), function(dev_label) {
-      d <- dfs[[ device_names[[dev_label]] ]]
-      if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(0L)
-      sum(classify_family_vec(d$material) == sel_fam, na.rm = TRUE)
+      tbl <- cts[[dev_label]]
+      if (is.null(tbl)) return(0L)
+      as.integer(tbl[sel_fam] %||% 0L)
     }, integer(1))
 
     # Only show instruments that have data
-    has_data <- counts > 0 | vapply(names(device_names), function(dev_label) {
-      d <- dfs[[ device_names[[dev_label]] ]]
-      !is.null(d) && nrow(d) > 0
-    }, logical(1))
+    has_data <- !vapply(names(device_names), function(dev_label) is.null(cts[[dev_label]]),
+                        logical(1))
     counts <- counts[has_data]
     if (length(counts) == 0) {
       plot.new()
@@ -563,7 +575,7 @@ server <- function(input, output, session) {
         panel.grid.major.x = ggplot2::element_blank()
       ) +
       ggplot2::expand_limits(y = max(counts) * 1.15)
-  })
+  }) |> bindCache(input$summary_material_select, selected_run_dir(), is.null(uploaded_data()))
 
   output$summary_plastics_wide <- renderUI({
     dfs <- instrument_dfs()
@@ -768,6 +780,7 @@ server <- function(input, output, session) {
   raman_size_range_d          <- debounce(reactive(input$raman_size_range), 300)
   ldir_quality_range_d        <- debounce(reactive(input$ldir_quality_range), 300)
   ldir_size_range_d           <- debounce(reactive(input$ldir_size_range), 300)
+  ldir_score_range_d          <- debounce(reactive(input$ldir_score_range), 300)
   ftir_bruker_quality_range_d <- debounce(reactive(input$ftir_bruker_quality_range), 300)
   ftir_bruker_size_range_d    <- debounce(reactive(input$ftir_bruker_size_range), 300)
   # Overlay global
@@ -1213,6 +1226,13 @@ server <- function(input, output, session) {
       if (is.finite(s_max)) {
         updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
                           value = c(0, s_max))
+      }
+      score_max <- if ("match_score" %in% names(ldir)) {
+        ceiling(max(ldir$match_score, na.rm = TRUE) * 10) / 10
+      } else NA_real_
+      if (is.finite(score_max) && score_max > 0) {
+        updateSliderInput(session, "ldir_score_range",
+                          min = 0, max = score_max, value = c(0, score_max))
       }
 
       # Overlay per-instrument
@@ -1883,8 +1903,15 @@ server <- function(input, output, session) {
   ldir_filtered <- reactive({
     df <- ldir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
-    filter_instrument(df, ldir_quality_range_d(), ldir_size_range_d(),
-                      input$ldir_material_filter, input$ldir_match_filter)
+    df <- filter_instrument(df, ldir_quality_range_d(), ldir_size_range_d(),
+                            input$ldir_material_filter, input$ldir_match_filter)
+    # Apply match score filter: keep unscored (unmatched/NA) + within range
+    if ("match_score" %in% names(df) && !is.null(ldir_score_range_d())) {
+      score_r <- ldir_score_range_d()
+      df <- df[is.na(df$match_score) |
+               (df$match_score >= score_r[1] & df$match_score <= score_r[2]), ]
+    }
+    df
   })
 
   # Processed LDIR image: background-corrected via Python (preferred)

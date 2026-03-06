@@ -46,8 +46,11 @@ match_particles <- function(src_df, ref_df, config,
     method <- "greedy"
   }
 
+  force_complete <- isTRUE(config$ldir_force_complete_match) && src_label == "ldir"
+
   if (method == "hungarian") {
-    result <- .match_hungarian(src_df, ref_df, config, src_label, ref_label)
+    result <- .match_hungarian(src_df, ref_df, config, src_label, ref_label,
+                               force_complete = force_complete)
   } else {
     result <- .match_greedy(src_df, ref_df, config, src_label, ref_label)
   }
@@ -66,8 +69,10 @@ match_particles <- function(src_df, ref_df, config,
 # Hungarian (optimal) matching
 # ============================================================================
 
-.match_hungarian <- function(src_df, ref_df, config, src_label, ref_label) {
-  log_message("  Using Hungarian (optimal) matching")
+.match_hungarian <- function(src_df, ref_df, config, src_label, ref_label,
+                             force_complete = FALSE) {
+  log_message("  Using Hungarian (optimal) matching",
+              if (force_complete) " [force_complete]" else "")
 
   dist_thresh     <- config$match_dist_threshold_um
   adaptive_factor <- config$match_adaptive_dist_factor %||% 0
@@ -82,18 +87,19 @@ match_particles <- function(src_df, ref_df, config,
   n_src  <- nrow(src_df)
   n_ref  <- nrow(ref_df)
 
-  # Per-particle adaptive threshold
+  # Per-particle adaptive threshold (ignored when force_complete = TRUE)
   src_thresh <- rep(dist_thresh, n_src)
-  if (adaptive_factor > 0 && "major_um" %in% names(src_df)) {
+  if (!force_complete && adaptive_factor > 0 && "major_um" %in% names(src_df)) {
     major <- src_df$major_um
     src_thresh <- pmax(dist_thresh, adaptive_factor * ifelse(is.na(major), 0, major))
   }
 
-  # Find k nearest reference neighbors for each source particle
-  k <- min(20, n_ref)
+  # When force_complete, search all reference particles, not just k nearest
+  k <- if (force_complete) n_ref else min(20, n_ref)
   nn <- RANN::nn2(cbind(ref_x, ref_y), cbind(src_x, src_y), k = k)
 
-  # Build sparse cost matrix (only populate within-threshold candidates)
+  # Build sparse cost matrix
+  # force_complete: populate every candidate regardless of distance
   BIG <- 1e12
   n_max <- max(n_src, n_ref)
   cost <- matrix(BIG, nrow = n_max, ncol = n_max)
@@ -103,7 +109,7 @@ match_particles <- function(src_df, ref_df, config,
     for (ki in seq_len(k)) {
       j <- nn$nn.idx[i, ki]
       d <- nn$nn.dists[i, ki]
-      if (d > thr_i) next
+      if (!force_complete && d > thr_i) next
 
       # Multi-feature cost
       penalty <- 0
@@ -144,7 +150,7 @@ match_particles <- function(src_df, ref_df, config,
   assignment <- clue::solve_LSAP(cost, maximum = FALSE)
   assignment <- as.integer(assignment)
 
-  # Extract valid matches (cost < BIG means within threshold)
+  # Extract valid matches (cost < BIG means within threshold, or force_complete)
   match_rows <- list()
   src_taken <- logical(n_src)
   ref_taken <- logical(n_ref)
@@ -152,7 +158,7 @@ match_particles <- function(src_df, ref_df, config,
   for (i in seq_len(n_src)) {
     j <- assignment[i]
     if (j > n_ref) next  # padded dummy column
-    if (cost[i, j] >= BIG) next  # no valid candidate
+    if (!force_complete && cost[i, j] >= BIG) next  # no valid candidate
 
     # Compute actual distance for this pair
     d_actual <- sqrt((src_x[i] - ref_x[j])^2 + (src_y[i] - ref_y[j])^2)
