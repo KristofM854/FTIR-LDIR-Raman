@@ -128,7 +128,164 @@ def apply_circle_mask(arr, cx, cy, radius, fill_value=0.0):
     return out
 
 
-def detect_particles(corrected, threshold=25.0, min_area=10):
+def morphological_close(binary, closing_radius=2):
+    """Apply morphological closing to bridge small gaps in fibers.
+
+    Uses both horizontal and vertical elongated structuring elements
+    to merge fiber fragments that are split by narrow background gaps.
+
+    Args:
+        binary: 2D bool array (thresholded image).
+        closing_radius: Size of closing structuring element.
+
+    Returns:
+        2D bool array after morphological closing.
+    """
+    if closing_radius <= 0:
+        return binary
+
+    # Horizontal closing (bridges horizontal gaps in fibers)
+    h_struct = np.ones((1, 2 * closing_radius + 1), dtype=bool)
+    closed = ndimage.binary_closing(binary, structure=h_struct)
+
+    # Vertical closing (bridges vertical gaps in fibers)
+    v_struct = np.ones((2 * closing_radius + 1, 1), dtype=bool)
+    closed = ndimage.binary_closing(closed, structure=v_struct)
+
+    # Small isotropic closing to catch diagonal gaps
+    iso_struct = ndimage.generate_binary_structure(2, 1)
+    closed = ndimage.binary_closing(closed, structure=iso_struct)
+
+    return closed
+
+
+def merge_fiber_fragments(labeled, n_particles, corrected,
+                          min_aspect_ratio=4.0, max_gap_px=15,
+                          grid_rows=4, grid_cols=4):
+    """Merge nearby elongated particles that are likely fiber fragments.
+
+    After initial connected component labeling, identifies particles with
+    high aspect ratio (fibers) and merges pairs that are close together
+    and roughly collinear.
+
+    Args:
+        labeled: 2D int labeled particle image.
+        n_particles: Number of particles.
+        corrected: 2D float64 background-subtracted image.
+        min_aspect_ratio: Minimum aspect ratio to consider a particle as fiber-like.
+        max_gap_px: Maximum gap in pixels between bounding boxes to consider merging.
+        grid_rows, grid_cols: Tile grid dimensions.
+
+    Returns:
+        dict with 'labeled' (2D int), 'n_particles' (int).
+    """
+    if n_particles < 2:
+        return {'labeled': labeled, 'n_particles': n_particles}
+
+    bboxes = find_objects(labeled)
+    if bboxes is None or len(bboxes) == 0:
+        return {'labeled': labeled, 'n_particles': n_particles}
+
+    # Compute properties for each particle
+    props = []
+    for i in range(n_particles):
+        bbox = bboxes[i]
+        if bbox is None:
+            props.append(None)
+            continue
+        y0, y1 = bbox[0].start, bbox[0].stop
+        x0, x1 = bbox[1].start, bbox[1].stop
+        h = y1 - y0
+        w = x1 - x0
+        ar = max(w, h) / max(min(w, h), 1)
+        # Orientation: 0 = horizontal, 90 = vertical
+        angle = 0.0 if w >= h else 90.0
+        cy = (y0 + y1) / 2.0
+        cx = (x0 + x1) / 2.0
+        area = int(ndimage.sum(labeled == (i + 1), labeled, i + 1))
+        props.append({
+            'label': i + 1, 'y0': y0, 'y1': y1, 'x0': x0, 'x1': x1,
+            'h': h, 'w': w, 'ar': ar, 'angle': angle,
+            'cy': cy, 'cx': cx, 'area': area
+        })
+
+    # Find fiber-like particles
+    fiber_indices = [i for i, p in enumerate(props)
+                     if p is not None and p['ar'] >= min_aspect_ratio]
+
+    if len(fiber_indices) < 2:
+        return {'labeled': labeled, 'n_particles': n_particles}
+
+    # Build union-find for merging
+    parent = list(range(n_particles))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    # Check all fiber pairs for proximity and collinearity
+    n_merges = 0
+    for ii in range(len(fiber_indices)):
+        for jj in range(ii + 1, len(fiber_indices)):
+            a = props[fiber_indices[ii]]
+            b = props[fiber_indices[jj]]
+
+            # Must have similar orientation
+            if abs(a['angle'] - b['angle']) > 45:
+                continue
+
+            # Compute gap between bounding boxes
+            gap_x = max(0, max(a['x0'], b['x0']) - min(a['x1'], b['x1']))
+            gap_y = max(0, max(a['y0'], b['y0']) - min(a['y1'], b['y1']))
+            gap = np.sqrt(gap_x**2 + gap_y**2)
+
+            if gap > max_gap_px:
+                continue
+
+            # Check collinearity: centroids should be roughly aligned
+            # along the fiber's major axis
+            if a['angle'] < 45:  # horizontal fiber
+                # Y-centroids should be close
+                if abs(a['cy'] - b['cy']) > max(a['h'], b['h']) * 1.5:
+                    continue
+            else:  # vertical fiber
+                # X-centroids should be close
+                if abs(a['cx'] - b['cx']) > max(a['w'], b['w']) * 1.5:
+                    continue
+
+            union(fiber_indices[ii], fiber_indices[jj])
+            n_merges += 1
+
+    if n_merges == 0:
+        return {'labeled': labeled, 'n_particles': n_particles}
+
+    # Re-label: assign merged groups the same label
+    new_labeled = labeled.copy()
+    for i in range(n_particles):
+        root = find(i)
+        if root != i:
+            # Relabel particle (i+1) to root particle (root+1)
+            new_labeled[labeled == (i + 1)] = root + 1
+
+    # Re-number labels consecutively
+    final_labeled, n_final = label(new_labeled > 0)
+
+    return {
+        'labeled': final_labeled.astype(np.int32),
+        'n_particles': int(n_final),
+        'n_merges': n_merges
+    }
+
+
+def detect_particles(corrected, threshold=25.0, min_area=10,
+                     use_closing=True, closing_radius=2):
     """Global thresholding + connected component analysis.
 
     IMPORTANT: Detection is GLOBAL (whole image), not per-tile,
@@ -138,6 +295,9 @@ def detect_particles(corrected, threshold=25.0, min_area=10):
         corrected: 2D float64 background-subtracted image.
         threshold: Intensity threshold for detection.
         min_area: Minimum particle area in pixels.
+        use_closing: Apply morphological closing before labeling to
+            bridge small gaps in fibers (default True).
+        closing_radius: Radius for morphological closing element.
 
     Returns:
         dict with:
@@ -146,6 +306,10 @@ def detect_particles(corrected, threshold=25.0, min_area=10):
           'binary': 2D bool array (thresholded image before size filter)
     """
     binary = corrected > threshold
+
+    if use_closing:
+        binary = morphological_close(binary, closing_radius)
+
     labeled_raw, n_raw = label(binary)
 
     if n_raw == 0:
@@ -262,7 +426,9 @@ def extract_properties(corrected, labeled, n_particles,
 
 
 def auto_tune_threshold(corrected, target_count, min_area=10,
-                         low=5.0, high=250.0, max_iter=50, tol=0):
+                         low=5.0, high=250.0, max_iter=50, tol=0,
+                         overshoot_factor=1.0,
+                         use_closing=True, closing_radius=2):
     """Binary search for threshold that gives closest to target_count.
 
     Args:
@@ -272,19 +438,28 @@ def auto_tune_threshold(corrected, target_count, min_area=10,
         low, high: Search bounds for threshold.
         max_iter: Maximum binary search iterations.
         tol: Accept if |detected - target| <= tol.
+        overshoot_factor: Multiply target_count by this factor to
+            deliberately over-extract particles (e.g. 1.3 = 30% more).
+            This gives the Hungarian matcher more candidates to choose from.
+        use_closing: Apply morphological closing in detect_particles().
+        closing_radius: Radius for morphological closing element.
 
     Returns:
         dict with 'threshold', 'n_particles', 'det_result'.
     """
+    effective_target = int(round(target_count * max(overshoot_factor, 1.0)))
+
     best_thr = (low + high) / 2
     best_diff = float('inf')
     best_result = None
 
     for _ in range(max_iter):
         mid = (low + high) / 2
-        det = detect_particles(corrected, threshold=mid, min_area=min_area)
+        det = detect_particles(corrected, threshold=mid, min_area=min_area,
+                               use_closing=use_closing,
+                               closing_radius=closing_radius)
         n = det['n_particles']
-        diff = n - target_count
+        diff = n - effective_target
 
         if abs(diff) < abs(best_diff):
             best_thr = mid
@@ -301,7 +476,8 @@ def auto_tune_threshold(corrected, target_count, min_area=10,
     return {
         'threshold': round(best_thr, 1),
         'n_particles': best_result['n_particles'] if best_result else 0,
-        'det_result': best_result
+        'det_result': best_result,
+        'effective_target': effective_target
     }
 
 
@@ -388,7 +564,9 @@ def detect_scan_circle(image_path):
 def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
                        bg_sigma=30.0, clip_sigma=3.0, max_iter=10,
                        threshold=25.0, min_area=10, target_count=0,
-                       circle_cx=-1.0, circle_cy=-1.0, circle_r=-1.0):
+                       circle_cx=-1.0, circle_cy=-1.0, circle_r=-1.0,
+                       overshoot_factor=1.0, merge_fibers=True,
+                       closing_radius=2):
     """Convenience function: runs the entire pipeline in one call.
 
     This is the main entry point from R.
@@ -400,6 +578,12 @@ def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
             pixels.  When circle_r > 0, pixels outside the circle are
             zeroed after background correction so they cannot be detected
             as particles.
+        overshoot_factor: When auto-tuning, target target_count * overshoot_factor
+            particles to deliberately over-extract (default 1.0 = exact match).
+            Values like 1.3 give the Hungarian matcher 30% more candidates.
+        merge_fibers: If True, merge nearby elongated particles that are
+            likely fragmented fibers (default True).
+        closing_radius: Radius for morphological closing to bridge fiber gaps.
         All other args: algorithm parameters (see individual functions).
 
     Returns:
@@ -411,6 +595,7 @@ def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
           'image_width': int
           'tile_height': int
           'tile_width': int
+          'n_fiber_merges': int (number of fiber fragment merges performed)
     """
     data = load_and_prepare(image_path)
 
@@ -425,18 +610,35 @@ def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
         bg_result = dict(bg_result)          # copy so we can update
         bg_result['corrected'] = corrected
 
+    use_closing = closing_radius > 0
+
     if target_count > 0:
         # Auto-tune threshold to match expected particle count
         tune = auto_tune_threshold(
-            bg_result['corrected'], target_count, min_area
+            bg_result['corrected'], target_count, min_area,
+            overshoot_factor=overshoot_factor,
+            use_closing=use_closing, closing_radius=closing_radius
         )
         det_result = tune['det_result']
         threshold_used = tune['threshold']
     else:
         det_result = detect_particles(
-            bg_result['corrected'], threshold, min_area
+            bg_result['corrected'], threshold, min_area,
+            use_closing=use_closing, closing_radius=closing_radius
         )
         threshold_used = threshold
+
+    # Post-detection fiber merging
+    n_fiber_merges = 0
+    if merge_fibers and det_result['n_particles'] > 1:
+        merge_result = merge_fiber_fragments(
+            det_result['labeled'], det_result['n_particles'],
+            bg_result['corrected'], grid_rows=grid_rows, grid_cols=grid_cols
+        )
+        n_fiber_merges = merge_result.get('n_merges', 0)
+        if n_fiber_merges > 0:
+            det_result['labeled'] = merge_result['labeled']
+            det_result['n_particles'] = merge_result['n_particles']
 
     particles = extract_properties(
         bg_result['corrected'], det_result['labeled'],
@@ -450,5 +652,6 @@ def run_full_pipeline(image_path, grid_rows=4, grid_cols=4,
         'image_height': data['height'],
         'image_width': data['width'],
         'tile_height': bg_result['tile_height'],
-        'tile_width': bg_result['tile_width']
+        'tile_width': bg_result['tile_width'],
+        'n_fiber_merges': n_fiber_merges
     }

@@ -103,7 +103,10 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
                                      bg_sigma = 30, threshold = 25,
                                      min_area = 10L,
                                      circle_cx = -1.0, circle_cy = -1.0,
-                                     circle_r = -1.0) {
+                                     circle_r = -1.0,
+                                     overshoot_factor = 1.0,
+                                     merge_fibers = TRUE,
+                                     closing_radius = 2L) {
 
   if (!setup_python_detector()) return(NULL)
 
@@ -128,7 +131,10 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
       target_count = target,
       circle_cx = as.double(circle_cx),
       circle_cy = as.double(circle_cy),
-      circle_r  = as.double(circle_r)
+      circle_r  = as.double(circle_r),
+      overshoot_factor = as.double(overshoot_factor),
+      merge_fibers = as.logical(merge_fibers),
+      closing_radius = as.integer(closing_radius)
     )
   }, error = function(e) {
     log_message("  [ERROR] Python detection failed: ", conditionMessage(e))
@@ -138,8 +144,11 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
   if (is.null(result)) return(NULL)
 
   n <- as.integer(result$n_particles)
+  n_merges <- as.integer(result$n_fiber_merges %||% 0L)
   log_message("  Python detector: ", n, " particles (threshold=",
-              round(result$threshold_used, 1), ")")
+              round(result$threshold_used, 1),
+              if (n_merges > 0) paste0(", fiber_merges=", n_merges) else "",
+              ")")
 
   if (n == 0) return(NULL)
 
