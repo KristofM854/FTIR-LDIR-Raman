@@ -35,6 +35,28 @@ make_run_dir <- function(base_dir = "output") {
   run_dir
 }
 
+#' Build and create standardized stage-based output subdirectories for a run.
+#'
+#' @param run_dir Path to the run directory (e.g. "output/2026-03-06_1")
+#' @return Named list of directory paths (all created on disk)
+get_output_dirs <- function(run_dir) {
+  dirs <- list(
+    manifest    = file.path(run_dir, "00_manifest"),
+    ingested    = file.path(run_dir, "01_ingested"),
+    joined      = file.path(run_dir, "02_joined"),
+    prefiltered = file.path(run_dir, "03_prefiltered"),
+    alignment   = file.path(run_dir, "04_alignment"),
+    matches     = file.path(run_dir, "05_matches"),
+    agreement   = file.path(run_dir, "06_agreement"),
+    diagnostics = file.path(run_dir, "07_diagnostics"),
+    plots       = file.path(run_dir, "07_diagnostics", "plots")
+  )
+  for (d in dirs) {
+    if (!dir.exists(d)) dir.create(d, recursive = TRUE)
+  }
+  dirs
+}
+
 # ---------------------------------------------------------------------------
 # Coordinate parsing
 # ---------------------------------------------------------------------------
@@ -635,6 +657,18 @@ file_md5 <- function(path) {
 
 #' Write a run manifest JSON file
 #'
+#' Resolve manifest.json path: prefer 00_manifest/ subfolder, fall back to flat
+#' @param run_dir Run output directory
+#' @return Path to manifest.json (may not exist yet)
+resolve_manifest_path <- function(run_dir) {
+  staged <- file.path(run_dir, "00_manifest", "manifest.json")
+  if (file.exists(staged)) return(staged)
+  legacy <- file.path(run_dir, "manifest.json")
+  if (file.exists(legacy)) return(legacy)
+  # Default to staged location for new writes
+  staged
+}
+
 #' Records authoritative provenance for every pipeline run: run ID,
 #' timestamp, git commit, R session, config snapshot, input file hashes,
 #' and instrument image details.
@@ -661,7 +695,9 @@ write_manifest <- function(run_dir, run_id, config,
   if (!is.null(ldir_image_info) && is.null(images_info$ldir)) {
     images_info$ldir <- ldir_image_info
   }
-  manifest_path <- file.path(run_dir, "manifest.json")
+  manifest_path <- resolve_manifest_path(run_dir)
+  manifest_dir <- dirname(manifest_path)
+  if (!dir.exists(manifest_dir)) dir.create(manifest_dir, recursive = TRUE)
 
   # --- Git commit ---
   git_commit <- tryCatch(
@@ -797,7 +833,7 @@ write_manifest <- function(run_dir, run_id, config,
 #' @param stage     New stage label
 #' @param error_msg Optional error message if pipeline failed
 update_manifest_stage <- function(run_dir, stage, error_msg = NULL) {
-  manifest_path <- file.path(run_dir, "manifest.json")
+  manifest_path <- resolve_manifest_path(run_dir)
   if (!file.exists(manifest_path)) return(invisible(NULL))
 
   tryCatch({
@@ -827,7 +863,7 @@ update_manifest_stage <- function(run_dir, stage, error_msg = NULL) {
 #' @param circle_info Named list with cx_px, cy_px, radius_px, scale_um_per_px,
 #'   width (image_width_px), height (image_height_px)
 update_manifest_ldir_circle <- function(run_dir, circle_info) {
-  manifest_path <- file.path(run_dir, "manifest.json")
+  manifest_path <- resolve_manifest_path(run_dir)
   if (!file.exists(manifest_path)) return(invisible(NULL))
   tryCatch({
     if (requireNamespace("jsonlite", quietly = TRUE)) {
