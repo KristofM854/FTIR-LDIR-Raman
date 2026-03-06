@@ -4,6 +4,9 @@
 
 source("global.R")
 
+# Windows flag: enables multiple-file selection in fileInput widgets
+.is_windows <- tolower(Sys.info()[["sysname"]]) == "windows"
+
 # ============================================================================
 # Shared UI helpers
 # ============================================================================
@@ -46,7 +49,8 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       hr(),
       fileInput(paste0(id_prefix, "_image_upload"), "Background Image",
                 accept = c("image/png", "image/jpeg", "image/tiff",
-                           ".tif", ".tiff", ".bmp", ".webp")),
+                           ".tif", ".tiff", ".bmp", ".webp"),
+                multiple = .is_windows),
       fluidRow(
         column(6, numericInput(paste0(id_prefix, "_img_offset_x"),
                                "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -56,17 +60,31 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
     ),
     mainPanel(width = 9,
       plotOutput(paste0(id_prefix, "_plot"), height = "650px",
-                 hover = hoverOpts(paste0(id_prefix, "_hover"), delay = 100,
-                                   delayType = "throttle"),
-                 brush = brushOpts(paste0(id_prefix, "_brush"),
-                                   resetOnNew = TRUE),
+                 click  = paste0(id_prefix, "_click"),
+                 hover  = hoverOpts(paste0(id_prefix, "_hover"), delay = 100,
+                                    delayType = "throttle"),
+                 brush  = brushOpts(paste0(id_prefix, "_brush"),
+                                    resetOnNew = TRUE),
                  dblclick = paste0(id_prefix, "_dblclick")),
       tags$p(class = "text-muted",
-             "Drag to zoom in. Double-click to reset zoom."),
+             "Drag to zoom in. Double-click to reset. Click a particle to add it to the selection."),
       hr(),
       div(class = "info-box",
           h5("Particle Details (hover)"),
-          detail_table_ui(paste0(id_prefix, "_hover_info")))
+          detail_table_ui(paste0(id_prefix, "_hover_info"))),
+      hr(),
+      div(class = "info-box",
+          fluidRow(
+            column(8, h5("Selected Particles")),
+            column(4, actionButton(paste0(id_prefix, "_clear_selection"), "Clear",
+                                   class = "btn-sm btn-default",
+                                   style = "float:right; margin-top:2px;"))
+          ),
+          detail_table_ui(paste0(id_prefix, "_selection_info"))),
+      hr(),
+      div(class = "info-box",
+          h5("Plastics (synthetic)"),
+          uiOutput(paste0(id_prefix, "_plastics_summary")))
     )
   )
 }
@@ -93,12 +111,17 @@ ui <- fluidPage(
     title = "Multi-Instrument Particle Viewer",
     id = "main_tabs",
 
-    # Tab 1: FTIR
-    tabPanel("FTIR",
+    # Tab 1: FTIR (PerkinElmer)
+    tabPanel("FTIR (PerkinElmer)",
       instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800)
     ),
 
-    # Tab 2: Raman
+    # Tab 2: FTIR (Bruker) — shown only when data present
+    tabPanel("FTIR (Bruker)",
+      instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800)
+    ),
+
+    # Tab 3: Raman
     tabPanel("Raman",
       instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200)
     ),
@@ -133,7 +156,8 @@ ui <- fluidPage(
           hr(),
           fileInput("ldir_image_upload", "Background Image",
                     accept = c("image/png", "image/jpeg", "image/tiff",
-                               ".tif", ".tiff", ".bmp", ".webp")),
+                               ".tif", ".tiff", ".bmp", ".webp"),
+                    multiple = .is_windows),
           fluidRow(
             column(6, numericInput("ldir_img_offset_x",
                                    "Img X offset (\u00b5m)", value = 0, step = 25)),
@@ -143,17 +167,31 @@ ui <- fluidPage(
         ),
         mainPanel(width = 9,
           plotOutput("ldir_plot", height = "650px",
-                     hover = hoverOpts("ldir_hover", delay = 100,
-                                       delayType = "throttle"),
-                     brush = brushOpts("ldir_brush",
-                                       resetOnNew = TRUE),
+                     click    = "ldir_click",
+                     hover    = hoverOpts("ldir_hover", delay = 100,
+                                          delayType = "throttle"),
+                     brush    = brushOpts("ldir_brush",
+                                          resetOnNew = TRUE),
                      dblclick = "ldir_dblclick"),
           tags$p(class = "text-muted",
-                 "Drag to zoom in. Double-click to reset zoom."),
+                 "Drag to zoom in. Double-click to reset. Click a particle to add it to the selection."),
           hr(),
           div(class = "info-box",
               h5("Particle Details (hover)"),
-              detail_table_ui("ldir_hover_info"))
+              detail_table_ui("ldir_hover_info")),
+          hr(),
+          div(class = "info-box",
+              fluidRow(
+                column(8, h5("Selected Particles")),
+                column(4, actionButton("ldir_clear_selection", "Clear",
+                                       class = "btn-sm btn-default",
+                                       style = "float:right; margin-top:2px;"))
+              ),
+              detail_table_ui("ldir_selection_info")),
+          hr(),
+          div(class = "info-box",
+              h5("Plastics (synthetic)"),
+              uiOutput("ldir_plastics_summary"))
         )
       )
     ),
@@ -286,7 +324,21 @@ ui <- fluidPage(
       )
     ),
 
-    # Tab 5: Run Selector + Provenance
+    # Tab 5: Summary
+    tabPanel("Summary",
+      fluidRow(
+        column(10, offset = 1,
+          div(class = "info-box", style = "margin-top: 20px;",
+            h4("Plastics by Instrument"),
+            p(class = "text-muted",
+              "Synthetic plastic particle counts per device (all loaded data; no filters applied)."),
+            uiOutput("summary_plastics_wide")
+          )
+        )
+      )
+    ),
+
+    # Tab 6: Run Selector + Provenance
     tabPanel("Run Info",
       fluidRow(
         column(8, offset = 2,
@@ -412,6 +464,41 @@ server <- function(input, output, session) {
     load_run_manifest(run_dir)
   })
 
+  # ==================================================================
+  # SUMMARY TAB
+  # ==================================================================
+
+  output$summary_plastics_wide <- renderUI({
+    dfs <- instrument_dfs()
+    devices <- list(
+      "FTIR (PerkinElmer)" = dfs$ftir,
+      "FTIR (Bruker)"      = dfs$ftir_bruker,
+      Raman                = dfs$raman,
+      LDIR                 = dfs$ldir
+    )
+    # Remove devices with no data
+    devices <- Filter(function(d) !is.null(d) && nrow(d) > 0, devices)
+    if (length(devices) == 0)
+      return(tags$p(class = "text-muted", "No data loaded."))
+
+    per_dev  <- lapply(devices, summarise_plastics)
+    all_mats <- sort(unique(unlist(lapply(per_dev, `[[`, "material"))))
+    if (length(all_mats) == 0)
+      return(tags$p(class = "text-muted", "No synthetic plastics found."))
+
+    dev_names <- names(devices)
+    header <- tags$tr(tags$th("Material"),
+                      lapply(dev_names, tags$th))
+    body_rows <- lapply(all_mats, function(m) {
+      cells <- lapply(per_dev, function(dt) {
+        idx <- match(m, dt$material)
+        tags$td(if (is.na(idx)) "0" else as.character(dt$n[idx]))
+      })
+      tags$tr(tags$td(tags$b(m)), cells)
+    })
+    tags$table(class = "hover-tbl", header, body_rows)
+  })
+
   # Provenance panel UI
   output$run_provenance_ui <- renderUI({
     m <- active_manifest()
@@ -519,27 +606,63 @@ server <- function(input, output, session) {
 
   has_data <- reactive({
     d <- run_data()
-    !is.null(d$matched) || !is.null(d$unmatched_ftir) || !is.null(d$unmatched_raman)
+    !is.null(d$matched)            ||
+    !is.null(d$unmatched_ftir)     ||
+    !is.null(d$unmatched_raman)    ||
+    !is.null(d$ldir_raman_matched) ||
+    !is.null(d$unmatched_ldir)     ||
+    !is.null(d$unmatched_ftir_bruker)
   })
 
   instrument_dfs <- reactive({
-    if (!has_data()) return(list(ftir = NULL, raman = NULL, ldir = NULL))
+    if (!has_data()) return(list(ftir = NULL, raman = NULL, ldir = NULL,
+                                 ftir_bruker = NULL))
     build_instrument_dfs(run_data())
   }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
 
-  # Per-instrument full-data reactives (avoid repeated instrument_dfs()$ftir calls)
-  ftir_df_full  <- reactive({ instrument_dfs()$ftir })
-  raman_df_full <- reactive({ instrument_dfs()$raman })
-  ldir_df_full  <- reactive({ instrument_dfs()$ldir })
+  # Per-instrument full-data reactives (avoid repeated instrument_dfs()$X calls)
+  ftir_df_full        <- reactive({ instrument_dfs()$ftir })
+  raman_df_full       <- reactive({ instrument_dfs()$raman })
+  ldir_df_full        <- reactive({ instrument_dfs()$ldir })
+  ftir_bruker_df_full <- reactive({ instrument_dfs()$ftir_bruker })
+
+  # Which devices actually have data?
+  has_device <- reactive({
+    list(
+      ftir        = !is.null(ftir_df_full())        && nrow(ftir_df_full())        > 0,
+      raman       = !is.null(raman_df_full())       && nrow(raman_df_full())       > 0,
+      ldir        = !is.null(ldir_df_full())        && nrow(ldir_df_full())        > 0,
+      ftir_bruker = !is.null(ftir_bruker_df_full()) && nrow(ftir_bruker_df_full()) > 0
+    )
+  })
+
+  # Hide/show FTIR Bruker tab and Overlay tab based on available data
+  observe({
+    hd <- has_device()
+    if (hd$ftir_bruker) showTab("main_tabs", "FTIR (Bruker)")
+    else                hideTab("main_tabs", "FTIR (Bruker)")
+    if (sum(unlist(hd)) >= 2) showTab("main_tabs", "Overlay")
+    else                      hideTab("main_tabs", "Overlay")
+  })
+
+  # Click-to-select state: accumulated particle IDs per instrument
+  selected_ids <- reactiveValues(
+    ftir        = character(0),
+    raman       = character(0),
+    ldir        = character(0),
+    ftir_bruker = character(0)
+  )
 
   # Debounced slider inputs (300ms) — prevents re-render on every pixel drag
   # Individual tabs
-  ftir_quality_range_d   <- debounce(reactive(input$ftir_quality_range), 300)
-  ftir_size_range_d      <- debounce(reactive(input$ftir_size_range), 300)
-  raman_quality_range_d  <- debounce(reactive(input$raman_quality_range), 300)
-  raman_size_range_d     <- debounce(reactive(input$raman_size_range), 300)
-  ldir_quality_range_d   <- debounce(reactive(input$ldir_quality_range), 300)
-  ldir_size_range_d      <- debounce(reactive(input$ldir_size_range), 300)
+  ftir_quality_range_d        <- debounce(reactive(input$ftir_quality_range), 300)
+  ftir_size_range_d           <- debounce(reactive(input$ftir_size_range), 300)
+  raman_quality_range_d       <- debounce(reactive(input$raman_quality_range), 300)
+  raman_size_range_d          <- debounce(reactive(input$raman_size_range), 300)
+  ldir_quality_range_d        <- debounce(reactive(input$ldir_quality_range), 300)
+  ldir_size_range_d           <- debounce(reactive(input$ldir_size_range), 300)
+  ftir_bruker_quality_range_d <- debounce(reactive(input$ftir_bruker_quality_range), 300)
+  ftir_bruker_size_range_d    <- debounce(reactive(input$ftir_bruker_size_range), 300)
   # Overlay global
   overlay_size_range_d   <- debounce(reactive(input$overlay_size_range), 300)
   overlay_dist_range_d   <- debounce(reactive(input$overlay_dist_range), 300)
@@ -1003,6 +1126,30 @@ server <- function(input, output, session) {
       }
     }
 
+    # --- FTIR Bruker controls (individual tab only) ---
+    ftir_bruker_d <- ftir_bruker_df_full()
+    if (!is.null(ftir_bruker_d) && nrow(ftir_bruker_d) > 0) {
+      fb_mats  <- sort(unique(ftir_bruker_d$material))
+      fb_ids   <- natural_sort_ids(unique(ftir_bruker_d$particle_id))
+      q_range  <- range(ftir_bruker_d$quality, na.rm = TRUE)
+      s_max    <- ceiling(max(ftir_bruker_d$feret_max, na.rm = TRUE) / 10) * 10
+      updateSelectInput(session, "ftir_bruker_material_filter",
+                        choices = c("All", fb_mats), selected = "All")
+      updateSelectInput(session, "ftir_bruker_highlight_particle",
+                        choices = c("None", fb_ids))
+      if (all(is.finite(q_range))) {
+        updateSliderInput(session, "ftir_bruker_quality_range",
+                          min = floor(q_range[1] * 100) / 100,
+                          max = ceiling(q_range[2] * 100) / 100,
+                          value = c(floor(q_range[1] * 100) / 100,
+                                    ceiling(q_range[2] * 100) / 100))
+      }
+      if (is.finite(s_max)) {
+        updateSliderInput(session, "ftir_bruker_size_range", min = 0, max = s_max,
+                          value = c(0, s_max))
+      }
+    }
+
     # --- Global overlay controls ---
     if (!is.null(run_data()$matched)) {
       max_dist <- ceiling(max(run_data()$matched$match_distance, na.rm = TRUE))
@@ -1062,7 +1209,8 @@ server <- function(input, output, session) {
 
   # Pattern Apply buttons for single-instrument viewer highlight text boxes
   # These update the selectInput highlight_particle to the parsed set.
-  single_highlight_ids <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL)
+  single_highlight_ids <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL,
+                                         ftir_bruker = NULL)
 
   observeEvent(input$ftir_highlight_apply, {
     pat <- input$ftir_highlight_pattern
@@ -1089,6 +1237,15 @@ server <- function(input, output, session) {
     ids <- parse_particle_selection(trimws(pat), unique(df$particle_id))
     single_highlight_ids$ldir <- if (length(ids) == 0) NULL else ids
     updateTextInput(session, "ldir_highlight_pattern", value = "")
+  })
+
+  observeEvent(input$ftir_bruker_highlight_apply, {
+    pat <- input$ftir_bruker_highlight_pattern
+    df  <- ftir_bruker_df_full()
+    if (is.null(df) || nrow(df) == 0 || is.null(pat) || nchar(trimws(pat)) == 0) return()
+    ids <- parse_particle_selection(trimws(pat), unique(df$particle_id))
+    single_highlight_ids$ftir_bruker <- if (length(ids) == 0) NULL else ids
+    updateTextInput(session, "ftir_bruker_highlight_pattern", value = "")
   })
 
   # ==================================================================
@@ -1211,7 +1368,8 @@ server <- function(input, output, session) {
   # Updated only when a NEW particle is found; keeps showing the last
   # particle when hovering over empty background.
   # ==================================================================
-  last_hover <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL)
+  last_hover <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL,
+                               ftir_bruker = NULL)
 
   # Pinned overlay particle: persists across hover events until cleared.
   # Stores a data row (matched or single-instrument) and its source type.
@@ -1221,7 +1379,8 @@ server <- function(input, output, session) {
   # ==================================================================
   # Zoom state: NULL means full view, otherwise list(x=c(lo,hi), y=c(lo,hi))
   # ==================================================================
-  zoom <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL)
+  zoom <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL,
+                         ftir_bruker = NULL)
 
   observeEvent(input$ftir_brush, {
     b <- input$ftir_brush
@@ -1241,11 +1400,69 @@ server <- function(input, output, session) {
   })
   observeEvent(input$ldir_dblclick, { zoom$ldir <- NULL })
 
+  observeEvent(input$ftir_bruker_brush, {
+    b <- input$ftir_bruker_brush
+    zoom$ftir_bruker <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+  })
+  observeEvent(input$ftir_bruker_dblclick, { zoom$ftir_bruker <- NULL })
+
   observeEvent(input$overlay_brush, {
     b <- input$overlay_brush
     zoom$overlay <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
   })
   observeEvent(input$overlay_dblclick, { zoom$overlay <- NULL })
+
+  # ==================================================================
+  # Click-to-select handlers for single-instrument viewers
+  # ==================================================================
+
+  # Helper: find nearest particle in a df (native x_orig/y_orig space)
+  .find_nearest <- function(click, df, zoom_state) {
+    if (is.null(click) || is.null(df) || nrow(df) == 0) return(NULL)
+    vis <- if (!is.null(zoom_state)) zoom_state else
+             list(x = range(df$x_orig, na.rm = TRUE),
+                  y = range(df$y_orig, na.rm = TRUE))
+    snap <- max(diff(vis$x), diff(vis$y), 200) * 0.05
+    d <- sqrt((df$x_orig - click$x)^2 + (df$y_orig - click$y)^2)
+    idx <- which.min(d)
+    if (length(idx) > 0 && d[idx] <= snap) df$particle_id[idx] else NULL
+  }
+
+  observeEvent(input$ftir_click, {
+    pid <- .find_nearest(input$ftir_click, ftir_filtered(), zoom$ftir)
+    if (!is.null(pid)) {
+      cur <- selected_ids$ftir
+      selected_ids$ftir <- if (pid %in% cur) cur else c(cur, pid)
+    }
+  })
+  observeEvent(input$ftir_clear_selection, { selected_ids$ftir <- character(0) })
+
+  observeEvent(input$raman_click, {
+    pid <- .find_nearest(input$raman_click, raman_filtered(), zoom$raman)
+    if (!is.null(pid)) {
+      cur <- selected_ids$raman
+      selected_ids$raman <- if (pid %in% cur) cur else c(cur, pid)
+    }
+  })
+  observeEvent(input$raman_clear_selection, { selected_ids$raman <- character(0) })
+
+  observeEvent(input$ldir_click, {
+    pid <- .find_nearest(input$ldir_click, ldir_filtered(), zoom$ldir)
+    if (!is.null(pid)) {
+      cur <- selected_ids$ldir
+      selected_ids$ldir <- if (pid %in% cur) cur else c(cur, pid)
+    }
+  })
+  observeEvent(input$ldir_clear_selection, { selected_ids$ldir <- character(0) })
+
+  observeEvent(input$ftir_bruker_click, {
+    pid <- .find_nearest(input$ftir_bruker_click, ftir_bruker_filtered(), zoom$ftir_bruker)
+    if (!is.null(pid)) {
+      cur <- selected_ids$ftir_bruker
+      selected_ids$ftir_bruker <- if (pid %in% cur) cur else c(cur, pid)
+    }
+  })
+  observeEvent(input$ftir_bruker_clear_selection, { selected_ids$ftir_bruker <- character(0) })
 
   # Overlay: select / deselect all layers
   observeEvent(input$overlay_toggle_all, {
@@ -1259,6 +1476,44 @@ server <- function(input, output, session) {
       updateCheckboxGroupInput(session, "overlay_layers", selected = all_choices)
     }
   })
+
+  # ==================================================================
+  # Shared helpers: selection table + plastics summary HTML
+  # ==================================================================
+
+  make_selection_table_ui <- function(ids, full_df) {
+    if (length(ids) == 0)
+      return(tags$p(class = "text-muted", "Click particles to add them to the selection."))
+    if (is.null(full_df) || nrow(full_df) == 0)
+      return(tags$p(class = "text-muted", "Data not yet loaded."))
+    rows <- full_df[full_df$particle_id %in% ids, ]
+    rows <- rows[match(ids, rows$particle_id), ]
+    rows <- rows[!is.na(rows$particle_id), ]
+    if (nrow(rows) == 0)
+      return(tags$p(class = "text-muted", "Selected particles not found in loaded data."))
+    tags$table(class = "hover-tbl",
+      tags$tr(tags$th("ID"), tags$th("Material"),
+              tags$th("Feret (\u00b5m)"), tags$th("Quality")),
+      lapply(seq_len(nrow(rows)), function(i) {
+        r <- rows[i, ]
+        tags$tr(tags$td(r$particle_id),
+                tags$td(r$material),
+                tags$td(round(r$feret_max, 1)),
+                tags$td(round(r$quality, 3)))
+      })
+    )
+  }
+
+  make_plastics_summary_ui <- function(df) {
+    tbl <- summarise_plastics(df)
+    if (nrow(tbl) == 0)
+      return(tags$p(class = "text-muted", "No synthetic plastics detected."))
+    tags$table(class = "hover-tbl",
+      tags$tr(tags$th("Material"), tags$th("Count")),
+      lapply(seq_len(nrow(tbl)), function(i)
+        tags$tr(tags$td(tbl$material[i]), tags$td(tbl$n[i])))
+    )
+  }
 
   # ==================================================================
   # FTIR TAB
@@ -1383,7 +1638,15 @@ server <- function(input, output, session) {
 
   output$ftir_hover_info <- renderUI({
     row <- last_hover$ftir
-    single_detail_html(row, "FTIR", "AAU Quality")
+    single_detail_html(row, "FTIR (PerkinElmer)", "AAU Quality")
+  })
+
+  output$ftir_selection_info <- renderUI({
+    make_selection_table_ui(selected_ids$ftir, ftir_df_full())
+  })
+
+  output$ftir_plastics_summary <- renderUI({
+    make_plastics_summary_ui(ftir_df_full())
   })
 
 
@@ -1470,6 +1733,14 @@ server <- function(input, output, session) {
   output$raman_hover_info <- renderUI({
     row <- last_hover$raman
     single_detail_html(row, "Raman", "HQI")
+  })
+
+  output$raman_selection_info <- renderUI({
+    make_selection_table_ui(selected_ids$raman, raman_df_full())
+  })
+
+  output$raman_plastics_summary <- renderUI({
+    make_plastics_summary_ui(raman_df_full())
   })
 
 
@@ -1713,6 +1984,105 @@ server <- function(input, output, session) {
   output$ldir_hover_info <- renderUI({
     row <- last_hover$ldir
     single_detail_html(row, "LDIR", "Quality")
+  })
+
+  output$ldir_selection_info <- renderUI({
+    make_selection_table_ui(selected_ids$ldir, ldir_df_full())
+  })
+
+  output$ldir_plastics_summary <- renderUI({
+    make_plastics_summary_ui(ldir_df_full())
+  })
+
+
+  # ==================================================================
+  # FTIR BRUKER TAB
+  # ==================================================================
+
+  ftir_bruker_filtered <- reactive({
+    df <- ftir_bruker_df_full()
+    if (is.null(df) || nrow(df) == 0) return(data.frame())
+    filter_instrument(df, ftir_bruker_quality_range_d(), ftir_bruker_size_range_d(),
+                      input$ftir_bruker_material_filter, input$ftir_bruker_match_filter)
+  })
+
+  output$ftir_bruker_plot <- renderPlot({
+    df <- ftir_bruker_filtered()
+    df_disp <- df
+    if (nrow(df_disp) > 0) {
+      df_disp$x <- df_disp$x_orig
+      df_disp$y <- df_disp$y_orig
+    }
+
+    full_fb <- ftir_bruker_df_full()
+    if (!is.null(full_fb) && nrow(full_fb) > 0) {
+      full_fb$x <- full_fb$x_orig
+      full_fb$y <- full_fb$y_orig
+    }
+
+    bounds <- if (!is.null(zoom$ftir_bruker)) zoom$ftir_bruker else {
+      ref <- if (nrow(df_disp) > 0) df_disp
+             else if (!is.null(full_fb) && nrow(full_fb) > 0) full_fb
+             else NULL
+      if (!is.null(ref) && any(is.finite(ref$x))) {
+        pad <- 300
+        list(x = c(min(ref$x, na.rm = TRUE) - pad, max(ref$x, na.rm = TRUE) + pad),
+             y = c(min(ref$y, na.rm = TRUE) - pad, max(ref$y, na.rm = TRUE) + pad))
+      } else list(x = c(0, 10000), y = c(0, 10000))
+    }
+
+    if (nrow(df_disp) == 0) {
+      return(ggplot() +
+        coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+        labs(title = "FTIR (Bruker) \u2014 no data loaded",
+             x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+        theme_minimal(base_size = 13) +
+        theme(plot.background  = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "grey98", colour = NA)))
+    }
+
+    hl_single <- input$ftir_bruker_highlight_particle
+    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+      unique(c(hl_single, single_highlight_ids$ftir_bruker))
+    } else {
+      single_highlight_ids$ftir_bruker
+    }
+    make_scatter(df_disp, NULL, bounds,
+                 paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)"),
+                 match_colours = c(matched = "#9467bd", unmatched = "#8c564b"),
+                 highlight_id = hl_ids,
+                 full_df = full_fb)
+  })
+
+  output$ftir_bruker_summary_text <- renderText({
+    df <- ftir_bruker_filtered()
+    if (nrow(df) == 0) return("No FTIR (Bruker) data loaded")
+    paste0(nrow(df), " particles | ", length(unique(df$material)), " materials")
+  })
+
+  observeEvent(input$ftir_bruker_hover, {
+    hover <- input$ftir_bruker_hover
+    if (is.null(hover)) return()
+    df <- ftir_bruker_filtered()
+    if (nrow(df) == 0) return()
+    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+    idx   <- which.min(dists)
+    threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
+                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
+    if (dists[idx] <= threshold) last_hover$ftir_bruker <- df[idx, , drop = FALSE]
+  })
+
+  output$ftir_bruker_hover_info <- renderUI({
+    row <- last_hover$ftir_bruker
+    single_detail_html(row, "FTIR (Bruker)", "AAU Quality")
+  })
+
+  output$ftir_bruker_selection_info <- renderUI({
+    make_selection_table_ui(selected_ids$ftir_bruker, ftir_bruker_df_full())
+  })
+
+  output$ftir_bruker_plastics_summary <- renderUI({
+    make_plastics_summary_ui(ftir_bruker_df_full())
   })
 
 

@@ -12,10 +12,13 @@
 # =============================================================================
 
 # Instrument detection patterns (case-insensitive)
+# FTIR_perkin: PerkinElmer Spotlight keywords (legacy "FTIR" also maps here)
+# FTIR_bruker: Bruker OPUS / ALPHA keywords
 .INSTRUMENT_PATTERNS <- list(
-  FTIR  = "FTIR|Spotlight|infrared|FT-IR",
-  Raman = "Raman",
-  LDIR  = "LDIR|8700"
+  FTIR_perkin = "FTIR|Spotlight|infrared|FT-IR|PerkinElmer",
+  FTIR_bruker = "Bruker|OPUS|bruker",
+  Raman       = "Raman",
+  LDIR        = "LDIR|8700"
 )
 
 
@@ -87,12 +90,13 @@ collect_files_interactive <- function() {
 
     if (instrument == "UNKNOWN") {
       message("  Could not auto-detect instrument type.")
-      message("  Please specify: 1=FTIR, 2=Raman, 3=LDIR")
-      choice <- readline("  Enter choice (1/2/3): ")
+      message("  Please specify: 1=FTIR (PerkinElmer), 2=FTIR (Bruker), 3=Raman, 4=LDIR")
+      choice <- readline("  Enter choice (1/2/3/4): ")
       instrument <- switch(choice,
-                           "1" = "FTIR",
-                           "2" = "Raman",
-                           "3" = "LDIR",
+                           "1" = "FTIR_perkin",
+                           "2" = "FTIR_bruker",
+                           "3" = "Raman",
+                           "4" = "LDIR",
                            "UNKNOWN")
       message("  Assigned: ", instrument)
     }
@@ -155,16 +159,20 @@ build_file_manifest <- function(...) {
 #'
 #' @param manifest List of file records from collect_files_interactive()
 #'   or build_file_manifest()
-#' @return Named list: FTIR = list(tabular=..., image=...), Raman = ..., LDIR = ...
+#' @return Named list: FTIR_perkin = list(tabular=..., image=...), FTIR_bruker = ...,
+#'   Raman = ..., LDIR = ...
 group_files_by_instrument <- function(manifest) {
   result <- list(
-    FTIR  = list(tabular = NULL, image = NULL),
-    Raman = list(tabular = NULL, image = NULL),
-    LDIR  = list(tabular = NULL, image = NULL)
+    FTIR_perkin = list(tabular = NULL, image = NULL),
+    FTIR_bruker = list(tabular = NULL, image = NULL),
+    Raman       = list(tabular = NULL, image = NULL),
+    LDIR        = list(tabular = NULL, image = NULL)
   )
 
   for (f in manifest) {
     inst <- f$instrument
+    # Backwards compatibility: bare "FTIR" maps to FTIR_perkin
+    if (identical(inst, "FTIR")) inst <- "FTIR_perkin"
     if (!inst %in% names(result)) {
       log_message("  Unknown instrument type: ", inst, " — skipping", level = "WARN")
       next
