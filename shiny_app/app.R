@@ -117,32 +117,43 @@ ui <- fluidPage(
   "))),
 
   navbarPage(
-    title = "Multi-Instrument Particle Viewer",
+    title = tags$span(
+      "Multi-Instrument Particle Viewer",
+      actionButton("start_tutorial", "?",
+                   class = "btn-xs btn-default",
+                   style = "margin-left:12px; vertical-align:middle;",
+                   title = "Start guided tutorial")
+    ),
     id = "main_tabs",
+    header = introjsUI(),
 
     # Tab 1: FTIR (PerkinElmer)
     tabPanel("FTIR (PerkinElmer)",
-      instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
-        match_choices = c("Matched \u2194 Raman" = "matched",
-                          "Unmatched (vs Raman)" = "unmatched"))
+      div(id = "ftir_viewer",
+        instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
+          match_choices = c("Matched \u2194 Raman" = "matched",
+                            "Unmatched (vs Raman)" = "unmatched")))
     ),
 
     # Tab 2: FTIR (Bruker) — shown only when data present
     tabPanel("FTIR (Bruker)",
-      instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
-        match_choices = c("Matched \u2194 Raman" = "matched",
-                          "Unmatched (vs Raman)" = "unmatched"))
+      div(id = "ftir_bruker_viewer",
+        instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
+          match_choices = c("Matched \u2194 Raman" = "matched",
+                            "Unmatched (vs Raman)" = "unmatched")))
     ),
 
     # Tab 3: Raman
     tabPanel("Raman",
-      instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200,
-        match_choices = c("Matched \u2194 FTIR" = "matched",
-                          "Unmatched (vs FTIR)" = "unmatched"))
+      div(id = "raman_viewer",
+        instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200,
+          match_choices = c("Matched \u2194 FTIR" = "matched",
+                            "Unmatched (vs FTIR)" = "unmatched")))
     ),
 
     # Tab 3: LDIR
     tabPanel("LDIR",
+      div(id = "ldir_viewer",
       sidebarLayout(
         sidebarPanel(width = 3,
           h4("LDIR Filters"),
@@ -219,10 +230,12 @@ ui <- fluidPage(
               uiOutput("ldir_plastics_summary"))
         )
       )
+      ) # end div#ldir_viewer
     ),
 
     # Tab 4: Overlay (FTIR + Raman)
     tabPanel("Overlay",
+      div(id = "overlay_panel",
       sidebarLayout(
         sidebarPanel(width = 3,
           # --- GLOBAL CONTROLS ---
@@ -352,10 +365,12 @@ ui <- fluidPage(
               detail_table_ui("overlay_hover_info"))
         )
       )
+      ) # end div#overlay_panel
     ),
 
     # Tab 5: Summary
     tabPanel("Summary",
+      div(id = "summary_panel",
       fluidRow(
         column(10, offset = 1,
           div(class = "info-box", style = "margin-top: 20px;",
@@ -383,10 +398,12 @@ ui <- fluidPage(
           )
         )
       )
+      ) # end div#summary_panel
     ),
 
     # Tab 6: Run Selector + Provenance
     tabPanel("Run Info",
+      div(id = "runinfo_panel",
       fluidRow(
         column(8, offset = 2,
           div(class = "info-box", style = "margin-top: 20px;",
@@ -404,10 +421,12 @@ ui <- fluidPage(
           )
         )
       )
+      ) # end div#runinfo_panel
     ),
 
-    # Tab 6: Data Upload (fallback)
+    # Tab 7: Data Upload (fallback)
     tabPanel("Upload Data",
+      div(id = "upload_panel",
       fluidRow(
         column(6, offset = 3,
           div(class = "info-box", style = "margin-top: 20px;",
@@ -429,6 +448,7 @@ ui <- fluidPage(
           )
         )
       )
+      ) # end div#upload_panel
     )
   )
 )
@@ -439,6 +459,51 @@ ui <- fluidPage(
 # ============================================================================
 
 server <- function(input, output, session) {
+
+  # ------------------------------------------------------------------
+  # Guided tutorial (rintrojs)
+  # ------------------------------------------------------------------
+  observeEvent(input$start_tutorial, {
+    introjs(session, options = list(
+      nextLabel  = "Next",
+      prevLabel  = "Back",
+      doneLabel  = "Done",
+      steps = list(
+        list(element  = "#ftir_viewer",
+             intro    = "The <strong>FTIR (PerkinElmer)</strong> viewer displays particles detected by the PerkinElmer FTIR instrument. Each dot represents one particle, coloured by its match status with Raman."),
+        list(element  = "#raman_viewer",
+             intro    = "The <strong>Raman</strong> viewer shows particles from Raman spectroscopy analysis, coloured by their match status with FTIR."),
+        list(element  = "#ldir_viewer",
+             intro    = "The <strong>LDIR</strong> viewer displays particles from the Agilent 8700 Laser Direct Infrared instrument. Coordinates come from image extraction and are joined to the Excel particle table."),
+        list(element  = "#overlay_panel",
+             intro    = "The <strong>Overlay</strong> tab superimposes FTIR, Raman and LDIR particles on a common spatial map, with lines connecting matched pairs so you can visually assess alignment quality."),
+        list(element  = "#summary_panel",
+             intro    = "The <strong>Summary</strong> tab shows aggregate material counts across all instruments. Use the toggle to switch between all-data and filtered views."),
+        list(element  = "#runinfo_panel",
+             intro    = "The <strong>Run Info</strong> tab shows metadata about the currently loaded pipeline run: timestamp, git commit, and input file provenance."),
+        list(element  = "#upload_panel",
+             intro    = "The <strong>Upload Data</strong> tab lets you load a pipeline output CSV bundle directly from your computer without pointing to a run directory."),
+        list(element  = "#ftir_quality_range",
+             intro    = "The <strong>Quality slider</strong> filters particles by spectral match quality (AAU score for FTIR, HQI for Raman). Drag the handles to set a minimum/maximum range."),
+        list(element  = "#ftir_size_range",
+             intro    = "The <strong>Feret Max slider</strong> filters particles by their maximum Feret diameter in µm — a proxy for particle size. Use it to isolate a specific size class."),
+        list(element  = "#ftir_material_filter",
+             intro    = "The <strong>Material filter</strong> lets you show only particles of a selected polymer type. Type or pick from the dropdown; multiple materials can be selected."),
+        list(element  = "#ftir_match_filter",
+             intro    = "The <strong>Match Status</strong> checkboxes toggle visibility of matched particles (spatially paired with the other instrument) and unmatched particles."),
+        list(element  = "#ftir_highlight_particle",
+             intro    = "Use <strong>Highlight Particle</strong> to visually emphasise specific particles by ID, range (e.g. 1–10) or wildcard pattern (e.g. MP_*). Selected particles are ringed in gold."),
+        list(element  = "#ftir_image_upload",
+             intro    = "Optionally load a <strong>background image</strong> (e.g. a photo of the filter membrane or a microscope snapshot) to display behind the particle scatter plot."),
+        list(element  = "#ftir_img_offset_x",
+             intro    = "If the background image is misaligned, adjust the <strong>X and Y offsets</strong> (in µm) to shift it into registration with the particle coordinates."),
+        list(element  = "#ftir_plot",
+             intro    = "<strong>Navigate the map</strong>: drag to zoom in, double-click to reset the view. Click any particle dot to add it to the selection panel below the plot."),
+        list(element  = "#ftir_hover_info",
+             intro    = "Hover over a particle to see its full details here — instrument, particle ID, material assignment, quality score, and size measurements.")
+      )
+    ))
+  })
 
   # ------------------------------------------------------------------
   # Load data (graceful when no pipeline output exists)
@@ -600,15 +665,15 @@ server <- function(input, output, session) {
     )
     ggplot2::ggplot(bar_df, ggplot2::aes(x = instrument, y = count, fill = instrument)) +
       ggplot2::geom_col(width = 0.6) +
-      ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.5, size = 4.5) +
+      ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.5, size = 5.2) +
       ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
       ggplot2::labs(x = NULL, y = "Particle Count",
                     title = paste0(sel_fam, " across instruments",
                                    if (use_filt) " (filtered)" else "")) +
-      ggplot2::theme_minimal(base_size = 14) +
+      ggplot2::theme_minimal(base_size = 16) +
       ggplot2::theme(
         plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"),
-        axis.text.x = ggplot2::element_text(size = 12),
+        axis.text.x = ggplot2::element_text(size = 14),
         panel.grid.major.x = ggplot2::element_blank()
       ) +
       ggplot2::expand_limits(y = max(counts) * 1.15)
@@ -1484,12 +1549,14 @@ server <- function(input, output, session) {
       scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-      theme_minimal(base_size = 13) +
+      theme_minimal(base_size = 15) +
       theme(
         plot.background  = element_rect(fill = "white", colour = NA),
         panel.background = element_rect(fill = "grey98", colour = NA),
         panel.grid       = element_line(colour = "grey90"),
-        legend.position  = "bottom"
+        legend.position  = "right",
+        legend.title     = element_text(size = 13),
+        legend.text      = element_text(size = 11)
       )
 
     # Highlight selected particle(s) — ALWAYS shown even if filtered out.
@@ -1513,7 +1580,7 @@ server <- function(input, output, session) {
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
                  geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 3.5, fontface = "bold",
+                            vjust = 0, size = 4.0, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -1896,7 +1963,7 @@ server <- function(input, output, session) {
     if (nrow(df_disp) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "Raman — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-        theme_minimal(base_size = 13) +
+        theme_minimal(base_size = 15) +
         theme(plot.background = element_rect(fill = "white", colour = NA),
               panel.background = element_rect(fill = "grey98", colour = NA))
       return(add_image_bg(p, img))
@@ -2093,7 +2160,7 @@ server <- function(input, output, session) {
     if (nrow(df_disp) == 0 && !("extracted_pts" %in% overlay_mode && n_extracted > 0)) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "LDIR — no particles loaded", x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-        theme_minimal(base_size = 13) +
+        theme_minimal(base_size = 15) +
         theme(plot.background = element_rect(fill = "white", colour = NA),
               panel.background = element_rect(fill = "grey98", colour = NA))
       return(add_image_bg(p, img))
@@ -2102,12 +2169,14 @@ server <- function(input, output, session) {
     p <- ggplot() +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title_parts, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-      theme_minimal(base_size = 13) +
+      theme_minimal(base_size = 15) +
       theme(
         plot.background  = element_rect(fill = "white", colour = NA),
         panel.background = element_rect(fill = "grey98", colour = NA),
         panel.grid       = element_line(colour = "grey90"),
-        legend.position  = "bottom"
+        legend.position  = "right",
+        legend.title     = element_text(size = 13),
+        legend.text      = element_text(size = 11)
       )
 
     # Background image
@@ -2170,7 +2239,7 @@ server <- function(input, output, session) {
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
                  geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 3.5, fontface = "bold",
+                            vjust = 0, size = 4.0, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -2257,7 +2326,7 @@ server <- function(input, output, session) {
         coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
         labs(title = "FTIR (Bruker) \u2014 no data loaded",
              x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-        theme_minimal(base_size = 13) +
+        theme_minimal(base_size = 15) +
         theme(plot.background  = element_rect(fill = "white", colour = NA),
               panel.background = element_rect(fill = "grey98", colour = NA)))
     }
@@ -2438,12 +2507,14 @@ server <- function(input, output, session) {
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = "FTIR + Raman + LDIR Overlay (aligned coordinates)",
            x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-      theme_minimal(base_size = 13) +
+      theme_minimal(base_size = 15) +
       theme(
         plot.background  = element_rect(fill = "white", colour = NA),
         panel.background = element_rect(fill = "grey98", colour = NA),
         panel.grid       = element_line(colour = "grey90"),
-        legend.position  = "bottom"
+        legend.position  = "right",
+        legend.title     = element_text(size = 13),
+        legend.text      = element_text(size = 11)
       )
 
     # Background image: Raman microscope image placed at Raman-normalized bounds
@@ -2621,7 +2692,7 @@ server <- function(input, output, session) {
                              shape = 21, size = 10, stroke = 2,
                              fill = NA, colour = "#FFD700") +
                  geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 3.5, fontface = "bold",
+                            vjust = 0, size = 4.0, fontface = "bold",
                             colour = "#FFD700")
       }
     }
@@ -2637,7 +2708,7 @@ server <- function(input, output, session) {
                            shape = 8, size = 8, stroke = 2,
                            colour = "#FF6600") +
                geom_text(data = pin_df, aes(x = x, y = label_y, label = label),
-                          vjust = 0, size = 4, fontface = "bold",
+                          vjust = 0, size = 4.6, fontface = "bold",
                           colour = "#FF6600")
     }
 
