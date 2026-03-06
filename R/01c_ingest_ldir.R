@@ -626,7 +626,7 @@ extract_ldir_image_coords <- function(image_path,
   # --- Step 2: Extract particle pixel centroids ---
   # Returns particles with centroid_px_x, centroid_px_y in pixel coordinates
   pixel_particles <- .extract_ldir_pixel_centroids(
-    image_path, scan_bounds, expected_count, circle_info
+    image_path, scan_bounds, expected_count, circle_info, config
   )
 
   if (is.null(pixel_particles) || nrow(pixel_particles) == 0) {
@@ -747,7 +747,7 @@ extract_ldir_image_coords <- function(image_path,
 #'   backend and in the R saturation fallback.
 #' @return Data frame with centroid_px_x, centroid_px_y, and standard columns
 .extract_ldir_pixel_centroids <- function(image_path, scan_bounds, expected_count,
-                                          circle_info = NULL) {
+                                          circle_info = NULL, config = NULL) {
   # Extract circle parameters for Python (use -1 to signal "no mask")
   cx <- if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0))
           circle_info$cx_px else -1.0
@@ -756,15 +756,23 @@ extract_ldir_image_coords <- function(image_path,
   cr <- if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0))
           circle_info$radius_px else -1.0
 
+  # Config-driven detection parameters
+  overshoot   <- if (!is.null(config$ldir_overshoot_factor)) config$ldir_overshoot_factor else 1.3
+  merge_fibs  <- if (!is.null(config$ldir_merge_fibers)) config$ldir_merge_fibers else TRUE
+  close_r     <- if (!is.null(config$ldir_closing_radius)) config$ldir_closing_radius else 2L
+
   # --- Python backend (required — no R fallback) ---
   py_result <- tryCatch({
     detect_particles_python(
-      image_path     = image_path,
-      scan_bounds    = scan_bounds,
-      expected_count = expected_count,
-      circle_cx      = cx,
-      circle_cy      = cy,
-      circle_r       = cr
+      image_path       = image_path,
+      scan_bounds      = scan_bounds,
+      expected_count   = expected_count,
+      circle_cx        = cx,
+      circle_cy        = cy,
+      circle_r         = cr,
+      overshoot_factor = overshoot,
+      merge_fibers     = merge_fibs,
+      closing_radius   = close_r
     )
   }, error = function(e) {
     stop(
@@ -957,7 +965,7 @@ extract_ldir_image_coords <- function(image_path,
 #' @param excel_df Data frame from ingest_ldir() (has particle_id, sizes, material)
 #' @param image_df Data frame from extract_ldir_image_coords() (has x_um, y_um, sizes)
 #' @return excel_df with x_um and y_um populated, plus coord_match_cost column
-join_ldir_coords <- function(excel_df, image_df) {
+join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   log_message("Joining LDIR image coordinates with Excel particle table")
 
   n_excel <- nrow(excel_df)
@@ -1018,7 +1026,7 @@ join_ldir_coords <- function(excel_df, image_df) {
   }
 
   # Apply coordinates (reject matches above cost threshold)
-  max_cost <- 2.0
+  max_cost <- if (!is.null(config$ldir_match_threshold)) config$ldir_match_threshold else 2.0
   excel_df$coord_match_cost <- NA_real_
   excel_df$coord_source <- "none"
   n_joined <- 0

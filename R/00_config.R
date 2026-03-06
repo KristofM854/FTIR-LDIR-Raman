@@ -91,6 +91,25 @@ make_config <- function(ftir_path  = NULL,
     # "mosaic" (force full-image mapping, skip circle detection).
     ldir_export_format = "auto",
 
+    # LDIR particle detection tuning:
+    # overshoot_factor: detect this many times more particles than expected from Excel.
+    #   Values > 1 (e.g. 1.3) deliberately over-extract so that the Hungarian matcher
+    #   has more candidates to choose from, improving match rate.
+    ldir_overshoot_factor = 1.3,
+
+    # merge_fibers: when TRUE, merge nearby elongated (high aspect-ratio) particles
+    #   that are likely fragmented fiber detections back into single particles.
+    ldir_merge_fibers = TRUE,
+
+    # closing_radius: morphological closing radius (pixels) applied to the binary
+    #   mask before connected-component labeling. Bridges small gaps in fiber
+    #   detections. Set to 0 to disable.
+    ldir_closing_radius = 2L,
+
+    # match_threshold: maximum Hungarian assignment cost to accept a coordinate join.
+    #   Higher values allow more lenient size-mismatch tolerance.
+    ldir_match_threshold = 2.0,
+
     # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
     # Example: c("A3" = "A3", "MP_11" = "Raman_190")
     # NULL = no explicit map, fall back to size-based landmark RANSAC
