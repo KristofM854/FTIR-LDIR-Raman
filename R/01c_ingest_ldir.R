@@ -1025,8 +1025,12 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
     }
   }
 
-  # Apply coordinates (reject matches above cost threshold)
-  max_cost <- if (!is.null(config$ldir_match_threshold)) config$ldir_match_threshold else 2.0
+  # Apply coordinates
+  # When ldir_force_coord_match = TRUE (default), every Excel particle receives
+  # the coordinates of its assigned image particle regardless of size-match cost.
+  # When FALSE, matches above ldir_match_threshold are rejected.
+  force_coord  <- isTRUE(if (!is.null(config)) config$ldir_force_coord_match else TRUE)
+  max_cost     <- if (!is.null(config$ldir_match_threshold)) config$ldir_match_threshold else 2.0
   excel_df$coord_match_cost <- NA_real_
   excel_df$coord_source <- "none"
   n_joined <- 0
@@ -1036,7 +1040,7 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
     j <- assignment[i]
     if (is.na(j) || j > n_image || cost[i, j] >= BIG) next
 
-    if (cost[i, j] > max_cost) {
+    if (!force_coord && cost[i, j] > max_cost) {
       n_rejected <- n_rejected + 1
       next
     }
@@ -1055,13 +1059,15 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   }
 
   n_missing <- n_excel - n_joined
-  log_message("  Joined coordinates: ", n_joined, " of ", n_excel, " particles")
+  log_message("  Joined coordinates: ", n_joined, " of ", n_excel, " particles",
+              if (force_coord) " [force_coord_match]" else "")
   if (n_rejected > 0) {
     log_message("  Rejected ", n_rejected, " joins with cost > ", max_cost,
                 " (poor size match)")
   }
   if (n_missing > 0) {
-    log_message("  Missing coordinates: ", n_missing, " particles (no image match)")
+    log_message("  Missing coordinates: ", n_missing,
+                " particles (no image match — image may have fewer particles than Excel)")
   }
 
   # Quality diagnostics

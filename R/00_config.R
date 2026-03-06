@@ -108,7 +108,13 @@ make_config <- function(ftir_path  = NULL,
 
     # match_threshold: maximum Hungarian assignment cost to accept a coordinate join.
     #   Higher values allow more lenient size-mismatch tolerance.
+    #   Only used when ldir_force_coord_match = FALSE (the default is TRUE).
     ldir_match_threshold = 2.0,
+
+    # When TRUE, every Excel particle is assigned an image coordinate regardless
+    # of size-match cost — no joins are rejected. Use the coord_match_cost slider
+    # in the Shiny viewer to post-hoc filter poor-quality coordinate assignments.
+    ldir_force_coord_match = TRUE,
 
     # When TRUE, Hungarian matching forces a 1-to-1 assignment for every LDIR
     # particle regardless of spatial distance — no pairs are rejected.

@@ -554,7 +554,8 @@ build_instrument_dfs <- function(data) {
       material = m$ldir_material, quality = m$ldir_quality,
       match_status = "matched", match_id = m$match_id,
       matched_to_raman = TRUE,
-      match_score = if ("match_score" %in% names(m)) m$match_score else NA_real_,
+      match_score       = if ("match_score"           %in% names(m)) m$match_score           else NA_real_,
+      coord_match_cost  = if ("ldir_coord_match_cost" %in% names(m)) m$ldir_coord_match_cost else NA_real_,
       stringsAsFactors = FALSE)
   }
   if (!is.null(data$unmatched_ldir) && nrow(data$unmatched_ldir) > 0) {
@@ -570,7 +571,8 @@ build_instrument_dfs <- function(data) {
       material = u$material, quality = u$quality,
       match_status = "unmatched", match_id = NA_integer_,
       matched_to_raman = FALSE,
-      match_score = NA_real_,
+      match_score      = NA_real_,
+      coord_match_cost = if ("coord_match_cost" %in% names(u)) u$coord_match_cost else NA_real_,
       stringsAsFactors = FALSE)
   }
   result$ldir <- if (length(ldir_parts) > 0) do.call(rbind, ldir_parts) else NULL
