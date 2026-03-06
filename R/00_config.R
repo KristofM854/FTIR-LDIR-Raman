@@ -75,6 +75,13 @@ make_config <- function(ftir_path  = NULL,
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
     icp_max_rotation_deg = 90,    # |rotation| above this → WARN (likely spurious)
 
+    # Enable/disable scan-circle detection for LDIR image coordinate mapping.
+    # TRUE  (default): detect the circular scan area and use it for µm calibration.
+    # FALSE: skip circle detection entirely and map the full image to scan bounds.
+    #        Use this when the LDIR image already covers the full scan field without
+    #        a visible circular crop (e.g. tiled mosaic exports).
+    ldir_use_circle_detection = TRUE,
+
     # Manual scan-circle override (pixels). NULL = auto-detect (recommended).
     # Set when detect_ldir_scan_circle() fails and prints the hard-stop message:
     #   config$ldir_circle_manual = list(cx = 1000, cy = 1000, r = 950)

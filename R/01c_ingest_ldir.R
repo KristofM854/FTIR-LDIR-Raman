@@ -534,27 +534,64 @@ extract_ldir_image_coords <- function(image_path,
                                       config = NULL) {
   log_message("Extracting LDIR particle coordinates from image")
 
-  # --- Step 1: Detect scan circle for calibrated mapping ---
-  circle_info <- detect_ldir_scan_circle(image_path, config = config)
+  # --- Step 1: Detect scan circle for calibrated µm mapping ---
+  #
+  # Circle detection can be disabled via config$ldir_use_circle_detection = FALSE.
+  # When disabled (or when config is NULL and the flag is absent), the function
+  # reads the image dimensions and uses full-image bounds as the "circle"
+  # (equivalent to ldir_export_format = 'mosaic').  This is the correct behaviour
+  # for LDIR exports that already contain the full scan field without a visible
+  # circular crop.
+  use_circle <- !isFALSE(config$ldir_use_circle_detection)  # default TRUE when absent
 
-  # --- Manual circle override + hard failure guard ---
-  if (!isTRUE(circle_info$detected)) {
-    mc <- if (!is.null(config)) config$ldir_circle_manual else NULL
-    if (!is.null(mc) && is.numeric(mc$cx) && is.numeric(mc$cy) && is.numeric(mc$r)) {
-      log_message("  Using manual circle override: cx=", mc$cx,
-                  " cy=", mc$cy, " r=", mc$r)
-      circle_info <- list(
-        cx_px      = mc$cx, cy_px = mc$cy, radius_px = mc$r,
-        width      = circle_info$width,  height    = circle_info$height,
-        edge_gap_px = NA_real_,          export_type = "manual",
-        detected   = TRUE,               method     = "manual"
-      )
-    } else {
-      stop("LDIR circle detection failed for: ", image_path, "\n",
-           "  Cannot compute reliable LDIR coordinates.\n",
-           "  Either fix the LDIR image or set in config:\n",
-           "    config$ldir_circle_manual = list(cx = <px>, cy = <px>, r = <px>)")
+  if (use_circle) {
+    circle_info <- detect_ldir_scan_circle(image_path, config = config)
+
+    # --- Manual circle override + hard failure guard ---
+    if (!isTRUE(circle_info$detected)) {
+      mc <- if (!is.null(config)) config$ldir_circle_manual else NULL
+      if (!is.null(mc) && is.numeric(mc$cx) && is.numeric(mc$cy) && is.numeric(mc$r)) {
+        log_message("  Using manual circle override: cx=", mc$cx,
+                    " cy=", mc$cy, " r=", mc$r)
+        circle_info <- list(
+          cx_px       = mc$cx, cy_px = mc$cy, radius_px = mc$r,
+          width       = circle_info$width,  height    = circle_info$height,
+          edge_gap_px = NA_real_,           export_type = "manual",
+          detected    = TRUE,               method     = "manual"
+        )
+      } else {
+        stop("LDIR circle detection failed for: ", image_path, "\n",
+             "  Cannot compute reliable LDIR coordinates.\n",
+             "  Options:\n",
+             "    1. Disable circle detection: config$ldir_use_circle_detection <- FALSE\n",
+             "    2. Provide manual coords:    config$ldir_circle_manual <- list(cx=, cy=, r=)")
+      }
     }
+  } else {
+    # Circle detection disabled: read image dimensions and treat the full image
+    # as the scan field (full-image bounds, no circular mask applied).
+    img_hdr <- tryCatch(
+      magick::image_info(magick::image_read(image_path)),
+      error = function(e) NULL
+    )
+    if (is.null(img_hdr)) {
+      # Fallback: read whole image to get dimensions
+      tmp <- read_image_any(image_path, verbose = FALSE)
+      img_w <- if (!is.null(tmp)) ncol(tmp) else 1L
+      img_h <- if (!is.null(tmp)) nrow(tmp) else 1L
+    } else {
+      img_w <- img_hdr$width
+      img_h <- img_hdr$height
+    }
+    log_message("  Circle detection disabled — using full-image bounds (",
+                img_w, " x ", img_h, " px)")
+    circle_info <- list(
+      cx_px       = img_w / 2, cy_px = img_h / 2,
+      radius_px   = min(img_w, img_h) / 2,
+      width       = img_w, height = img_h,
+      edge_gap_px = 0, export_type = "full_field",
+      detected    = TRUE, method = "disabled"
+    )
   }
 
   scan_diam_um <- if (!is.null(config$ldir_scan_diameter_um)) {
@@ -719,7 +756,7 @@ extract_ldir_image_coords <- function(image_path,
   cr <- if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0))
           circle_info$radius_px else -1.0
 
-  # --- Try Python backend first (preferred) ---
+  # --- Python backend (required — no R fallback) ---
   py_result <- tryCatch({
     detect_particles_python(
       image_path     = image_path,
@@ -730,74 +767,43 @@ extract_ldir_image_coords <- function(image_path,
       circle_r       = cr
     )
   }, error = function(e) {
-    log_message("  Python detector error: ", conditionMessage(e))
-    NULL
+    stop(
+      "LDIR image particle extraction requires the Python backend.\n",
+      "  Python error: ", conditionMessage(e), "\n",
+      "  Ensure Python is available and the ldir_detect script is installed.\n",
+      "  LDIR image extraction cannot proceed without Python."
+    )
   })
 
-  if (!is.null(py_result) && nrow(py_result) > 0) {
-    log_message("  Extracted ", nrow(py_result), " particles from LDIR image (Python)")
-    # Python result has centroid_x/centroid_y in pixel space (from result$particles)
-    # The x_um/y_um were computed with old scan_bounds mapping — we keep pixel coords
-    if ("centroid_x" %in% names(py_result)) {
-      py_result$centroid_px_x <- py_result$centroid_x
-      py_result$centroid_px_y <- py_result$centroid_y
-    } else {
-      # Reverse-compute pixel coords from x_um/y_um if centroid_x not available
-      img_w <- attr(py_result, "image_width")
-      img_h <- attr(py_result, "image_height")
-      if (!is.null(scan_bounds) && !is.null(img_w)) {
-        x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / img_w
-        y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / img_h
-        py_result$centroid_px_x <- (py_result$x_um - scan_bounds$x_min) / x_scale
-        py_result$centroid_px_y <- (scan_bounds$y_max - py_result$y_um) / y_scale
-      } else {
-        py_result$centroid_px_x <- py_result$x_um
-        py_result$centroid_px_y <- py_result$y_um
-      }
-    }
-    return(py_result)
+  if (is.null(py_result) || nrow(py_result) == 0) {
+    stop(
+      "Python particle detector returned no particles for: ", image_path, "\n",
+      "  Check that the LDIR image is readable and the Python environment is correct."
+    )
   }
 
-  # --- Fallback: R-based extraction ---
-  log_message("  Falling back to R-based extraction")
+  log_message("  Extracted ", nrow(py_result), " particles from LDIR image (Python)")
 
-  img <- read_image_any(image_path)
-  if (is.null(img)) {
-    log_message("  Could not read LDIR image for R-based extraction: ",
-                image_path, level = "WARN")
-    return(.empty_image_df())
-  }
-
-  h_full <- nrow(img)
-  w_full <- ncol(img)
-  n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1
-  log_message("  LDIR image: ", w_full, " x ", h_full, " px, ", n_ch, " channels")
-
-  if (n_ch >= 3) {
-    r_ch <- img[,,1]; g_ch <- img[,,2]; b_ch <- img[,,3]
-
-    mx <- pmax(r_ch, g_ch, b_ch)
-    mn <- pmin(r_ch, g_ch, b_ch)
-    sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
-    mean_sat <- mean(sat)
-
-    log_message("  Mean saturation: ", round(mean_sat, 3))
-
-    if (mean_sat > 0.15) {
-      log_message("  Using saturation-based extraction (colored LDIR image)")
-      result <- .extract_ldir_saturation_px(img, h_full, w_full, scan_bounds,
-                                             expected_count, circle_info)
-    } else {
-      log_message("  Using adaptive-threshold extraction (grayscale image)")
-      result <- .extract_ldir_adaptive_px(image_path, h_full, w_full,
-                                           scan_bounds, expected_count)
-    }
+  # Normalise column names: ensure centroid_px_x / centroid_px_y exist
+  if ("centroid_x" %in% names(py_result)) {
+    py_result$centroid_px_x <- py_result$centroid_x
+    py_result$centroid_px_y <- py_result$centroid_y
   } else {
-    result <- .extract_ldir_adaptive_px(image_path, h_full, w_full,
-                                         scan_bounds, expected_count)
+    # Reverse-compute pixel coords from x_um/y_um when centroid_x not present
+    img_w <- attr(py_result, "image_width")
+    img_h <- attr(py_result, "image_height")
+    if (!is.null(scan_bounds) && !is.null(img_w)) {
+      x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / img_w
+      y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / img_h
+      py_result$centroid_px_x <- (py_result$x_um - scan_bounds$x_min) / x_scale
+      py_result$centroid_px_y <- (scan_bounds$y_max - py_result$y_um) / y_scale
+    } else {
+      py_result$centroid_px_x <- py_result$x_um
+      py_result$centroid_px_y <- py_result$y_um
+    }
   }
 
-  result
+  py_result
 }
 
 
