@@ -4,8 +4,11 @@
 
 source("global.R")
 
-# Windows flag: enables multiple-file selection in fileInput widgets
-.is_windows <- tolower(Sys.info()[["sysname"]]) == "windows"
+# Multiple-file selection: always enable (works on all platforms; especially
+# useful on Windows where the OS Open dialog can select multiple files at once).
+# Previously gated to .is_windows but Sys.info() returns the *server* OS, not
+# the client browser OS — so the flag was always FALSE on Linux-hosted Shiny.
+.is_windows <- TRUE
 
 # ============================================================================
 # Shared UI helpers

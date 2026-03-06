@@ -6,9 +6,11 @@
 #   1. Hardcoded test mode  — paths provided programmatically
 #   2. Interactive mode     — file picker dialog, auto-detect instrument type
 #
-# In interactive mode the user selects files one at a time (via file.choose())
-# until they press Cancel. Each file is auto-classified by instrument type
-# based on filename patterns. The user can override if detection is wrong.
+# In interactive mode on Windows: a single multi-select dialog opens so the user
+# can pick all files at once (Ctrl+click / Shift+click). On other platforms the
+# old single-file loop (file.choose() until Cancel) is used as a fallback.
+# Each file is auto-classified by instrument type from the filename; unknown types
+# prompt the user for a manual choice.
 # =============================================================================
 
 # Instrument detection patterns (case-insensitive)
@@ -55,33 +57,62 @@ detect_file_type <- function(filepath) {
 
 #' Collect input files interactively
 #'
-#' Opens a file picker dialog repeatedly. The user selects files one at a
-#' time until they press Cancel. Each file is auto-classified by instrument
-#' type based on filename patterns.
+#' On Windows: opens a single multi-select file picker dialog
+#' (choose.files()) so the user can select all files at once.
+#' On other platforms: falls back to repeated file.choose() calls
+#' (one file at a time until Cancel).
+#'
+#' Each file is auto-classified by instrument type based on filename
+#' patterns. Files with unknown instrument type prompt for manual entry.
 #'
 #' @return Named list of file records:
-#'   list(list(path="...", instrument="FTIR", type="tabular"), ...)
+#'   list(list(path="...", instrument="FTIR_perkin", type="tabular"), ...)
 collect_files_interactive <- function() {
   if (!interactive()) {
     stop("Interactive file selection requires an interactive R session.\n",
          "In batch mode, set file paths directly in main.R.")
   }
 
-  files <- list()
+  is_windows <- tolower(.Platform$OS.type) == "windows"
+
   message("=== Multi-Instrument File Input ===")
-  message("Select data files one at a time. Press Cancel when done.")
-  message("Supported formats: .csv, .xlsx, .xls (tabular), image: png/jpg/jpeg/tif/tiff/bmp/webp")
+  message("Supported formats: .csv, .xlsx, .xls (tabular); .png/.jpg/.tif/.bmp/.webp (image)")
   message("")
 
-  repeat {
-    message("Select file #", length(files) + 1, " (or Cancel to finish)...")
-    path <- tryCatch(file.choose(), error = function(e) NULL)
+  raw_paths <- character(0)
 
-    if (is.null(path)) {
-      message("File selection complete.")
-      break
+  if (is_windows) {
+    # Windows: single dialog, Ctrl+click / Shift+click to select multiple files
+    message("Select all input files at once (Ctrl+click or Shift+click for multiple)...")
+    filter_str <- paste0(
+      "All supported files|*.csv;*.xlsx;*.xls;*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp;*.webp|",
+      "Data files (csv/xlsx)|*.csv;*.xlsx;*.xls|",
+      "Image files|*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp;*.webp|",
+      "All files|*.*"
+    )
+    raw_paths <- tryCatch(
+      choose.files(caption = "Select all FTIR/Raman/LDIR data + image files",
+                   filters = matrix(strsplit(filter_str, "\\|")[[1]],
+                                    ncol = 2, byrow = TRUE),
+                   multi   = TRUE),
+      error = function(e) character(0)
+    )
+    if (length(raw_paths) == 0) stop("No files selected. Exiting.")
+    message("  Selected ", length(raw_paths), " file(s).")
+  } else {
+    # Non-Windows: one file at a time until Cancel
+    message("Select data files one at a time. Press Cancel when done.")
+    repeat {
+      message("Select file #", length(raw_paths) + 1, " (or Cancel to finish)...")
+      p <- tryCatch(file.choose(), error = function(e) NULL)
+      if (is.null(p)) { message("File selection complete."); break }
+      raw_paths <- c(raw_paths, p)
     }
+    if (length(raw_paths) == 0) stop("No files selected. Exiting.")
+  }
 
+  files <- list()
+  for (path in raw_paths) {
     instrument <- detect_instrument(path)
     ftype      <- detect_file_type(path)
 
@@ -110,7 +141,7 @@ collect_files_interactive <- function() {
   }
 
   if (length(files) == 0) {
-    stop("No files selected. Exiting.")
+    stop("No valid files after classification. Exiting.")
   }
 
   # Summary
