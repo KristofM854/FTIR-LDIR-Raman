@@ -119,7 +119,7 @@ ui <- fluidPage(
   navbarPage(
     title = tags$span(
       "Multi-Instrument Particle Viewer",
-      actionButton("start_tutorial", "?",
+      actionButton("start_tutorial", "Start guided tour",
                    class = "btn-xs btn-default",
                    style = "margin-left:12px; vertical-align:middle;",
                    title = "Start guided tutorial")
@@ -469,38 +469,55 @@ server <- function(input, output, session) {
       prevLabel  = "Back",
       doneLabel  = "Done",
       steps = list(
-        list(element  = "#ftir_viewer",
-             intro    = "The <strong>FTIR (PerkinElmer)</strong> viewer displays particles detected by the PerkinElmer FTIR instrument. Each dot represents one particle, coloured by its match status with Raman."),
-        list(element  = "#raman_viewer",
-             intro    = "The <strong>Raman</strong> viewer shows particles from Raman spectroscopy analysis, coloured by their match status with FTIR."),
-        list(element  = "#ldir_viewer",
-             intro    = "The <strong>LDIR</strong> viewer displays particles from the Agilent 8700 Laser Direct Infrared instrument. Coordinates come from image extraction and are joined to the Excel particle table."),
-        list(element  = "#overlay_panel",
-             intro    = "The <strong>Overlay</strong> tab superimposes FTIR, Raman and LDIR particles on a common spatial map, with lines connecting matched pairs so you can visually assess alignment quality."),
-        list(element  = "#summary_panel",
-             intro    = "The <strong>Summary</strong> tab shows aggregate material counts across all instruments. Use the toggle to switch between all-data and filtered views."),
-        list(element  = "#runinfo_panel",
-             intro    = "The <strong>Run Info</strong> tab shows metadata about the currently loaded pipeline run: timestamp, git commit, and input file provenance."),
-        list(element  = "#upload_panel",
-             intro    = "The <strong>Upload Data</strong> tab lets you load a pipeline output CSV bundle directly from your computer without pointing to a run directory."),
-        list(element  = "#ftir_quality_range",
-             intro    = "The <strong>Quality slider</strong> filters particles by spectral match quality (AAU score for FTIR, HQI for Raman). Drag the handles to set a minimum/maximum range."),
-        list(element  = "#ftir_size_range",
-             intro    = "The <strong>Feret Max slider</strong> filters particles by their maximum Feret diameter in µm — a proxy for particle size. Use it to isolate a specific size class."),
-        list(element  = "#ftir_material_filter",
-             intro    = "The <strong>Material filter</strong> lets you show only particles of a selected polymer type. Type or pick from the dropdown; multiple materials can be selected."),
-        list(element  = "#ftir_match_filter",
-             intro    = "The <strong>Match Status</strong> checkboxes toggle visibility of matched particles (spatially paired with the other instrument) and unmatched particles."),
-        list(element  = "#ftir_highlight_particle",
-             intro    = "Use <strong>Highlight Particle</strong> to visually emphasise specific particles by ID, range (e.g. 1–10) or wildcard pattern (e.g. MP_*). Selected particles are ringed in gold."),
-        list(element  = "#ftir_image_upload",
-             intro    = "Optionally load a <strong>background image</strong> (e.g. a photo of the filter membrane or a microscope snapshot) to display behind the particle scatter plot."),
-        list(element  = "#ftir_img_offset_x",
-             intro    = "If the background image is misaligned, adjust the <strong>X and Y offsets</strong> (in µm) to shift it into registration with the particle coordinates."),
-        list(element  = "#ftir_plot",
-             intro    = "<strong>Navigate the map</strong>: drag to zoom in, double-click to reset the view. Click any particle dot to add it to the selection panel below the plot."),
-        list(element  = "#ftir_hover_info",
-             intro    = "Hover over a particle to see its full details here — instrument, particle ID, material assignment, quality score, and size measurements.")
+        # Step 1: Welcome (floating — always visible)
+        list(intro = paste0(
+          "Welcome to the <strong>Multi-Instrument Particle Viewer</strong>!<br><br>",
+          "This app integrates particle data from FTIR (PerkinElmer &amp; Bruker), ",
+          "Raman spectroscopy, and LDIR into a unified spatial explorer.<br><br>",
+          "Use <em>Next</em> to walk through each tab.")),
+        # Steps 2–8: target the always-visible navbar tab links
+        list(element = "a[data-value='FTIR (PerkinElmer)']",
+             intro   = "The <strong>FTIR (PerkinElmer)</strong> tab displays particles detected by the PerkinElmer FTIR. Each dot is colour-coded by match status with Raman. Use the sidebar sliders to filter by quality, size, and material."),
+        list(element = "a[data-value='Raman']",
+             intro   = "The <strong>Raman</strong> tab shows particles from Raman spectroscopy, colour-coded by their match status with FTIR. The same sidebar controls apply: quality (HQI), size, material, and match filter."),
+        list(element = "a[data-value='LDIR']",
+             intro   = "The <strong>LDIR</strong> tab displays particles from the Agilent 8700 Laser Direct Infrared instrument. Two extra sliders let you filter by LDIR↔Raman match score and image↔Excel coordinate match cost."),
+        list(element = "a[data-value='Overlay']",
+             intro   = "The <strong>Overlay</strong> tab superimposes FTIR, Raman, and LDIR particles on a single spatial map with connecting lines between matched pairs — useful for assessing spatial alignment quality."),
+        list(element = "a[data-value='Summary']",
+             intro   = "The <strong>Summary</strong> tab shows aggregate material counts across all instruments. Click a polymer family in the dropdown to compare counts, and toggle <em>Apply instrument filters</em> to reflect your current sidebar settings."),
+        list(element = "a[data-value='Run Info']",
+             intro   = "The <strong>Run Info</strong> tab shows metadata for the currently loaded pipeline run: timestamp, git commit hash, and input file provenance."),
+        list(element = "a[data-value='Upload Data']",
+             intro   = "The <strong>Upload Data</strong> tab lets you load a pipeline output CSV bundle directly from disk without needing a run directory on this server."),
+        # Steps 9–13: FTIR sidebar controls (visible when FTIR tab is active)
+        # These steps describe features found in every instrument sidebar.
+        list(intro = paste0(
+          "<strong>Quality &amp; Size sliders</strong> (sidebar, any instrument tab)<br><br>",
+          "The <em>Quality</em> slider filters by spectral match score (AAU for FTIR/LDIR, HQI for Raman). ",
+          "The <em>Feret Max</em> slider filters by maximum particle diameter in µm. ",
+          "Drag either handle to narrow the visible population.")),
+        list(intro = paste0(
+          "<strong>Material filter</strong> (sidebar, any instrument tab)<br><br>",
+          "Type or pick a polymer type to show only particles of that material. ",
+          "Multiple selections are supported. Leave blank to show all materials.")),
+        list(intro = paste0(
+          "<strong>Match Status checkboxes</strong> (sidebar, any instrument tab)<br><br>",
+          "Toggle the checkboxes to show or hide matched particles (spatially paired with another instrument) ",
+          "and unmatched particles. Both are shown by default.")),
+        list(intro = paste0(
+          "<strong>Highlight Particle</strong> (sidebar, any instrument tab)<br><br>",
+          "Enter a particle ID, range (e.g. 1–10), or wildcard (e.g. MP_*) to ring matching particles in gold on the map. ",
+          "Useful for finding a specific particle reported in the pipeline output.")),
+        list(intro = paste0(
+          "<strong>Background image &amp; offsets</strong> (sidebar, any instrument tab)<br><br>",
+          "Optionally upload an image of the filter membrane to display behind the particle scatter plot. ",
+          "Use the X/Y offset sliders to align the image with the particle coordinates.")),
+        list(intro = paste0(
+          "<strong>Interactive map</strong> (plot area, any instrument tab)<br><br>",
+          "Drag to zoom in on a region, double-click to reset the view. ",
+          "Click any particle dot to inspect its details in the panel below the plot. ",
+          "Hover over a dot to see a quick-look tooltip with material and quality score."))
       )
     ))
   })
@@ -672,11 +689,13 @@ server <- function(input, output, session) {
                                    if (use_filt) " (filtered)" else "")) +
       ggplot2::theme_minimal(base_size = 16) +
       ggplot2::theme(
-        plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"),
+        plot.title = ggplot2::element_text(hjust = 0.5, face = "bold",
+                                           margin = ggplot2::margin(b = 14)),
+        plot.margin = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
         axis.text.x = ggplot2::element_text(size = 14),
         panel.grid.major.x = ggplot2::element_blank()
       ) +
-      ggplot2::expand_limits(y = max(counts) * 1.15)
+      ggplot2::expand_limits(y = max(counts) * 1.30)
   })
 
   output$summary_plastics_wide <- renderUI({
