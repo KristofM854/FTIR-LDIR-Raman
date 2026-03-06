@@ -23,7 +23,8 @@ make_detail_row <- function(label, value) {
 }
 
 instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_max,
-                                 quality_step, size_max = 1200) {
+                                 quality_step, size_max = 1200,
+                                 match_choices = c("matched", "unmatched")) {
   sidebarLayout(
     sidebarPanel(width = 3,
       h4(paste0(toupper(id_prefix), " Filters")),
@@ -35,8 +36,8 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       selectInput(paste0(id_prefix, "_material_filter"), "Material",
                   choices = c("All"), selected = "All", multiple = TRUE),
       checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
-                         choices = c("matched", "unmatched"),
-                         selected = c("matched", "unmatched"), inline = TRUE),
+                         choices = match_choices,
+                         selected = unname(match_choices), inline = TRUE),
       # Particle highlight: selectInput for single choice, plus text pattern box
       selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
                   choices = c("None"), selected = "None"),
@@ -121,17 +122,23 @@ ui <- fluidPage(
 
     # Tab 1: FTIR (PerkinElmer)
     tabPanel("FTIR (PerkinElmer)",
-      instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800)
+      instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
+        match_choices = c("Matched \u2194 Raman" = "matched",
+                          "Unmatched (vs Raman)" = "unmatched"))
     ),
 
     # Tab 2: FTIR (Bruker) — shown only when data present
     tabPanel("FTIR (Bruker)",
-      instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800)
+      instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
+        match_choices = c("Matched \u2194 Raman" = "matched",
+                          "Unmatched (vs Raman)" = "unmatched"))
     ),
 
     # Tab 3: Raman
     tabPanel("Raman",
-      instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200)
+      instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200,
+        match_choices = c("Matched \u2194 FTIR" = "matched",
+                          "Unmatched (vs FTIR)" = "unmatched"))
     ),
 
     # Tab 3: LDIR
@@ -146,7 +153,8 @@ ui <- fluidPage(
           selectInput("ldir_material_filter", "Material",
                       choices = c("All"), selected = "All", multiple = TRUE),
           checkboxGroupInput("ldir_match_filter", "Match Status",
-                             choices = c("matched", "unmatched"),
+                             choices = c("Matched \u2194 Raman" = "matched",
+                                         "Unmatched (vs Raman)" = "unmatched"),
                              selected = c("matched", "unmatched"), inline = TRUE),
           sliderInput("ldir_score_range", "Match Score (LDIR\u2194Raman)",
                       min = 0, max = 20, value = c(0, 20), step = 0.1),
@@ -362,9 +370,15 @@ ui <- fluidPage(
           ),
           hr(),
           div(class = "info-box",
-            h4("Plastics by Instrument"),
+            fluidRow(
+              column(8, h4("Plastics by Instrument")),
+              column(4, checkboxInput("summary_use_filters",
+                                      "Apply instrument filters",
+                                      value = FALSE))
+            ),
             p(class = "text-muted",
-              "Material family counts per device (all loaded data; no filters applied)."),
+              "Material family counts per device. Toggle to apply each instrument's",
+              "current quality / size / match-status filters."),
             uiOutput("summary_plastics_wide")
           )
         )
@@ -519,7 +533,7 @@ server <- function(input, output, session) {
                       choices = all_mats, selected = sel)
   })
 
-  # Pre-compute per-instrument material family counts (cached per dataset load)
+  # Pre-compute per-instrument material family counts — full data (cached)
   instrument_material_counts <- reactive({
     dfs <- instrument_dfs()
     device_keys <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
@@ -531,26 +545,45 @@ server <- function(input, output, session) {
     })
   }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
 
+  # Filtered counts — depends on each instrument's current filter state (not cached)
+  instrument_material_counts_filtered <- reactive({
+    filtered_list <- list(
+      "FTIR (PerkinElmer)" = ftir_filtered(),
+      "FTIR (Bruker)"      = ftir_bruker_filtered(),
+      "Raman"              = raman_filtered(),
+      "LDIR"               = ldir_filtered()
+    )
+    lapply(filtered_list, function(d) {
+      if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(NULL)
+      table(classify_family_vec(d$material))
+    })
+  })
+
+  # Resolve which counts to use based on toggle
+  active_material_counts <- reactive({
+    if (isTRUE(input$summary_use_filters))
+      instrument_material_counts_filtered()
+    else
+      instrument_material_counts()
+  })
+
   # Interactive barplot: count of selected material family across instruments
   output$summary_material_barplot <- renderPlot({
     sel_fam <- input$summary_material_select
     if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
 
-    device_names <- c("FTIR (PerkinElmer)" = "ftir",
-                      "FTIR (Bruker)" = "ftir_bruker",
-                      "Raman" = "raman", "LDIR" = "ldir")
     device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c",
                        "FTIR (Bruker)" = "#9467bd",
                        "Raman" = "#1f77b4", "LDIR" = "#d62728")
-    cts <- instrument_material_counts()
-    counts <- vapply(names(device_names), function(dev_label) {
+    cts <- active_material_counts()
+    counts <- vapply(names(cts), function(dev_label) {
       tbl <- cts[[dev_label]]
       if (is.null(tbl)) return(0L)
       as.integer(tbl[sel_fam] %||% 0L)
     }, integer(1))
 
     # Only show instruments that have data
-    has_data <- !vapply(names(device_names), function(dev_label) is.null(cts[[dev_label]]),
+    has_data <- !vapply(names(cts), function(dev_label) is.null(cts[[dev_label]]),
                         logical(1))
     counts <- counts[has_data]
     if (length(counts) == 0) {
@@ -559,6 +592,7 @@ server <- function(input, output, session) {
       return(NULL)
     }
 
+    use_filt <- isTRUE(input$summary_use_filters)
     bar_df <- data.frame(
       instrument = factor(names(counts), levels = names(counts)),
       count = as.integer(counts),
@@ -569,7 +603,8 @@ server <- function(input, output, session) {
       ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.5, size = 4.5) +
       ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
       ggplot2::labs(x = NULL, y = "Particle Count",
-                    title = paste0(sel_fam, " across instruments")) +
+                    title = paste0(sel_fam, " across instruments",
+                                   if (use_filt) " (filtered)" else "")) +
       ggplot2::theme_minimal(base_size = 14) +
       ggplot2::theme(
         plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"),
@@ -577,16 +612,25 @@ server <- function(input, output, session) {
         panel.grid.major.x = ggplot2::element_blank()
       ) +
       ggplot2::expand_limits(y = max(counts) * 1.15)
-  }) |> bindCache(input$summary_material_select, selected_run_dir(), is.null(uploaded_data()))
+  })
 
   output$summary_plastics_wide <- renderUI({
-    dfs <- instrument_dfs()
-    devices <- list(
-      "FTIR (PerkinElmer)" = dfs$ftir,
-      "FTIR (Bruker)"      = dfs$ftir_bruker,
-      Raman                = dfs$raman,
-      LDIR                 = dfs$ldir
-    )
+    if (isTRUE(input$summary_use_filters)) {
+      devices <- list(
+        "FTIR (PerkinElmer)" = ftir_filtered(),
+        "FTIR (Bruker)"      = ftir_bruker_filtered(),
+        Raman                = raman_filtered(),
+        LDIR                 = ldir_filtered()
+      )
+    } else {
+      dfs <- instrument_dfs()
+      devices <- list(
+        "FTIR (PerkinElmer)" = dfs$ftir,
+        "FTIR (Bruker)"      = dfs$ftir_bruker,
+        Raman                = dfs$raman,
+        LDIR                 = dfs$ldir
+      )
+    }
     # Remove devices with no data
     devices <- Filter(function(d) !is.null(d) && nrow(d) > 0, devices)
     if (length(devices) == 0)
@@ -1807,7 +1851,7 @@ server <- function(input, output, session) {
   })
 
   output$ftir_plastics_summary <- renderUI({
-    make_plastics_summary_ui(ftir_df_full())
+    make_plastics_summary_ui(ftir_filtered())
   })
 
 
@@ -1902,7 +1946,7 @@ server <- function(input, output, session) {
   })
 
   output$raman_plastics_summary <- renderUI({
-    make_plastics_summary_ui(raman_df_full())
+    make_plastics_summary_ui(raman_filtered())
   })
 
 
@@ -2041,7 +2085,7 @@ server <- function(input, output, session) {
     extracted <- ldir_extracted_pts()
     if (!is.null(extracted)) n_extracted <- nrow(extracted)
 
-    title_parts <- paste0("LDIR Particles (", nrow(df_disp), " Excel-joined")
+    title_parts <- paste0("LDIR Particles (", nrow(df_disp), " shown")
     if ("extracted_pts" %in% overlay_mode && n_extracted > 0)
       title_parts <- paste0(title_parts, " + ", n_extracted, " image-extracted")
     title_parts <- paste0(title_parts, ")")
@@ -2139,7 +2183,7 @@ server <- function(input, output, session) {
     extracted <- ldir_extracted_pts()
     n_ext <- if (!is.null(extracted)) nrow(extracted) else 0
     if (nrow(df) == 0 && n_ext == 0) return("No LDIR data loaded")
-    paste0(nrow(df), " Excel-joined | ",
+    paste0(nrow(df), " shown | ",
            sum(df$match_status == "matched"), " matched to Raman | ",
            n_ext, " image-extracted | ",
            length(unique(df$material)), " materials")
@@ -2168,7 +2212,7 @@ server <- function(input, output, session) {
   })
 
   output$ldir_plastics_summary <- renderUI({
-    make_plastics_summary_ui(ldir_df_full())
+    make_plastics_summary_ui(ldir_filtered())
   })
 
 
@@ -2260,7 +2304,7 @@ server <- function(input, output, session) {
   })
 
   output$ftir_bruker_plastics_summary <- renderUI({
-    make_plastics_summary_ui(ftir_bruker_df_full())
+    make_plastics_summary_ui(ftir_bruker_filtered())
   })
 
 
