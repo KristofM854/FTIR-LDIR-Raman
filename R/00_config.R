@@ -110,6 +110,11 @@ make_config <- function(ftir_path  = NULL,
     #   Higher values allow more lenient size-mismatch tolerance.
     ldir_match_threshold = 2.0,
 
+    # When TRUE, Hungarian matching forces a 1-to-1 assignment for every LDIR
+    # particle regardless of spatial distance — no pairs are rejected.
+    # Use the match_score slider in the Shiny viewer to post-hoc filter bad matches.
+    ldir_force_complete_match = TRUE,
+
     # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
     # Example: c("A3" = "A3", "MP_11" = "Raman_190")
     # NULL = no explicit map, fall back to size-based landmark RANSAC
