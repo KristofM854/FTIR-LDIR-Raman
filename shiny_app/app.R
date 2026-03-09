@@ -1480,7 +1480,7 @@ server <- function(input, output, session) {
     # --- FTIR controls (individual tab + overlay) ---
     if (!is.null(ftir_d) && nrow(ftir_d) > 0) {
       ftir <- ftir_d
-      ftir_mats <- sort(unique(ftir$material))
+      ftir_mats <- sort(unique(ftir$material_family))
       ftir_ids  <- natural_sort_ids(unique(ftir$particle_id))
       q_range   <- range(ftir$quality, na.rm = TRUE)
       s_max     <- ceiling(max(ftir$feret_max, na.rm = TRUE) / 10) * 10
@@ -1515,7 +1515,7 @@ server <- function(input, output, session) {
     # --- Raman controls (individual tab + overlay) ---
     if (!is.null(raman_d) && nrow(raman_d) > 0) {
       raman <- raman_d
-      raman_mats <- sort(unique(raman$material))
+      raman_mats <- sort(unique(raman$material_family))
       raman_ids  <- natural_sort_ids(unique(raman$particle_id))
       q_range    <- range(raman$quality, na.rm = TRUE)
       s_max      <- ceiling(max(raman$feret_max, na.rm = TRUE) / 10) * 10
@@ -1546,7 +1546,7 @@ server <- function(input, output, session) {
     # --- LDIR controls (individual tab + overlay) ---
     if (!is.null(ldir_d) && nrow(ldir_d) > 0) {
       ldir <- ldir_d
-      ldir_mats <- sort(unique(ldir$material))
+      ldir_mats <- sort(unique(ldir$material_family))
       ldir_ids  <- natural_sort_ids(unique(ldir$particle_id))
       q_range   <- range(ldir$quality, na.rm = TRUE)
       s_max     <- ceiling(max(ldir$feret_max, na.rm = TRUE) / 10) * 10
@@ -1603,7 +1603,7 @@ server <- function(input, output, session) {
     # --- FTIR Bruker controls (individual tab only) ---
     ftir_bruker_d <- ftir_bruker_df_full()
     if (!is.null(ftir_bruker_d) && nrow(ftir_bruker_d) > 0) {
-      fb_mats  <- sort(unique(ftir_bruker_d$material))
+      fb_mats  <- sort(unique(ftir_bruker_d$material_family))
       fb_ids   <- natural_sort_ids(unique(ftir_bruker_d$particle_id))
       q_range  <- range(ftir_bruker_d$quality, na.rm = TRUE)
       s_max    <- ceiling(max(ftir_bruker_d$feret_max, na.rm = TRUE) / 10) * 10
@@ -1734,7 +1734,7 @@ server <- function(input, output, session) {
              df$feret_max >= size_range[1] &
              df$feret_max <= size_range[2], ]
     if (!("All" %in% mat_filter))
-      df <- df[df$material %in% mat_filter, ]
+      df <- df[df$material_family %in% mat_filter, ]
     df <- df[df$match_status %in% match_filter, ]
     df
   }
@@ -2671,8 +2671,8 @@ server <- function(input, output, session) {
     raman_mat_ok <- is.null(raman_mat) || "All" %in% raman_mat
     if (!ftir_mat_ok || !raman_mat_ok) {
       keep <- rep(TRUE, nrow(df))
-      if (!ftir_mat_ok)  keep <- keep & (df$ftir_material %in% ftir_mat)
-      if (!raman_mat_ok) keep <- keep & (df$raman_material %in% raman_mat)
+      if (!ftir_mat_ok)  keep <- keep & (df$ftir_material_family %in% ftir_mat)
+      if (!raman_mat_ok) keep <- keep & (df$raman_material_family %in% raman_mat)
       df <- df[keep, ]
     }
     df
@@ -2701,11 +2701,11 @@ server <- function(input, output, session) {
                df$ldir_feret_max_um <= ldir_sz[2], ]
     }
 
-    # LDIR material filter
+    # LDIR material filter (harmonized family names)
     ldir_mat <- input$overlay_ldir_material
     if (!is.null(ldir_mat) && !("All" %in% ldir_mat) &&
-        "ldir_material" %in% names(df)) {
-      df <- df[df$ldir_material %in% ldir_mat, ]
+        "ldir_material_family" %in% names(df)) {
+      df <- df[df$ldir_material_family %in% ldir_mat, ]
     }
 
     df
