@@ -729,6 +729,44 @@ load_image_raster <- function(path) {
 }
 
 # ---------------------------------------------------------------------------
+# Auto-detect µm-per-pixel scale from TIFF resolution metadata.
+# Returns NULL silently when: not a TIFF, magick unavailable, metadata absent,
+# or the value looks like a screen-default (72/96/150 DPI) rather than a real
+# instrument-calibrated resolution.
+# ---------------------------------------------------------------------------
+extract_tiff_um_per_px <- function(path) {
+  if (is.null(path) || !file.exists(path)) return(NULL)
+  if (sniff_image_type(path) != "TIFF") return(NULL)
+  if (!requireNamespace("magick", quietly = TRUE)) return(NULL)
+  tryCatch({
+    img   <- magick::image_read(path)
+    info  <- magick::image_info(img)
+    units <- info$units
+    if (is.na(units) || units == "Undefined") return(NULL)
+
+    # density may be "NxN" string or numeric
+    dens <- info$density
+    if (is.character(dens)) dens <- as.numeric(strsplit(dens, "x")[[1]][1])
+    if (is.na(dens) || dens <= 0) return(NULL)
+
+    # Convert to µm/pixel
+    if (units == "PixelsPerCentimeter") {
+      um_per_px <- 10000 / dens   # 1 cm = 10 000 µm
+    } else {
+      um_per_px <- 25400 / dens   # 1 inch = 25 400 µm
+    }
+
+    # Reject common screen defaults — these are never real instrument values
+    screen_dpis <- c(72, 96, 150, 300)
+    effective_dpi <- if (units == "PixelsPerCentimeter") dens * 2.54 else dens
+    if (round(effective_dpi) %in% screen_dpis) return(NULL)
+
+    # Sanity: instrument images typically 0.5–50 µm/px
+    if (um_per_px > 0 && um_per_px < 200) um_per_px else NULL
+  }, error = function(e) NULL)
+}
+
+# ---------------------------------------------------------------------------
 # Compute image bounds that preserve the image's native aspect ratio while
 # centering on a set of particles.  The image is expanded (never cropped)
 # so that all particles fit inside, plus padding.
