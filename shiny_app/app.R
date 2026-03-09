@@ -1050,6 +1050,7 @@ server <- function(input, output, session) {
   # ------------------------------------------------------------------
   ftir_raw_image    <- reactiveVal(NULL)   # FTIR "Average Abs" image
   raman_image       <- reactiveVal(NULL)   # Raman microscope image (Raman tab + Overlay tab)
+  raman_image_path  <- reactiveVal(NULL)   # File path of the Raman image (for TIFF metadata extraction)
   ldir_raw_image    <- reactiveVal(NULL)   # LDIR particle map image
 
   # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
@@ -1071,9 +1072,10 @@ server <- function(input, output, session) {
          ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
   })
 
-  # Raman tab: image placed using a fixed µm/pixel scale when available
-  # (raman_um_per_px in config), centred on the particle cloud centroid.
-  # Falls back to the particle-extent method when the scale is not configured.
+  # Raman tab: image placement with 3-tier priority cascade:
+  #   1. Explicit origin (raman_image_origin_x/y_um + raman_um_per_px) — exact
+  #   2. Known scale (raman_um_per_px or auto-detected from TIFF) — centroid-centred
+  #   3. Fallback: aspect-ratio-preserving bounds via compute_image_bounds()
   raman_native_image_info <- reactive({
     raw <- raman_image()
     if (is.null(raw)) return(NULL)
@@ -1084,16 +1086,31 @@ server <- function(input, output, session) {
     x_vals <- if (!is.null(raman_df)) raman_df$x_orig[is.finite(raman_df$x_orig)] else numeric(0)
     y_vals <- if (!is.null(raman_df)) raman_df$y_orig[is.finite(raman_df$y_orig)] else numeric(0)
 
-    # Fixed-scale placement (correct when raman_um_per_px is configured)
-    um_per_px <- tryCatch({
-      d <- active_manifest()$config_snapshot$raman_um_per_px
-      if (!is.null(d) && is.numeric(d) && d > 0) d else NULL
-    }, error = function(e) NULL)
+    cfg <- tryCatch(active_manifest()$config_snapshot, error = function(e) list())
+    h_px <- nrow(raw); w_px <- ncol(raw)
 
-    if (!is.null(um_per_px)) {
-      h_px <- nrow(raw); w_px <- ncol(raw)
-      cx_um <- if (length(x_vals) > 0) mean(x_vals) else 0
-      cy_um <- if (length(y_vals) > 0) mean(y_vals) else 0
+    # --- Priority 1: Explicit image origin (most precise) ---
+    origin_x  <- cfg$raman_image_origin_x_um
+    origin_y  <- cfg$raman_image_origin_y_um
+    um_per_px <- cfg$raman_um_per_px
+
+    if (!is.null(origin_x) && !is.null(origin_y) &&
+        !is.null(um_per_px) && is.numeric(um_per_px) && um_per_px > 0) {
+      return(list(raster = raw,
+                  xmin = origin_x + ox,
+                  xmax = origin_x + w_px * um_per_px + ox,
+                  ymin = origin_y - h_px * um_per_px + oy,
+                  ymax = origin_y + oy))
+    }
+
+    # --- Priority 2: Known scale (config or auto-detected from TIFF DPI) ---
+    if (is.null(um_per_px) || !is.numeric(um_per_px) || um_per_px <= 0) {
+      um_per_px <- extract_tiff_um_per_px(raman_image_path())
+    }
+
+    if (!is.null(um_per_px) && length(x_vals) > 0) {
+      cx_um <- mean(x_vals)
+      cy_um <- mean(y_vals)
       half_w <- w_px * um_per_px / 2
       half_h <- h_px * um_per_px / 2
       return(list(raster = raw,
@@ -1101,11 +1118,12 @@ server <- function(input, output, session) {
                   ymin = cy_um - half_h + oy, ymax = cy_um + half_h + oy))
     }
 
-    # Fallback: particle-extent method (may cause systematic drift)
+    # --- Priority 3: Fallback — aspect-ratio-preserving bounds from particles ---
     if (length(x_vals) == 0) return(NULL)
+    b <- compute_image_bounds(raw, x_vals, y_vals, padding_um = 300)
     list(raster = raw,
-         xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
-         ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
+         xmin = b$xmin + ox, xmax = b$xmax + ox,
+         ymin = b$ymin + oy, ymax = b$ymax + oy)
   })
 
   # Overlay tab: Raman microscope image placed at Raman particle extent in
@@ -1210,6 +1228,7 @@ server <- function(input, output, session) {
     if (is.null(run_dir) || !dir.exists(run_dir)) {
       ftir_raw_image(NULL)
       raman_image(NULL)
+      raman_image_path(NULL)
       ldir_raw_image(NULL)
       return()
     }
@@ -1225,9 +1244,13 @@ server <- function(input, output, session) {
 
     if (!is.null(img$raman)) {
       raw <- load_image_raster(img$raman)
-      if (!is.null(raw)) raman_image(raw)
+      if (!is.null(raw)) {
+        raman_image(raw)
+        raman_image_path(img$raman)
+      }
     } else {
       raman_image(NULL)
+      raman_image_path(NULL)
     }
 
     if (!is.null(img$ldir)) {
@@ -1247,12 +1270,18 @@ server <- function(input, output, session) {
 
   observeEvent(input$raman_image_upload, {
     raw <- load_image_raster(input$raman_image_upload$datapath)
-    if (!is.null(raw)) raman_image(raw)
+    if (!is.null(raw)) {
+      raman_image(raw)
+      raman_image_path(input$raman_image_upload$datapath)
+    }
   })
 
   observeEvent(input$overlay_image_upload, {
     raw <- load_image_raster(input$overlay_image_upload$datapath)
-    if (!is.null(raw)) raman_image(raw)
+    if (!is.null(raw)) {
+      raman_image(raw)
+      raman_image_path(input$overlay_image_upload$datapath)
+    }
   })
 
   observeEvent(input$ldir_image_upload, {

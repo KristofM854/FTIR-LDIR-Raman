@@ -65,6 +65,13 @@ make_config <- function(ftir_path  = NULL,
     # Set to the instrument-specific value, e.g. raman_um_per_px = 2.5
     raman_um_per_px = NULL,
 
+    # Explicit image origin in µm — top-left corner of the Raman microscope
+    # image in stage coordinates.  When set together with raman_um_per_px,
+    # gives exact image placement without centroid centering.
+    # NULL = auto-center on particle centroid (default).
+    raman_image_origin_x_um = NULL,
+    raman_image_origin_y_um = NULL,
+
     # --- Descriptor RANSAC (optional Tier 2 replacement) ---
     # Set TRUE to use descriptor-based RANSAC instead of the coarse-grid material
     # RANSAC for LDIR→Raman alignment.  Backward-compatible default: FALSE.
