@@ -490,30 +490,36 @@ server <- function(input, output, session) {
              intro   = "The <strong>Run Info</strong> tab shows metadata for the currently loaded pipeline run: timestamp, git commit hash, and input file provenance."),
         list(element = "a[data-value='Upload Data']",
              intro   = "The <strong>Upload Data</strong> tab lets you load a pipeline output CSV bundle directly from disk without needing a run directory on this server."),
-        # Steps 9–13: FTIR sidebar controls (visible when FTIR tab is active)
-        # These steps describe features found in every instrument sidebar.
-        list(intro = paste0(
+        # Steps 9–13: FTIR sidebar controls (visible when FTIR tab is active).
+        # Element selectors target the FTIR panel (default active tab).
+        list(element = "#ftir_quality_range",
+             intro = paste0(
           "<strong>Quality &amp; Size sliders</strong> (sidebar, any instrument tab)<br><br>",
           "The <em>Quality</em> slider filters by spectral match score (AAU for FTIR/LDIR, HQI for Raman). ",
           "The <em>Feret Max</em> slider filters by maximum particle diameter in µm. ",
           "Drag either handle to narrow the visible population.")),
-        list(intro = paste0(
+        list(element = "#ftir_material_filter",
+             intro = paste0(
           "<strong>Material filter</strong> (sidebar, any instrument tab)<br><br>",
           "Type or pick a polymer type to show only particles of that material. ",
           "Multiple selections are supported. Leave blank to show all materials.")),
-        list(intro = paste0(
+        list(element = "#ftir_match_filter",
+             intro = paste0(
           "<strong>Match Status checkboxes</strong> (sidebar, any instrument tab)<br><br>",
           "Toggle the checkboxes to show or hide matched particles (spatially paired with another instrument) ",
           "and unmatched particles. Both are shown by default.")),
-        list(intro = paste0(
+        list(element = "#ftir_highlight_particle",
+             intro = paste0(
           "<strong>Highlight Particle</strong> (sidebar, any instrument tab)<br><br>",
-          "Enter a particle ID, range (e.g. 1–10), or wildcard (e.g. MP_*) to ring matching particles in gold on the map. ",
+          "Enter a particle ID, range (e.g. 1\u201310), or wildcard (e.g. MP_*) to ring matching particles in gold on the map. ",
           "Useful for finding a specific particle reported in the pipeline output.")),
-        list(intro = paste0(
+        list(element = "#ftir_image_upload",
+             intro = paste0(
           "<strong>Background image &amp; offsets</strong> (sidebar, any instrument tab)<br><br>",
           "Optionally upload an image of the filter membrane to display behind the particle scatter plot. ",
           "Use the X/Y offset sliders to align the image with the particle coordinates.")),
-        list(intro = paste0(
+        list(element = "#ftir_plot",
+             intro = paste0(
           "<strong>Interactive map</strong> (plot area, any instrument tab)<br><br>",
           "Drag to zoom in on a region, double-click to reset the view. ",
           "Click any particle dot to inspect its details in the panel below the plot. ",
@@ -1073,7 +1079,7 @@ server <- function(input, output, session) {
   })
 
   # Raman tab: image placement with 3-tier priority cascade:
-  #   1. Explicit origin (raman_image_origin_x/y_um + raman_um_per_px) — exact
+  #   1. Physical extent (WITec center + width/height in µm) — resize-invariant
   #   2. Known scale (raman_um_per_px or auto-detected from TIFF) — centroid-centred
   #   3. Fallback: aspect-ratio-preserving bounds via compute_image_bounds()
   raman_native_image_info <- reactive({
@@ -1089,21 +1095,22 @@ server <- function(input, output, session) {
     cfg <- tryCatch(active_manifest()$config_snapshot, error = function(e) list())
     h_px <- nrow(raw); w_px <- ncol(raw)
 
-    # --- Priority 1: Explicit image origin (most precise) ---
-    origin_x  <- cfg$raman_image_origin_x_um
-    origin_y  <- cfg$raman_image_origin_y_um
-    um_per_px <- cfg$raman_um_per_px
+    # --- Priority 1: Physical extent from WITec metadata (resize-invariant) ---
+    w_um <- cfg$raman_image_width_um
+    h_um <- cfg$raman_image_height_um
+    cx   <- cfg$raman_image_center_x_um
+    cy   <- cfg$raman_image_center_y_um
 
-    if (!is.null(origin_x) && !is.null(origin_y) &&
-        !is.null(um_per_px) && is.numeric(um_per_px) && um_per_px > 0) {
+    if (!is.null(w_um) && !is.null(h_um) && !is.null(cx) && !is.null(cy)) {
       return(list(raster = raw,
-                  xmin = origin_x + ox,
-                  xmax = origin_x + w_px * um_per_px + ox,
-                  ymin = origin_y - h_px * um_per_px + oy,
-                  ymax = origin_y + oy))
+                  xmin = cx - w_um / 2 + ox,
+                  xmax = cx + w_um / 2 + ox,
+                  ymin = cy - h_um / 2 + oy,
+                  ymax = cy + h_um / 2 + oy))
     }
 
     # --- Priority 2: Known scale (config or auto-detected from TIFF DPI) ---
+    um_per_px <- cfg$raman_um_per_px
     if (is.null(um_per_px) || !is.numeric(um_per_px) || um_per_px <= 0) {
       um_per_px <- extract_tiff_um_per_px(raman_image_path())
     }

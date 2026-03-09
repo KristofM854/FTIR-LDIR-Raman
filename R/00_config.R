@@ -60,19 +60,21 @@ make_config <- function(ftir_path  = NULL,
                                           # corrects instrument export convention vs Raman.
                                           # must be one of: 0, 90, -90, 180
 
-    # Fixed µm-per-pixel scale for the Raman microscope image.
-    # NULL = fall back to particle-extent method (may cause systematic viewer drift).
-    # Set to the instrument-specific value, e.g. raman_um_per_px = 2.5
-    raman_um_per_px = 12569.2097402076 / 21895,  # WITec: image_width_um / image_width_px
+    # --- Raman microscope image placement (WITec metadata) ---
+    # Physical extent and center of the Raman image in stage coordinates.
+    # These come directly from WITec image properties (Width, Height, X, Y).
+    # When all four are set, the image is placed at exact physical bounds
+    # regardless of the uploaded image's pixel resolution (resize-invariant).
+    # NULL = fall back to particle-extent method.
+    raman_image_width_um    = 12569.2097402076,
+    raman_image_height_um   = 12153.0107421875,
+    raman_image_center_x_um = -272.473663330078,
+    raman_image_center_y_um = 7277.1328125,
 
-    # Explicit image origin in µm — top-left corner of the Raman microscope
-    # image in stage coordinates.  When set together with raman_um_per_px,
-    # gives exact image placement without centroid centering.
-    # NULL = auto-center on particle centroid (default).
-    # WITec exports center-based coords: origin_x = center_x - width/2,
-    #                                     origin_y = center_y + height/2
-    raman_image_origin_x_um = -272.473663330078 - 12569.2097402076 / 2,  # left edge
-    raman_image_origin_y_um = 7277.1328125 + 12153.0107421875 / 2,       # top edge
+    # Fixed µm-per-pixel scale for the Raman microscope image.
+    # Used only as Priority 2 fallback when the four fields above are NULL.
+    # NULL = fall back to TIFF DPI auto-detection or particle-extent method.
+    raman_um_per_px = NULL,
 
     # --- Descriptor RANSAC (optional Tier 2 replacement) ---
     # Set TRUE to use descriptor-based RANSAC instead of the coarse-grid material
