@@ -297,6 +297,24 @@ load_run_data <- function(run_info) {
     }
   }
 
+  enrich_material_family(data)
+}
+
+# Helper: add *_material_family columns to matched & ldir_raman_matched
+# so the overlay tab can filter on harmonized family names.
+enrich_material_family <- function(data) {
+  if (!is.null(data$matched) && nrow(data$matched) > 0) {
+    if ("ftir_material" %in% names(data$matched))
+      data$matched$ftir_material_family <- classify_family_vec(data$matched$ftir_material)
+    if ("raman_material" %in% names(data$matched))
+      data$matched$raman_material_family <- classify_family_vec(data$matched$raman_material)
+  }
+  if (!is.null(data$ldir_raman_matched) && nrow(data$ldir_raman_matched) > 0) {
+    if ("ldir_material" %in% names(data$ldir_raman_matched))
+      data$ldir_raman_matched$ldir_material_family <- classify_family_vec(data$ldir_raman_matched$ldir_material)
+    if ("raman_material" %in% names(data$ldir_raman_matched))
+      data$ldir_raman_matched$raman_material_family <- classify_family_vec(data$ldir_raman_matched$raman_material)
+  }
   data
 }
 
@@ -318,7 +336,7 @@ load_uploaded_data <- function(matched_path,
   if (!is.null(transform_path) && file.exists(transform_path))
     data$transform <- parse_transform_params(transform_path)
 
-  data
+  enrich_material_family(data)
 }
 
 # ---------------------------------------------------------------------------
@@ -493,6 +511,8 @@ build_instrument_dfs <- function(data) {
       stringsAsFactors = FALSE)
   }
   result$ftir <- do.call(rbind, ftir_parts)
+  if (!is.null(result$ftir))
+    result$ftir$material_family <- classify_family_vec(result$ftir$material)
 
   # --- Raman ---
   raman_parts <- list()
@@ -525,6 +545,8 @@ build_instrument_dfs <- function(data) {
       stringsAsFactors = FALSE)
   }
   result$raman <- do.call(rbind, raman_parts)
+  if (!is.null(result$raman))
+    result$raman$material_family <- classify_family_vec(result$raman$material)
 
   # Add LDIR→Raman match flag if LDIR-Raman match data available
   if (!is.null(result$raman) && nrow(result$raman) > 0 &&
@@ -578,6 +600,8 @@ build_instrument_dfs <- function(data) {
       stringsAsFactors = FALSE)
   }
   result$ldir <- if (length(ldir_parts) > 0) do.call(rbind, ldir_parts) else NULL
+  if (!is.null(result$ldir))
+    result$ldir$material_family <- classify_family_vec(result$ldir$material)
 
   # --- FTIR Bruker (viewer-only, from unmatched_ftir_bruker.csv) ---
   if (!is.null(data$unmatched_ftir_bruker) && nrow(data$unmatched_ftir_bruker) > 0) {
@@ -602,6 +626,8 @@ build_instrument_dfs <- function(data) {
   } else {
     result$ftir_bruker <- NULL
   }
+  if (!is.null(result$ftir_bruker))
+    result$ftir_bruker$material_family <- classify_family_vec(result$ftir_bruker$material)
 
   result
 }
