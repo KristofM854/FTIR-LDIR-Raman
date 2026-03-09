@@ -395,6 +395,27 @@ ui <- fluidPage(
               "Material family counts per device. Toggle to apply each instrument's",
               "current quality / size / match-status filters."),
             uiOutput("summary_plastics_wide")
+          ),
+          hr(),
+          div(class = "info-box",
+            fluidRow(
+              column(8, h4("Material Breakdown per Instrument (Pie Charts)")),
+              column(4, radioButtons("pie_display_mode", NULL,
+                                     choices = c("Absolute counts" = "abs",
+                                                 "Relative (%)"    = "rel"),
+                                     selected = "abs", inline = TRUE))
+            ),
+            p(class = "text-muted",
+              "Plastic particles only (non-plastic materials excluded). ",
+              "Toggle above to switch between particle counts and percentage shares."),
+            fluidRow(
+              column(6, plotOutput("pie_ftir",        height = "300px")),
+              column(6, plotOutput("pie_raman",       height = "300px"))
+            ),
+            fluidRow(
+              column(6, plotOutput("pie_ldir",        height = "300px")),
+              column(6, plotOutput("pie_ftir_bruker", height = "300px"))
+            )
           )
         )
       )
@@ -464,6 +485,8 @@ server <- function(input, output, session) {
   # Guided tutorial (rintrojs)
   # ------------------------------------------------------------------
   observeEvent(input$start_tutorial, {
+    # Navigate to FTIR tab first so sidebar controls are in the DOM and visible
+    updateNavbarPage(session, "main_tabs", selected = "FTIR (PerkinElmer)")
     introjs(session, options = list(
       nextLabel  = "Next",
       prevLabel  = "Back",
@@ -474,18 +497,33 @@ server <- function(input, output, session) {
           "Welcome to the <strong>Multi-Instrument Particle Viewer</strong>!<br><br>",
           "This app integrates particle data from FTIR (PerkinElmer &amp; Bruker), ",
           "Raman spectroscopy, and LDIR into a unified spatial explorer.<br><br>",
-          "Use <em>Next</em> to walk through each tab.")),
-        # Steps 2–8: target the always-visible navbar tab links
+          "The tour starts on the <strong>FTIR tab</strong>. Use <em>Next</em> to walk through the controls.")),
+        # Steps 2–8: FTIR tab link + FTIR sidebar controls (all visible while on FTIR tab)
         list(element = "a[data-value='FTIR (PerkinElmer)']",
-             intro   = "The <strong>FTIR (PerkinElmer)</strong> tab displays particles detected by the PerkinElmer FTIR. Each dot is colour-coded by match status with Raman. Use the sidebar sliders to filter by quality, size, and material."),
+             intro   = "The <strong>FTIR (PerkinElmer)</strong> tab displays particles detected by the PerkinElmer FTIR instrument. Each dot is colour-coded by match status with Raman."),
+        list(element = "#ftir_quality_range",
+             intro   = "The <strong>Quality slider</strong> filters particles by AAU spectral match score. Drag either handle to set a minimum/maximum range. Raman uses HQI instead."),
+        list(element = "#ftir_size_range",
+             intro   = "The <strong>Feret Max slider</strong> filters by maximum particle diameter in µm — a proxy for particle size. Use it to isolate a specific size class."),
+        list(element = "#ftir_material_filter",
+             intro   = "The <strong>Material filter</strong> lets you show only particles of selected polymer types. Type or pick from the dropdown; multiple selections are supported."),
+        list(element = "#ftir_match_filter",
+             intro   = "The <strong>Match Status</strong> checkboxes toggle visibility of matched particles (spatially paired with Raman) and unmatched particles. Both are shown by default."),
+        list(element = "#ftir_highlight_particle",
+             intro   = "Use <strong>Highlight Particle</strong> to visually emphasise a particle by ID or by typing a range (1–10) or wildcard pattern (MP_*) in the text box below. Selected particles are ringed in gold."),
+        list(element = "#ftir_image_upload",
+             intro   = "Optionally load a <strong>background image</strong> (filter membrane photo or microscope snapshot) to display behind the scatter plot. Use the X/Y offset fields to align it with the particle coordinates."),
+        list(element = "#ftir_plot",
+             intro   = "<strong>Navigate the map</strong>: drag to zoom in on a region, double-click to reset the view. Click any particle dot to add it to the selection panel below the plot. Hover to see quick-look details."),
+        # Steps 9–13: remaining tabs via always-visible navbar links
         list(element = "a[data-value='Raman']",
-             intro   = "The <strong>Raman</strong> tab shows particles from Raman spectroscopy, colour-coded by their match status with FTIR. The same sidebar controls apply: quality (HQI), size, material, and match filter."),
+             intro   = "The <strong>Raman</strong> tab shows particles from Raman spectroscopy, colour-coded by their match status with FTIR. The same sidebar controls apply (quality shown as HQI)."),
         list(element = "a[data-value='LDIR']",
              intro   = "The <strong>LDIR</strong> tab displays particles from the Agilent 8700 Laser Direct Infrared instrument. Two extra sliders let you filter by LDIR↔Raman match score and image↔Excel coordinate match cost."),
         list(element = "a[data-value='Overlay']",
              intro   = "The <strong>Overlay</strong> tab superimposes FTIR, Raman, and LDIR particles on a single spatial map with connecting lines between matched pairs — useful for assessing spatial alignment quality."),
         list(element = "a[data-value='Summary']",
-             intro   = "The <strong>Summary</strong> tab shows aggregate material counts across all instruments. Click a polymer family in the dropdown to compare counts, and toggle <em>Apply instrument filters</em> to reflect your current sidebar settings."),
+             intro   = "The <strong>Summary</strong> tab shows aggregate material counts and per-instrument pie charts. Toggle <em>Apply instrument filters</em> to reflect your current sidebar settings."),
         list(element = "a[data-value='Run Info']",
              intro   = "The <strong>Run Info</strong> tab shows metadata for the currently loaded pipeline run: timestamp, git commit hash, and input file provenance."),
         list(element = "a[data-value='Upload Data']",
@@ -688,8 +726,9 @@ server <- function(input, output, session) {
     )
     ggplot2::ggplot(bar_df, ggplot2::aes(x = instrument, y = count, fill = instrument)) +
       ggplot2::geom_col(width = 0.6) +
-      ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.5, size = 5.2) +
+      ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.3, size = 5.2) +
       ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
+      ggplot2::scale_y_continuous(limits = c(0, max(counts) * 1.50)) +
       ggplot2::labs(x = NULL, y = "Particle Count",
                     title = paste0(sel_fam, " across instruments",
                                    if (use_filt) " (filtered)" else "")) +
@@ -700,8 +739,7 @@ server <- function(input, output, session) {
         plot.margin = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
         axis.text.x = ggplot2::element_text(size = 14),
         panel.grid.major.x = ggplot2::element_blank()
-      ) +
-      ggplot2::expand_limits(y = max(counts) * 1.30)
+      )
   })
 
   output$summary_plastics_wide <- renderUI({
@@ -752,6 +790,105 @@ server <- function(input, output, session) {
       tags$tr(tags$td(tags$b(fam)), tags$td(cat), cells)
     })
     tags$table(class = "hover-tbl", header, body_rows)
+  })
+
+  # ------------------------------------------------------------------
+  # Per-instrument pie charts (Summary tab)
+  # ------------------------------------------------------------------
+
+  # Colour palette for material families (consistent across charts)
+  .pie_palette <- c(
+    PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
+    PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
+    PMMA = "#66c2a5", PTFE = "#fc8d62", PES = "#8da0cb", Other = "#e5c494"
+  )
+
+  # Build a pie chart for a single instrument data frame
+  make_instrument_pie <- function(df, title, rel_mode) {
+    if (is.null(df) || nrow(df) == 0) {
+      return(ggplot2::ggplot() +
+               ggplot2::labs(title = title) +
+               ggplot2::theme_void(base_size = 14) +
+               ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")))
+    }
+    fam  <- classify_family_vec(df$material)
+    # Keep only plastic families (exclude non-plastic / unknown categories)
+    cat  <- classify_category_vec(fam)
+    keep <- cat %in% c("Synthetic", "Semi-synthetic")
+    fam  <- fam[keep]
+    if (length(fam) == 0) {
+      return(ggplot2::ggplot() +
+               ggplot2::labs(title = title, subtitle = "No plastic particles") +
+               ggplot2::theme_void(base_size = 14) +
+               ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")))
+    }
+    tbl <- sort(table(fam), decreasing = TRUE)
+    pie_df <- data.frame(material = names(tbl), count = as.integer(tbl),
+                          stringsAsFactors = FALSE)
+    total  <- sum(pie_df$count)
+    pie_df$pct   <- pie_df$count / total * 100
+    pie_df$label <- if (rel_mode)
+      paste0(round(pie_df$pct, 1), "%")
+    else
+      as.character(pie_df$count)
+    # Assign colours; grey for unmapped families
+    fam_colors <- .pie_palette[pie_df$material]
+    fam_colors[is.na(fam_colors)] <- "#cccccc"
+    names(fam_colors) <- pie_df$material
+    pie_df$material <- factor(pie_df$material, levels = pie_df$material)
+
+    ggplot2::ggplot(pie_df, ggplot2::aes(x = "", y = count, fill = material)) +
+      ggplot2::geom_col(width = 1, colour = "white", linewidth = 0.4) +
+      ggplot2::coord_polar(theta = "y") +
+      ggplot2::geom_text(
+        ggplot2::aes(label = label),
+        position = ggplot2::position_stack(vjust = 0.5),
+        size = 4, colour = "white", fontface = "bold"
+      ) +
+      ggplot2::scale_fill_manual(values = fam_colors, name = "Material") +
+      ggplot2::labs(title = title,
+                    subtitle = paste0("n = ", total, " plastic particles")) +
+      ggplot2::theme_void(base_size = 14) +
+      ggplot2::theme(
+        plot.title    = ggplot2::element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = ggplot2::element_text(hjust = 0.5, colour = "#555555"),
+        legend.position = "right",
+        legend.text     = ggplot2::element_text(size = 10),
+        legend.title    = ggplot2::element_text(size = 11, face = "bold")
+      )
+  }
+
+  # Helper reactive: resolve per-instrument data (filtered or unfiltered)
+  pie_data <- reactive({
+    if (isTRUE(input$summary_use_filters)) {
+      list(ftir        = ftir_filtered(),
+           raman       = raman_filtered(),
+           ldir        = ldir_filtered(),
+           ftir_bruker = ftir_bruker_filtered())
+    } else {
+      dfs <- instrument_dfs()
+      list(ftir        = dfs$ftir,
+           raman       = dfs$raman,
+           ldir        = dfs$ldir,
+           ftir_bruker = dfs$ftir_bruker)
+    }
+  })
+
+  output$pie_ftir <- renderPlot({
+    rel <- identical(input$pie_display_mode, "rel")
+    make_instrument_pie(pie_data()$ftir, "FTIR (PerkinElmer)", rel)
+  })
+  output$pie_raman <- renderPlot({
+    rel <- identical(input$pie_display_mode, "rel")
+    make_instrument_pie(pie_data()$raman, "Raman", rel)
+  })
+  output$pie_ldir <- renderPlot({
+    rel <- identical(input$pie_display_mode, "rel")
+    make_instrument_pie(pie_data()$ldir, "LDIR", rel)
+  })
+  output$pie_ftir_bruker <- renderPlot({
+    rel <- identical(input$pie_display_mode, "rel")
+    make_instrument_pie(pie_data()$ftir_bruker, "FTIR (Bruker)", rel)
   })
 
   # Provenance panel UI
@@ -1580,6 +1717,11 @@ server <- function(input, output, session) {
   # ==================================================================
   # Helper: ggplot scatter with optional image background
   # ==================================================================
+  # Helper: generate axis breaks at every 1000 µm within a range
+  breaks_1000 <- function(rng) {
+    seq(floor(rng[1] / 1000) * 1000, ceiling(rng[2] / 1000) * 1000, by = 1000)
+  }
+
   make_scatter <- function(df, img_info, bounds, title,
                             match_colours = NULL, highlight_id = NULL,
                             full_df = NULL, match_labels = NULL) {
@@ -1602,6 +1744,8 @@ server <- function(input, output, session) {
 
     p <- p +
       scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12)) +
+      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
+      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
@@ -2222,6 +2366,8 @@ server <- function(input, output, session) {
     }
 
     p <- ggplot() +
+      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
+      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title_parts, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
@@ -2559,6 +2705,8 @@ server <- function(input, output, session) {
     }
 
     p <- ggplot() +
+      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
+      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = "FTIR + Raman + LDIR Overlay (aligned coordinates)",
            x = "X (\u00b5m)", y = "Y (\u00b5m)") +
@@ -2667,32 +2815,24 @@ server <- function(input, output, session) {
       }
     }
 
-    # Draw all particles: filled circles for matched, open circles for unmatched
+    # Draw all particles: filled circles for matched, open circles for unmatched.
+    # Both match_status and instrument are mapped so they appear in the legend.
     if (length(all_pts) > 0) {
       both <- do.call(rbind, all_pts)
-      matched_df   <- both[both$match_status == "matched", ]
-      unmatched_df <- both[both$match_status == "unmatched", ]
-
-      if (nrow(matched_df) > 0) {
-        p <- p + geom_point(data = matched_df,
-                              aes(x = x, y = y, size = feret_max,
-                                  colour = instrument),
-                              shape = 19, alpha = 0.7)
-      }
-      if (nrow(unmatched_df) > 0) {
-        p <- p + geom_point(data = unmatched_df,
-                              aes(x = x, y = y, size = feret_max,
-                                  colour = instrument),
-                              shape = 1, alpha = 0.5, stroke = 0.8)
-      }
-    }
-
-    # Colour scale: one colour per instrument (only when points use colour aes)
-    if (length(all_pts) > 0) {
-      p <- p + scale_colour_manual(
-        name = "Instrument",
-        values = c(FTIR = "#2ca02c", Raman = "#1f77b4", LDIR = "#d62728")
-      )
+      p <- p + geom_point(data = both,
+                            aes(x = x, y = y, size = feret_max,
+                                colour = instrument, shape = match_status),
+                            alpha = 0.65)
+      p <- p +
+        scale_colour_manual(
+          name   = "Instrument",
+          values = c(FTIR = "#2ca02c", Raman = "#1f77b4", LDIR = "#d62728")
+        ) +
+        scale_shape_manual(
+          name   = "Match Status",
+          values = c(matched = 19, unmatched = 1),
+          labels = c(matched = "Matched (filled)", unmatched = "Unmatched (open)")
+        )
     }
 
     # Triple matches: gold ring around particles detected by all three instruments
