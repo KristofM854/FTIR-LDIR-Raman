@@ -789,17 +789,17 @@ server <- function(input, output, session) {
     Other = "#e5c494"
   )
 
-  # Build a pie chart for a single instrument data frame
+  # Build a pie chart from pre-classified data (list with $fam, $cat vectors).
   # cat_mode: "both" = Synthetic + Semi-synthetic, "synthetic" = Synthetic only
-  make_instrument_pie <- function(df, title, rel_mode, cat_mode = "both") {
-    if (is.null(df) || nrow(df) == 0) {
+  make_instrument_pie <- function(classified, title, rel_mode, cat_mode = "both") {
+    if (is.null(classified)) {
       return(ggplot2::ggplot() +
                ggplot2::labs(title = title) +
                ggplot2::theme_void(base_size = 14) +
                ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")))
     }
-    fam  <- classify_family_vec(df$material)
-    cat  <- classify_category_vec(fam)
+    fam  <- classified$fam
+    cat  <- classified$cat
     keep_cats <- if (identical(cat_mode, "synthetic")) "Synthetic"
                  else c("Synthetic", "Semi-synthetic")
     keep <- cat %in% keep_cats
@@ -894,25 +894,37 @@ server <- function(input, output, session) {
     }
   })
 
+  # Pre-classify materials once per data change — avoids re-running
+  # classify_family_vec / classify_category_vec on every toggle.
+  pie_classified <- reactive({
+    pd <- pie_data()
+    lapply(pd, function(df) {
+      if (is.null(df) || nrow(df) == 0) return(NULL)
+      fam <- classify_family_vec(df$material)
+      cat <- classify_category_vec(fam)
+      list(fam = fam, cat = cat)
+    })
+  })
+
   output$pie_ftir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_data()$ftir, "FTIR (PerkinElmer)", rel, cat_mode)
+    make_instrument_pie(pie_classified()$ftir, "FTIR (PerkinElmer)", rel, cat_mode)
   })
   output$pie_raman <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_data()$raman, "Raman", rel, cat_mode)
+    make_instrument_pie(pie_classified()$raman, "Raman", rel, cat_mode)
   })
   output$pie_ldir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_data()$ldir, "LDIR", rel, cat_mode)
+    make_instrument_pie(pie_classified()$ldir, "LDIR", rel, cat_mode)
   })
   output$pie_ftir_bruker <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_data()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode)
+    make_instrument_pie(pie_classified()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode)
   })
 
   # Provenance panel UI
