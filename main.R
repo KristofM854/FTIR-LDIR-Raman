@@ -18,7 +18,7 @@
 # 0. Setup: load packages and source modules
 # ---------------------------------------------------------------------------
 
-required_packages <- c("readxl", "ggplot2", "RANN")
+required_packages <- c("readxl", "ggplot2", "RANN", "ggrepel")
 
 missing_pkgs <- required_packages[!vapply(required_packages, requireNamespace,
                                           logical(1), quietly = TRUE)]
