@@ -827,6 +827,8 @@ server <- function(input, output, session) {
     pie_df$material <- factor(pie_df$material, levels = pie_df$material)
 
     # Split into large (label inside) and small (label outside with arrow)
+    # Pre-compute cumulative midpoint for ggrepel (needs explicit y, not position_stack)
+    pie_df$ypos <- cumsum(pie_df$count) - pie_df$count / 2
     pie_df$is_small <- pie_df$pct < 5
 
     p <- ggplot2::ggplot(pie_df, ggplot2::aes(x = "", y = count, fill = material)) +
@@ -846,16 +848,15 @@ server <- function(input, output, session) {
     }
 
     # Small slices: labels outside with leader lines (ggrepel)
+    # Use pre-computed ypos + nudge_x (cannot combine position + nudge in ggrepel)
     small_df <- pie_df[pie_df$is_small, ]
     if (nrow(small_df) > 0) {
-      # Include material name with value for clarity outside the pie
       small_df$outer_label <- paste0(small_df$material, "\n", small_df$label)
       p <- p + ggrepel::geom_label_repel(
         data = small_df,
-        ggplot2::aes(label = outer_label),
-        position = ggplot2::position_stack(vjust = 0.5),
+        ggplot2::aes(x = 1, y = ypos, label = outer_label),
+        nudge_x = 0.5,
         size = 3, fontface = "bold",
-        nudge_x = 0.7,
         segment.color = "grey40", segment.size = 0.4,
         fill = "white", colour = "grey20",
         show.legend = FALSE,
