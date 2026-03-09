@@ -411,15 +411,19 @@ ui <- fluidPage(
           hr(),
           div(class = "info-box",
             fluidRow(
-              column(8, h4("Material Breakdown per Instrument (Pie Charts)")),
+              column(4, h4("Material Breakdown per Instrument (Pie Charts)")),
               column(4, radioButtons("pie_display_mode", NULL,
                                      choices = c("Absolute counts" = "abs",
                                                  "Relative (%)"    = "rel"),
-                                     selected = "abs", inline = TRUE))
+                                     selected = "abs", inline = TRUE)),
+              column(4, radioButtons("pie_category_mode", NULL,
+                                     choices = c("Synthetic only" = "synthetic",
+                                                 "Synth. + Semi-synth." = "both"),
+                                     selected = "both", inline = TRUE))
             ),
             p(class = "text-muted",
-              "Plastic particles only (non-plastic materials excluded). ",
-              "Toggle above to switch between particle counts and percentage shares."),
+              "Non-plastic materials excluded. ",
+              "Toggle above to switch display mode and material categories."),
             fluidRow(
               column(6, plotOutput("pie_ftir",        height = "300px")),
               column(6, plotOutput("pie_raman",       height = "300px"))
@@ -778,11 +782,15 @@ server <- function(input, output, session) {
   .pie_palette <- c(
     PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
     PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
-    PMMA = "#66c2a5", PTFE = "#fc8d62", PES = "#8da0cb", Other = "#e5c494"
+    PMMA = "#66c2a5", PTFE = "#fc8d62", PES = "#8da0cb",
+    Cellulose = "#bcbd22", Acrylate = "#17becf",
+    ABS = "#e78ac3", Rubber = "#7570b3",
+    Other = "#e5c494"
   )
 
   # Build a pie chart for a single instrument data frame
-  make_instrument_pie <- function(df, title, rel_mode) {
+  # cat_mode: "both" = Synthetic + Semi-synthetic, "synthetic" = Synthetic only
+  make_instrument_pie <- function(df, title, rel_mode, cat_mode = "both") {
     if (is.null(df) || nrow(df) == 0) {
       return(ggplot2::ggplot() +
                ggplot2::labs(title = title) +
@@ -790,9 +798,10 @@ server <- function(input, output, session) {
                ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")))
     }
     fam  <- classify_family_vec(df$material)
-    # Keep only plastic families (exclude non-plastic / unknown categories)
     cat  <- classify_category_vec(fam)
-    keep <- cat %in% c("Synthetic", "Semi-synthetic")
+    keep_cats <- if (identical(cat_mode, "synthetic")) "Synthetic"
+                 else c("Synthetic", "Semi-synthetic")
+    keep <- cat %in% keep_cats
     fam  <- fam[keep]
     if (length(fam) == 0) {
       return(ggplot2::ggplot() +
@@ -809,20 +818,51 @@ server <- function(input, output, session) {
       paste0(round(pie_df$pct, 1), "%")
     else
       as.character(pie_df$count)
+
     # Assign colours; grey for unmapped families
     fam_colors <- .pie_palette[pie_df$material]
     fam_colors[is.na(fam_colors)] <- "#cccccc"
     names(fam_colors) <- pie_df$material
     pie_df$material <- factor(pie_df$material, levels = pie_df$material)
 
-    ggplot2::ggplot(pie_df, ggplot2::aes(x = "", y = count, fill = material)) +
+    # Split into large (label inside) and small (label outside with arrow)
+    pie_df$is_small <- pie_df$pct < 5
+
+    p <- ggplot2::ggplot(pie_df, ggplot2::aes(x = "", y = count, fill = material)) +
       ggplot2::geom_col(width = 1, colour = "white", linewidth = 0.4) +
-      ggplot2::coord_polar(theta = "y") +
-      ggplot2::geom_text(
+      ggplot2::coord_polar(theta = "y")
+
+    # Large slices: white centred text inside
+    large_df <- pie_df[!pie_df$is_small, ]
+    if (nrow(large_df) > 0) {
+      p <- p + ggplot2::geom_text(
+        data = large_df,
         ggplot2::aes(label = label),
         position = ggplot2::position_stack(vjust = 0.5),
-        size = 4, colour = "white", fontface = "bold"
-      ) +
+        size = 4, colour = "white", fontface = "bold",
+        show.legend = FALSE
+      )
+    }
+
+    # Small slices: labels outside with leader lines (ggrepel)
+    small_df <- pie_df[pie_df$is_small, ]
+    if (nrow(small_df) > 0) {
+      # Include material name with value for clarity outside the pie
+      small_df$outer_label <- paste0(small_df$material, "\n", small_df$label)
+      p <- p + ggrepel::geom_label_repel(
+        data = small_df,
+        ggplot2::aes(label = outer_label),
+        position = ggplot2::position_stack(vjust = 0.5),
+        size = 3, fontface = "bold",
+        nudge_x = 0.7,
+        segment.color = "grey40", segment.size = 0.4,
+        fill = "white", colour = "grey20",
+        show.legend = FALSE,
+        max.overlaps = 20
+      )
+    }
+
+    p +
       ggplot2::scale_fill_manual(values = fam_colors, name = "Material") +
       ggplot2::labs(title = title,
                     subtitle = paste0("n = ", total, " plastic particles")) +
@@ -854,19 +894,23 @@ server <- function(input, output, session) {
 
   output$pie_ftir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
-    make_instrument_pie(pie_data()$ftir, "FTIR (PerkinElmer)", rel)
+    cat_mode <- input$pie_category_mode %||% "both"
+    make_instrument_pie(pie_data()$ftir, "FTIR (PerkinElmer)", rel, cat_mode)
   })
   output$pie_raman <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
-    make_instrument_pie(pie_data()$raman, "Raman", rel)
+    cat_mode <- input$pie_category_mode %||% "both"
+    make_instrument_pie(pie_data()$raman, "Raman", rel, cat_mode)
   })
   output$pie_ldir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
-    make_instrument_pie(pie_data()$ldir, "LDIR", rel)
+    cat_mode <- input$pie_category_mode %||% "both"
+    make_instrument_pie(pie_data()$ldir, "LDIR", rel, cat_mode)
   })
   output$pie_ftir_bruker <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
-    make_instrument_pie(pie_data()$ftir_bruker, "FTIR (Bruker)", rel)
+    cat_mode <- input$pie_category_mode %||% "both"
+    make_instrument_pie(pie_data()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode)
   })
 
   # Provenance panel UI
