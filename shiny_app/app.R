@@ -31,39 +31,45 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
   sidebarLayout(
     sidebarPanel(width = 3,
       h4(paste0(toupper(id_prefix), " Filters")),
-      sliderInput(paste0(id_prefix, "_quality_range"), quality_label,
-                  min = quality_min, max = quality_max,
-                  value = c(quality_min, quality_max), step = quality_step),
-      sliderInput(paste0(id_prefix, "_size_range"), "Feret Max (\u00b5m)",
-                  min = 0, max = size_max, value = c(0, size_max), step = 5),
-      selectInput(paste0(id_prefix, "_material_filter"), "Material",
-                  choices = c("All"), selected = "All", multiple = TRUE),
-      checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
-                         choices = match_choices,
-                         selected = unname(match_choices), inline = TRUE),
+      div(id = paste0(id_prefix, "_tour_quality"),
+        sliderInput(paste0(id_prefix, "_quality_range"), quality_label,
+                    min = quality_min, max = quality_max,
+                    value = c(quality_min, quality_max), step = quality_step)),
+      div(id = paste0(id_prefix, "_tour_size"),
+        sliderInput(paste0(id_prefix, "_size_range"), "Feret Max (\u00b5m)",
+                    min = 0, max = size_max, value = c(0, size_max), step = 5)),
+      div(id = paste0(id_prefix, "_tour_material"),
+        selectInput(paste0(id_prefix, "_material_filter"), "Material",
+                    choices = c("All"), selected = "All", multiple = TRUE)),
+      div(id = paste0(id_prefix, "_tour_match"),
+        checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
+                           choices = match_choices,
+                           selected = unname(match_choices), inline = TRUE)),
       # Particle highlight: selectInput for single choice, plus text pattern box
-      selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
-                  choices = c("None"), selected = "None"),
-      fluidRow(
-        column(8, textInput(paste0(id_prefix, "_highlight_pattern"), NULL,
-                            placeholder = "IDs: 1-10, MP_*, or MP_1,MP_5")),
-        column(4, actionButton(paste0(id_prefix, "_highlight_apply"), "Apply",
-                               class = "btn-sm", style = "margin-top: 25px;"))
-      ),
+      div(id = paste0(id_prefix, "_tour_highlight"),
+        selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
+                    choices = c("None"), selected = "None"),
+        fluidRow(
+          column(8, textInput(paste0(id_prefix, "_highlight_pattern"), NULL,
+                              placeholder = "IDs: 1-10, MP_*, or MP_1,MP_5")),
+          column(4, actionButton(paste0(id_prefix, "_highlight_apply"), "Apply",
+                                 class = "btn-sm", style = "margin-top: 25px;"))
+        )),
       hr(),
       div(class = "info-box",
           h5("Summary"), textOutput(paste0(id_prefix, "_summary_text"))),
       hr(),
-      fileInput(paste0(id_prefix, "_image_upload"), "Background Image",
-                accept = c("image/png", "image/jpeg", "image/tiff",
-                           ".tif", ".tiff", ".bmp", ".webp"),
-                multiple = .is_windows),
-      fluidRow(
-        column(6, numericInput(paste0(id_prefix, "_img_offset_x"),
-                               "Img X offset (\u00b5m)", value = 0, step = 25)),
-        column(6, numericInput(paste0(id_prefix, "_img_offset_y"),
-                               "Img Y offset (\u00b5m)", value = 0, step = 25))
-      )
+      div(id = paste0(id_prefix, "_tour_image"),
+        fileInput(paste0(id_prefix, "_image_upload"), "Background Image",
+                  accept = c("image/png", "image/jpeg", "image/tiff",
+                             ".tif", ".tiff", ".bmp", ".webp"),
+                  multiple = .is_windows),
+        fluidRow(
+          column(6, numericInput(paste0(id_prefix, "_img_offset_x"),
+                                 "Img X offset (\u00b5m)", value = 0, step = 25)),
+          column(6, numericInput(paste0(id_prefix, "_img_offset_y"),
+                                 "Img Y offset (\u00b5m)", value = 0, step = 25))
+        ))
     ),
     mainPanel(width = 9,
       plotOutput(paste0(id_prefix, "_plot"), height = "650px",
@@ -499,76 +505,42 @@ server <- function(input, output, session) {
       prevLabel  = "Back",
       doneLabel  = "Done",
       steps = list(
-        # Step 1: Welcome (floating — always visible)
+        # Step 1: Welcome (floating)
         list(intro = paste0(
           "Welcome to the <strong>Multi-Instrument Particle Viewer</strong>!<br><br>",
           "This app integrates particle data from FTIR (PerkinElmer &amp; Bruker), ",
           "Raman spectroscopy, and LDIR into a unified spatial explorer.<br><br>",
           "The tour starts on the <strong>FTIR tab</strong>. Use <em>Next</em> to walk through the controls.")),
-        # Steps 2–8: FTIR tab link + FTIR sidebar controls (all visible while on FTIR tab)
+        # Steps 2–9: FTIR tab link + sidebar controls (all visible on FTIR tab)
         list(element = "a[data-value='FTIR (PerkinElmer)']",
              intro   = "The <strong>FTIR (PerkinElmer)</strong> tab displays particles detected by the PerkinElmer FTIR instrument. Each dot is colour-coded by match status with Raman."),
-        list(element = "#ftir_quality_range",
-             intro   = "The <strong>Quality slider</strong> filters particles by AAU spectral match score. Drag either handle to set a minimum/maximum range. Raman uses HQI instead."),
-        list(element = "#ftir_size_range",
-             intro   = "The <strong>Feret Max slider</strong> filters by maximum particle diameter in µm — a proxy for particle size. Use it to isolate a specific size class."),
-        list(element = "#ftir_material_filter",
+        list(element = "#ftir_tour_quality",
+             intro   = "The <strong>Quality slider</strong> filters particles by spectral match score (AAU for FTIR/LDIR, HQI for Raman). Drag either handle to set a minimum/maximum range."),
+        list(element = "#ftir_tour_size",
+             intro   = "The <strong>Feret Max slider</strong> filters by maximum particle diameter in \u00b5m \u2014 a proxy for particle size. Use it to isolate a specific size class."),
+        list(element = "#ftir_tour_material",
              intro   = "The <strong>Material filter</strong> lets you show only particles of selected polymer types. Type or pick from the dropdown; multiple selections are supported."),
-        list(element = "#ftir_match_filter",
+        list(element = "#ftir_tour_match",
              intro   = "The <strong>Match Status</strong> checkboxes toggle visibility of matched particles (spatially paired with Raman) and unmatched particles. Both are shown by default."),
-        list(element = "#ftir_highlight_particle",
-             intro   = "Use <strong>Highlight Particle</strong> to visually emphasise a particle by ID or by typing a range (1–10) or wildcard pattern (MP_*) in the text box below. Selected particles are ringed in gold."),
-        list(element = "#ftir_image_upload",
-             intro   = "Optionally load a <strong>background image</strong> (filter membrane photo or microscope snapshot) to display behind the scatter plot. Use the X/Y offset fields to align it with the particle coordinates."),
+        list(element = "#ftir_tour_highlight",
+             intro   = "Use <strong>Highlight Particle</strong> to visually emphasise a particle by ID, or type a range (1\u201310) or wildcard pattern (MP_*) in the text box and click Apply. Selected particles are ringed in gold."),
+        list(element = "#ftir_tour_image",
+             intro   = "Optionally load a <strong>background image</strong> (filter membrane photo or microscope snapshot) to display behind the scatter plot. Use the X/Y offset fields below to align it with the particle coordinates."),
         list(element = "#ftir_plot",
              intro   = "<strong>Navigate the map</strong>: drag to zoom in on a region, double-click to reset the view. Click any particle dot to add it to the selection panel below the plot. Hover to see quick-look details."),
-        # Steps 9–13: remaining tabs via always-visible navbar links
+        # Steps 10–15: remaining tabs via always-visible navbar links
         list(element = "a[data-value='Raman']",
              intro   = "The <strong>Raman</strong> tab shows particles from Raman spectroscopy, colour-coded by their match status with FTIR. The same sidebar controls apply (quality shown as HQI)."),
         list(element = "a[data-value='LDIR']",
-             intro   = "The <strong>LDIR</strong> tab displays particles from the Agilent 8700 Laser Direct Infrared instrument. Two extra sliders let you filter by LDIR↔Raman match score and image↔Excel coordinate match cost."),
+             intro   = "The <strong>LDIR</strong> tab displays particles from the Agilent 8700 Laser Direct Infrared instrument. Two extra sliders let you filter by LDIR\u2194Raman match score and image\u2194Excel coordinate match cost."),
         list(element = "a[data-value='Overlay']",
-             intro   = "The <strong>Overlay</strong> tab superimposes FTIR, Raman, and LDIR particles on a single spatial map with connecting lines between matched pairs — useful for assessing spatial alignment quality."),
+             intro   = "The <strong>Overlay</strong> tab superimposes FTIR, Raman, and LDIR particles on a single spatial map with connecting lines between matched pairs \u2014 useful for assessing spatial alignment quality."),
         list(element = "a[data-value='Summary']",
              intro   = "The <strong>Summary</strong> tab shows aggregate material counts and per-instrument pie charts. Toggle <em>Apply instrument filters</em> to reflect your current sidebar settings."),
         list(element = "a[data-value='Run Info']",
              intro   = "The <strong>Run Info</strong> tab shows metadata for the currently loaded pipeline run: timestamp, git commit hash, and input file provenance."),
         list(element = "a[data-value='Upload Data']",
-             intro   = "The <strong>Upload Data</strong> tab lets you load a pipeline output CSV bundle directly from disk without needing a run directory on this server."),
-        # Steps 9–13: FTIR sidebar controls (visible when FTIR tab is active).
-        # Element selectors target the FTIR panel (default active tab).
-        list(element = "#ftir_quality_range",
-             intro = paste0(
-          "<strong>Quality &amp; Size sliders</strong> (sidebar, any instrument tab)<br><br>",
-          "The <em>Quality</em> slider filters by spectral match score (AAU for FTIR/LDIR, HQI for Raman). ",
-          "The <em>Feret Max</em> slider filters by maximum particle diameter in µm. ",
-          "Drag either handle to narrow the visible population.")),
-        list(element = "#ftir_material_filter",
-             intro = paste0(
-          "<strong>Material filter</strong> (sidebar, any instrument tab)<br><br>",
-          "Type or pick a polymer type to show only particles of that material. ",
-          "Multiple selections are supported. Leave blank to show all materials.")),
-        list(element = "#ftir_match_filter",
-             intro = paste0(
-          "<strong>Match Status checkboxes</strong> (sidebar, any instrument tab)<br><br>",
-          "Toggle the checkboxes to show or hide matched particles (spatially paired with another instrument) ",
-          "and unmatched particles. Both are shown by default.")),
-        list(element = "#ftir_highlight_particle",
-             intro = paste0(
-          "<strong>Highlight Particle</strong> (sidebar, any instrument tab)<br><br>",
-          "Enter a particle ID, range (e.g. 1\u201310), or wildcard (e.g. MP_*) to ring matching particles in gold on the map. ",
-          "Useful for finding a specific particle reported in the pipeline output.")),
-        list(element = "#ftir_image_upload",
-             intro = paste0(
-          "<strong>Background image &amp; offsets</strong> (sidebar, any instrument tab)<br><br>",
-          "Optionally upload an image of the filter membrane to display behind the particle scatter plot. ",
-          "Use the X/Y offset sliders to align the image with the particle coordinates.")),
-        list(element = "#ftir_plot",
-             intro = paste0(
-          "<strong>Interactive map</strong> (plot area, any instrument tab)<br><br>",
-          "Drag to zoom in on a region, double-click to reset the view. ",
-          "Click any particle dot to inspect its details in the panel below the plot. ",
-          "Hover over a dot to see a quick-look tooltip with material and quality score."))
+             intro   = "The <strong>Upload Data</strong> tab lets you load a pipeline output CSV bundle directly from disk without needing a run directory on this server.")
       )
     ))
   })
