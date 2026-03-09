@@ -10,8 +10,7 @@ source("global.R")
 # the client browser OS — so the flag was always FALSE on Linux-hosted Shiny.
 .is_windows <- TRUE
 
-# TODO: Replace with your actual Google Form URL once created.
-FEEDBACK_URL <- "https://docs.google.com/forms/d/e/1FAIpQLSfJMPBwPbMKaCmOEElaVPJFQsCsB4YSqQnWxVL5_u7xCz2hhQ/viewform?usp=header"
+FEEDBACK_URL <- "https://forms.office.com/Pages/ResponsePage.aspx?id=kxTyotGkf0utB4Gcgk9cSupFgq19XipHgo77A48m1WhUNERLUjFMNzhNMDhHM0FDWFFWNTVUVVhOVC4u"
 
 # ============================================================================
 # Shared UI helpers
