@@ -11,7 +11,7 @@ source("global.R")
 .is_windows <- TRUE
 
 # TODO: Replace with your actual Google Form URL once created.
-FEEDBACK_URL <- "https://docs.google.com/forms/d/e/REPLACE_WITH_FORM_ID/viewform"
+FEEDBACK_URL <- "https://docs.google.com/forms/d/e/1FAIpQLSfJMPBwPbMKaCmOEElaVPJFQsCsB4YSqQnWxVL5_u7xCz2hhQ/viewform?usp=header"
 
 # ============================================================================
 # Shared UI helpers
