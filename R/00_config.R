@@ -63,14 +63,16 @@ make_config <- function(ftir_path  = NULL,
     # Fixed µm-per-pixel scale for the Raman microscope image.
     # NULL = fall back to particle-extent method (may cause systematic viewer drift).
     # Set to the instrument-specific value, e.g. raman_um_per_px = 2.5
-    raman_um_per_px = NULL,
+    raman_um_per_px = 12569.2097402076 / 21895,  # WITec: image_width_um / image_width_px
 
     # Explicit image origin in µm — top-left corner of the Raman microscope
     # image in stage coordinates.  When set together with raman_um_per_px,
     # gives exact image placement without centroid centering.
     # NULL = auto-center on particle centroid (default).
-    raman_image_origin_x_um = NULL,
-    raman_image_origin_y_um = NULL,
+    # WITec exports center-based coords: origin_x = center_x - width/2,
+    #                                     origin_y = center_y + height/2
+    raman_image_origin_x_um = -272.473663330078 - 12569.2097402076 / 2,  # left edge
+    raman_image_origin_y_um = 7277.1328125 + 12153.0107421875 / 2,       # top edge
 
     # --- Descriptor RANSAC (optional Tier 2 replacement) ---
     # Set TRUE to use descriptor-based RANSAC instead of the coarse-grid material
