@@ -4,6 +4,7 @@
 
 library(shiny)
 library(ggplot2)
+library(ggrepel)
 library(png)
 library(rintrojs)
 
