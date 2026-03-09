@@ -10,6 +10,9 @@ source("global.R")
 # the client browser OS — so the flag was always FALSE on Linux-hosted Shiny.
 .is_windows <- TRUE
 
+# TODO: Replace with your actual Google Form URL once created.
+FEEDBACK_URL <- "https://docs.google.com/forms/d/e/1FAIpQLSfJMPBwPbMKaCmOEElaVPJFQsCsB4YSqQnWxVL5_u7xCz2hhQ/viewform?usp=header"
+
 # ============================================================================
 # Shared UI helpers
 # ============================================================================
@@ -122,7 +125,11 @@ ui <- fluidPage(
       actionButton("start_tutorial", "Start guided tour",
                    class = "btn-xs btn-default",
                    style = "margin-left:12px; vertical-align:middle;",
-                   title = "Start guided tutorial")
+                   title = "Start guided tutorial"),
+      tags$a(href = FEEDBACK_URL, target = "_blank",
+             class = "btn btn-xs btn-info",
+             style = "margin-left:8px; vertical-align:middle;",
+             shiny::icon("comment"), "Give Feedback")
     ),
     id = "main_tabs",
     header = introjsUI(),
@@ -349,7 +356,7 @@ ui <- fluidPage(
                      dblclick = "overlay_dblclick"),
           fluidRow(
             column(10, tags$p(class = "text-muted",
-                   "Drag to zoom. Double-click to reset. Click a particle to pin details.")),
+                   "Drag to zoom. Double-click to reset. Click a particle to add it to the selection.")),
             column(2, actionButton("overlay_reset_zoom", "Reset Zoom",
                                    class = "btn-sm btn-default",
                                    style = "float:right; margin-top:2px;"))
@@ -3067,7 +3074,9 @@ server <- function(input, output, session) {
   })
 
   # ==================================================================
-  # Click-to-pin: clicking a particle on the overlay plot pins it
+  # Click-to-select: clicking a particle on the overlay plot adds it to the
+  # per-instrument dropdown selection (gold ring) and pins it for details.
+  # Clicking an already-selected particle toggles it off.
   # ==================================================================
   observeEvent(input$overlay_click, {
     click <- input$overlay_click
@@ -3087,6 +3096,47 @@ server <- function(input, output, session) {
     if (!is.null(result)) {
       pinned_overlay(result$row)
       pinned_source(result$source)
+
+      # --- Accumulate into per-instrument dropdown selections ---
+      .toggle_dropdown <- function(input_id, pid, choices) {
+        cur <- input[[input_id]]
+        if (pid %in% cur) {
+          new_sel <- setdiff(cur, pid)
+        } else {
+          new_sel <- c(cur, pid)
+        }
+        updateSelectizeInput(session, input_id, choices = choices,
+                             selected = new_sel, server = TRUE)
+      }
+
+      row <- result$row
+      src <- result$source
+
+      if (src == "ftir_raman") {
+        # Matched pair: add both FTIR and Raman particle IDs
+        if (!is.null(row$ftir_particle_id) && !is.null(dfs$ftir))
+          .toggle_dropdown("overlay_ftir_particles", row$ftir_particle_id,
+                           sort(dfs$ftir$particle_id))
+        if (!is.null(row$raman_particle_id) && !is.null(dfs$raman))
+          .toggle_dropdown("overlay_raman_particles", row$raman_particle_id,
+                           sort(dfs$raman$particle_id))
+      } else if (src == "ldir_raman") {
+        if (!is.null(row$ldir_particle_id) && !is.null(dfs$ldir))
+          .toggle_dropdown("overlay_ldir_particles", row$ldir_particle_id,
+                           sort(dfs$ldir$particle_id))
+        if (!is.null(row$raman_particle_id) && !is.null(dfs$raman))
+          .toggle_dropdown("overlay_raman_particles", row$raman_particle_id,
+                           sort(dfs$raman$particle_id))
+      } else if (src == "single_ftir" && !is.null(row$particle_id)) {
+        .toggle_dropdown("overlay_ftir_particles", row$particle_id,
+                         sort(dfs$ftir$particle_id))
+      } else if (src == "single_raman" && !is.null(row$particle_id)) {
+        .toggle_dropdown("overlay_raman_particles", row$particle_id,
+                         sort(dfs$raman$particle_id))
+      } else if (src == "single_ldir" && !is.null(row$particle_id)) {
+        .toggle_dropdown("overlay_ldir_particles", row$particle_id,
+                         sort(dfs$ldir$particle_id))
+      }
     } else {
       # Click on empty space clears the pin
       pinned_overlay(NULL)
