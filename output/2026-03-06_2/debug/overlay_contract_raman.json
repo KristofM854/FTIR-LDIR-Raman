@@ -1,0 +1,22 @@
+{
+  "instrument": "raman",
+  "image_bounds_um": {
+    "xmin": -126.6605,
+    "xmax": 11956.314,
+    "ymin": -4774.268,
+    "ymax": 6866.6745
+  },
+  "points_bounds_um": {
+    "xmin": -126.6605,
+    "xmax": 11956.314,
+    "ymin": -4774.268,
+    "ymax": 6866.6745
+  },
+  "n_points": 792,
+  "delta_bounds_um": {
+    "xmin": 0,
+    "xmax": 0,
+    "ymin": 0,
+    "ymax": 0
+  }
+}
