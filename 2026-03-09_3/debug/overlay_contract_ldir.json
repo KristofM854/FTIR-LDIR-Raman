@@ -1,0 +1,22 @@
+{
+  "instrument": "ldir",
+  "image_bounds_um": {
+    "xmin": -6500,
+    "xmax": 6500,
+    "ymin": -6500,
+    "ymax": 6500
+  },
+  "points_bounds_um": {
+    "xmin": -6415.76,
+    "xmax": 6364.15,
+    "ymin": -6378.814,
+    "ymax": 6371.742
+  },
+  "n_points": 505,
+  "delta_bounds_um": {
+    "xmin": 84.24,
+    "xmax": -135.85,
+    "ymin": 121.186,
+    "ymax": -128.258
+  }
+}
