@@ -1,0 +1,8 @@
+# TPS (Thin-Plate Spline) Assessment
+# Generated: 2026-03-09 10:40:46.676127
+
+systematic_distortion: FALSE
+recommend_tps:         FALSE
+dx_range_um:           6.65
+dy_range_um:           8.65
+assessment:            Quadrant dx range: 6.6 µm, dy range: 8.7 µm

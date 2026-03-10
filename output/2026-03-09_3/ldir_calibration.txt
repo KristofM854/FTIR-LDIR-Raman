@@ -1,0 +1,17 @@
+# LDIR pixel-to-um calibration — generated 2026-03-09 10:40:03.038343
+
+image_width_px:    5000
+image_height_px:   5000
+circle_cx_px:      2500
+circle_cy_px:      2500
+circle_radius_px:  2500
+edge_gap_px:       0
+export_type:       full_field
+circle_detected:   TRUE
+
+scan_diameter_um:  13000
+scale_um_per_px:   2.6
+
+n_particles:       656
+max_abs_um:        6415.8
+fill_fraction_pct: 98.7  (expected ~100 if scale correct, <90 => radius_px too large)
