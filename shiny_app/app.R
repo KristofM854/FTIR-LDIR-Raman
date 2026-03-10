@@ -2817,6 +2817,9 @@ server <- function(input, output, session) {
     # Unmatched FTIR
     if ("unmatched_ftir" %in% layers && !is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
       um_f <- dfs$ftir[dfs$ftir$match_status == "unmatched", ]
+      ftir_mat <- input$overlay_ftir_material
+      if (!is.null(ftir_mat) && !("All" %in% ftir_mat) && nrow(um_f) > 0)
+        um_f <- um_f[um_f$material_family %in% ftir_mat, ]
       if (nrow(um_f) > 0) {
         all_pts[[length(all_pts) + 1]] <- data.frame(
           x = um_f$x, y = um_f$y, feret_max = um_f$feret_max,
@@ -2829,6 +2832,9 @@ server <- function(input, output, session) {
     # Unmatched Raman
     if ("unmatched_raman" %in% layers && !is.null(dfs$raman) && nrow(dfs$raman) > 0) {
       um_r <- dfs$raman[dfs$raman$match_status == "unmatched", ]
+      raman_mat <- input$overlay_raman_material
+      if (!is.null(raman_mat) && !("All" %in% raman_mat) && nrow(um_r) > 0)
+        um_r <- um_r[um_r$material_family %in% raman_mat, ]
       if (nrow(um_r) > 0) {
         all_pts[[length(all_pts) + 1]] <- data.frame(
           x = um_r$x, y = um_r$y, feret_max = um_r$feret_max,
@@ -2841,6 +2847,9 @@ server <- function(input, output, session) {
     # Unmatched LDIR
     if ("ldir_unmatched" %in% layers && !is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
       um_l <- dfs$ldir[dfs$ldir$match_status == "unmatched", ]
+      ldir_mat <- input$overlay_ldir_material
+      if (!is.null(ldir_mat) && !("All" %in% ldir_mat) && nrow(um_l) > 0)
+        um_l <- um_l[um_l$material_family %in% ldir_mat, ]
       if (nrow(um_l) > 0) {
         all_pts[[length(all_pts) + 1]] <- data.frame(
           x = um_l$x, y = um_l$y, feret_max = um_l$feret_max,
