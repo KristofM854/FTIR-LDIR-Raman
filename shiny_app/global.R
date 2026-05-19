@@ -235,7 +235,9 @@ load_run_data <- function(run_info) {
                                  "unmatched_raman.csv"),
       agreement             = c("06_agreement/agreement_summary.csv",
                                  "agreement_summary.csv"),
-      unmatched_ftir_bruker = c("05_matches/unmatched_ftir_bruker.csv",
+      matched_ftir_bruker   = c("05_matches/matched_ftir_bruker_raman.csv",
+                                 "matched_ftir_bruker_raman.csv"),
+      unmatched_ftir_bruker = c("05_matches/unmatched_ftir_bruker_vs_raman.csv",
                                  "unmatched_ftir_bruker.csv")
     )
     for (nm in names(file_map)) {
@@ -603,29 +605,48 @@ build_instrument_dfs <- function(data) {
   if (!is.null(result$ldir))
     result$ldir$material_family <- classify_family_vec(result$ldir$material)
 
-  # --- FTIR Bruker (viewer-only, from unmatched_ftir_bruker.csv) ---
+  # --- FTIR Bruker (matched + unmatched, with aligned coordinates when available) ---
+  ftir_bruker_parts <- list()
+  if (!is.null(data$matched_ftir_bruker) && nrow(data$matched_ftir_bruker) > 0) {
+    m <- data$matched_ftir_bruker
+    ftir_bruker_parts[[1]] <- data.frame(
+      particle_id      = m$ftir_particle_id,
+      x                = m$ftir_x_aligned,
+      y                = m$ftir_y_aligned,
+      x_orig           = m$ftir_x_um,
+      y_orig           = m$ftir_y_um,
+      area_um2         = m$ftir_area_um2,
+      major_um         = m$ftir_major_um,
+      minor_um         = m$ftir_minor_um,
+      feret_max        = m$ftir_feret_max_um,
+      material         = m$ftir_material,
+      quality          = m$ftir_quality,
+      match_status     = "matched",
+      match_id         = m$match_id,
+      matched_to_raman = TRUE,
+      stringsAsFactors = FALSE)
+  }
   if (!is.null(data$unmatched_ftir_bruker) && nrow(data$unmatched_ftir_bruker) > 0) {
     u <- data$unmatched_ftir_bruker
-    # Column names from ingest_ftir_bruker match unmatched_ftir layout
-    result$ftir_bruker <- data.frame(
-      particle_id  = u$particle_id,
-      x            = u$x_um,
-      y            = u$y_um,
-      x_orig       = u$x_um,
-      y_orig       = u$y_um,
-      area_um2     = u$area_um2,
-      major_um     = u$major_um,
-      minor_um     = u$minor_um,
-      feret_max    = u$feret_max_um,
-      material     = u$material,
-      quality      = u$quality,
-      match_status = "unmatched",
-      match_id     = NA_integer_,
-      stringsAsFactors = FALSE
-    )
-  } else {
-    result$ftir_bruker <- NULL
+    has_aligned <- "x_aligned" %in% names(u)
+    ftir_bruker_parts[[length(ftir_bruker_parts) + 1]] <- data.frame(
+      particle_id      = u$particle_id,
+      x                = if (has_aligned) u$x_aligned else u$x_um,
+      y                = if (has_aligned) u$y_aligned else u$y_um,
+      x_orig           = u$x_um,
+      y_orig           = u$y_um,
+      area_um2         = u$area_um2,
+      major_um         = u$major_um,
+      minor_um         = u$minor_um,
+      feret_max        = u$feret_max_um,
+      material         = u$material,
+      quality          = u$quality,
+      match_status     = "unmatched",
+      match_id         = NA_integer_,
+      matched_to_raman = FALSE,
+      stringsAsFactors = FALSE)
   }
+  result$ftir_bruker <- if (length(ftir_bruker_parts) > 0) do.call(rbind, ftir_bruker_parts) else NULL
   if (!is.null(result$ftir_bruker))
     result$ftir_bruker$material_family <- classify_family_vec(result$ftir_bruker$material)
 

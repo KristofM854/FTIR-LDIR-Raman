@@ -257,7 +257,7 @@ if (has_ldir) {
   log_message("LDIR: not provided — skipping LDIR analysis")
 }
 
-# --- FTIR Bruker (optional, viewer-only — no cross-instrument alignment) ---
+# --- FTIR Bruker (optional) ---
 ftir_bruker_raw <- NULL
 has_ftir_bruker <- !is.null(config$ftir_bruker_path) && nzchar(config$ftir_bruker_path)
 if (has_ftir_bruker) {
@@ -524,6 +524,108 @@ if (nrow(match_result$unmatched_ftir) > 0 && nrow(match_result$unmatched_raman) 
   if (nrow(composites) > 0) {
     log_message("Composite matches found: ", nrow(composites),
                 " FTIR particles matched to multiple Raman fragments")
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 5b. FTIR Bruker spatial pipeline (alignment → matching → agreement)
+# ---------------------------------------------------------------------------
+
+bruker_match_result     <- NULL
+bruker_agreement        <- NULL
+bruker_icp_result       <- NULL
+bruker_norm_result      <- NULL
+bruker_aligned_all      <- NULL
+bruker_alignment_method <- NULL
+
+if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
+  log_message(strrep("-", 50))
+  log_message("FTIR (Bruker) Spatial Pipeline")
+
+  # Pre-filtering
+  ftir_bruker_clean <- prefilter_ftir(ftir_bruker_raw, min_quality = 0, min_size_um = 0)
+  write.csv(ftir_bruker_clean,
+            file.path(.out_dirs$prefiltered, "ftir_bruker_prefiltered.csv"),
+            row.names = FALSE)
+
+  ftir_bruker_plastic_mask <- grepl(
+    paste(config$align_ftir_materials, collapse = "|"),
+    ftir_bruker_clean$material, ignore.case = TRUE
+  )
+  ftir_bruker_for_align <- ftir_bruker_clean[ftir_bruker_plastic_mask, ]
+  log_message("FTIR (Bruker) plastic anchor particles: ", nrow(ftir_bruker_for_align),
+              " (materials: ", paste(unique(ftir_bruker_for_align$material), collapse = ", "), ")")
+
+  ftir_bruker_for_match <- prefilter_ftir(
+    ftir_bruker_raw,
+    min_quality = config$ftir_quality_threshold,
+    min_size_um = config$min_particle_size_um
+  )
+
+  if (nrow(ftir_bruker_for_align) < 3) {
+    log_message("FTIR (Bruker): too few plastic anchors (", nrow(ftir_bruker_for_align),
+                ") for alignment — skipping", level = "WARN")
+  } else {
+
+    # Coordinate normalization (Bruker centroid vs same Raman anchor set)
+    bruker_norm_result     <- normalize_coordinates(
+      ftir_bruker_for_align, raman_for_align,
+      normalize_scale = config$normalize_scale
+    )
+    ftir_bruker_norm_align <- bruker_norm_result$ftir
+
+    # Apply centroid to all clean and for-match particles
+    ftir_bruker_clean$x_norm <- ftir_bruker_clean$x_um - bruker_norm_result$ftir_centroid[1]
+    ftir_bruker_clean$y_norm <- ftir_bruker_clean$y_um - bruker_norm_result$ftir_centroid[2]
+    ftir_bruker_for_match$x_norm <- ftir_bruker_for_match$x_um - bruker_norm_result$ftir_centroid[1]
+    ftir_bruker_for_match$y_norm <- ftir_bruker_for_match$y_um - bruker_norm_result$ftir_centroid[2]
+
+    # Tiered alignment: Bruker → Raman
+    log_message("Tiered alignment: FTIR (Bruker) ↔ Raman")
+
+    # Tier 1: Landmark
+    bruker_landmark_result <- landmark_align(ftir_bruker_clean, raman_for_transform, config)
+    use_bruker_landmark    <- bruker_landmark_result$confident && config$landmark_skip_full_ransac
+
+    if (use_bruker_landmark) {
+      log_message("  Using Bruker landmark transform (Tier 1) — skipping full RANSAC")
+      bruker_alignment_transform <- bruker_landmark_result$transform
+      bruker_alignment_method    <- "landmark"
+    } else {
+      # Tier 2: Full RANSAC
+      log_message(strrep("-", 50))
+      log_message("  Tier 2: Full RANSAC alignment (Bruker)")
+      bruker_ransac_result <- ransac_align(ftir_bruker_norm_align, raman_norm_align, config)
+      log_message("  Bruker RANSAC: scale=", round(bruker_ransac_result$params$scale, 4),
+                  ", rotation=", round(bruker_ransac_result$params$rotation_deg, 2), " deg",
+                  ", reflected=", bruker_ransac_result$params$reflected,
+                  ", inliers=", bruker_ransac_result$n_inliers)
+      bruker_alignment_transform <- bruker_ransac_result$transform
+      bruker_alignment_method    <- "ransac"
+    }
+
+    # ICP refinement
+    bruker_icp_result <- icp_refine(
+      ftir_bruker_clean, raman_for_transform, bruker_alignment_transform, config
+    )
+    log_message("  Bruker ICP: scale=", round(bruker_icp_result$params$scale, 4),
+                ", rotation=", round(bruker_icp_result$params$rotation_deg, 2), " deg",
+                ", converged=", bruker_icp_result$converged)
+
+    # Apply transform
+    bruker_aligned     <- apply_ftir_transform(ftir_bruker_for_match, bruker_icp_result$transform)
+    bruker_aligned_all <- apply_ftir_transform(ftir_bruker_clean,     bruker_icp_result$transform)
+
+    # Particle matching: Bruker ↔ Raman
+    bruker_match_result <- match_particles(bruker_aligned, raman_for_match, config)
+    bms <- bruker_match_result$match_stats
+    log_message("FTIR (Bruker) ↔ Raman: ",
+                bms$n_matched, " matched, ",
+                bms$n_unmatched_ftir, " unmatched Bruker, ",
+                bms$n_unmatched_raman, " unmatched Raman")
+
+    # Agreement analysis
+    bruker_agreement <- analyze_agreement(bruker_match_result, config)
   }
 }
 
@@ -1236,8 +1338,64 @@ export_results(
 # Use stage-based output directories for remaining exports
 .export_dirs <- get_output_dirs(config$output_dir)
 
-# Export FTIR Bruker particles (viewer-only; no cross-instrument alignment)
-if (!is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
+# Export FTIR Bruker results
+if (!is.null(bruker_match_result)) {
+  if (nrow(bruker_match_result$matched) > 0) {
+    write.csv(bruker_match_result$matched,
+              file.path(.export_dirs$matches, "matched_ftir_bruker_raman.csv"),
+              row.names = FALSE)
+    log_message("  Wrote matched_ftir_bruker_raman.csv (",
+                nrow(bruker_match_result$matched), " pairs)")
+  }
+  if (nrow(bruker_match_result$unmatched_ftir) > 0) {
+    write.csv(bruker_match_result$unmatched_ftir,
+              file.path(.export_dirs$matches, "unmatched_ftir_bruker_vs_raman.csv"),
+              row.names = FALSE)
+    log_message("  Wrote unmatched_ftir_bruker_vs_raman.csv (",
+                nrow(bruker_match_result$unmatched_ftir), " particles)")
+  }
+  if (!is.null(bruker_icp_result) && !is.null(bruker_norm_result)) {
+    bp <- bruker_icp_result$params
+    bruker_param_lines <- c(
+      "# FTIR_bruker-to-Raman Transform Parameters",
+      paste0("# Generated: ", Sys.time()),
+      "",
+      paste0("scale:        ", round(bp$scale, 6)),
+      paste0("rotation_deg: ", round(bp$rotation_deg, 4)),
+      paste0("tx:           ", round(bp$tx, 4)),
+      paste0("ty:           ", round(bp$ty, 4)),
+      paste0("reflected:    ", bp$reflected),
+      "",
+      "# Normalization parameters (applied before transform)",
+      paste0("ftir_centroid_x:  ", round(bruker_norm_result$ftir_centroid[1], 4)),
+      paste0("ftir_centroid_y:  ", round(bruker_norm_result$ftir_centroid[2], 4)),
+      paste0("raman_centroid_x: ", round(bruker_norm_result$raman_centroid[1], 4)),
+      paste0("raman_centroid_y: ", round(bruker_norm_result$raman_centroid[2], 4)),
+      "",
+      "# ICP refinement info",
+      paste0("icp_converged:    ", bruker_icp_result$converged),
+      paste0("icp_iterations:   ", bruker_icp_result$n_iterations),
+      paste0("icp_final_rms:    ",
+             round(tail(bruker_icp_result$rms_history, 1), 4), " um"),
+      "",
+      "# 3x3 Transform matrix (homogeneous, FTIR_bruker_norm -> Raman_norm)",
+      paste0("matrix_row1: ", paste(round(bruker_icp_result$transform[1, ], 8), collapse = ", ")),
+      paste0("matrix_row2: ", paste(round(bruker_icp_result$transform[2, ], 8), collapse = ", ")),
+      paste0("matrix_row3: ", paste(round(bruker_icp_result$transform[3, ], 8), collapse = ", "))
+    )
+    writeLines(bruker_param_lines,
+               file.path(.export_dirs$alignment, "transform_params_ftir_bruker_raman.txt"))
+    log_message("  Wrote transform_params_ftir_bruker_raman.txt")
+  }
+  if (!is.null(bruker_agreement) && !is.null(bruker_agreement$agreement_detail) &&
+      nrow(bruker_agreement$agreement_detail) > 0) {
+    write.csv(bruker_agreement$agreement_detail,
+              file.path(.export_dirs$agreement, "agreement_pairwise_ftir_bruker_raman.csv"),
+              row.names = FALSE)
+    log_message("  Wrote agreement_pairwise_ftir_bruker_raman.csv")
+  }
+} else if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
+  # Fallback for skipped alignment (e.g. too few plastic anchors)
   write.csv(ftir_bruker_raw,
             file.path(.export_dirs$matches, "unmatched_ftir_bruker.csv"),
             row.names = FALSE)

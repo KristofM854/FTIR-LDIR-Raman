@@ -1038,7 +1038,8 @@ server <- function(input, output, session) {
     !is.null(d$unmatched_raman)    ||
     !is.null(d$ldir_raman_matched) ||
     !is.null(d$unmatched_ldir)     ||
-    !is.null(d$unmatched_ftir_bruker)
+    !is.null(d$unmatched_ftir_bruker) ||
+    !is.null(d$matched_ftir_bruker)
   })
 
   instrument_dfs <- reactive({
@@ -2584,7 +2585,13 @@ server <- function(input, output, session) {
   output$ftir_bruker_summary_text <- renderText({
     df <- ftir_bruker_filtered()
     if (nrow(df) == 0) return("No FTIR (Bruker) data loaded")
-    paste0(nrow(df), " particles | ", length(unique(df$material)), " materials")
+    n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
+    if (n_matched > 0) {
+      paste0(nrow(df), " particles | ", n_matched, " matched to Raman | ",
+             length(unique(df$material)), " materials")
+    } else {
+      paste0(nrow(df), " particles | ", length(unique(df$material)), " materials")
+    }
   })
 
   observeEvent(input$ftir_bruker_hover, {
