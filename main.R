@@ -6,8 +6,10 @@
 # detected by FTIR, Raman, and LDIR microspectroscopy on the same filter.
 #
 # Input modes:
-#   Mode 1 (Hardcoded): Set ftir_file / raman_file / ldir_file before sourcing
-#   Mode 2 (Interactive): Set input_mode <- "interactive" to get file pickers
+#   Mode "explicit"   (default): one labeled file-picker dialog per instrument slot
+#   Mode "hardcoded": set ftir_file / raman_file / etc. before sourcing, then
+#                     set input_mode <- "hardcoded"
+#   Mode "interactive": legacy pattern-based auto-detection (disabled)
 #
 # Usage:
 #   source("main.R")
@@ -57,27 +59,104 @@ source("R/10_export.R")
 # ---------------------------------------------------------------------------
 
 # --- Input mode selection ---
-# Set input_mode <- "interactive" before sourcing for file picker dialogs.
-# Default: "hardcoded" — uses ftir_file / raman_file / ldir_file variables.
-if (!exists("input_mode")) input_mode <- "interactive"
+# Default is "explicit": one labeled file-picker dialog per instrument slot.
+# Set input_mode <- "hardcoded" before sourcing to supply paths directly.
+# The old pattern-based auto-detection block is preserved below (commented out)
+# in case it is needed again.
+if (!exists("input_mode")) input_mode <- "explicit"
 
-if (input_mode == "interactive") {
-  # ------ Mode 2: Interactive file picker ------
-  file_manifest <- collect_files_interactive()
-  grouped       <- group_files_by_instrument(file_manifest)
+if (input_mode == "explicit") {
+  # ------ Explicit per-slot file picker dialogs ------
+  # Each call opens a single-file picker with a descriptive caption.
+  # Optional slots (images, LDIR, Bruker) return NULL when the user
+  # presses Cancel — the pipeline skips those instruments/images.
+  # Mandatory slots (Raman) re-prompt until a file is chosen.
 
-  ftir_file         <- grouped$FTIR_perkin$tabular
-  ftir_image        <- grouped$FTIR_perkin$image
-  ftir_bruker_file  <- grouped$FTIR_bruker$tabular
-  ftir_bruker_image <- grouped$FTIR_bruker$image
-  raman_file        <- grouped$Raman$tabular
-  raman_image       <- grouped$Raman$image
-  ldir_file         <- grouped$LDIR$tabular
-  ldir_image        <- grouped$LDIR$image
+  .is_windows <- tolower(.Platform$OS.type) == "windows"
+
+  .pick_file <- function(caption, required = FALSE,
+                         filter = "All files|*.*") {
+    repeat {
+      path <- if (.is_windows) {
+        tryCatch(
+          choose.files(caption = caption,
+                       filters = matrix(strsplit(filter, "\\|")[[1]],
+                                        ncol = 2, byrow = TRUE),
+                       multi = FALSE),
+          error = function(e) character(0)
+        )
+      } else {
+        message(caption, " (Cancel to skip):")
+        tryCatch(file.choose(), error = function(e) NULL)
+      }
+      # Normalize to NULL when nothing was selected
+      if (is.null(path) || length(path) == 0 || !nzchar(path)) {
+        if (required) {
+          message("  This file is required — please select it.")
+          next
+        }
+        return(NULL)
+      }
+      return(path)
+    }
+  }
+
+  DATA_FILTER  <- "Data files|*.csv;*.xlsx;*.xls|All files|*.*"
+  IMAGE_FILTER <- "Image files|*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp|All files|*.*"
+
+  message("=== File Input: one dialog per instrument slot ===")
+  message("Press Cancel on any optional slot to skip it.\n")
+
+  ftir_file         <- .pick_file("FTIR (PerkinElmer) — data file (.csv/.xlsx)",
+                                   required = FALSE, filter = DATA_FILTER)
+  ftir_image        <- .pick_file("FTIR (PerkinElmer) — microscope image (optional)",
+                                   required = FALSE, filter = IMAGE_FILTER)
+
+  ftir_bruker_file  <- .pick_file("FTIR Bruker (Lumos) — data file (.csv/.xlsx) (optional)",
+                                   required = FALSE, filter = DATA_FILTER)
+  ftir_bruker_image <- .pick_file("FTIR Bruker (Lumos) — microscope image (optional)",
+                                   required = FALSE, filter = IMAGE_FILTER)
+
+  raman_file        <- .pick_file("Raman — data file (.csv/.xlsx) [REQUIRED]",
+                                   required = TRUE, filter = DATA_FILTER)
+  raman_image       <- .pick_file("Raman — microscope image (optional)",
+                                   required = FALSE, filter = IMAGE_FILTER)
+
+  ldir_file         <- .pick_file("LDIR — data file (.csv/.xlsx) (optional)",
+                                   required = FALSE, filter = DATA_FILTER)
+  ldir_image        <- .pick_file("LDIR — companion image (optional)",
+                                   required = FALSE, filter = IMAGE_FILTER)
+
+  message("\n=== Selected files ===")
+  for (nm in c("ftir_file", "ftir_image", "ftir_bruker_file", "ftir_bruker_image",
+               "raman_file", "raman_image", "ldir_file", "ldir_image")) {
+    val <- get(nm)
+    message(sprintf("  %-24s %s", nm, if (is.null(val)) "(skipped)" else val))
+  }
+
+} else if (input_mode == "interactive") {
+  # ------ [LEGACY] Pattern-based auto-detection ------
+  # Commented out because instrument type cannot always be reliably inferred
+  # from the filename alone (e.g. Bruker Lumos files have no fixed keyword).
+  # Kept here for reference; use input_mode <- "explicit" instead.
+  #
+  # file_manifest <- collect_files_interactive()
+  # grouped       <- group_files_by_instrument(file_manifest)
+  #
+  # ftir_file         <- grouped$FTIR_perkin$tabular
+  # ftir_image        <- grouped$FTIR_perkin$image
+  # ftir_bruker_file  <- grouped$FTIR_bruker$tabular
+  # ftir_bruker_image <- grouped$FTIR_bruker$image
+  # raman_file        <- grouped$Raman$tabular
+  # raman_image       <- grouped$Raman$image
+  # ldir_file         <- grouped$LDIR$tabular
+  # ldir_image        <- grouped$LDIR$image
+
+  stop("input_mode 'interactive' is disabled. Use input_mode <- 'explicit' instead.")
 
 } else {
-  # ------ Mode 1: Hardcoded paths ------
-  # Defaults for test data (set these before sourcing, or leave for defaults)
+  # ------ Mode: Hardcoded paths ------
+  # Set these variables before sourcing main.R, then set input_mode <- "hardcoded".
   if (!exists("ftir_file"))         ftir_file         <- NULL
   if (!exists("raman_file"))        raman_file        <- NULL
   if (!exists("ldir_file"))         ldir_file         <- NULL
@@ -86,25 +165,6 @@ if (input_mode == "interactive") {
   if (!exists("ldir_image"))        ldir_image        <- NULL
   if (!exists("ftir_bruker_file"))  ftir_bruker_file  <- NULL
   if (!exists("ftir_bruker_image")) ftir_bruker_image <- NULL
-
-  # Prompt for mandatory files if not set
-  if (is.null(ftir_file)) {
-    if (interactive()) {
-      message("Please select the FTIR data file (.csv or .xlsx) ...")
-      ftir_file <- file.choose()
-    } else {
-      stop("ftir_file must be set before running in non-interactive mode")
-    }
-  }
-  if (is.null(raman_file)) {
-    if (interactive()) {
-      message("Please select the Raman data file (.csv or .xlsx) ...")
-      raman_file <- file.choose()
-    } else {
-      stop("raman_file must be set before running in non-interactive mode")
-    }
-  }
-  # ldir_file is optional — NULL means skip LDIR
 }
 
 config <- make_config(
