@@ -18,7 +18,7 @@
 # FTIR_bruker: Bruker OPUS / ALPHA keywords
 .INSTRUMENT_PATTERNS <- list(
   FTIR_perkin = "FTIR|Spotlight|infrared|FT-IR|PerkinElmer",
-  FTIR_bruker = "Bruker|OPUS|bruker",
+  FTIR_bruker = "Bruker|OPUS|bruker|Lumos",
   Raman       = "Raman",
   LDIR        = "LDIR|8700"
 )
