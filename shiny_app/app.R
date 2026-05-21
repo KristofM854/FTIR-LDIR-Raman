@@ -2149,7 +2149,7 @@ server <- function(input, output, session) {
       }
     }
 
-    img <- if (aligned) raman_native_image_info() else ftir_native_image_info()
+    img <- if (aligned) overlay_image_info() else ftir_native_image_info()
 
     full_ftir <- ftir_df_full()
     if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
@@ -2452,9 +2452,10 @@ server <- function(input, output, session) {
       }
     }
 
-    # In aligned mode use the Raman image; otherwise use LDIR image
+    # In aligned mode use the Raman image in normalised coordinates (same frame
+    # as the aligned particle coords); otherwise use the LDIR image.
     img <- if (aligned) {
-      raman_native_image_info()
+      overlay_image_info()
     } else if ("processed_image" %in% overlay_mode) {
       ldir_processed_image_info()
     } else if ("raw_image" %in% overlay_mode) {
@@ -2640,7 +2641,7 @@ server <- function(input, output, session) {
       }
     }
 
-    img <- if (aligned) raman_native_image_info() else NULL
+    img <- if (aligned) overlay_image_info() else NULL
 
     full_fb <- ftir_bruker_df_full()
     if (!is.null(full_fb) && nrow(full_fb) > 0) {
@@ -2943,52 +2944,76 @@ server <- function(input, output, session) {
 
     all_pts <- list()
 
-    if ("matched" %in% rel) {
-      if (show_pe_raman && nrow(matched) > 0) {
-        all_pts[[length(all_pts)+1]] <- data.frame(
-          x=matched$ftir_x_aligned, y=matched$ftir_y_aligned,
-          feret_max=matched$ftir_feret_max_um,
-          instrument="FTIR", match_status="matched", stringsAsFactors=FALSE)
-        all_pts[[length(all_pts)+1]] <- data.frame(
-          x=matched$raman_x_norm, y=matched$raman_y_norm,
-          feret_max=matched$raman_feret_max_um,
-          instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
-      }
-      if (show_bruker_raman && nrow(bruker_m) > 0) {
-        all_pts[[length(all_pts)+1]] <- data.frame(
-          x=bruker_m$ftir_x_aligned, y=bruker_m$ftir_y_aligned,
-          feret_max=bruker_m$ftir_feret_max_um,
-          instrument="FTIR (Bruker)", match_status="matched", stringsAsFactors=FALSE)
-        all_pts[[length(all_pts)+1]] <- data.frame(
-          x=bruker_m$raman_x_norm, y=bruker_m$raman_y_norm,
-          feret_max=bruker_m$raman_feret_max_um,
-          instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
-      }
-      if (show_ldir_raman && nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
-        all_pts[[length(all_pts)+1]] <- data.frame(
-          x=ldir_m$ldir_x_aligned, y=ldir_m$ldir_y_aligned,
-          feret_max=ldir_m$ldir_feret_max_um,
-          instrument="LDIR", match_status="matched", stringsAsFactors=FALSE)
-      }
-    }
+    .inst_label <- function(k) switch(k, ftir_pe="FTIR", ftir_bruker="FTIR (Bruker)",
+                                         raman="Raman", ldir="LDIR", k)
+    .inst_df    <- function(k) switch(k, ftir_pe=dfs$ftir, ftir_bruker=dfs$ftir_bruker,
+                                         raman=dfs$raman, ldir=dfs$ldir, NULL)
+    .inst_mat   <- function(k) switch(k, ftir_pe="overlay_ftir_material",
+                                         ftir_bruker="overlay_ftir_bruker_material",
+                                         raman="overlay_raman_material",
+                                         ldir="overlay_ldir_material", NULL)
 
-    if ("unmatched" %in% rel) {
-      .add_unmatched <- function(df_full, inst_key, inst_label, mat_input) {
-        if (!(inst_key %in% inst) || is.null(df_full) || nrow(df_full) == 0) return(NULL)
-        um <- df_full[df_full$match_status == "unmatched", ]
-        mat <- input[[mat_input]]
-        if (!is.null(mat) && !("All" %in% mat) && nrow(um) > 0)
-          um <- um[um$material_family %in% mat, ]
-        if (nrow(um) == 0) return(NULL)
-        data.frame(x=um$x, y=um$y, feret_max=um$feret_max,
-                   instrument=inst_label, match_status="unmatched", stringsAsFactors=FALSE)
+    if (length(inst) == 1) {
+      # Single-instrument mode: show ALL particles of that instrument,
+      # ignoring the matched/unmatched relationship filter.
+      df_s <- .inst_df(inst)
+      if (!is.null(df_s) && nrow(df_s) > 0) {
+        mat <- input[[.inst_mat(inst)]]
+        if (!is.null(mat) && !("All" %in% mat)) df_s <- df_s[df_s$material_family %in% mat, ]
+        if (nrow(df_s) > 0)
+          all_pts[[1]] <- data.frame(x=df_s$x, y=df_s$y, feret_max=df_s$feret_max,
+                                     instrument=.inst_label(inst),
+                                     match_status=df_s$match_status,
+                                     stringsAsFactors=FALSE)
       }
-      all_pts <- c(all_pts, Filter(Negate(is.null), list(
-        .add_unmatched(dfs$ftir,        "ftir_pe",     "FTIR",          "overlay_ftir_material"),
-        .add_unmatched(dfs$raman,       "raman",       "Raman",         "overlay_raman_material"),
-        .add_unmatched(dfs$ftir_bruker, "ftir_bruker", "FTIR (Bruker)", "overlay_ftir_bruker_material"),
-        .add_unmatched(dfs$ldir,        "ldir",        "LDIR",          "overlay_ldir_material")
-      )))
+    } else {
+      if ("matched" %in% rel) {
+        if (show_pe_raman && nrow(matched) > 0) {
+          all_pts[[length(all_pts)+1]] <- data.frame(
+            x=matched$ftir_x_aligned, y=matched$ftir_y_aligned,
+            feret_max=matched$ftir_feret_max_um,
+            instrument="FTIR", match_status="matched", stringsAsFactors=FALSE)
+          all_pts[[length(all_pts)+1]] <- data.frame(
+            x=matched$raman_x_norm, y=matched$raman_y_norm,
+            feret_max=matched$raman_feret_max_um,
+            instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
+        }
+        if (show_bruker_raman && nrow(bruker_m) > 0) {
+          all_pts[[length(all_pts)+1]] <- data.frame(
+            x=bruker_m$ftir_x_aligned, y=bruker_m$ftir_y_aligned,
+            feret_max=bruker_m$ftir_feret_max_um,
+            instrument="FTIR (Bruker)", match_status="matched", stringsAsFactors=FALSE)
+          all_pts[[length(all_pts)+1]] <- data.frame(
+            x=bruker_m$raman_x_norm, y=bruker_m$raman_y_norm,
+            feret_max=bruker_m$raman_feret_max_um,
+            instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
+        }
+        if (show_ldir_raman && nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
+          all_pts[[length(all_pts)+1]] <- data.frame(
+            x=ldir_m$ldir_x_aligned, y=ldir_m$ldir_y_aligned,
+            feret_max=ldir_m$ldir_feret_max_um,
+            instrument="LDIR", match_status="matched", stringsAsFactors=FALSE)
+        }
+      }
+
+      if ("unmatched" %in% rel) {
+        .add_unmatched <- function(df_full, inst_key, inst_label, mat_input) {
+          if (!(inst_key %in% inst) || is.null(df_full) || nrow(df_full) == 0) return(NULL)
+          um <- df_full[df_full$match_status == "unmatched", ]
+          mat <- input[[mat_input]]
+          if (!is.null(mat) && !("All" %in% mat) && nrow(um) > 0)
+            um <- um[um$material_family %in% mat, ]
+          if (nrow(um) == 0) return(NULL)
+          data.frame(x=um$x, y=um$y, feret_max=um$feret_max,
+                     instrument=inst_label, match_status="unmatched", stringsAsFactors=FALSE)
+        }
+        all_pts <- c(all_pts, Filter(Negate(is.null), list(
+          .add_unmatched(dfs$ftir,        "ftir_pe",     "FTIR",          "overlay_ftir_material"),
+          .add_unmatched(dfs$raman,       "raman",       "Raman",         "overlay_raman_material"),
+          .add_unmatched(dfs$ftir_bruker, "ftir_bruker", "FTIR (Bruker)", "overlay_ftir_bruker_material"),
+          .add_unmatched(dfs$ldir,        "ldir",        "LDIR",          "overlay_ldir_material")
+        )))
+      }
     }
 
     if (length(all_pts) > 0) {
