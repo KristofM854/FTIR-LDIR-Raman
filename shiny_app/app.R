@@ -393,7 +393,7 @@ ui <- fluidPage(
                          choices = NULL, multiple = TRUE,
                          options = list(placeholder = "Select particles...",
                                         plugins = list("remove_button"))),
-          hr(),
+          hr()
 
         ),
         mainPanel(width = 9,
