@@ -2683,7 +2683,8 @@ server <- function(input, output, session) {
                  match_labels  = c(matched="matched to Raman", unmatched="unmatched"),
                  highlight_id  = hl_ids,
                  full_df       = full_fb)
-  })  output$ftir_bruker_summary_text <- renderText({
+  })
+  output$ftir_bruker_summary_text <- renderText({
     df <- ftir_bruker_filtered()
     if (nrow(df) == 0) return("No FTIR (Bruker) data loaded")
     n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
@@ -3062,7 +3063,8 @@ server <- function(input, output, session) {
     }
 
     p
-  })  output$overlay_summary_text <- renderText({
+  })
+  output$overlay_summary_text <- renderText({
     m       <- overlay_matched()
     bm      <- overlay_bruker_matched()
     dfs     <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
