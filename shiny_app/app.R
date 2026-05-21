@@ -266,7 +266,48 @@ ui <- fluidPage(
       div(id = "overlay_panel",
       sidebarLayout(
         sidebarPanel(width = 3,
-          # --- GLOBAL CONTROLS ---
+          # --- DISPLAY CONTROLS (top) ---
+          fluidRow(
+            column(6,
+              tags$p(tags$strong("INSTRUMENTS"),
+                     tags$br(),
+                     tags$span("(which to show)", style = "font-size:11px; color:#888;")),
+              checkboxGroupInput("overlay_instruments", NULL,
+                                 choices = c("FTIR (PerkinElmer)" = "ftir_pe",
+                                             "FTIR (Bruker)"      = "ftir_bruker",
+                                             "Raman"              = "raman",
+                                             "LDIR"               = "ldir"),
+                                 selected = c("ftir_pe", "ftir_bruker", "raman", "ldir"))
+            ),
+            column(6,
+              tags$p(tags$strong("RELATIONSHIPS"),
+                     tags$br(),
+                     tags$span("(how to show them)", style = "font-size:11px; color:#888;")),
+              checkboxGroupInput("overlay_relationships", NULL,
+                                 choices = c("Matched particles"           = "matched",
+                                             "Unmatched particles"         = "unmatched",
+                                             "Match lines"                 = "lines",
+                                             "Multi-instrument (3+/4)"     = "multi"),
+                                 selected = c("matched", "unmatched"))
+            )
+          ),
+          actionLink("overlay_toggle_all", "Select / Deselect All instruments",
+                     style = "font-size:11px; margin-bottom:4px; display:block;"),
+          hr(),
+          div(class = "info-box",
+              h5("Match Summary"), textOutput("overlay_summary_text")),
+          hr(),
+          fileInput("overlay_image_upload", "Background Image",
+                    accept = c("image/png", "image/jpeg")),
+          fluidRow(
+            column(6, numericInput("overlay_img_offset_x",
+                                   "Img X offset (µm)", value = 0, step = 25)),
+            column(6, numericInput("overlay_img_offset_y",
+                                   "Img Y offset (µm)", value = 0, step = 25))
+          ),
+          hr(),
+
+          # --- GLOBAL FILTERS ---
           h4("Global Filters"),
           sliderInput("overlay_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
@@ -354,42 +395,6 @@ ui <- fluidPage(
                                         plugins = list("remove_button"))),
           hr(),
 
-          # --- INSTRUMENTS ---
-          fluidRow(
-            column(6, h4("Instruments")),
-            column(6, actionLink("overlay_toggle_all", "Select / Deselect All",
-                                 style = "float:right; font-size:12px; margin-top:10px;"))
-          ),
-          checkboxGroupInput("overlay_instruments", NULL,
-                             choices = c("FTIR (PerkinElmer)" = "ftir_pe",
-                                         "FTIR (Bruker)"      = "ftir_bruker",
-                                         "Raman"              = "raman",
-                                         "LDIR"               = "ldir"),
-                             selected = c("ftir_pe", "ftir_bruker", "raman", "ldir"),
-                             inline = TRUE),
-          hr(),
-          h4("Show"),
-          checkboxGroupInput("overlay_relationships", NULL,
-                             choices = c("Matched particles"        = "matched",
-                                         "Unmatched particles"      = "unmatched",
-                                         "Match lines"              = "lines",
-                                         "Multi-instrument (3+)"    = "multi"),
-                             selected = c("matched", "unmatched"),
-                             inline = FALSE),
-          hr(),
-
-          # --- SUMMARY + IMAGE ---
-          div(class = "info-box",
-              h5("Match Summary"), textOutput("overlay_summary_text")),
-          hr(),
-          fileInput("overlay_image_upload", "Background Image",
-                    accept = c("image/png", "image/jpeg")),
-          fluidRow(
-            column(6, numericInput("overlay_img_offset_x",
-                                   "Img X offset (\u00b5m)", value = 0, step = 25)),
-            column(6, numericInput("overlay_img_offset_y",
-                                   "Img Y offset (\u00b5m)", value = 0, step = 25))
-          )
         ),
         mainPanel(width = 9,
           plotOutput("overlay_plot", height = "650px",
