@@ -26,7 +26,8 @@ make_detail_row <- function(label, value) {
 
 instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_max,
                                  quality_step, size_max = 1200,
-                                 match_choices = c("matched", "unmatched")) {
+                                 match_choices = c("matched", "unmatched"),
+                                 coord_toggle = FALSE) {
   sidebarLayout(
     sidebarPanel(width = 3,
       h4(paste0(toupper(id_prefix), " Filters")),
@@ -71,6 +72,13 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
         ))
     ),
     mainPanel(width = 9,
+      if (coord_toggle) div(
+        style = "margin-bottom: 6px;",
+        radioButtons(paste0(id_prefix, "_coord_mode"), NULL,
+                     choices = c("Native coordinates" = "native",
+                                 "Aligned (Raman space)" = "aligned"),
+                     selected = "native", inline = TRUE)
+      ),
       plotOutput(paste0(id_prefix, "_plot"), height = "650px",
                  click  = paste0(id_prefix, "_click"),
                  hover  = hoverOpts(paste0(id_prefix, "_hover"), delay = 100,
@@ -144,7 +152,8 @@ ui <- fluidPage(
       div(id = "ftir_viewer",
         instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
-                            "Unmatched (vs Raman)" = "unmatched")))
+                            "Unmatched (vs Raman)" = "unmatched"),
+          coord_toggle = TRUE))
     ),
 
     # Tab 2: FTIR (Bruker) — shown only when data present
@@ -152,7 +161,8 @@ ui <- fluidPage(
       div(id = "ftir_bruker_viewer",
         instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
-                            "Unmatched (vs Raman)" = "unmatched")))
+                            "Unmatched (vs Raman)" = "unmatched"),
+          coord_toggle = TRUE))
     ),
 
     # Tab 3: Raman
@@ -185,6 +195,12 @@ ui <- fluidPage(
                       min = 0, max = 10, value = c(0, 10), step = 0.05),
           selectInput("ldir_highlight_particle", "Highlight Particle",
                       choices = c("None"), selected = "None"),
+          hr(),
+          h4("Coordinate System"),
+          radioButtons("ldir_coord_mode", NULL,
+                       choices = c("Native coordinates" = "native",
+                                   "Aligned (Raman space)" = "aligned"),
+                       selected = "native", inline = TRUE),
           hr(),
           h4("Image Overlay"),
           checkboxGroupInput("ldir_overlay_mode", "Display",
@@ -338,27 +354,27 @@ ui <- fluidPage(
                                         plugins = list("remove_button"))),
           hr(),
 
-          # --- LAYER CHECKBOXES ---
+          # --- INSTRUMENTS ---
           fluidRow(
-            column(6, tags$label("Show Layers")),
+            column(6, h4("Instruments")),
             column(6, actionLink("overlay_toggle_all", "Select / Deselect All",
-                                 style = "float:right; font-size:12px;"))
+                                 style = "float:right; font-size:12px; margin-top:10px;"))
           ),
-          checkboxGroupInput("overlay_layers", NULL,
-                             choices = c("FTIR\u2194Raman matched" = "matched",
-                                         "FTIR unmatched (vs Raman)" = "unmatched_ftir",
-                                         "Raman unmatched (vs FTIR)" = "unmatched_raman",
-                                         "FTIR\u2194Raman match lines" = "match_lines",
-                                         "FTIR (Bruker)\u2194Raman matched" = "bruker_matched",
-                                         "FTIR (Bruker) unmatched (vs Raman)" = "unmatched_ftir_bruker",
-                                         "FTIR (Bruker)\u2194Raman match lines" = "bruker_lines",
-                                         "LDIR\u2194Raman matched" = "ldir_matched",
-                                         "LDIR unmatched (vs Raman)" = "ldir_unmatched",
-                                         "LDIR\u2194Raman match lines" = "ldir_lines",
-                                         "Triple matches only" = "triple_only"),
-                             selected = c("matched", "unmatched_ftir",
-                                          "unmatched_raman", "bruker_matched",
-                                          "unmatched_ftir_bruker", "ldir_matched"),
+          checkboxGroupInput("overlay_instruments", NULL,
+                             choices = c("FTIR (PerkinElmer)" = "ftir_pe",
+                                         "FTIR (Bruker)"      = "ftir_bruker",
+                                         "Raman"              = "raman",
+                                         "LDIR"               = "ldir"),
+                             selected = c("ftir_pe", "ftir_bruker", "raman", "ldir"),
+                             inline = TRUE),
+          hr(),
+          h4("Show"),
+          checkboxGroupInput("overlay_relationships", NULL,
+                             choices = c("Matched particles"        = "matched",
+                                         "Unmatched particles"      = "unmatched",
+                                         "Match lines"              = "lines",
+                                         "Multi-instrument (3+)"    = "multi"),
+                             selected = c("matched", "unmatched"),
                              inline = FALSE),
           hr(),
 
@@ -1961,6 +1977,10 @@ server <- function(input, output, session) {
   observeEvent(input$ftir_bruker_reset_zoom, { zoom$ftir_bruker <- NULL })
   observeEvent(input$overlay_reset_zoom,     { zoom$overlay <- NULL })
 
+  observeEvent(input$ftir_coord_mode,        { zoom$ftir        <- NULL })
+  observeEvent(input$ftir_bruker_coord_mode, { zoom$ftir_bruker <- NULL })
+  observeEvent(input$ldir_coord_mode,        { zoom$ldir        <- NULL })
+
   # ==================================================================
   # Click-to-select handlers for single-instrument viewers
   # ==================================================================
@@ -2013,17 +2033,14 @@ server <- function(input, output, session) {
   })
   observeEvent(input$ftir_bruker_clear_selection, { selected_ids$ftir_bruker <- character(0) })
 
-  # Overlay: select / deselect all layers
+  # Overlay: select / deselect all instruments
   observeEvent(input$overlay_toggle_all, {
-    all_choices <- c("matched", "unmatched_ftir", "unmatched_raman",
-                     "match_lines", "bruker_matched", "unmatched_ftir_bruker",
-                     "bruker_lines", "ldir_matched", "ldir_unmatched",
-                     "ldir_lines", "triple_only")
-    current <- input$overlay_layers
-    if (length(current) == length(all_choices)) {
-      updateCheckboxGroupInput(session, "overlay_layers", selected = character(0))
+    all_inst <- c("ftir_pe", "ftir_bruker", "raman", "ldir")
+    current  <- input$overlay_instruments
+    if (length(current) == length(all_inst)) {
+      updateCheckboxGroupInput(session, "overlay_instruments", selected = character(0))
     } else {
-      updateCheckboxGroupInput(session, "overlay_layers", selected = all_choices)
+      updateCheckboxGroupInput(session, "overlay_instruments", selected = all_inst)
     }
   })
 
@@ -2112,21 +2129,27 @@ server <- function(input, output, session) {
   })
 
   output$ftir_plot <- renderPlot({
+    aligned <- isTRUE(input$ftir_coord_mode == "aligned")
+
     df <- ftir_filtered()
-    # Display in native FTIR instrument frame (x_orig / y_orig).
     df_disp <- df
     if (nrow(df_disp) > 0) {
-      df_disp$x <- df_disp$x_orig
-      df_disp$y <- df_disp$y_orig
+      if (aligned && "x" %in% names(df_disp) && any(!is.na(df_disp$x))) {
+        df_disp$x_orig <- df_disp$x; df_disp$y_orig <- df_disp$y
+      } else {
+        df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig
+      }
     }
 
-    img <- ftir_native_image_info()
+    img <- if (aligned) raman_native_image_info() else ftir_native_image_info()
 
-    # Full (unfiltered) FTIR data for highlight fallback and bounds when filtered to 0
     full_ftir <- ftir_df_full()
     if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
-      full_ftir$x <- full_ftir$x_orig
-      full_ftir$y <- full_ftir$y_orig
+      if (aligned && "x" %in% names(full_ftir) && any(!is.na(full_ftir$x))) {
+        full_ftir$x_orig <- full_ftir$x; full_ftir$y_orig <- full_ftir$y
+      } else {
+        full_ftir$x <- full_ftir$x_orig; full_ftir$y <- full_ftir$y_orig
+      }
     }
 
     # Bounds derived from particle coordinates — never from scan-area estimation.
@@ -2170,8 +2193,9 @@ server <- function(input, output, session) {
     } else {
       single_highlight_ids$ftir
     }
+    title_sfx <- if (aligned) " (Raman-aligned frame)" else ""
     make_scatter(df_disp, img, bounds,
-                 paste0("FTIR Particles (", nrow(df_disp), " shown)"),
+                 paste0("FTIR Particles (", nrow(df_disp), " shown)", title_sfx),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
                  match_labels = c(matched = "matched to Raman", unmatched = "unmatched"),
                  highlight_id = hl_ids,
@@ -2191,11 +2215,15 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- ftir_filtered()
     if (nrow(df) == 0) return()
-    # Search in native coordinate space (no Y-flip needed)
-    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
-    idx   <- which.min(dists)
-    threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
-                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
+    aligned <- isTRUE(input$ftir_coord_mode == "aligned")
+    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
+      dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
+      threshold <- max(diff(range(df$x, na.rm=TRUE)), diff(range(df$y, na.rm=TRUE)), 500) * 0.05
+    } else {
+      dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+      threshold <- max(diff(range(df$x_orig, na.rm=TRUE)), diff(range(df$y_orig, na.rm=TRUE)), 500) * 0.05
+    }
+    idx <- which.min(dists)
     if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop = FALSE]
   })
 
@@ -2412,19 +2440,25 @@ server <- function(input, output, session) {
     df <- ldir_filtered()
     overlay_mode <- input$ldir_overlay_mode
 
-    # Display in native LDIR frame (x_orig, y_orig) — no transform applied here.
-    # Transforms are only used for the Overlay tab (Raman frame).
-    df_disp <- df
-    if (nrow(df_disp) > 0) { df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig }
+    aligned <- isTRUE(input$ldir_coord_mode == "aligned")
 
-    # Choose image first so we can use its bounds as the viewport.
-    img <- NULL
-    if ("processed_image" %in% overlay_mode) {
-      img <- ldir_processed_image_info()
+    df_disp <- df
+    if (nrow(df_disp) > 0) {
+      if (aligned && "x" %in% names(df_disp) && any(!is.na(df_disp$x))) {
+        df_disp$x_orig <- df_disp$x; df_disp$y_orig <- df_disp$y
+      } else {
+        df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig
+      }
     }
-    if (is.null(img) && "raw_image" %in% overlay_mode) {
-      img <- ldir_native_image_info()
-    }
+
+    # Choose image: in aligned mode use Raman image; otherwise use LDIR image
+    img <- if (aligned) {
+      raman_native_image_info()
+    } else if ("processed_image" %in% overlay_mode) {
+      ldir_processed_image_info()
+    } else if ("raw_image" %in% overlay_mode) {
+      ldir_native_image_info()
+    } else NULL
 
     # Viewport priority:
     # 1. User zoom (brush) — always honoured
@@ -2590,17 +2624,27 @@ server <- function(input, output, session) {
   })
 
   output$ftir_bruker_plot <- renderPlot({
+    aligned <- isTRUE(input$ftir_bruker_coord_mode == "aligned")
+
     df <- ftir_bruker_filtered()
     df_disp <- df
     if (nrow(df_disp) > 0) {
-      df_disp$x <- df_disp$x_orig
-      df_disp$y <- df_disp$y_orig
+      if (aligned && "x" %in% names(df_disp) && any(!is.na(df_disp$x))) {
+        df_disp$x_orig <- df_disp$x; df_disp$y_orig <- df_disp$y
+      } else {
+        df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig
+      }
     }
+
+    img <- if (aligned) raman_native_image_info() else NULL
 
     full_fb <- ftir_bruker_df_full()
     if (!is.null(full_fb) && nrow(full_fb) > 0) {
-      full_fb$x <- full_fb$x_orig
-      full_fb$y <- full_fb$y_orig
+      if (aligned && "x" %in% names(full_fb) && any(!is.na(full_fb$x))) {
+        full_fb$x_orig <- full_fb$x; full_fb$y_orig <- full_fb$y
+      } else {
+        full_fb$x <- full_fb$x_orig; full_fb$y <- full_fb$y_orig
+      }
     }
 
     bounds <- if (!is.null(zoom$ftir_bruker)) zoom$ftir_bruker else {
@@ -2630,8 +2674,9 @@ server <- function(input, output, session) {
     } else {
       single_highlight_ids$ftir_bruker
     }
-    make_scatter(df_disp, NULL, bounds,
-                 paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)"),
+    title_sfx <- if (aligned) " (Raman-aligned frame)" else ""
+    make_scatter(df_disp, img, bounds,
+                 paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)", title_sfx),
                  match_colours = c(matched = "#9467bd", unmatched = "#8c564b"),
                  match_labels = c(matched = "matched to Raman", unmatched = "unmatched"),
                  highlight_id = hl_ids,
@@ -2655,7 +2700,12 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- ftir_bruker_filtered()
     if (nrow(df) == 0) return()
-    dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+    aligned <- isTRUE(input$ftir_bruker_coord_mode == "aligned")
+    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
+      dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
+    } else {
+      dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+    }
     idx   <- which.min(dists)
     threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
                      diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
@@ -2824,7 +2874,14 @@ server <- function(input, output, session) {
     ldir_m <- overlay_ldir_matched()
     bruker_m <- overlay_bruker_matched()
     triplets <- overlay_triplets()
-    layers <- input$overlay_layers
+    inst <- input$overlay_instruments
+    rel  <- input$overlay_relationships
+    if (is.null(inst)) inst <- character(0)
+    if (is.null(rel))  rel  <- character(0)
+
+    show_pe_raman     <- "ftir_pe"     %in% inst && "raman" %in% inst
+    show_bruker_raman <- "ftir_bruker" %in% inst && "raman" %in% inst
+    show_ldir_raman   <- "ldir"        %in% inst && "raman" %in% inst
 
     # Overlay bounds: use the image extent when available (consistent framing
     # with the Raman tab), otherwise fall back to FTIR + Raman only.
@@ -2860,160 +2917,91 @@ server <- function(input, output, session) {
     # Background image: Raman microscope image placed at Raman-normalized bounds
     p <- add_image_bg(p, overlay_image_info())
 
-    # FTIR-Raman match lines: connect each matched FTIR point to its Raman pair.
-    # Visible mainly when zoomed in (good alignment = short lines).
-    if ("match_lines" %in% layers && nrow(matched) > 0) {
-      seg_df <- data.frame(
-        x    = matched$ftir_x_aligned, y    = matched$ftir_y_aligned,
-        xend = matched$raman_x_norm,     yend = matched$raman_y_norm
-      )
-      p <- p + geom_segment(data = seg_df,
-                              aes(x = x, y = y, xend = xend, yend = yend),
-                              colour = "grey40", alpha = 0.6, linewidth = 0.8)
+    # Match lines
+    if ("lines" %in% rel) {
+      if (show_pe_raman && nrow(matched) > 0) {
+        seg_df <- data.frame(
+          x = matched$ftir_x_aligned, y = matched$ftir_y_aligned,
+          xend = matched$raman_x_norm, yend = matched$raman_y_norm)
+        p <- p + geom_segment(data = seg_df, aes(x = x, y = y, xend = xend, yend = yend),
+                               colour = "grey40", alpha = 0.6, linewidth = 0.8)
+      }
+      if (show_bruker_raman && nrow(bruker_m) > 0 &&
+          "ftir_x_aligned" %in% names(bruker_m) && "raman_x_norm" %in% names(bruker_m)) {
+        bruker_seg <- data.frame(
+          x = bruker_m$ftir_x_aligned, y = bruker_m$ftir_y_aligned,
+          xend = bruker_m$raman_x_norm, yend = bruker_m$raman_y_norm)
+        p <- p + geom_segment(data = bruker_seg, aes(x = x, y = y, xend = xend, yend = yend),
+                               colour = "#9467bd", alpha = 0.6, linewidth = 0.8)
+      }
+      if (show_ldir_raman && nrow(ldir_m) > 0 &&
+          "ldir_x_aligned" %in% names(ldir_m) && "raman_x_norm" %in% names(ldir_m)) {
+        ldir_seg <- data.frame(
+          x = ldir_m$ldir_x_aligned, y = ldir_m$ldir_y_aligned,
+          xend = ldir_m$raman_x_norm, yend = ldir_m$raman_y_norm)
+        p <- p + geom_segment(data = ldir_seg, aes(x = x, y = y, xend = xend, yend = yend),
+                               colour = "#d62728", alpha = 0.5, linewidth = 0.7)
+      }
     }
 
-    # LDIR-Raman match lines: connect each matched LDIR point to its Raman pair.
-    if ("ldir_lines" %in% layers && nrow(ldir_m) > 0 &&
-        "ldir_x_aligned" %in% names(ldir_m) && "raman_x_norm" %in% names(ldir_m)) {
-      ldir_seg <- data.frame(
-        x    = ldir_m$ldir_x_aligned, y    = ldir_m$ldir_y_aligned,
-        xend = ldir_m$raman_x_norm,    yend = ldir_m$raman_y_norm
-      )
-      p <- p + geom_segment(data = ldir_seg,
-                              aes(x = x, y = y, xend = xend, yend = yend),
-                              colour = "#d62728", alpha = 0.5, linewidth = 0.7)
-    }
-
-    # FTIR (Bruker)-Raman match lines
-    if ("bruker_lines" %in% layers && nrow(bruker_m) > 0 &&
-        "ftir_x_aligned" %in% names(bruker_m) && "raman_x_norm" %in% names(bruker_m)) {
-      bruker_seg <- data.frame(
-        x    = bruker_m$ftir_x_aligned, y    = bruker_m$ftir_y_aligned,
-        xend = bruker_m$raman_x_norm,    yend = bruker_m$raman_y_norm
-      )
-      p <- p + geom_segment(data = bruker_seg,
-                              aes(x = x, y = y, xend = xend, yend = yend),
-                              colour = "#9467bd", alpha = 0.6, linewidth = 0.8)
-    }
-
-    # Build combined data frame for all active layers.
-    # Each instrument gets a colored circle: matched = filled, unmatched = open.
-    # Size driven by feret_max only.
     all_pts <- list()
 
-    # Matched FTIR + Raman
-    if ("matched" %in% layers && nrow(matched) > 0) {
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = matched$ftir_x_aligned, y = matched$ftir_y_aligned,
-        feret_max = matched$ftir_feret_max_um,
-        instrument = "FTIR", match_status = "matched",
-        stringsAsFactors = FALSE
-      )
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = matched$raman_x_norm, y = matched$raman_y_norm,
-        feret_max = matched$raman_feret_max_um,
-        instrument = "Raman", match_status = "matched",
-        stringsAsFactors = FALSE
-      )
-    }
-
-    # Matched LDIR
-    if ("ldir_matched" %in% layers && nrow(ldir_m) > 0 &&
-        "ldir_x_aligned" %in% names(ldir_m)) {
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = ldir_m$ldir_x_aligned, y = ldir_m$ldir_y_aligned,
-        feret_max = ldir_m$ldir_feret_max_um,
-        instrument = "LDIR", match_status = "matched",
-        stringsAsFactors = FALSE
-      )
-    }
-
-    # Unmatched FTIR
-    if ("unmatched_ftir" %in% layers && !is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
-      um_f <- dfs$ftir[dfs$ftir$match_status == "unmatched", ]
-      ftir_mat <- input$overlay_ftir_material
-      if (!is.null(ftir_mat) && !("All" %in% ftir_mat) && nrow(um_f) > 0)
-        um_f <- um_f[um_f$material_family %in% ftir_mat, ]
-      if (nrow(um_f) > 0) {
-        all_pts[[length(all_pts) + 1]] <- data.frame(
-          x = um_f$x, y = um_f$y, feret_max = um_f$feret_max,
-          instrument = "FTIR", match_status = "unmatched",
-          stringsAsFactors = FALSE
-        )
+    # Matched particles
+    if ("matched" %in% rel) {
+      if (show_pe_raman && nrow(matched) > 0) {
+        all_pts[[length(all_pts)+1]] <- data.frame(
+          x=matched$ftir_x_aligned, y=matched$ftir_y_aligned,
+          feret_max=matched$ftir_feret_max_um,
+          instrument="FTIR", match_status="matched", stringsAsFactors=FALSE)
+        all_pts[[length(all_pts)+1]] <- data.frame(
+          x=matched$raman_x_norm, y=matched$raman_y_norm,
+          feret_max=matched$raman_feret_max_um,
+          instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
+      }
+      if (show_bruker_raman && nrow(bruker_m) > 0) {
+        all_pts[[length(all_pts)+1]] <- data.frame(
+          x=bruker_m$ftir_x_aligned, y=bruker_m$ftir_y_aligned,
+          feret_max=bruker_m$ftir_feret_max_um,
+          instrument="FTIR (Bruker)", match_status="matched", stringsAsFactors=FALSE)
+        all_pts[[length(all_pts)+1]] <- data.frame(
+          x=bruker_m$raman_x_norm, y=bruker_m$raman_y_norm,
+          feret_max=bruker_m$raman_feret_max_um,
+          instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
+      }
+      if (show_ldir_raman && nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
+        all_pts[[length(all_pts)+1]] <- data.frame(
+          x=ldir_m$ldir_x_aligned, y=ldir_m$ldir_y_aligned,
+          feret_max=ldir_m$ldir_feret_max_um,
+          instrument="LDIR", match_status="matched", stringsAsFactors=FALSE)
       }
     }
 
-    # Unmatched Raman
-    if ("unmatched_raman" %in% layers && !is.null(dfs$raman) && nrow(dfs$raman) > 0) {
-      um_r <- dfs$raman[dfs$raman$match_status == "unmatched", ]
-      raman_mat <- input$overlay_raman_material
-      if (!is.null(raman_mat) && !("All" %in% raman_mat) && nrow(um_r) > 0)
-        um_r <- um_r[um_r$material_family %in% raman_mat, ]
-      if (nrow(um_r) > 0) {
-        all_pts[[length(all_pts) + 1]] <- data.frame(
-          x = um_r$x, y = um_r$y, feret_max = um_r$feret_max,
-          instrument = "Raman", match_status = "unmatched",
-          stringsAsFactors = FALSE
-        )
+    # Unmatched particles
+    if ("unmatched" %in% rel) {
+      .add_unmatched <- function(df_full, inst_key, inst_label, mat_input_id) {
+        if (!(inst_key %in% inst) || is.null(df_full) || nrow(df_full) == 0) return(NULL)
+        um <- df_full[df_full$match_status == "unmatched", ]
+        mat <- input[[mat_input_id]]
+        if (!is.null(mat) && !("All" %in% mat) && nrow(um) > 0)
+          um <- um[um$material_family %in% mat, ]
+        if (nrow(um) == 0) return(NULL)
+        data.frame(x=um$x, y=um$y, feret_max=um$feret_max,
+                   instrument=inst_label, match_status="unmatched", stringsAsFactors=FALSE)
       }
+      all_pts <- c(all_pts, Filter(Negate(is.null), list(
+        .add_unmatched(dfs$ftir,        "ftir_pe",     "FTIR",          "overlay_ftir_material"),
+        .add_unmatched(dfs$raman,       "raman",       "Raman",         "overlay_raman_material"),
+        .add_unmatched(dfs$ftir_bruker, "ftir_bruker", "FTIR (Bruker)", "overlay_ftir_bruker_material"),
+        .add_unmatched(dfs$ldir,        "ldir",        "LDIR",          "overlay_ldir_material")
+      )))
     }
 
-    # Unmatched LDIR
-    if ("ldir_unmatched" %in% layers && !is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
-      um_l <- dfs$ldir[dfs$ldir$match_status == "unmatched", ]
-      ldir_mat <- input$overlay_ldir_material
-      if (!is.null(ldir_mat) && !("All" %in% ldir_mat) && nrow(um_l) > 0)
-        um_l <- um_l[um_l$material_family %in% ldir_mat, ]
-      if (nrow(um_l) > 0) {
-        all_pts[[length(all_pts) + 1]] <- data.frame(
-          x = um_l$x, y = um_l$y, feret_max = um_l$feret_max,
-          instrument = "LDIR", match_status = "unmatched",
-          stringsAsFactors = FALSE
-        )
-      }
-    }
-
-    # Matched FTIR (Bruker) + Raman
-    if ("bruker_matched" %in% layers && nrow(bruker_m) > 0) {
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = bruker_m$ftir_x_aligned, y = bruker_m$ftir_y_aligned,
-        feret_max = bruker_m$ftir_feret_max_um,
-        instrument = "FTIR (Bruker)", match_status = "matched",
-        stringsAsFactors = FALSE
-      )
-      all_pts[[length(all_pts) + 1]] <- data.frame(
-        x = bruker_m$raman_x_norm, y = bruker_m$raman_y_norm,
-        feret_max = bruker_m$raman_feret_max_um,
-        instrument = "Raman", match_status = "matched",
-        stringsAsFactors = FALSE
-      )
-    }
-
-    # Unmatched FTIR Bruker
-    if ("unmatched_ftir_bruker" %in% layers &&
-        !is.null(dfs$ftir_bruker) && nrow(dfs$ftir_bruker) > 0) {
-      um_fb <- dfs$ftir_bruker[dfs$ftir_bruker$match_status == "unmatched", ]
-      fb_mat <- input$overlay_ftir_bruker_material
-      if (!is.null(fb_mat) && !("All" %in% fb_mat) && nrow(um_fb) > 0)
-        um_fb <- um_fb[um_fb$material_family %in% fb_mat, ]
-      if (nrow(um_fb) > 0) {
-        all_pts[[length(all_pts) + 1]] <- data.frame(
-          x = um_fb$x, y = um_fb$y, feret_max = um_fb$feret_max,
-          instrument = "FTIR (Bruker)", match_status = "unmatched",
-          stringsAsFactors = FALSE
-        )
-      }
-    }
-
-    # Draw all particles: filled circles for matched, open circles for unmatched.
-    # Both match_status and instrument are mapped so they appear in the legend.
     if (length(all_pts) > 0) {
       both <- do.call(rbind, all_pts)
       p <- p + geom_point(data = both,
-                            aes(x = x, y = y, size = feret_max,
-                                colour = instrument, shape = match_status),
-                            alpha = 0.65)
-      p <- p +
+                           aes(x = x, y = y, size = feret_max,
+                               colour = instrument, shape = match_status),
+                           alpha = 0.65) +
         scale_colour_manual(
           name   = "Instrument",
           values = c(FTIR = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
@@ -3026,27 +3014,23 @@ server <- function(input, output, session) {
         )
     }
 
-    # Triple matches: gold ring around particles detected by all three instruments
-    if ("triple_only" %in% layers && nrow(triplets) > 0 &&
-        nrow(matched) > 0 && nrow(ldir_m) > 0) {
+    # Multi-instrument highlights (3+ instruments detected same particle)
+    if ("multi" %in% rel && nrow(triplets) > 0 && nrow(matched) > 0 && nrow(ldir_m) > 0) {
       triple_pts <- list()
       m_trip <- matched[matched$raman_particle_id %in% triplets$raman_particle_id, ]
       if (nrow(m_trip) > 0) {
-        triple_pts[[1]] <- data.frame(
-          x = m_trip$ftir_x_aligned, y = m_trip$ftir_y_aligned)
-        triple_pts[[2]] <- data.frame(
-          x = m_trip$raman_x_norm, y = m_trip$raman_y_norm)
+        triple_pts[[1]] <- data.frame(x=m_trip$ftir_x_aligned, y=m_trip$ftir_y_aligned)
+        triple_pts[[2]] <- data.frame(x=m_trip$raman_x_norm,   y=m_trip$raman_y_norm)
       }
       l_trip <- ldir_m[ldir_m$raman_particle_id %in% triplets$raman_particle_id, ]
-      if (nrow(l_trip) > 0 && "ldir_x_aligned" %in% names(l_trip)) {
-        triple_pts[[length(triple_pts) + 1]] <- data.frame(
-          x = l_trip$ldir_x_aligned, y = l_trip$ldir_y_aligned)
-      }
+      if (nrow(l_trip) > 0 && "ldir_x_aligned" %in% names(l_trip))
+        triple_pts[[length(triple_pts)+1]] <- data.frame(
+          x=l_trip$ldir_x_aligned, y=l_trip$ldir_y_aligned)
       if (length(triple_pts) > 0) {
         triple_df <- do.call(rbind, triple_pts)
         p <- p + geom_point(data = triple_df, aes(x = x, y = y),
-                              shape = 21, size = 6, stroke = 1.5,
-                              fill = NA, colour = "#FFD700", alpha = 0.9)
+                             shape=21, size=6, stroke=1.5, fill=NA,
+                             colour="#FFD700", alpha=0.9)
       }
     }
 
@@ -3131,114 +3115,91 @@ server <- function(input, output, session) {
   # single-instrument particles (regardless of layer state).
   # ==================================================================
   find_nearest_overlay_particle <- function(px, py, snap_dist,
-                                            layers, matched, ldir_m, dfs,
+                                            inst, rel, matched, ldir_m, dfs,
                                             bruker_m = data.frame()) {
-    best_dist <- Inf
-    best_row <- NULL
+    best_dist   <- Inf
+    best_row    <- NULL
     best_source <- NULL
 
-    # Check FTIR-Raman matched (if "matched" layer is active or always for click)
-    if (!is.null(matched) && nrow(matched) > 0 &&
-        ("matched" %in% layers || is.null(layers))) {
-      dist_f <- sqrt((matched$ftir_x_aligned - px)^2 +
-                      (matched$ftir_y_aligned - py)^2)
-      dist_r <- sqrt((matched$raman_x_norm - px)^2 +
-                      (matched$raman_y_norm - py)^2)
-      d <- pmin(dist_f, dist_r)
-      idx <- which.min(d)
+    # When inst/rel are NULL the caller wants to search everything (click handler)
+    search_all <- is.null(inst)
+
+    chk <- function(rel_val, ...) search_all || (rel_val %in% rel && all(c(...) %in% inst))
+
+    # FTIR-PE <-> Raman matched
+    if (chk("matched", "ftir_pe", "raman") && !is.null(matched) && nrow(matched) > 0) {
+      dist_f <- sqrt((matched$ftir_x_aligned - px)^2 + (matched$ftir_y_aligned - py)^2)
+      dist_r <- sqrt((matched$raman_x_norm   - px)^2 + (matched$raman_y_norm   - py)^2)
+      d <- pmin(dist_f, dist_r); idx <- which.min(d)
       if (length(idx) > 0 && d[idx] < best_dist) {
-        best_dist <- d[idx]
-        best_row <- matched[idx, ]
-        best_source <- "ftir_raman"
+        best_dist <- d[idx]; best_row <- matched[idx, ]; best_source <- "ftir_raman"
       }
     }
 
-    # Check LDIR-Raman matched (if layer active or always for click)
-    if (!is.null(ldir_m) && nrow(ldir_m) > 0 &&
-        "ldir_x_aligned" %in% names(ldir_m) &&
-        ("ldir_matched" %in% layers || is.null(layers))) {
-      dist_l <- sqrt((ldir_m$ldir_x_aligned - px)^2 +
-                      (ldir_m$ldir_y_aligned - py)^2)
+    # LDIR <-> Raman matched
+    if (chk("matched", "ldir", "raman") && !is.null(ldir_m) && nrow(ldir_m) > 0 &&
+        "ldir_x_aligned" %in% names(ldir_m)) {
+      dist_l <- sqrt((ldir_m$ldir_x_aligned - px)^2 + (ldir_m$ldir_y_aligned - py)^2)
       idx_l <- which.min(dist_l)
       if (length(idx_l) > 0 && dist_l[idx_l] < best_dist) {
-        best_dist <- dist_l[idx_l]
-        best_row <- ldir_m[idx_l, ]
-        best_source <- "ldir_raman"
+        best_dist <- dist_l[idx_l]; best_row <- ldir_m[idx_l, ]; best_source <- "ldir_raman"
       }
     }
 
-    # Check FTIR (Bruker)-Raman matched
-    if (!is.null(bruker_m) && nrow(bruker_m) > 0 &&
-        "ftir_x_aligned" %in% names(bruker_m) &&
-        ("bruker_matched" %in% layers || is.null(layers))) {
-      dist_fb <- sqrt((bruker_m$ftir_x_aligned - px)^2 +
-                       (bruker_m$ftir_y_aligned - py)^2)
-      dist_rb <- sqrt((bruker_m$raman_x_norm - px)^2 +
-                       (bruker_m$raman_y_norm - py)^2)
-      d <- pmin(dist_fb, dist_rb)
-      idx <- which.min(d)
+    # FTIR (Bruker) <-> Raman matched
+    if (chk("matched", "ftir_bruker", "raman") && !is.null(bruker_m) && nrow(bruker_m) > 0 &&
+        "ftir_x_aligned" %in% names(bruker_m)) {
+      dist_fb <- sqrt((bruker_m$ftir_x_aligned - px)^2 + (bruker_m$ftir_y_aligned - py)^2)
+      dist_rb <- sqrt((bruker_m$raman_x_norm   - px)^2 + (bruker_m$raman_y_norm   - py)^2)
+      d <- pmin(dist_fb, dist_rb); idx <- which.min(d)
       if (length(idx) > 0 && d[idx] < best_dist) {
-        best_dist <- d[idx]
-        best_row <- bruker_m[idx, ]
-        best_source <- "bruker_raman"
+        best_dist <- d[idx]; best_row <- bruker_m[idx, ]; best_source <- "bruker_raman"
       }
     }
 
-    # Check unmatched FTIR (if layer active or always for click)
-    if (!is.null(dfs$ftir) && nrow(dfs$ftir) > 0 &&
-        ("unmatched_ftir" %in% layers || is.null(layers))) {
+    # Unmatched FTIR-PE
+    if (chk("unmatched", "ftir_pe") && !is.null(dfs$ftir) && nrow(dfs$ftir) > 0) {
       um_f <- dfs$ftir[dfs$ftir$match_status == "unmatched", ]
       if (nrow(um_f) > 0) {
-        d_f <- sqrt((um_f$x - px)^2 + (um_f$y - py)^2)
-        idx_f <- which.min(d_f)
+        d_f <- sqrt((um_f$x - px)^2 + (um_f$y - py)^2); idx_f <- which.min(d_f)
         if (length(idx_f) > 0 && d_f[idx_f] < best_dist) {
-          best_dist <- d_f[idx_f]
-          best_row <- um_f[idx_f, , drop = FALSE]
+          best_dist <- d_f[idx_f]; best_row <- um_f[idx_f, , drop = FALSE]
           best_source <- "single_ftir"
         }
       }
     }
 
-    # Check unmatched Raman (if layer active or always for click)
-    if (!is.null(dfs$raman) && nrow(dfs$raman) > 0 &&
-        ("unmatched_raman" %in% layers || is.null(layers))) {
+    # Unmatched Raman
+    if (chk("unmatched", "raman") && !is.null(dfs$raman) && nrow(dfs$raman) > 0) {
       um_r <- dfs$raman[dfs$raman$match_status == "unmatched", ]
       if (nrow(um_r) > 0) {
-        d_r <- sqrt((um_r$x - px)^2 + (um_r$y - py)^2)
-        idx_r <- which.min(d_r)
+        d_r <- sqrt((um_r$x - px)^2 + (um_r$y - py)^2); idx_r <- which.min(d_r)
         if (length(idx_r) > 0 && d_r[idx_r] < best_dist) {
-          best_dist <- d_r[idx_r]
-          best_row <- um_r[idx_r, , drop = FALSE]
+          best_dist <- d_r[idx_r]; best_row <- um_r[idx_r, , drop = FALSE]
           best_source <- "single_raman"
         }
       }
     }
 
-    # Check unmatched LDIR (if layer active or always for click)
-    if (!is.null(dfs$ldir) && nrow(dfs$ldir) > 0 &&
-        ("ldir_unmatched" %in% layers || is.null(layers))) {
+    # Unmatched LDIR
+    if (chk("unmatched", "ldir") && !is.null(dfs$ldir) && nrow(dfs$ldir) > 0) {
       um_l <- dfs$ldir[dfs$ldir$match_status == "unmatched", ]
       if (nrow(um_l) > 0) {
-        d_l <- sqrt((um_l$x - px)^2 + (um_l$y - py)^2)
-        idx_l <- which.min(d_l)
+        d_l <- sqrt((um_l$x - px)^2 + (um_l$y - py)^2); idx_l <- which.min(d_l)
         if (length(idx_l) > 0 && d_l[idx_l] < best_dist) {
-          best_dist <- d_l[idx_l]
-          best_row <- um_l[idx_l, , drop = FALSE]
+          best_dist <- d_l[idx_l]; best_row <- um_l[idx_l, , drop = FALSE]
           best_source <- "single_ldir"
         }
       }
     }
 
-    # Check unmatched FTIR Bruker (if layer active or always for click)
-    if (!is.null(dfs$ftir_bruker) && nrow(dfs$ftir_bruker) > 0 &&
-        ("unmatched_ftir_bruker" %in% layers || is.null(layers))) {
+    # Unmatched FTIR Bruker
+    if (chk("unmatched", "ftir_bruker") && !is.null(dfs$ftir_bruker) && nrow(dfs$ftir_bruker) > 0) {
       um_fb <- dfs$ftir_bruker[dfs$ftir_bruker$match_status == "unmatched", ]
       if (nrow(um_fb) > 0) {
-        d_fb <- sqrt((um_fb$x - px)^2 + (um_fb$y - py)^2)
-        idx_fb <- which.min(d_fb)
+        d_fb <- sqrt((um_fb$x - px)^2 + (um_fb$y - py)^2); idx_fb <- which.min(d_fb)
         if (length(idx_fb) > 0 && d_fb[idx_fb] < best_dist) {
-          best_dist <- d_fb[idx_fb]
-          best_row <- um_fb[idx_fb, , drop = FALSE]
+          best_dist <- d_fb[idx_fb]; best_row <- um_fb[idx_fb, , drop = FALSE]
           best_source <- "single_ftir_bruker"
         }
       }
@@ -3257,11 +3218,9 @@ server <- function(input, output, session) {
       if (is.null(inst_df) || nrow(inst_df) == 0) next
       hl <- inst_df[inst_df$particle_id %in% spec$ids, ]
       if (nrow(hl) > 0) {
-        d_hl <- sqrt((hl$x - px)^2 + (hl$y - py)^2)
-        idx_hl <- which.min(d_hl)
+        d_hl <- sqrt((hl$x - px)^2 + (hl$y - py)^2); idx_hl <- which.min(d_hl)
         if (length(idx_hl) > 0 && d_hl[idx_hl] < best_dist) {
-          best_dist <- d_hl[idx_hl]
-          best_row <- hl[idx_hl, , drop = FALSE]
+          best_dist <- d_hl[idx_hl]; best_row <- hl[idx_hl, , drop = FALSE]
           best_source <- spec$src
         }
       }
@@ -3269,9 +3228,7 @@ server <- function(input, output, session) {
 
     if (best_dist <= snap_dist && !is.null(best_row)) {
       list(row = best_row, source = best_source, dist = best_dist)
-    } else {
-      NULL
-    }
+    } else NULL
   }
 
   # Overlay: sticky hover — update last_hover$overlay only when a new match is found.
@@ -3280,9 +3237,10 @@ server <- function(input, output, session) {
     hover <- input$overlay_hover
     if (is.null(hover)) return()
 
-    layers <- input$overlay_layers
-    matched <- overlay_matched()
-    ldir_m <- overlay_ldir_matched()
+    inst     <- input$overlay_instruments
+    rel      <- input$overlay_relationships
+    matched  <- overlay_matched()
+    ldir_m   <- overlay_ldir_matched()
     bruker_m <- overlay_bruker_matched()
     dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
                 ftir_bruker = ftir_bruker_df_full())
@@ -3292,7 +3250,7 @@ server <- function(input, output, session) {
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
 
     result <- find_nearest_overlay_particle(hover$x, hover$y, snap_dist,
-                                            layers, matched, ldir_m, dfs, bruker_m)
+                                            inst, rel, matched, ldir_m, dfs, bruker_m)
     if (!is.null(result)) {
       last_hover$overlay <- result$row
       attr(last_hover$overlay, "source") <- result$source
