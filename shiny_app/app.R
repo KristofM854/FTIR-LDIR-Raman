@@ -25,9 +25,9 @@ make_detail_row <- function(label, value) {
 }
 
 instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_max,
-                                 quality_step, size_max = 1200,
-                                 match_choices = c("matched", "unmatched"),
-                                 coord_toggle = FALSE) {
+                                quality_step, size_max = 1200,
+                                match_choices = c("matched", "unmatched"),
+                                coord_toggle = FALSE) {
   sidebarLayout(
     sidebarPanel(width = 3,
       h4(paste0(toupper(id_prefix), " Filters")),
@@ -266,7 +266,48 @@ ui <- fluidPage(
       div(id = "overlay_panel",
       sidebarLayout(
         sidebarPanel(width = 3,
-          # --- GLOBAL CONTROLS ---
+          # --- DISPLAY CONTROLS (top) ---
+          fluidRow(
+            column(6,
+              tags$p(tags$strong("INSTRUMENTS"),
+                     tags$br(),
+                     tags$span("(which to show)", style = "font-size:11px; color:#888;")),
+              checkboxGroupInput("overlay_instruments", NULL,
+                                 choices = c("FTIR (PerkinElmer)" = "ftir_pe",
+                                             "FTIR (Bruker)"      = "ftir_bruker",
+                                             "Raman"              = "raman",
+                                             "LDIR"               = "ldir"),
+                                 selected = c("ftir_pe", "ftir_bruker", "raman", "ldir"))
+            ),
+            column(6,
+              tags$p(tags$strong("RELATIONSHIPS"),
+                     tags$br(),
+                     tags$span("(how to show them)", style = "font-size:11px; color:#888;")),
+              checkboxGroupInput("overlay_relationships", NULL,
+                                 choices = c("Matched particles"           = "matched",
+                                             "Unmatched particles"         = "unmatched",
+                                             "Match lines"                 = "lines",
+                                             "Multi-instrument (3+/4)"     = "multi"),
+                                 selected = c("matched", "unmatched"))
+            )
+          ),
+          actionLink("overlay_toggle_all", "Select / Deselect All instruments",
+                     style = "font-size:11px; margin-bottom:4px; display:block;"),
+          hr(),
+          div(class = "info-box",
+              h5("Match Summary"), textOutput("overlay_summary_text")),
+          hr(),
+          fileInput("overlay_image_upload", "Background Image",
+                    accept = c("image/png", "image/jpeg")),
+          fluidRow(
+            column(6, numericInput("overlay_img_offset_x",
+                                   "Img X offset (µm)", value = 0, step = 25)),
+            column(6, numericInput("overlay_img_offset_y",
+                                   "Img Y offset (µm)", value = 0, step = 25))
+          ),
+          hr(),
+
+          # --- GLOBAL FILTERS ---
           h4("Global Filters"),
           sliderInput("overlay_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
@@ -354,42 +395,6 @@ ui <- fluidPage(
                                         plugins = list("remove_button"))),
           hr(),
 
-          # --- INSTRUMENTS ---
-          fluidRow(
-            column(6, h4("Instruments")),
-            column(6, actionLink("overlay_toggle_all", "Select / Deselect All",
-                                 style = "float:right; font-size:12px; margin-top:10px;"))
-          ),
-          checkboxGroupInput("overlay_instruments", NULL,
-                             choices = c("FTIR (PerkinElmer)" = "ftir_pe",
-                                         "FTIR (Bruker)"      = "ftir_bruker",
-                                         "Raman"              = "raman",
-                                         "LDIR"               = "ldir"),
-                             selected = c("ftir_pe", "ftir_bruker", "raman", "ldir"),
-                             inline = TRUE),
-          hr(),
-          h4("Show"),
-          checkboxGroupInput("overlay_relationships", NULL,
-                             choices = c("Matched particles"        = "matched",
-                                         "Unmatched particles"      = "unmatched",
-                                         "Match lines"              = "lines",
-                                         "Multi-instrument (3+)"    = "multi"),
-                             selected = c("matched", "unmatched"),
-                             inline = FALSE),
-          hr(),
-
-          # --- SUMMARY + IMAGE ---
-          div(class = "info-box",
-              h5("Match Summary"), textOutput("overlay_summary_text")),
-          hr(),
-          fileInput("overlay_image_upload", "Background Image",
-                    accept = c("image/png", "image/jpeg")),
-          fluidRow(
-            column(6, numericInput("overlay_img_offset_x",
-                                   "Img X offset (\u00b5m)", value = 0, step = 25)),
-            column(6, numericInput("overlay_img_offset_y",
-                                   "Img Y offset (\u00b5m)", value = 0, step = 25))
-          )
         ),
         mainPanel(width = 9,
           plotOutput("overlay_plot", height = "650px",
@@ -2129,15 +2134,18 @@ server <- function(input, output, session) {
   })
 
   output$ftir_plot <- renderPlot({
-    aligned <- isTRUE(input$ftir_coord_mode == "aligned")
+    coord_mode <- input$ftir_coord_mode
+    aligned    <- !is.null(coord_mode) && coord_mode == "aligned"
 
     df <- ftir_filtered()
     df_disp <- df
     if (nrow(df_disp) > 0) {
       if (aligned && "x" %in% names(df_disp) && any(!is.na(df_disp$x))) {
-        df_disp$x_orig <- df_disp$x; df_disp$y_orig <- df_disp$y
+        df_disp$x_orig <- df_disp$x
+        df_disp$y_orig <- df_disp$y
       } else {
-        df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig
+        df_disp$x <- df_disp$x_orig
+        df_disp$y <- df_disp$y_orig
       }
     }
 
@@ -2146,60 +2154,50 @@ server <- function(input, output, session) {
     full_ftir <- ftir_df_full()
     if (!is.null(full_ftir) && nrow(full_ftir) > 0) {
       if (aligned && "x" %in% names(full_ftir) && any(!is.na(full_ftir$x))) {
-        full_ftir$x_orig <- full_ftir$x; full_ftir$y_orig <- full_ftir$y
+        full_ftir$x_orig <- full_ftir$x
+        full_ftir$y_orig <- full_ftir$y
       } else {
-        full_ftir$x <- full_ftir$x_orig; full_ftir$y <- full_ftir$y_orig
+        full_ftir$x <- full_ftir$x_orig
+        full_ftir$y <- full_ftir$y_orig
       }
     }
 
-    # Bounds derived from particle coordinates — never from scan-area estimation.
-    # When filters remove all particles, use the full dataset so the background
-    # image remains correctly positioned.
     bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
       ref <- if (nrow(df_disp) > 0) df_disp
              else if (!is.null(full_ftir) && nrow(full_ftir) > 0) full_ftir
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x))) {
+      if (!is.null(ref) && any(is.finite(ref$x_orig))) {
         pad <- 300
-        list(x = c(min(ref$x, na.rm = TRUE) - pad, max(ref$x, na.rm = TRUE) + pad),
-             y = c(min(ref$y, na.rm = TRUE) - pad, max(ref$y, na.rm = TRUE) + pad))
+        list(x = c(min(ref$x_orig, na.rm=TRUE) - pad, max(ref$x_orig, na.rm=TRUE) + pad),
+             y = c(min(ref$y_orig, na.rm=TRUE) - pad, max(ref$y_orig, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
 
     if (nrow(df_disp) == 0) {
-      # still show background in correct orientation/scale even with 0 points
-      # use full FTIR to get bounds (or store bounds separately)
       full_ftir <- ftir_df_full()
       if (is.null(full_ftir) || nrow(full_ftir) == 0) {
-        # last resort: show image without points using a default 0..1 bounds
-        df0 <- data.frame(x = c(0, 1), y = c(0, 1), match_status = "none", feret_max_um = 1)
-        bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+        df0 <- data.frame(x=c(0,1), y=c(0,1), match_status="none", feret_max_um=1)
+        bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
         return(build_single_view_plot(df0, bg))
       }
-      
       df0 <- full_ftir %>% dplyr::mutate(
-        x = x_orig,
-        y = y_orig,
-        match_status = "none",
-        feret_max_um = 1
-      )
-      bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
+        x = x_orig, y = y_orig, match_status = "none", feret_max_um = 1)
+      bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
       return(build_single_view_plot(df0, bg))
     }
-    # Combine selectInput highlight + pattern-matched highlights
+
+    title_suffix <- if (aligned) " (Raman-aligned frame)" else ""
     hl_single <- input$ftir_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir))
-    } else {
-      single_highlight_ids$ftir
-    }
-    title_sfx <- if (aligned) " (Raman-aligned frame)" else ""
+    } else single_highlight_ids$ftir
+
     make_scatter(df_disp, img, bounds,
-                 paste0("FTIR Particles (", nrow(df_disp), " shown)", title_sfx),
+                 paste0("FTIR Particles (", nrow(df_disp), " shown)", title_suffix),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
-                 match_labels = c(matched = "matched to Raman", unmatched = "unmatched"),
-                 highlight_id = hl_ids,
-                 full_df = full_ftir)
+                 match_labels  = c(matched = "matched to Raman", unmatched = "unmatched"),
+                 highlight_id  = hl_ids,
+                 full_df       = full_ftir)
   })
 
   output$ftir_summary_text <- renderText({
@@ -2215,7 +2213,7 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- ftir_filtered()
     if (nrow(df) == 0) return()
-    aligned <- isTRUE(input$ftir_coord_mode == "aligned")
+    aligned <- !is.null(input$ftir_coord_mode) && input$ftir_coord_mode == "aligned"
     if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
       dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
       threshold <- max(diff(range(df$x, na.rm=TRUE)), diff(range(df$y, na.rm=TRUE)), 500) * 0.05
@@ -2224,7 +2222,7 @@ server <- function(input, output, session) {
       threshold <- max(diff(range(df$x_orig, na.rm=TRUE)), diff(range(df$y_orig, na.rm=TRUE)), 500) * 0.05
     }
     idx <- which.min(dists)
-    if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop = FALSE]
+    if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop=FALSE]
   })
 
   output$ftir_hover_info <- renderUI({
@@ -2440,18 +2438,21 @@ server <- function(input, output, session) {
     df <- ldir_filtered()
     overlay_mode <- input$ldir_overlay_mode
 
-    aligned <- isTRUE(input$ldir_coord_mode == "aligned")
+    coord_mode <- input$ldir_coord_mode
+    aligned    <- !is.null(coord_mode) && coord_mode == "aligned"
 
     df_disp <- df
     if (nrow(df_disp) > 0) {
       if (aligned && "x" %in% names(df_disp) && any(!is.na(df_disp$x))) {
-        df_disp$x_orig <- df_disp$x; df_disp$y_orig <- df_disp$y
+        df_disp$x_orig <- df_disp$x
+        df_disp$y_orig <- df_disp$y
       } else {
-        df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig
+        df_disp$x <- df_disp$x_orig
+        df_disp$y <- df_disp$y_orig
       }
     }
 
-    # Choose image: in aligned mode use Raman image; otherwise use LDIR image
+    # In aligned mode use the Raman image; otherwise use LDIR image
     img <- if (aligned) {
       raman_native_image_info()
     } else if ("processed_image" %in% overlay_mode) {
@@ -2624,15 +2625,18 @@ server <- function(input, output, session) {
   })
 
   output$ftir_bruker_plot <- renderPlot({
-    aligned <- isTRUE(input$ftir_bruker_coord_mode == "aligned")
+    coord_mode <- input$ftir_bruker_coord_mode
+    aligned    <- !is.null(coord_mode) && coord_mode == "aligned"
 
     df <- ftir_bruker_filtered()
     df_disp <- df
     if (nrow(df_disp) > 0) {
       if (aligned && "x" %in% names(df_disp) && any(!is.na(df_disp$x))) {
-        df_disp$x_orig <- df_disp$x; df_disp$y_orig <- df_disp$y
+        df_disp$x_orig <- df_disp$x
+        df_disp$y_orig <- df_disp$y
       } else {
-        df_disp$x <- df_disp$x_orig; df_disp$y <- df_disp$y_orig
+        df_disp$x <- df_disp$x_orig
+        df_disp$y <- df_disp$y_orig
       }
     }
 
@@ -2651,39 +2655,35 @@ server <- function(input, output, session) {
       ref <- if (nrow(df_disp) > 0) df_disp
              else if (!is.null(full_fb) && nrow(full_fb) > 0) full_fb
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x))) {
+      if (!is.null(ref) && any(is.finite(ref$x_orig))) {
         pad <- 300
-        list(x = c(min(ref$x, na.rm = TRUE) - pad, max(ref$x, na.rm = TRUE) + pad),
-             y = c(min(ref$y, na.rm = TRUE) - pad, max(ref$y, na.rm = TRUE) + pad))
+        list(x = c(min(ref$x_orig, na.rm=TRUE) - pad, max(ref$x_orig, na.rm=TRUE) + pad),
+             y = c(min(ref$y_orig, na.rm=TRUE) - pad, max(ref$y_orig, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
 
     if (nrow(df_disp) == 0) {
       return(ggplot() +
-        coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
-        labs(title = "FTIR (Bruker) \u2014 no data loaded",
-             x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-        theme_minimal(base_size = 15) +
-        theme(plot.background  = element_rect(fill = "white", colour = NA),
-              panel.background = element_rect(fill = "grey98", colour = NA)))
+        coord_fixed(xlim=bounds$x, ylim=bounds$y, expand=FALSE) +
+        labs(title="FTIR (Bruker) — no data loaded", x="X (µm)", y="Y (µm)") +
+        theme_minimal(base_size=15) +
+        theme(plot.background=element_rect(fill="white", colour=NA),
+              panel.background=element_rect(fill="grey98", colour=NA)))
     }
 
+    title_suffix <- if (aligned) " (Raman-aligned frame)" else ""
     hl_single <- input$ftir_bruker_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir_bruker))
-    } else {
-      single_highlight_ids$ftir_bruker
-    }
-    title_sfx <- if (aligned) " (Raman-aligned frame)" else ""
-    make_scatter(df_disp, img, bounds,
-                 paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)", title_sfx),
-                 match_colours = c(matched = "#9467bd", unmatched = "#8c564b"),
-                 match_labels = c(matched = "matched to Raman", unmatched = "unmatched"),
-                 highlight_id = hl_ids,
-                 full_df = full_fb)
-  })
+    } else single_highlight_ids$ftir_bruker
 
-  output$ftir_bruker_summary_text <- renderText({
+    make_scatter(df_disp, img, bounds,
+                 paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)", title_suffix),
+                 match_colours = c(matched="#9467bd", unmatched="#8c564b"),
+                 match_labels  = c(matched="matched to Raman", unmatched="unmatched"),
+                 highlight_id  = hl_ids,
+                 full_df       = full_fb)
+  })  output$ftir_bruker_summary_text <- renderText({
     df <- ftir_bruker_filtered()
     if (nrow(df) == 0) return("No FTIR (Bruker) data loaded")
     n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
@@ -2700,16 +2700,16 @@ server <- function(input, output, session) {
     if (is.null(hover)) return()
     df <- ftir_bruker_filtered()
     if (nrow(df) == 0) return()
-    aligned <- isTRUE(input$ftir_bruker_coord_mode == "aligned")
+    aligned <- !is.null(input$ftir_bruker_coord_mode) && input$ftir_bruker_coord_mode == "aligned"
     if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
       dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
+      threshold <- max(diff(range(df$x, na.rm=TRUE)), diff(range(df$y, na.rm=TRUE)), 500) * 0.05
     } else {
       dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
+      threshold <- max(diff(range(df$x_orig, na.rm=TRUE)), diff(range(df$y_orig, na.rm=TRUE)), 500) * 0.05
     }
-    idx   <- which.min(dists)
-    threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
-                     diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
-    if (dists[idx] <= threshold) last_hover$ftir_bruker <- df[idx, , drop = FALSE]
+    idx <- which.min(dists)
+    if (dists[idx] <= threshold) last_hover$ftir_bruker <- df[idx, , drop=FALSE]
   })
 
   output$ftir_bruker_hover_info <- renderUI({
@@ -2870,10 +2870,11 @@ server <- function(input, output, session) {
   output$overlay_plot <- renderPlot({
     dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
                 ftir_bruker = ftir_bruker_df_full())
-    matched <- overlay_matched()
-    ldir_m <- overlay_ldir_matched()
+    matched  <- overlay_matched()
+    ldir_m   <- overlay_ldir_matched()
     bruker_m <- overlay_bruker_matched()
     triplets <- overlay_triplets()
+
     inst <- input$overlay_instruments
     rel  <- input$overlay_relationships
     if (is.null(inst)) inst <- character(0)
@@ -2883,10 +2884,6 @@ server <- function(input, output, session) {
     show_bruker_raman <- "ftir_bruker" %in% inst && "raman" %in% inst
     show_ldir_raman   <- "ldir"        %in% inst && "raman" %in% inst
 
-    # Overlay bounds: use the image extent when available (consistent framing
-    # with the Raman tab), otherwise fall back to FTIR + Raman only.
-    # LDIR aligned coords are excluded because LDIR alignment is typically
-    # much coarser (ICP RMS > 100 µm) and would expand the view excessively.
     bounds <- if (!is.null(zoom$overlay)) zoom$overlay else {
       img_info <- overlay_image_info()
       if (!is.null(img_info)) {
@@ -2902,8 +2899,8 @@ server <- function(input, output, session) {
       scale_x_continuous(breaks = breaks_1000(bounds$x)) +
       scale_y_continuous(breaks = breaks_1000(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
-      labs(title = "FTIR + Raman + LDIR Overlay (aligned coordinates)",
-           x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+      labs(title = "Multi-Instrument Overlay (aligned coordinates)",
+           x = "X (µm)", y = "Y (µm)") +
       theme_minimal(base_size = 15) +
       theme(
         plot.background  = element_rect(fill = "white", colour = NA),
@@ -2914,7 +2911,6 @@ server <- function(input, output, session) {
         legend.text      = element_text(size = 11)
       )
 
-    # Background image: Raman microscope image placed at Raman-normalized bounds
     p <- add_image_bg(p, overlay_image_info())
 
     # Match lines
@@ -2923,7 +2919,7 @@ server <- function(input, output, session) {
         seg_df <- data.frame(
           x = matched$ftir_x_aligned, y = matched$ftir_y_aligned,
           xend = matched$raman_x_norm, yend = matched$raman_y_norm)
-        p <- p + geom_segment(data = seg_df, aes(x = x, y = y, xend = xend, yend = yend),
+        p <- p + geom_segment(data = seg_df, aes(x=x, y=y, xend=xend, yend=yend),
                                colour = "grey40", alpha = 0.6, linewidth = 0.8)
       }
       if (show_bruker_raman && nrow(bruker_m) > 0 &&
@@ -2931,7 +2927,7 @@ server <- function(input, output, session) {
         bruker_seg <- data.frame(
           x = bruker_m$ftir_x_aligned, y = bruker_m$ftir_y_aligned,
           xend = bruker_m$raman_x_norm, yend = bruker_m$raman_y_norm)
-        p <- p + geom_segment(data = bruker_seg, aes(x = x, y = y, xend = xend, yend = yend),
+        p <- p + geom_segment(data = bruker_seg, aes(x=x, y=y, xend=xend, yend=yend),
                                colour = "#9467bd", alpha = 0.6, linewidth = 0.8)
       }
       if (show_ldir_raman && nrow(ldir_m) > 0 &&
@@ -2939,14 +2935,13 @@ server <- function(input, output, session) {
         ldir_seg <- data.frame(
           x = ldir_m$ldir_x_aligned, y = ldir_m$ldir_y_aligned,
           xend = ldir_m$raman_x_norm, yend = ldir_m$raman_y_norm)
-        p <- p + geom_segment(data = ldir_seg, aes(x = x, y = y, xend = xend, yend = yend),
+        p <- p + geom_segment(data = ldir_seg, aes(x=x, y=y, xend=xend, yend=yend),
                                colour = "#d62728", alpha = 0.5, linewidth = 0.7)
       }
     }
 
     all_pts <- list()
 
-    # Matched particles
     if ("matched" %in% rel) {
       if (show_pe_raman && nrow(matched) > 0) {
         all_pts[[length(all_pts)+1]] <- data.frame(
@@ -2976,12 +2971,11 @@ server <- function(input, output, session) {
       }
     }
 
-    # Unmatched particles
     if ("unmatched" %in% rel) {
-      .add_unmatched <- function(df_full, inst_key, inst_label, mat_input_id) {
+      .add_unmatched <- function(df_full, inst_key, inst_label, mat_input) {
         if (!(inst_key %in% inst) || is.null(df_full) || nrow(df_full) == 0) return(NULL)
         um <- df_full[df_full$match_status == "unmatched", ]
-        mat <- input[[mat_input_id]]
+        mat <- input[[mat_input]]
         if (!is.null(mat) && !("All" %in% mat) && nrow(um) > 0)
           um <- um[um$material_family %in% mat, ]
         if (nrow(um) == 0) return(NULL)
@@ -2999,8 +2993,7 @@ server <- function(input, output, session) {
     if (length(all_pts) > 0) {
       both <- do.call(rbind, all_pts)
       p <- p + geom_point(data = both,
-                           aes(x = x, y = y, size = feret_max,
-                               colour = instrument, shape = match_status),
+                           aes(x=x, y=y, size=feret_max, colour=instrument, shape=match_status),
                            alpha = 0.65) +
         scale_colour_manual(
           name   = "Instrument",
@@ -3014,7 +3007,7 @@ server <- function(input, output, session) {
         )
     }
 
-    # Multi-instrument highlights (3+ instruments detected same particle)
+    # Multi-instrument highlights (3+)
     if ("multi" %in% rel && nrow(triplets) > 0 && nrow(matched) > 0 && nrow(ldir_m) > 0) {
       triple_pts <- list()
       m_trip <- matched[matched$raman_particle_id %in% triplets$raman_particle_id, ]
@@ -3024,31 +3017,24 @@ server <- function(input, output, session) {
       }
       l_trip <- ldir_m[ldir_m$raman_particle_id %in% triplets$raman_particle_id, ]
       if (nrow(l_trip) > 0 && "ldir_x_aligned" %in% names(l_trip))
-        triple_pts[[length(triple_pts)+1]] <- data.frame(
-          x=l_trip$ldir_x_aligned, y=l_trip$ldir_y_aligned)
+        triple_pts[[length(triple_pts)+1]] <- data.frame(x=l_trip$ldir_x_aligned, y=l_trip$ldir_y_aligned)
       if (length(triple_pts) > 0) {
         triple_df <- do.call(rbind, triple_pts)
-        p <- p + geom_point(data = triple_df, aes(x = x, y = y),
-                             shape=21, size=6, stroke=1.5, fill=NA,
-                             colour="#FFD700", alpha=0.9)
+        p <- p + geom_point(data = triple_df, aes(x=x, y=y),
+                             shape=21, size=6, stroke=1.5, fill=NA, colour="#FFD700", alpha=0.9)
       }
     }
 
-    # Size legend (single scale for all layers)
-    p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
+    p <- p + scale_size_continuous(name = "Feret Max (µm)", range = c(2, 12))
 
-    # Highlight selected particles (multi-select per instrument).
-    # ALWAYS drawn regardless of layer state — allows single-particle inspection.
-    # Uses dfs$<instrument> (full unfiltered data with aligned coordinates).
     hl_specs <- list(
       list(ids = input$overlay_ftir_particles,        df = dfs$ftir,        col = "#2ca02c"),
       list(ids = input$overlay_raman_particles,       df = dfs$raman,       col = "#1f77b4"),
       list(ids = input$overlay_ldir_particles,        df = dfs$ldir,        col = "#d62728"),
       list(ids = input$overlay_ftir_bruker_particles, df = dfs$ftir_bruker, col = "#9467bd")
     )
-    y_span_ov <- diff(bounds$y)
-    y_nudge_ov <- y_span_ov * 0.03
-
+    y_span_ov   <- diff(bounds$y)
+    y_nudge_ov  <- y_span_ov * 0.03
     for (spec in hl_specs) {
       sel_ids <- spec$ids
       if (is.null(sel_ids) || length(sel_ids) == 0) next
@@ -3057,36 +3043,26 @@ server <- function(input, output, session) {
       hl <- inst_df[inst_df$particle_id %in% sel_ids, ]
       if (nrow(hl) > 0) {
         hl$label_y <- hl$y + y_nudge_ov
-        p <- p + geom_point(data = hl, aes(x = x, y = y),
-                             shape = 19, size = 5, colour = spec$col) +
-                 geom_point(data = hl, aes(x = x, y = y),
-                             shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 4.0, fontface = "bold",
-                            colour = "#FFD700")
+        p <- p + geom_point(data=hl, aes(x=x, y=y), shape=19, size=5, colour=spec$col) +
+                 geom_point(data=hl, aes(x=x, y=y), shape=21, size=10, stroke=2,
+                             fill=NA, colour="#FFD700") +
+                 geom_text(data=hl, aes(x=x, y=label_y, label=particle_id),
+                            vjust=0, size=4.0, fontface="bold", colour="#FFD700")
       }
     }
 
-    # Also highlight pinned particle (from click or dropdown selection)
     pin <- pinned_overlay()
     if (!is.null(pin) && !is.null(pin$x) && !is.null(pin$y)) {
       pin_label_y <- pin$y + y_nudge_ov
-      pin_df <- data.frame(x = pin$x, y = pin$y,
-                           label_y = pin_label_y,
-                           label = if (!is.null(pin$particle_id)) pin$particle_id else "")
-      p <- p + geom_point(data = pin_df, aes(x = x, y = y),
-                           shape = 8, size = 8, stroke = 2,
-                           colour = "#FF6600") +
-               geom_text(data = pin_df, aes(x = x, y = label_y, label = label),
-                          vjust = 0, size = 4.6, fontface = "bold",
-                          colour = "#FF6600")
+      pin_df <- data.frame(x=pin$x, y=pin$y, label_y=pin_label_y,
+                           label=if (!is.null(pin$particle_id)) pin$particle_id else "")
+      p <- p + geom_point(data=pin_df, aes(x=x, y=y), shape=8, size=8, stroke=2, colour="#FF6600") +
+               geom_text(data=pin_df, aes(x=x, y=label_y, label=label),
+                          vjust=0, size=4.6, fontface="bold", colour="#FF6600")
     }
 
     p
-  })
-
-  output$overlay_summary_text <- renderText({
+  })  output$overlay_summary_text <- renderText({
     m       <- overlay_matched()
     bm      <- overlay_bruker_matched()
     dfs     <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
@@ -3232,15 +3208,15 @@ server <- function(input, output, session) {
   }
 
   # Overlay: sticky hover — update last_hover$overlay only when a new match is found.
-  # Checks active layers AND highlighted/selected particles regardless of layer state.
+  # Checks active instruments/relationships AND highlighted/selected particles regardless of state.
   observeEvent(input$overlay_hover, {
     hover <- input$overlay_hover
     if (is.null(hover)) return()
 
-    inst     <- input$overlay_instruments
-    rel      <- input$overlay_relationships
-    matched  <- overlay_matched()
-    ldir_m   <- overlay_ldir_matched()
+    inst <- input$overlay_instruments
+    rel  <- input$overlay_relationships
+    matched <- overlay_matched()
+    ldir_m <- overlay_ldir_matched()
     bruker_m <- overlay_bruker_matched()
     dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
                 ftir_bruker = ftir_bruker_df_full())
@@ -3276,9 +3252,9 @@ server <- function(input, output, session) {
            else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
 
-    # For click, pass NULL layers to search ALL instruments
+    # For click, pass NULL inst/rel to search ALL instruments
     result <- find_nearest_overlay_particle(click$x, click$y, snap_dist,
-                                            NULL, matched, ldir_m, dfs, bruker_m)
+                                            NULL, NULL, matched, ldir_m, dfs, bruker_m)
     if (!is.null(result)) {
       pinned_overlay(result$row)
       pinned_source(result$source)
