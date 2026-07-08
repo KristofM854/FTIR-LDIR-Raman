@@ -8,6 +8,19 @@ library(ggrepel)
 library(png)
 library(rintrojs)
 
+# Allow large instrument images (TIFF micrographs are commonly 10-40 MB;
+# Shiny's default cap is only 5 MB).  NOTE: this limit is enforced by Shiny
+# at the HTTP layer BEFORE any server code runs, so an oversized upload can
+# never be rescued server-side — it is rejected outright.  Uploads that pass
+# this ceiling are immediately downsized in memory for display (see
+# downsample_raster() below), so storage and rendering stay small.
+options(shiny.maxRequestSize = 50 * 1024^2)   # 50 MB
+
+# Longest edge (px) to which uploaded background images are downsized.
+# 2000 px keeps enough resolution to visually align particles against the
+# membrane/micrograph while keeping annotation_raster() rendering fast.
+BG_IMAGE_MAX_DIM <- 2000L
+
 # Source canonical material classification from pipeline
 # (classify_family_vec, classify_category, classify_category_vec, etc.)
 source(file.path("..", "R", "08b_material_map.R"), local = TRUE)
@@ -156,19 +169,35 @@ build_single_view_plot <- function(points_df, bg_png_path = NULL) {
 # Paths are verified to exist; falls back to inputs/ folder filenames if needed.
 # ---------------------------------------------------------------------------
 get_run_image_paths <- function(manifest, run_dir) {
-  out <- list(ftir = NULL, raman = NULL, ldir = NULL)
+  out <- list(ftir = NULL, raman = NULL, ldir = NULL, ftir_bruker = NULL)
+
+  # Highest priority: images the user uploaded in the viewer, persisted to the
+  # run directory by persist_uploaded_image() (app.R).  An explicit upload
+  # overrides pipeline-generated images and survives run switches / restarts.
+  for (instr in names(out)) {
+    up <- file.path(run_dir, "inputs", paste0(instr, "_image_uploaded.png"))
+    if (file.exists(up)) out[[instr]] <- up
+  }
   if (is.null(manifest) || isTRUE(manifest$is_missing)) return(out)
-  
-  # NEW: prefer manifest$image_assets
-  out$ftir  <- manifest_image_path(manifest, "ftir_image",  preferred = "canonical")
-  out$raman <- manifest_image_path(manifest, "raman_image", preferred = "canonical")
-  out$ldir  <- manifest_image_path(manifest, "ldir_image",  preferred = "canonical")
-  
+
+  # Then manifest$image_assets.  NB: assign only non-NULL results — writing
+  # NULL into a list DROPS the element, after which out$ftir would partial-
+  # match out$ftir_bruker and cross-wire the two instruments' images.
+  for (nm in c("ftir", "raman", "ldir")) {
+    if (is.null(out[[nm]])) {
+      mp <- manifest_image_path(manifest, paste0(nm, "_image"), preferred = "canonical")
+      if (!is.null(mp)) out[[nm]] <- mp
+    }
+  }
+
   # Fallback to run_dir/inputs naming convention (relative)
-  if (is.null(out$ftir))  { fb <- file.path(run_dir, "inputs", "ftir_image_canonical.png");  if (file.exists(fb)) out$ftir  <- fb }
-  if (is.null(out$raman)) { fb <- file.path(run_dir, "inputs", "raman_image_canonical.png"); if (file.exists(fb)) out$raman <- fb }
-  if (is.null(out$ldir))  { fb <- file.path(run_dir, "inputs", "ldir_image_canonical.png");  if (file.exists(fb)) out$ldir  <- fb }
-  
+  for (nm in c("ftir", "raman", "ldir")) {
+    if (is.null(out[[nm]])) {
+      fb <- file.path(run_dir, "inputs", paste0(nm, "_image_canonical.png"))
+      if (file.exists(fb)) out[[nm]] <- fb
+    }
+  }
+
   out
 }
 
@@ -737,6 +766,14 @@ sniff_image_type <- function(path) {
 # in Cartesian / stage coordinates.  So NO vertical flip is needed.
 # ---------------------------------------------------------------------------
 load_image_raster <- function(path) {
+  # fileInput(multiple = TRUE) delivers a vector of datapaths; the scalar
+  # conditions below would then error ("condition has length > 1") and the
+  # calling observer would die without ever setting the image.
+  if (length(path) > 1) {
+    message("[Particle Viewer] load_image_raster: got ", length(path),
+            " paths; using the first one only")
+    path <- path[1]
+  }
   if (is.null(path) || !nzchar(path) || !file.exists(path)) return(NULL)
 
   typ <- sniff_image_type(path)
@@ -774,6 +811,46 @@ load_image_raster <- function(path) {
   if (is.null(raw) && requireNamespace("jpeg", quietly = TRUE))
     raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
   raw
+}
+
+# ---------------------------------------------------------------------------
+# Downsample a raster array so its longest edge is <= max_dim pixels.
+# Uses block-average (box filter) pooling — antialiased and dependency-free —
+# with stride subsampling as a fallback for degenerate aspect ratios.
+# Accepts 2D (grayscale) or 3D (H x W x channels) arrays; returns same form.
+# The original pixel dimensions are recorded as attributes so callers that
+# convert pixels to µm (e.g. TIFF DPI metadata, which refers to the ORIGINAL
+# file) can correct their scale for the reduced raster.
+# ---------------------------------------------------------------------------
+downsample_raster <- function(raw, max_dim = BG_IMAGE_MAX_DIM) {
+  d <- dim(raw)
+  if (is.null(d) || length(d) < 2) return(raw)
+  h <- d[1]; w <- d[2]
+  if (max(h, w) <= max_dim) return(raw)
+  k <- ceiling(max(h, w) / max_dim)
+
+  out <- if (h >= k && w >= k) {
+    pool <- function(m) {
+      hh <- (nrow(m) %/% k) * k
+      ww <- (ncol(m) %/% k) * k
+      m <- m[seq_len(hh), seq_len(ww), drop = FALSE]
+      m <- rowsum(m, rep(seq_len(hh %/% k), each = k)) / k
+      t(rowsum(t(m), rep(seq_len(ww %/% k), each = k))) / k
+    }
+    if (length(d) == 2) pool(raw)
+    else vapply(seq_len(d[3]), function(ch) pool(raw[, , ch]),
+                matrix(0, h %/% k, w %/% k))
+  } else {
+    # Extreme aspect ratio: block pooling would collapse the short axis
+    rows <- seq(1, h, by = k)
+    cols <- seq(1, w, by = k)
+    if (length(d) == 2) raw[rows, cols, drop = FALSE]
+    else raw[rows, cols, , drop = FALSE]
+  }
+
+  attr(out, "orig_width_px")  <- w
+  attr(out, "orig_height_px") <- h
+  out
 }
 
 # ---------------------------------------------------------------------------
