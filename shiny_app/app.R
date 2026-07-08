@@ -1274,10 +1274,11 @@ server <- function(input, output, session) {
   # ------------------------------------------------------------------
   # Raw image rasters
   # ------------------------------------------------------------------
-  ftir_raw_image    <- reactiveVal(NULL)   # FTIR "Average Abs" image
-  raman_image       <- reactiveVal(NULL)   # Raman microscope image (Raman tab + Overlay tab)
-  raman_image_path  <- reactiveVal(NULL)   # File path of the Raman image (for TIFF metadata extraction)
-  ldir_raw_image    <- reactiveVal(NULL)   # LDIR particle map image
+  ftir_raw_image        <- reactiveVal(NULL)   # FTIR "Average Abs" image
+  ftir_bruker_raw_image <- reactiveVal(NULL)   # FTIR (Bruker) background image
+  raman_image           <- reactiveVal(NULL)   # Raman microscope image (Raman tab + Overlay tab)
+  raman_image_path      <- reactiveVal(NULL)   # File path of the Raman image (for TIFF metadata extraction)
+  ldir_raw_image        <- reactiveVal(NULL)   # LDIR particle map image
 
   # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
   # FTIR image placed at the actual particle extent (x_orig / y_orig).
@@ -1293,6 +1294,22 @@ server <- function(input, output, session) {
     if (length(x_vals) == 0) return(NULL)
     ox <- if (!is.null(input$ftir_img_offset_x)) input$ftir_img_offset_x else 0
     oy <- if (!is.null(input$ftir_img_offset_y)) input$ftir_img_offset_y else 0
+    list(raster = raw,
+         xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
+         ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
+  })
+
+  # FTIR (Bruker) tab: same particle-extent placement as the PerkinElmer tab.
+  ftir_bruker_native_image_info <- reactive({
+    raw <- ftir_bruker_raw_image()
+    if (is.null(raw)) return(NULL)
+    fb_d <- ftir_bruker_df_full()
+    if (is.null(fb_d) || nrow(fb_d) == 0) return(NULL)
+    x_vals <- fb_d$x_orig[is.finite(fb_d$x_orig)]
+    y_vals <- fb_d$y_orig[is.finite(fb_d$y_orig)]
+    if (length(x_vals) == 0) return(NULL)
+    ox <- if (!is.null(input$ftir_bruker_img_offset_x)) input$ftir_bruker_img_offset_x else 0
+    oy <- if (!is.null(input$ftir_bruker_img_offset_y)) input$ftir_bruker_img_offset_y else 0
     list(raster = raw,
          xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
          ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
@@ -1336,6 +1353,11 @@ server <- function(input, output, session) {
     }
 
     if (!is.null(um_per_px) && length(x_vals) > 0) {
+      # um_per_px refers to the ORIGINAL file; if the raster was downsized
+      # after upload (downsample_raster), rescale it to the reduced raster.
+      orig_w <- attr(raw, "orig_width_px")
+      if (!is.null(orig_w) && is.numeric(orig_w) && orig_w > 0)
+        um_per_px <- um_per_px * orig_w / w_px
       cx_um <- mean(x_vals)
       cy_um <- mean(y_vals)
       half_w <- w_px * um_per_px / 2
@@ -1454,6 +1476,7 @@ server <- function(input, output, session) {
     run_dir <- selected_run_dir()
     if (is.null(run_dir) || !dir.exists(run_dir)) {
       ftir_raw_image(NULL)
+      ftir_bruker_raw_image(NULL)
       raman_image(NULL)
       raman_image_path(NULL)
       ldir_raw_image(NULL)
@@ -1467,6 +1490,13 @@ server <- function(input, output, session) {
       if (!is.null(raw)) ftir_raw_image(raw)
     } else {
       ftir_raw_image(NULL)
+    }
+
+    if (!is.null(img$ftir_bruker)) {
+      raw <- load_image_raster(img$ftir_bruker)
+      if (!is.null(raw)) ftir_bruker_raw_image(raw)
+    } else {
+      ftir_bruker_raw_image(NULL)
     }
 
     if (!is.null(img$raman)) {
@@ -1488,32 +1518,127 @@ server <- function(input, output, session) {
     }
   }, ignoreNULL = FALSE)
 
+  # ------------------------------------------------------------------
   # Handle uploaded images
+  # ------------------------------------------------------------------
+  # Validate + load + downsize one uploaded background image.
+  # Returns the raster array, or NULL after notifying the user of the failure
+  # (previously a bad read failed silently and multi-file selections crashed
+  # the observer before the image was ever stored).
+  handle_image_upload <- function(fileinfo, instrument) {
+    req(fileinfo)
+    if (nrow(fileinfo) > 1) {
+      showNotification(
+        paste0(nrow(fileinfo), " files selected — using \"", fileinfo$name[1],
+               "\" as the ", toupper(instrument),
+               " background image (one image per instrument)."),
+        type = "warning", duration = 8)
+    }
+    path    <- fileinfo$datapath[1]
+    name    <- fileinfo$name[1]
+    size_mb <- round(fileinfo$size[1] / 1024^2, 1)
+    message("[Particle Viewer] ", toupper(instrument), " image upload: ", name,
+            " (", size_mb, " MB, signature=", sniff_image_type(path), ")")
+
+    raw <- load_image_raster(path)
+    if (is.null(raw)) {
+      msg <- paste0("Could not read \"", name,
+                    "\" as an image (PNG/JPEG/TIFF/BMP/WEBP). ",
+                    "TIFF/BMP/WEBP require the 'magick' package on the server.")
+      message("[Particle Viewer] ERROR: ", msg)
+      showNotification(msg, type = "error", duration = 10)
+      return(NULL)
+    }
+
+    dims_in <- dim(raw)
+    raw <- downsample_raster(raw, max_dim = BG_IMAGE_MAX_DIM)
+    dims_out <- dim(raw)
+    if (!identical(dims_in[1:2], dims_out[1:2])) {
+      message("[Particle Viewer] ", toupper(instrument), " image downsized: ",
+              dims_in[2], "x", dims_in[1], " -> ", dims_out[2], "x", dims_out[1])
+      showNotification(
+        paste0("\"", name, "\" loaded and downsized from ",
+               dims_in[2], "×", dims_in[1], " to ",
+               dims_out[2], "×", dims_out[1],
+               " px for display (longest edge capped at ",
+               BG_IMAGE_MAX_DIM, " px)."),
+        type = "message", duration = 8)
+    } else {
+      showNotification(
+        paste0("\"", name, "\" loaded as ", toupper(instrument),
+               " background image."),
+        type = "message", duration = 5)
+    }
+    raw
+  }
+
+  # Persist an uploaded raster into the active run directory as
+  # inputs/<instrument>_image_uploaded.png.  get_run_image_paths() checks this
+  # name first, so the upload survives run switches and app restarts instead
+  # of living only in this session's memory.  Failures (e.g. read-only deploy
+  # dir) are logged to the console but never fatal.
+  persist_uploaded_image <- function(raw, instrument) {
+    run_dir <- selected_run_dir()
+    if (is.null(raw) || is.null(run_dir) || !dir.exists(run_dir))
+      return(invisible(NULL))
+    target_dir <- file.path(run_dir, "inputs")
+    target <- file.path(target_dir, paste0(instrument, "_image_uploaded.png"))
+    ok <- tryCatch({
+      if (!dir.exists(target_dir)) dir.create(target_dir, recursive = TRUE)
+      png::writePNG(raw, target)
+      TRUE
+    }, error = function(e) {
+      message("[Particle Viewer] WARNING: could not persist ",
+              toupper(instrument), " image to ", target, ": ",
+              conditionMessage(e))
+      FALSE
+    })
+    if (ok)
+      message("[Particle Viewer] Saved uploaded ", toupper(instrument),
+              " image to ", target)
+    invisible(NULL)
+  }
+
   observeEvent(input$ftir_image_upload, {
-    raw <- load_image_raster(input$ftir_image_upload$datapath)
-    message("FTIR upload raster dim: ", paste(dim(raw), collapse=" x "))
-    if (!is.null(raw)) ftir_raw_image(raw)
+    raw <- handle_image_upload(input$ftir_image_upload, "ftir")
+    if (!is.null(raw)) {
+      ftir_raw_image(raw)
+      persist_uploaded_image(raw, "ftir")
+    }
+  })
+
+  observeEvent(input$ftir_bruker_image_upload, {
+    raw <- handle_image_upload(input$ftir_bruker_image_upload, "ftir_bruker")
+    if (!is.null(raw)) {
+      ftir_bruker_raw_image(raw)
+      persist_uploaded_image(raw, "ftir_bruker")
+    }
   })
 
   observeEvent(input$raman_image_upload, {
-    raw <- load_image_raster(input$raman_image_upload$datapath)
+    raw <- handle_image_upload(input$raman_image_upload, "raman")
     if (!is.null(raw)) {
       raman_image(raw)
-      raman_image_path(input$raman_image_upload$datapath)
+      raman_image_path(input$raman_image_upload$datapath[1])
+      persist_uploaded_image(raw, "raman")
     }
   })
 
   observeEvent(input$overlay_image_upload, {
-    raw <- load_image_raster(input$overlay_image_upload$datapath)
+    raw <- handle_image_upload(input$overlay_image_upload, "raman")
     if (!is.null(raw)) {
       raman_image(raw)
-      raman_image_path(input$overlay_image_upload$datapath)
+      raman_image_path(input$overlay_image_upload$datapath[1])
+      persist_uploaded_image(raw, "raman")
     }
   })
 
   observeEvent(input$ldir_image_upload, {
-    raw <- load_image_raster(input$ldir_image_upload$datapath)
-    if (!is.null(raw)) ldir_raw_image(raw)
+    raw <- handle_image_upload(input$ldir_image_upload, "ldir")
+    if (!is.null(raw)) {
+      ldir_raw_image(raw)
+      persist_uploaded_image(raw, "ldir")
+    }
   })
 
   # ------------------------------------------------------------------
@@ -2641,7 +2766,7 @@ server <- function(input, output, session) {
       }
     }
 
-    img <- if (aligned) overlay_image_info() else NULL
+    img <- if (aligned) overlay_image_info() else ftir_bruker_native_image_info()
 
     full_fb <- ftir_bruker_df_full()
     if (!is.null(full_fb) && nrow(full_fb) > 0) {
