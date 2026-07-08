@@ -25,6 +25,10 @@ BG_IMAGE_MAX_DIM <- 2000L
 # (classify_family_vec, classify_category, classify_category_vec, etc.)
 source(file.path("..", "R", "08b_material_map.R"), local = TRUE)
 
+# Dependency-free BMP reader (read_bmp_raster) — lets load_image_raster()
+# handle instrument BMP exports even when magick is not installed.
+source(file.path("..", "R", "read_bmp.R"), local = TRUE)
+
 # ---------------------------------------------------------------------------
 # List ALL available runs in the output directory (newest first).
 # Returns a named character vector suitable for selectInput choices:
@@ -195,6 +199,21 @@ get_run_image_paths <- function(manifest, run_dir) {
     if (is.null(out[[nm]])) {
       fb <- file.path(run_dir, "inputs", paste0(nm, "_image_canonical.png"))
       if (file.exists(fb)) out[[nm]] <- fb
+    }
+  }
+
+  # Last resort: the original source file the user selected at run time
+  # (manifest$inputs$<instr>_image$path).  Runs processed without magick have
+  # no canonical/preview PNGs in inputs/, but the source image is usually
+  # still on disk on the same machine — and load_image_raster() can read it
+  # directly (PNG/JPEG natively, BMP via read_bmp_raster, TIFF via magick).
+  for (nm in c("ftir", "raman", "ldir", "ftir_bruker")) {
+    if (is.null(out[[nm]])) {
+      src <- tryCatch(manifest$inputs[[paste0(nm, "_image")]]$path,
+                      error = function(e) NULL)
+      if (!is.null(src) && length(src) == 1 && is.character(src) &&
+          nzchar(src) && file.exists(src))
+        out[[nm]] <- src
     }
   }
 
@@ -789,9 +808,9 @@ load_image_raster <- function(path) {
     return(tryCatch(jpeg::readJPEG(path), error = function(e) NULL))
   }
 
-  # Other formats (TIFF, BMP, WEBP, ...): use magick.
+  # Other formats (TIFF, BMP, WEBP, ...): use magick when available.
   if (requireNamespace("magick", quietly = TRUE)) {
-    return(tryCatch({
+    arr <- tryCatch({
       img_mg  <- magick::image_read(path)
       if (length(img_mg) > 1) img_mg <- img_mg[1]
       img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
@@ -800,13 +819,25 @@ load_image_raster <- function(path) {
               else as.integer(raw_data)
       arr <- array(vals / 255, dim = dim(raw_data))
       aperm(arr, c(3, 2, 1))   # [4, W, H] -> [H, W, 4] (RGBA raster)
-    }, error = function(e) NULL))
+    }, error = function(e) NULL)
+    if (!is.null(arr)) return(arr)
+  }
+
+  # BMP without magick (or magick failed): dependency-free reader from
+  # R/read_bmp.R covers the uncompressed 8/24/32-bit BMPs that instrument
+  # software exports.
+  if (typ == "BMP") {
+    arr <- tryCatch(read_bmp_raster(path), error = function(e) NULL)
+    if (!is.null(arr)) return(arr)
+    message("[Particle Viewer] read_bmp_raster could not decode ",
+            basename(path), " (compressed or unusual BMP variant)")
   }
 
   # Last-resort extension-based fallback
   ext <- tolower(tools::file_ext(path))
   if (ext %in% c("tif", "tiff", "bmp", "webp"))
-    warning("Install magick for TIFF/BMP/WEBP support in the Shiny viewer.")
+    warning("Install magick for TIFF/WEBP and compressed-BMP support ",
+            "in the Shiny viewer.")
   raw <- tryCatch(png::readPNG(path), error = function(e) NULL)
   if (is.null(raw) && requireNamespace("jpeg", quietly = TRUE))
     raw <- tryCatch(jpeg::readJPEG(path), error = function(e) NULL)
