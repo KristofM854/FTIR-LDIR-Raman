@@ -386,6 +386,15 @@ read_image_any <- function(path, verbose = TRUE) {
     })
   }
 
+  # Fallback: dependency-free BMP reader (R/read_bmp.R) — instrument PCs
+  # often export BMP, and magick may be unavailable on the analysis machine.
+  if (detected == "BMP" && exists("read_bmp_raster")) {
+    arr <- tryCatch(read_bmp_raster(path), error = function(e) NULL)
+    if (!is.null(arr)) return(arr)
+    log_message("  read_bmp_raster could not decode ", basename(path),
+                " (compressed or unusual BMP variant)", level = "WARN")
+  }
+
   # Fallback: pkg-specific readers
   if (detected == "JPEG" || ext_type %in% c("JPG", "JPEG")) {
     if (requireNamespace("jpeg", quietly = TRUE))
@@ -565,9 +574,60 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     md5              = file_md5(src_path)
   )
 
+  # Without magick, canonicalize with the native readers instead of skipping:
+  # a skipped instrument gets no entry in manifest$image_assets and no PNGs in
+  # inputs/, so the Shiny viewer never shows its image.  read_image_canonical()
+  # handles PNG/JPEG via png/jpeg and BMP via read_bmp_raster (R/read_bmp.R).
   if (!requireNamespace("magick", quietly = TRUE)) {
-    log_message("  magick not available; skipping ", instrument,
-                " image canonicalization", level = "WARN")
+    log_message("  magick not available; canonicalizing ", instrument,
+                " image with native R readers", level = "WARN")
+    if (!requireNamespace("png", quietly = TRUE)) {
+      log_message("  png package unavailable; skipping ", instrument,
+                  " image canonicalization", level = "WARN")
+      return(result)
+    }
+    tryCatch({
+      ci <- read_image_canonical(src_path)
+      if (is.null(ci)) {
+        log_message("  [", instrument, "] no native reader for this ",
+                    detected, " image — skipping canonicalization ",
+                    "(install magick for TIFF/WEBP/compressed-BMP support)",
+                    level = "WARN")
+        return(result)
+      }
+      result$orig_width  <- ci$width
+      result$orig_height <- ci$height
+
+      orig_dest <- file.path(inputs_dir,
+                             paste0(inst, "_image_original.", tolower(ext_orig)))
+      file.copy(src_path, orig_dest, overwrite = TRUE)
+      result$orig_dest <- normalizePath(orig_dest, mustWork = FALSE)
+
+      canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.png"))
+      if (identical(detected, "PNG")) {
+        file.copy(src_path, canon_path, overwrite = TRUE)
+      } else {
+        png::writePNG(ci$img_rgb / 255, canon_path)
+      }
+      result$canonical_path   <- canon_path
+      result$canonical_width  <- ci$width
+      result$canonical_height <- ci$height
+      log_message("  [", instrument, "] Canonical PNG (native): ", canon_path,
+                  " (", ci$width, "x", ci$height, ")")
+
+      prev <- make_preview_image(ci$img_rgb, max_dim = max_preview_px)
+      prev_path <- file.path(inputs_dir, paste0(inst, "_image_preview.png"))
+      png::writePNG(prev / 255, prev_path)
+      result$preview_path   <- prev_path
+      result$preview_width  <- ncol(prev)
+      result$preview_height <- nrow(prev)
+      result$preview_scale  <- ncol(prev) / ci$width
+      log_message("  [", instrument, "] Preview PNG (native): ", prev_path,
+                  " (", ncol(prev), "x", nrow(prev), ")")
+    }, error = function(e) {
+      log_message("  canonicalize_instrument_image [", instrument,
+                  "] native fallback error: ", e$message, level = "WARN")
+    })
     return(result)
   }
 
