@@ -33,6 +33,7 @@ if (length(missing_pkgs) > 0) {
 library(ggplot2)
 
 # Source all modules (relative to project root)
+source("R/read_bmp.R")
 source("R/utils.R")
 source("R/00_config.R")
 source("R/00b_file_input.R")

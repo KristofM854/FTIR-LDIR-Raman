@@ -1543,8 +1543,9 @@ server <- function(input, output, session) {
     raw <- load_image_raster(path)
     if (is.null(raw)) {
       msg <- paste0("Could not read \"", name,
-                    "\" as an image (PNG/JPEG/TIFF/BMP/WEBP). ",
-                    "TIFF/BMP/WEBP require the 'magick' package on the server.")
+                    "\" as an image (PNG/JPEG/BMP/TIFF/WEBP). ",
+                    "TIFF/WEBP and compressed BMPs require the 'magick' ",
+                    "package on the server.")
       message("[Particle Viewer] ERROR: ", msg)
       showNotification(msg, type = "error", duration = 10)
       return(NULL)
