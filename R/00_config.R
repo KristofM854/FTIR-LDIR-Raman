@@ -61,15 +61,22 @@ make_config <- function(ftir_path  = NULL,
                                           # must be one of: 0, 90, -90, 180
 
     # --- Raman microscope image placement (WITec metadata) ---
-    # Physical extent and center of the Raman image in stage coordinates.
-    # These come directly from WITec image properties (Width, Height, X, Y).
+    # Physical extent and position of the Raman image in stage coordinates
+    # (µm, y increasing upward).  These come directly from WITec image
+    # properties: Width, Height, and X/Y — where X/Y is the TOP-LEFT corner
+    # of the image, NOT its center (verified empirically: with the corner
+    # interpretation 76% of particles land on bright image blobs vs 4% for
+    # any other interpretation).  The image spans
+    #   x: [left, left + width],  y: [top - height, top].
     # When all four are set, the image is placed at exact physical bounds
     # regardless of the uploaded image's pixel resolution (resize-invariant).
     # NULL = fall back to particle-extent method.
-    raman_image_width_um    = 12569.2097402076,
-    raman_image_height_um   = 12153.0107421875,
-    raman_image_center_x_um = -272.473663330078,
-    raman_image_center_y_um = 7277.1328125,
+    # NOTE: these values are PER-DATASET — update them from WITec when
+    # analyzing a new sample, or the viewer falls back to heuristic placement.
+    raman_image_width_um  = 12569.2097402076,
+    raman_image_height_um = 12153.0107421875,
+    raman_image_left_um   = -272.473663330078,
+    raman_image_top_um    = 7277.1328125,
 
     # Fixed µm-per-pixel scale for the Raman microscope image.
     # Used only as Priority 2 fallback when the four fields above are NULL.
