@@ -75,6 +75,14 @@ if (input_mode == "explicit") {
 
   .is_windows <- tolower(.Platform$OS.type) == "windows"
 
+  # Remembers the folder of the most recently selected file, across every
+  # dialog in this run (data files and images alike) — including slots the
+  # user cancels, since the folder is captured before the next dialog opens.
+  # Without this, choose.files() re-opens in the R working directory every
+  # time, forcing a re-navigate for each of the up to 8 per-instrument
+  # dialogs when the dataset lives elsewhere.
+  .last_dir <- NULL
+
   .pick_file <- function(caption, required = FALSE,
                          filter = "All files|*.*") {
     repeat {
@@ -83,7 +91,9 @@ if (input_mode == "explicit") {
           choose.files(caption = caption,
                        filters = matrix(strsplit(filter, "\\|")[[1]],
                                         ncol = 2, byrow = TRUE),
-                       multi = FALSE),
+                       multi = FALSE,
+                       default = if (!is.null(.last_dir))
+                         file.path(.last_dir, "*.*") else ""),
           error = function(e) character(0)
         )
       } else {
@@ -98,6 +108,7 @@ if (input_mode == "explicit") {
         }
         return(NULL)
       }
+      .last_dir <<- dirname(path)
       return(path)
     }
   }
