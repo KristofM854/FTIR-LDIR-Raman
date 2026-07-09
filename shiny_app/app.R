@@ -1333,23 +1333,23 @@ server <- function(input, output, session) {
     h_px <- nrow(raw); w_px <- ncol(raw)
 
     # --- Priority 1: Physical extent from WITec metadata (resize-invariant) ---
-    # WITec's image X/Y is the TOP-LEFT corner in stage µm (y up), so the
-    # image spans x: [left, left+w] and y: [top-h, top].  The legacy config
-    # names raman_image_center_x_um/_y_um held these same corner values under
-    # a misleading name (interpreting them as the center shifted the image by
-    # half its extent); accept them with corner semantics.
+    # WITec's Particle Scout reports Center X/Y as the geometric center of
+    # the imaged area in stage µm (y up), so the image spans
+    # x: [center_x - w/2, center_x + w/2] and y: [center_y - h/2, center_y + h/2].
     w_um <- cfg$raman_image_width_um
     h_um <- cfg$raman_image_height_um
-    x0   <- if (!is.null(cfg$raman_image_left_um)) cfg$raman_image_left_um
-            else cfg$raman_image_center_x_um
-    y0   <- if (!is.null(cfg$raman_image_top_um)) cfg$raman_image_top_um
-            else cfg$raman_image_center_y_um
+    cx   <- cfg$raman_image_center_x_um
+    cy   <- cfg$raman_image_center_y_um
 
-    if (!is.null(w_um) && !is.null(h_um) && !is.null(x0) && !is.null(y0)) {
-      xmin <- x0; xmax <- x0 + w_um
-      ymin <- y0 - h_um; ymax <- y0
-      # Guard against stale per-dataset values: if the configured extent
-      # doesn't actually contain the particles, fall through to Priority 2/3.
+    if (!is.null(w_um) && !is.null(h_um) && !is.null(cx) && !is.null(cy)) {
+      xmin <- cx - w_um / 2; xmax <- cx + w_um / 2
+      ymin <- cy - h_um / 2; ymax <- cy + h_um / 2
+      # Guard against stale per-dataset values: these four fields are set
+      # once in 00_config.R but the physical image extent differs for every
+      # Raman scan.  If the configured extent doesn't actually contain the
+      # particles from the current run, it belongs to a different dataset —
+      # fall through to Priority 2/3 instead of drawing the image in the
+      # wrong place.
       xy_fin <- if (!is.null(raman_df))
         is.finite(raman_df$x_orig) & is.finite(raman_df$y_orig) else logical(0)
       frac_inside <- if (any(xy_fin)) {
@@ -1363,9 +1363,10 @@ server <- function(input, output, session) {
       }
       message("[Particle Viewer] Raman image extent from config contains only ",
               round(frac_inside * 100), "% of particles — the ",
-              "raman_image_* values look stale for this dataset. ",
-              "Falling back to heuristic placement; update them from the ",
-              "WITec image properties for exact placement.")
+              "raman_image_* values look like they belong to a different ",
+              "dataset. Falling back to heuristic placement; update them ",
+              "from WITec's Particle Scout (Width/Height/Center X/Center Y) ",
+              "for this scan.")
     }
 
     # --- Priority 2: Known scale (config or auto-detected from TIFF DPI) ---
