@@ -73,15 +73,15 @@ make_config <- function(ftir_path  = NULL,
     # NULL = fall back to particle-extent method.
     # NOTE: these values are PER-DATASET — update them from WITec when
     # analyzing a new sample, or the viewer falls back to heuristic placement.
-    raman_image_width_um  = 12569.2097402076,
-    raman_image_height_um = 12153.0107421875,
-    raman_image_left_um   = -272.473663330078,
-    raman_image_top_um    = 7277.1328125,
+    raman_image_width_um  = 12471.2,
+    raman_image_height_um = 12313.0,
+    raman_image_left_um   = 1487.6,
+    raman_image_top_um    = -4394.0,
 
     # Fixed µm-per-pixel scale for the Raman microscope image.
     # Used only as Priority 2 fallback when the four fields above are NULL.
     # NULL = fall back to TIFF DPI auto-detection or particle-extent method.
-    raman_um_per_px = NULL,
+    raman_um_per_px = 0.38,
 
     # --- Descriptor RANSAC (optional Tier 2 replacement) ---
     # Set TRUE to use descriptor-based RANSAC instead of the coarse-grid material
