@@ -61,12 +61,13 @@ make_config <- function(ftir_path  = NULL,
                                           # must be one of: 0, 90, -90, 180
 
     # --- Raman microscope image placement (WITec metadata) ---
-    # Physical extent and CENTER of the Raman image in stage coordinates
-    # (µm, y increasing upward) — read directly from WITec's Particle Scout,
-    # which reports Width, Height, Center X, Center Y for the image. The
-    # image spans:
-    #   x: [center_x - width/2,  center_x + width/2]
-    #   y: [center_y - height/2, center_y + height/2]
+    # Enter the values EXACTLY as WITec's Particle Scout shows them —
+    # Width, Height, Center X, Center Y (all µm), including a negative
+    # Center Y if that is what the panel reports.  WITec gives the center in
+    # its video/image frame (Y pointing DOWN) while the particle export
+    # ("Visual Center Point Y") is stage-frame (Y UP); the viewer resolves
+    # the Y-axis convention automatically by checking which interpretation
+    # contains the run's particles (raman_image_extent_from_config()).
     # When all four are set, the image is placed at exact physical bounds
     # regardless of the uploaded image's pixel resolution (resize-invariant).
     # NULL = fall back to particle-extent method.
