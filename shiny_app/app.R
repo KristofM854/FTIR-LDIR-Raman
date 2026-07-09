@@ -1333,40 +1333,33 @@ server <- function(input, output, session) {
     h_px <- nrow(raw); w_px <- ncol(raw)
 
     # --- Priority 1: Physical extent from WITec metadata (resize-invariant) ---
-    # WITec's Particle Scout reports Center X/Y as the geometric center of
-    # the imaged area in stage µm (y up), so the image spans
-    # x: [center_x - w/2, center_x + w/2] and y: [center_y - h/2, center_y + h/2].
-    w_um <- cfg$raman_image_width_um
-    h_um <- cfg$raman_image_height_um
-    cx   <- cfg$raman_image_center_x_um
-    cy   <- cfg$raman_image_center_y_um
-
-    if (!is.null(w_um) && !is.null(h_um) && !is.null(cx) && !is.null(cy)) {
-      xmin <- cx - w_um / 2; xmax <- cx + w_um / 2
-      ymin <- cy - h_um / 2; ymax <- cy + h_um / 2
-      # Guard against stale per-dataset values: these four fields are set
-      # once in 00_config.R but the physical image extent differs for every
-      # Raman scan.  If the configured extent doesn't actually contain the
-      # particles from the current run, it belongs to a different dataset —
-      # fall through to Priority 2/3 instead of drawing the image in the
-      # wrong place.
-      xy_fin <- if (!is.null(raman_df))
-        is.finite(raman_df$x_orig) & is.finite(raman_df$y_orig) else logical(0)
-      frac_inside <- if (any(xy_fin)) {
-        mean(raman_df$x_orig[xy_fin] >= xmin & raman_df$x_orig[xy_fin] <= xmax &
-             raman_df$y_orig[xy_fin] >= ymin & raman_df$y_orig[xy_fin] <= ymax)
-      } else 1
-      if (frac_inside >= 0.5) {
-        return(list(raster = raw,
-                    xmin = xmin + ox, xmax = xmax + ox,
-                    ymin = ymin + oy, ymax = ymax + oy))
-      }
-      message("[Particle Viewer] Raman image extent from config contains only ",
-              round(frac_inside * 100), "% of particles — the ",
-              "raman_image_* values look like they belong to a different ",
-              "dataset. Falling back to heuristic placement; update them ",
-              "from WITec's Particle Scout (Width/Height/Center X/Center Y) ",
-              "for this scan.")
+    # raman_image_extent_from_config() (global.R) turns the Particle Scout
+    # panel values into stage-frame bounds, resolving WITec's Y-down video
+    # frame vs the particle export's Y-up stage frame by scoring both
+    # interpretations against the particles.  NULL means the configured
+    # extent fits under neither convention (stale per-dataset values) —
+    # fall through to Priority 2/3 instead of drawing the image wrong.
+    ext <- raman_image_extent_from_config(
+      cfg,
+      if (!is.null(raman_df)) raman_df$x_orig else numeric(0),
+      if (!is.null(raman_df)) raman_df$y_orig else numeric(0))
+    if (!is.null(ext)) {
+      message("[Particle Viewer] Raman image placed from WITec extent (",
+              if (isTRUE(ext$y_negated))
+                "Center Y negated: video frame -> stage frame"
+              else "Center Y as reported",
+              "; ", round(ext$frac_inside * 100), "% of particles inside).")
+      return(list(raster = raw,
+                  xmin = ext$xmin + ox, xmax = ext$xmax + ox,
+                  ymin = ext$ymin + oy, ymax = ext$ymax + oy))
+    }
+    if (!is.null(cfg$raman_image_width_um) &&
+        !is.null(cfg$raman_image_center_x_um)) {
+      message("[Particle Viewer] WITec raman_image_* extent does not contain ",
+              "this run's particles under either Y convention — the values ",
+              "likely belong to a different dataset. Falling back to ",
+              "heuristic placement; update Width/Height/Center X/Center Y ",
+              "from WITec's Particle Scout for this scan.")
     }
 
     # --- Priority 2: Known scale (config or auto-detected from TIFF DPI) ---
@@ -1416,6 +1409,24 @@ server <- function(input, output, session) {
     ox <- if (!is.null(input$overlay_img_offset_x)) input$overlay_img_offset_x else 0
     oy <- if (!is.null(input$overlay_img_offset_y)) input$overlay_img_offset_y else 0
 
+    # Exact placement when WITec metadata is available: overlay coordinates
+    # are Raman stage coordinates minus the Raman centroid (pure translation,
+    # normalize_coordinates() applies no scale/rotation to Raman), so the
+    # stage-frame extent maps into overlay space by subtracting that same
+    # centroid — recovered per-row as (x_orig - x), constant across particles.
+    cfg <- tryCatch(active_manifest()$config_snapshot, error = function(e) list())
+    ext <- raman_image_extent_from_config(cfg, raman_d$x_orig, raman_d$y_orig)
+    fin <- is.finite(raman_d$x) & is.finite(raman_d$x_orig) &
+           is.finite(raman_d$y) & is.finite(raman_d$y_orig)
+    if (!is.null(ext) && any(fin)) {
+      sx <- mean(raman_d$x_orig[fin] - raman_d$x[fin])
+      sy <- mean(raman_d$y_orig[fin] - raman_d$y[fin])
+      return(list(raster = raw,
+                  xmin = ext$xmin - sx + ox, xmax = ext$xmax - sx + ox,
+                  ymin = ext$ymin - sy + oy, ymax = ext$ymax - sy + oy))
+    }
+
+    # Fallback: aspect-ratio-preserving fit to the Raman particle extent
     b <- compute_image_bounds(raw, raman_x, raman_y, padding_um = 300)
     list(raster = raw,
          xmin = b$xmin + ox, xmax = b$xmax + ox,
