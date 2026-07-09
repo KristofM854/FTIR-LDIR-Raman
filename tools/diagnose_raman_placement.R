@@ -23,14 +23,24 @@
 #     WITec Width/Height (e.g. cropped/zoomed export) and by how much
 #
 # Usage:
-#   Rscript tools/diagnose_raman_placement.R output/<run_dir>
+#   Rscript tools/diagnose_raman_placement.R output/<run_dir> [--apply]
+#
+# --apply writes the measured best-fit extent (of the image the viewer
+# actually displays) into the run manifest's config_snapshot, replacing the
+# stale WITec values for THIS run only, so the viewer places the image
+# correctly on the next app start.  A manifest.json.bak backup is kept.
+# Refused when the fit is weak or requires mirroring (which the viewer's
+# placement config cannot express).
 #
 # Output: ranked tables on stdout and one comparison PNG per analyzed image at
 #   <run_dir>/debug/raman_placement_diagnostic_<which>.png
 # =============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) < 1) stop("Usage: Rscript tools/diagnose_raman_placement.R <run_dir>")
+apply_fit <- "--apply" %in% args
+args <- setdiff(args, "--apply")
+if (length(args) < 1)
+  stop("Usage: Rscript tools/diagnose_raman_placement.R <run_dir> [--apply]")
 run_dir <- args[1]
 if (!dir.exists(run_dir)) stop("Run directory not found: ", run_dir)
 
@@ -251,7 +261,45 @@ analyze_image <- function(img_path, which_img) {
   invisible(best)
 }
 
-for (which_img in names(img_files)) analyze_image(img_files[[which_img]], which_img)
+results <- list()
+for (which_img in names(img_files))
+  results[[which_img]] <- analyze_image(img_files[[which_img]], which_img)
 
 cat("\nDone. Open the PNG(s) under ", dbg,
     " — red circles should sit on bright blobs in the right panel.\n", sep = "")
+
+# --- Optionally write the measured extent into the run manifest ---------------
+if (apply_fit) {
+  viewer_img <- names(img_files)[1]   # same priority order as the app
+  best <- results[[viewer_img]]
+  cat(sprintf("\n--apply: using the '%s' image's best fit\n", viewer_img))
+  if (best$frac_bright < 0.3) {
+    stop("Refusing to apply: best fit puts only ",
+         round(best$frac_bright * 100), "% of particles on bright pixels — ",
+         "too weak to trust.")
+  }
+  if (isTRUE(best$flip_h) || isTRUE(best$flip_v)) {
+    stop("Refusing to apply: best fit requires a mirrored raster, which the ",
+         "viewer's placement config cannot express. Re-export the image ",
+         "without mirroring, or report this case.")
+  }
+  file.copy(m_path, paste0(m_path, ".bak"), overwrite = TRUE)
+  man$config_snapshot$raman_image_width_um    <- W * best$scale
+  man$config_snapshot$raman_image_height_um   <- H * best$scale
+  man$config_snapshot$raman_image_center_x_um <- best$cx
+  # Stage-frame center: the viewer scores both Y conventions and will pick
+  # this value as-reported (negating it would throw the particles outside).
+  man$config_snapshot$raman_image_center_y_um <- best$cy
+  jsonlite::write_json(man, m_path, auto_unbox = TRUE, pretty = TRUE,
+                       null = "null", digits = 8)
+  cat(sprintf(paste0(
+    "Manifest updated (%s; backup at %s):\n",
+    "  raman_image_width_um    = %.1f\n",
+    "  raman_image_height_um   = %.1f\n",
+    "  raman_image_center_x_um = %.1f\n",
+    "  raman_image_center_y_um = %.1f\n",
+    "Restart the Shiny app (or re-select the run) to see the corrected ",
+    "placement.\n"),
+    m_path, paste0(m_path, ".bak"),
+    W * best$scale, H * best$scale, best$cx, best$cy))
+}
