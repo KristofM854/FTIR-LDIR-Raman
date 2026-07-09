@@ -844,9 +844,7 @@ write_manifest <- function(run_dir, run_id, config,
                  # Raman image placement — the Shiny viewer reads these from
                  # the manifest snapshot to place the background image at its
                  # exact physical extent (raman_native_image_info Priority 1).
-                 # Legacy *_center_* names kept for user-modified configs.
                  "raman_image_width_um", "raman_image_height_um",
-                 "raman_image_left_um", "raman_image_top_um",
                  "raman_image_center_x_um", "raman_image_center_y_um",
                  "raman_um_per_px")
   cfg_snap <- lapply(cfg_keys, function(k) config[[k]])
