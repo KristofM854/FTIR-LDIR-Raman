@@ -923,6 +923,56 @@ extract_tiff_um_per_px <- function(path) {
 }
 
 # ---------------------------------------------------------------------------
+# Resolve the Raman image's physical extent from the WITec Particle Scout
+# values stored in the run manifest (config_snapshot$raman_image_width_um /
+# height_um / center_x_um / center_y_um).
+#
+# WITec's panel reports the image center in its video/image frame, whose Y
+# axis points DOWN, while the particle export ("Visual Center Point Y") is
+# in stage coordinates with Y UP — the stage-frame center is (cx, -cy).
+# Verified on real data (PET A, 2026-07: particles Y [-68, 4877], panel
+# Center Y = -4394): with Y negated 100% of particles fall inside the image;
+# taken as-reported only 30% do.  Because the convention may vary across
+# WITec versions/exports, BOTH interpretations are scored by the fraction of
+# particles they contain and the better one wins; below min_frac the
+# function returns NULL and the caller falls back to heuristic placement.
+#
+# cfg            : config_snapshot list from the run manifest
+# x_orig, y_orig : particle stage coordinates (µm) used to score candidates
+# min_frac       : minimum containment fraction to accept
+# Returns list(xmin, xmax, ymin, ymax, y_negated, frac_inside) or NULL.
+# ---------------------------------------------------------------------------
+raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) {
+  w  <- cfg$raman_image_width_um
+  h  <- cfg$raman_image_height_um
+  cx <- cfg$raman_image_center_x_um
+  cy <- cfg$raman_image_center_y_um
+  ok <- function(v) !is.null(v) && is.numeric(v) && length(v) == 1 && is.finite(v)
+  if (!ok(w) || !ok(h) || w <= 0 || h <= 0 || !ok(cx) || !ok(cy)) return(NULL)
+
+  fin <- is.finite(x_orig) & is.finite(y_orig)
+  x <- x_orig[fin]; y <- y_orig[fin]
+
+  score <- function(cy_stage) {
+    ext <- list(xmin = cx - w / 2, xmax = cx + w / 2,
+                ymin = cy_stage - h / 2, ymax = cy_stage + h / 2)
+    ext$frac_inside <- if (length(x) == 0) 1 else
+      mean(x >= ext$xmin & x <= ext$xmax & y >= ext$ymin & y <= ext$ymax)
+    ext
+  }
+
+  neg <- score(-cy)   # panel value in Y-down video frame -> negate (expected)
+  raw <- score(cy)    # panel value already in stage frame
+  best <- if (neg$frac_inside >= raw$frac_inside) {
+    c(neg, list(y_negated = TRUE))
+  } else {
+    c(raw, list(y_negated = FALSE))
+  }
+  if (best$frac_inside < min_frac) return(NULL)
+  best
+}
+
+# ---------------------------------------------------------------------------
 # Compute image bounds that preserve the image's native aspect ratio while
 # centering on a set of particles.  The image is expanded (never cropped)
 # so that all particles fit inside, plus padding.
