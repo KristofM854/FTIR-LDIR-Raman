@@ -67,11 +67,25 @@ rotate_cloud <- function(px, py, angle_deg, mirror, s) {
   else         list(x = s * (ct * px + st * py), y = s * (st * px - ct * py))
 }
 
-# Inlier count of transformed LDIR (X,Y) against a Raman cloud (ax,ay)
+# ONE-TO-ONE inlier count of transformed LDIR (X,Y) against Raman (ax,ay):
+# greedy nearest-pair matching where each particle on either side is used at
+# most once.  Plain nearest-neighbor counting rewards collapsing the whole
+# LDIR cloud into the densest Raman region at tiny scales (every point finds
+# SOME neighbor); one-to-one matching caps that at the local particle count.
 count_inliers <- function(X, Y, ax, ay) {
-  d2 <- outer(ax, X, "-")^2 + outer(ay, Y, "-")^2   # [n_raman, n_ldir]
-  dmin <- d2[cbind(max.col(-t(d2)), seq_along(X))]  # per-LDIR min distance^2
-  sum(sqrt(dmin) <= INLIER_UM)
+  d <- sqrt(outer(ax, X, "-")^2 + outer(ay, Y, "-")^2)  # [n_raman, n_ldir]
+  ok <- which(d <= INLIER_UM, arr.ind = TRUE)
+  if (nrow(ok) == 0) return(0L)
+  ord <- order(d[ok])
+  used_r <- logical(length(ax)); used_l <- logical(length(X))
+  n <- 0L
+  for (k in ord) {
+    i <- ok[k, 1]; j <- ok[k, 2]
+    if (!used_r[i] && !used_l[j]) {
+      used_r[i] <- TRUE; used_l[j] <- TRUE; n <- n + 1L
+    }
+  }
+  n
 }
 
 score_orientation <- function(angle_deg, mirror, s) {
@@ -92,10 +106,24 @@ score_orientation <- function(angle_deg, mirror, s) {
   list(n = best_n, tx = best_tx, ty = best_ty)
 }
 
-cat("Searching rotation (1° grid) x mirror x scale ... (~30-90 s)\n")
+# Scale sweep: instruments do NOT necessarily report true µm — e.g. an LDIR
+# export covering only the deposit region gets inflated by the 13 mm
+# scan-diameter assumption (observed: ~2.5x on a real run).  Sweep a wide
+# range and print the span-ratio hint so a scale mismatch can't hide.
+span <- function(v) diff(range(v))
+ratio_hint <- (span(rx) + span(ry)) / (span(lx) + span(ly))
+cat(sprintf(paste0(
+  "Span-ratio hint (Raman extent / LDIR extent) = %.2f — if far from 1, one ",
+  "instrument's\ncoordinate scale is not true um (expect the best scale near ",
+  "this value).\n\n"), ratio_hint))
+scales <- sort(unique(round(c(seq(0.30, 1.30, by = 0.05),
+                              ratio_hint * seq(0.8, 1.2, by = 0.05)), 2)))
+scales <- scales[scales > 0.05]
+
+cat("Searching rotation (1° grid) x mirror x scale ... (~1-3 min)\n")
 results <- list()
 for (mirror in c(FALSE, TRUE)) {
-  for (s in seq(0.85, 1.15, by = 0.05)) {
+  for (s in scales) {
     for (a in seq(0, 359, by = 1)) {
       sc <- score_orientation(a, mirror, s)
       results[[length(results) + 1]] <- data.frame(
