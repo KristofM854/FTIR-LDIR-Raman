@@ -602,6 +602,25 @@ extract_ldir_image_coords <- function(image_path,
     13000
   }
 
+  # Physical-width override: when the LDIR export covers only the deposit
+  # region instead of the full scan circle, calibrating against
+  # ldir_scan_diameter_um inflates every coordinate (observed ~2.6x on a
+  # deposit-only export).  ldir_image_width_um declares the export's true
+  # physical width; convert it to the effective scan diameter that yields
+  # scale_um_per_px = ldir_image_width_um / image_width_px.
+  if (!is.null(config$ldir_image_width_um) &&
+      is.numeric(config$ldir_image_width_um) &&
+      config$ldir_image_width_um > 0 &&
+      !is.null(circle_info$width) && circle_info$width > 0) {
+    scan_diam_um <- config$ldir_image_width_um *
+      (2 * circle_info$radius_px) / circle_info$width
+    log_message("  LDIR scale override: image width ",
+                config$ldir_image_width_um, " µm -> effective scan diameter ",
+                round(scan_diam_um), " µm (",
+                round(config$ldir_image_width_um / circle_info$width, 4),
+                " µm/px)")
+  }
+
   # Pixel-space diagnostic images are written unconditionally to the run's
   # debug/ subfolder (output_dir/debug/).  If debug=TRUE the same images are
   # also written to config$debug_dir for backward compatibility.
