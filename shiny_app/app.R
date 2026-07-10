@@ -201,6 +201,13 @@ ui <- fluidPage(
                        choices = c("Native coordinates" = "native",
                                    "Aligned (Raman space)" = "aligned"),
                        selected = "native", inline = TRUE),
+          selectInput("ldir_view_rotation", "View rotation (native mode)",
+                      choices = c("Auto (match Raman)" = "auto",
+                                  "None (0°)"     = "0",
+                                  "90° counter-clockwise" = "90",
+                                  "90° clockwise" = "-90",
+                                  "180°"          = "180"),
+                      selected = "auto"),
           hr(),
           h4("Image Overlay"),
           checkboxGroupInput("ldir_overlay_mode", "Display",
@@ -2145,6 +2152,7 @@ server <- function(input, output, session) {
   observeEvent(input$ftir_coord_mode,        { zoom$ftir        <- NULL })
   observeEvent(input$ftir_bruker_coord_mode, { zoom$ftir_bruker <- NULL })
   observeEvent(input$ldir_coord_mode,        { zoom$ldir        <- NULL })
+  observeEvent(input$ldir_view_rotation,     { zoom$ldir        <- NULL })
 
   # ==================================================================
   # Click-to-select handlers for single-instrument viewers
@@ -2180,8 +2188,24 @@ server <- function(input, output, session) {
   })
   observeEvent(input$raman_clear_selection, { selected_ids$raman <- character(0) })
 
+  # LDIR native display may be view-rotated to match the Raman orientation;
+  # the click arrives in rotated plot space, so rotate the lookup coordinates
+  # the same way before nearest-particle search.
+  .ldir_click_df <- function() {
+    df <- ldir_filtered()
+    cm <- input$ldir_coord_mode
+    if (!is.null(cm) && cm == "native" && !is.null(df) && nrow(df) > 0) {
+      rot <- ldir_view_rot_deg()
+      if (rot != 0L) {
+        rc <- rotate_xy_view(df$x_orig, df$y_orig, rot)
+        df$x_orig <- rc$x; df$y_orig <- rc$y
+      }
+    }
+    df
+  }
+
   observeEvent(input$ldir_click, {
-    pid <- .find_nearest(input$ldir_click, ldir_filtered(), zoom$ldir)
+    pid <- .find_nearest(input$ldir_click, .ldir_click_df(), zoom$ldir)
     if (!is.null(pid)) {
       cur <- selected_ids$ldir
       selected_ids$ldir <- if (pid %in% cur) cur else c(cur, pid)
@@ -2594,6 +2618,21 @@ server <- function(input, output, session) {
     d$ldir_image_extracted
   })
 
+  # View rotation for the LDIR native display (multiple of 90 deg).
+  # "auto" derives the total LDIR->Raman rotation from the run's alignment
+  # transform so the LDIR tab shows the same orientation as the Raman tab.
+  ldir_view_rot_deg <- reactive({
+    sel <- input$ldir_view_rotation
+    if (is.null(sel) || sel == "auto") {
+      rot <- ldir_total_rotation_deg(selected_run_dir(),
+                                     tryCatch(active_manifest(),
+                                              error = function(e) NULL))
+      if (is.null(rot)) 0L else rot
+    } else {
+      as.integer(sel)
+    }
+  })
+
   output$ldir_plot <- renderPlot({
     df <- ldir_filtered()
     overlay_mode <- input$ldir_overlay_mode
@@ -2622,6 +2661,23 @@ server <- function(input, output, session) {
       ldir_native_image_info()
     } else NULL
 
+    # Rotate the whole native scene (image + particles) into the Raman
+    # orientation for side-by-side comparison.  Aligned mode is already in
+    # Raman space, so no rotation applies there.  Display-only.
+    view_rot <- if (aligned) 0L else ldir_view_rot_deg()
+    if (view_rot != 0L) {
+      if (!is.null(img)) {
+        ext <- rotate_extent_view(img, view_rot)
+        img <- list(raster = rotate_raster_view(img$raster, view_rot),
+                    xmin = ext$xmin, xmax = ext$xmax,
+                    ymin = ext$ymin, ymax = ext$ymax)
+      }
+      if (nrow(df_disp) > 0) {
+        rc <- rotate_xy_view(df_disp$x, df_disp$y, view_rot)
+        df_disp$x <- rc$x; df_disp$y <- rc$y
+      }
+    }
+
     # Viewport priority:
     # 1. User zoom (brush) — always honoured
     # 2. Image bounds — when an image is shown, the viewport must cover the full
@@ -2643,6 +2699,10 @@ server <- function(input, output, session) {
     if ("extracted_pts" %in% overlay_mode && n_extracted > 0)
       title_parts <- paste0(title_parts, " + ", n_extracted, " image-extracted")
     title_parts <- paste0(title_parts, ")")
+    if (view_rot != 0L)
+      title_parts <- paste0(title_parts, " — view rotated ",
+                            ifelse(view_rot > 0, "+", ""), view_rot,
+                            "° to match Raman")
 
     if (nrow(df_disp) == 0 && !("extracted_pts" %in% overlay_mode && n_extracted > 0)) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -2675,6 +2735,10 @@ server <- function(input, output, session) {
     if ("extracted_pts" %in% overlay_mode && n_extracted > 0) {
       ext_df <- data.frame(x = extracted$x_um, y = extracted$y_um,
                            feret_max = extracted$feret_max_um)
+      if (view_rot != 0L) {
+        rc <- rotate_xy_view(ext_df$x, ext_df$y, view_rot)
+        ext_df$x <- rc$x; ext_df$y <- rc$y
+      }
       p <- p + geom_point(data = ext_df,
                             aes(x = x, y = y, size = feret_max),
                             shape = 1, colour = "#e377c2", alpha = 0.5,
@@ -2750,14 +2814,14 @@ server <- function(input, output, session) {
   observeEvent(input$ldir_hover, {
     hover <- input$ldir_hover
     if (is.null(hover)) return()
-    df <- ldir_filtered()
+    df <- .ldir_click_df()   # native coords, view-rotated like the display
     if (nrow(df) == 0) return()
-    # Search in native LDIR coordinate space (x_orig, y_orig)
     dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
     idx   <- which.min(dists)
     threshold <- max(diff(range(df$x_orig, na.rm = TRUE)),
                      diff(range(df$y_orig, na.rm = TRUE)), 500) * 0.05
-    if (dists[idx] <= threshold) last_hover$ldir <- df[idx, , drop = FALSE]
+    # Store the UNrotated row so the detail table shows true coordinates
+    if (dists[idx] <= threshold) last_hover$ldir <- ldir_filtered()[idx, , drop = FALSE]
   })
 
   output$ldir_hover_info <- renderUI({
