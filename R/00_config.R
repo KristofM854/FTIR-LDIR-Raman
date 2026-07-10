@@ -68,20 +68,26 @@ make_config <- function(ftir_path  = NULL,
                                    # width = best_scale x ldir_scan_diameter_um.
                                    # PER-DATASET value, like raman_image_*.
 
-    # --- Raman microscope image placement (WITec metadata) ---
-    # Enter the values EXACTLY as WITec's Particle Scout shows them —
-    # Width, Height, Center X, Center Y (all µm), including a negative
-    # Center Y if that is what the panel reports.  WITec gives the center in
-    # its video/image frame (Y pointing DOWN) while the particle export
-    # ("Visual Center Point Y") is stage-frame (Y UP); the viewer resolves
-    # the Y-axis convention automatically by checking which interpretation
-    # contains the run's particles (raman_image_extent_from_config()).
-    # When all four are set, the image is placed at exact physical bounds
-    # regardless of the uploaded image's pixel resolution (resize-invariant).
-    # NULL = fall back to particle-extent method.
-    # NOTE: these values are PER-DATASET — read them from WITec's Particle
-    # Scout for each new Raman scan and update them here, or the viewer
-    # falls back to heuristic (particle-bbox) placement for that run.
+    # --- Raman microscope image placement (physical extent, µm) ---
+    # Width, Height, Center X, Center Y of the exported Raman image in stage
+    # µm.  The viewer resolves the Y-axis sign automatically (WITec's panel
+    # reports the center Y-down; the particle export is Y-up), and places the
+    # image at exact physical bounds regardless of pixel resolution.
+    # NULL = fall back to particle-extent heuristic.
+    #
+    # WHERE TO GET THE VALUES — depends on how the image was exported:
+    #  * Export of the FULL stitched overview: Particle Scout's panel values
+    #    (Width/Height/Center X/Center Y) describe it — enter them verbatim,
+    #    negative Center Y included.
+    #  * Cropped/zoomed export (only the deposit region): the panel values do
+    #    NOT describe the exported file. Measure the true extent once with
+    #      Rscript tools/diagnose_raman_placement.R output/<run>
+    #    and either enter the reported best-fit width/height/center here, or
+    #    re-run it with --apply to patch that one run's manifest in place.
+    #
+    # NOTE: PER-DATASET values — update for each new Raman scan. A stale
+    # extent is detected (<50% of particles inside) and the viewer falls back
+    # to heuristic placement with a console warning.
     raman_image_width_um    = 12569.2097402076,
     raman_image_height_um   = 12153.0107421875,
     raman_image_center_x_um = -272.473663330078,
