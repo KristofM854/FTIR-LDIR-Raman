@@ -2619,18 +2619,15 @@ server <- function(input, output, session) {
   })
 
   # View rotation for the LDIR native display (multiple of 90 deg).
-  # "auto" derives the total LDIR->Raman rotation from the run's alignment
-  # transform so the LDIR tab shows the same orientation as the Raman tab.
+  # "auto" measures which rotation brings the LDIR particle cloud into the
+  # Raman cloud's orientation directly from the plotted coordinates, so the
+  # LDIR tab matches the Raman tab regardless of export convention / Y-flips.
   ldir_view_rot_deg <- reactive({
     sel <- input$ldir_view_rotation
-    if (is.null(sel) || sel == "auto") {
-      rot <- ldir_total_rotation_deg(selected_run_dir(),
-                                     tryCatch(active_manifest(),
-                                              error = function(e) NULL))
-      if (is.null(rot)) 0L else rot
-    } else {
-      as.integer(sel)
-    }
+    if (!is.null(sel) && sel != "auto") return(as.integer(sel))
+    ld <- ldir_df_full(); rd <- raman_df_full()
+    if (is.null(ld) || is.null(rd) || nrow(ld) == 0 || nrow(rd) == 0) return(0L)
+    ldir_auto_view_rotation(ld$x_orig, ld$y_orig, rd$x_orig, rd$y_orig)
   })
 
   output$ldir_plot <- renderPlot({
