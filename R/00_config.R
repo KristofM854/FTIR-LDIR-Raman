@@ -198,7 +198,14 @@ make_config <- function(ftir_path  = NULL,
 
     # --- Particle matching ---
     match_method               = "hungarian",  # "hungarian" or "greedy"
-    match_dist_threshold_um    = 100,
+    match_dist_threshold_um    = 100,   # FTIR<->Raman gate (fine, dense)
+    # Dedicated, looser gate for any pairing that involves LDIR. LDIR
+    # centroids are coarser (circle calibration, large particles) so genuine
+    # matches sit at larger residuals — on real runs the 90th percentile of
+    # true LDIR<->Raman match distance is ~220 um, which the 100 um gate cuts.
+    # Measure headroom for a given run with tools/diagnose_matching.R.
+    # NULL = fall back to match_dist_threshold_um.
+    match_dist_threshold_ldir_um = 250,
     match_adaptive_dist_factor = 0.15,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",
