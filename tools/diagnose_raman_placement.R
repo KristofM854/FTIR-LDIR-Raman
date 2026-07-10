@@ -44,6 +44,14 @@ if (length(args) < 1)
 run_dir <- args[1]
 if (!dir.exists(run_dir)) stop("Run directory not found: ", run_dir)
 
+# Shared measurement core (also used by the pipeline's auto-calibration)
+.self <- tryCatch(sub("^--file=", "", grep("^--file=", commandArgs(FALSE),
+                                           value = TRUE)[1]), error = function(e) NA)
+.core <- file.path(if (!is.na(.self)) dirname(dirname(normalizePath(.self))) else ".",
+                   "R", "measure_raman_placement.R")
+if (!file.exists(.core)) .core <- "R/measure_raman_placement.R"
+source(.core)
+
 # --- Load manifest config (WITec values) -------------------------------------
 m_path <- file.path(run_dir, "00_manifest", "manifest.json")
 if (!file.exists(m_path)) m_path <- file.path(run_dir, "manifest.json")
@@ -163,64 +171,18 @@ analyze_image <- function(img_path, which_img) {
   print(tab, digits = 3)
 
   # --- Free registration: coarse-to-fine scale + translation search ---
+  # Delegates to the shared core (R/measure_raman_placement.R) so the tool
+  # and the pipeline's auto-calibration measure identically.  min_frac=-1
+  # forces a result even for weak fits so the tool can report them.
   cat("\n=== Free scale + translation search ===\n")
-  pcx <- mean(range(x)); pcy <- mean(range(y))
-  better <- function(a, b)
-    a["frac_bright"] > b$frac_bright ||
-    (a["frac_bright"] == b$frac_bright && a["mean_lum"] > b$mean_lum)
-
-  coarse_hits <- list()
-  for (fh in c(FALSE, TRUE)) for (fv in c(FALSE, TRUE)) {
-    for (s in seq(0.3, 2.4, by = 0.1)) {
-      w_s <- W * s; h_s <- H * s
-      step <- r_coarse * (w_s / Wpx)
-      span <- max(w_s, h_s)
-      hit <- list(frac_bright = -1, mean_lum = -1)
-      for (dx in seq(-span/2, span/2, by = step))
-        for (dy in seq(-span/2, span/2, by = step)) {
-          sc <- score_placement(extent_center(pcx + dx, pcy + dy, w_s, h_s),
-                                fh, fv, mat = lum_coarse)
-          if (better(sc, hit))
-            hit <- list(frac_bright = sc[["frac_bright"]],
-                        mean_lum = sc[["mean_lum"]],
-                        flip_h = fh, flip_v = fv, scale = s,
-                        cx = pcx + dx, cy = pcy + dy)
-        }
-      coarse_hits[[length(coarse_hits) + 1]] <- hit
-    }
-  }
-  ord <- order(-vapply(coarse_hits, `[[`, 0, "frac_bright"),
-               -vapply(coarse_hits, `[[`, 0, "mean_lum"))
-  top <- coarse_hits[ord[seq_len(min(6, length(ord)))]]
-
-  best <- list(frac_bright = -1, mean_lum = -1)
-  for (h in top) {
-    for (s in seq(h$scale - 0.06, h$scale + 0.06, by = 0.02)) {
-      w_s <- W * s; h_s <- H * s
-      for (dx in seq(-3 * r_coarse, 3 * r_coarse, by = max(1, r_coarse / 4)) * (w_s / Wpx))
-        for (dy in seq(-3 * r_coarse, 3 * r_coarse, by = max(1, r_coarse / 4)) * (h_s / Hpx)) {
-          sc <- score_placement(extent_center(h$cx + dx, h$cy + dy, w_s, h_s),
-                                h$flip_h, h$flip_v)
-          if (better(sc, best))
-            best <- list(frac_bright = sc[["frac_bright"]],
-                         mean_lum = sc[["mean_lum"]],
-                         n_inside = sc[["n_inside"]], flip_h = h$flip_h,
-                         flip_v = h$flip_v, scale = s,
-                         cx = h$cx + dx, cy = h$cy + dy)
-        }
-    }
-  }
-  for (dx in seq(-2, 2, by = 0.5) * (W * best$scale / Wpx))
-    for (dy in seq(-2, 2, by = 0.5) * (H * best$scale / Hpx)) {
-      sc <- score_placement(extent_center(best$cx + dx, best$cy + dy,
-                                          W * best$scale, H * best$scale),
-                            best$flip_h, best$flip_v)
-      if (better(sc, best)) {
-        best$frac_bright <- sc[["frac_bright"]]; best$mean_lum <- sc[["mean_lum"]]
-        best$n_inside <- sc[["n_inside"]]
-        best$cx <- best$cx + dx; best$cy <- best$cy + dy
-      }
-    }
+  core <- measure_raman_placement_core(lum, x, y, W, H, min_frac = -1)
+  best <- list(frac_bright = core$frac_bright, flip_h = core$flip_h,
+               flip_v = core$flip_v, scale = core$scale,
+               cx = core$center_x_um, cy = core$center_y_um)
+  disp <- score_placement(extent_center(best$cx, best$cy,
+                                        W * best$scale, H * best$scale),
+                          best$flip_h, best$flip_v)
+  best$mean_lum <- disp[["mean_lum"]]; best$n_inside <- disp[["n_inside"]]
 
   cat(sprintf(paste0(
     "Best registration: frac_bright = %.2f of ALL %d particles ",
