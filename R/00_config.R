@@ -59,6 +59,14 @@ make_config <- function(ftir_path  = NULL,
     ldir_rotate_deg_for_alignment = -90, # clockwise rotation applied before alignment;
                                           # corrects instrument export convention vs Raman.
                                           # must be one of: 0, 90, -90, 180
+    ldir_image_width_um = NULL,    # physical width (µm) of the LDIR image export.
+                                   # NULL = assume the image spans the full scan
+                                   # circle (ldir_scan_diameter_um). SET THIS when
+                                   # the export covers only the deposit region —
+                                   # otherwise every LDIR coordinate is inflated.
+                                   # tools/diagnose_ldir_rotation.R measures it:
+                                   # width = best_scale x ldir_scan_diameter_um.
+                                   # PER-DATASET value, like raman_image_*.
 
     # --- Raman microscope image placement (WITec metadata) ---
     # Enter the values EXACTLY as WITec's Particle Scout shows them —

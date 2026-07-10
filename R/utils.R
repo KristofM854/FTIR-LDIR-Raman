@@ -839,6 +839,7 @@ write_manifest <- function(run_dir, run_id, config,
 
   # --- Config snapshot (key values only) ---
   cfg_keys <- c("ldir_scan_diameter_um", "ldir_flip_y_for_alignment",
+                 "ldir_image_width_um", "ldir_rotate_deg_for_alignment",
                  "min_quality_ftir", "min_quality_raman", "min_size_um",
                  "ransac_iterations", "icp_max_iter", "match_radius_um",
                  # Raman image placement — the Shiny viewer reads these from
