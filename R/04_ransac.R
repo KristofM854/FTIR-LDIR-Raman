@@ -45,6 +45,29 @@ ransac_align <- function(ftir_df, raman_df, config) {
   raman_mat <- cbind(raman_x, raman_y)
 
   # =========================================================================
+  # Phase 0: Candidate scale factors
+  # =========================================================================
+  # Instruments do not always deliver true-µm coordinates — e.g. an LDIR
+  # export covering only the deposit region gets inflated ~2.6x by the 13 mm
+  # scan-circle assumption. A robust span ratio between the clouds seeds
+  # additional scale candidates so Phase 1 can find poses far from scale 1;
+  # Phase 2 then re-estimates the exact scale from correspondences. For
+  # same-scale datasets the ratio is ~1 and this collapses to the old search.
+  rspan <- function(v) {
+    q <- stats::quantile(v, c(0.05, 0.95), na.rm = TRUE)
+    max(q[2] - q[1], 1e-9)
+  }
+  span_ratio <- (rspan(raman_x) + rspan(raman_y)) / (rspan(ftir_x) + rspan(ftir_y))
+  scale_cands <- c(1, span_ratio * c(0.85, 1, 1.15))
+  scale_cands <- sort(unique(round(scale_cands[scale_cands > 0.05], 3)))
+  # Merge candidates within 10% of each other
+  keep <- c(TRUE, diff(scale_cands) / head(scale_cands, -1) > 0.1)
+  scale_cands <- scale_cands[keep]
+  log_message("  Phase 0: scale candidates = ",
+              paste(scale_cands, collapse = ", "),
+              " (robust span ratio = ", round(span_ratio, 3), ")")
+
+  # =========================================================================
   # Phase 1: Coarse grid search with translation estimation
   # =========================================================================
   log_message("  Phase 1: Coarse rotation grid search (step = ", step_deg, "deg)")
@@ -55,28 +78,30 @@ ransac_align <- function(ftir_df, raman_df, config) {
   best_score  <- 0
   best_angle  <- 0
   best_mirror <- FALSE
+  best_scale  <- 1
   best_tx     <- 0
   best_ty     <- 0
   coarse_scores <- data.frame(angle = numeric(), mirror = logical(),
-                              n_inliers = integer())
+                              scale = numeric(), n_inliers = integer())
 
   # Pick a subset of FTIR indices to use as translation anchors
   # (use all if small, sample if large)
   anchor_indices <- if (n_ftir <= 30) seq_len(n_ftir) else sample(n_ftir, 30)
 
+  for (s_cand in scale_cands) {
   for (mirror in mirror_opts) {
     for (angle in angles) {
       theta <- angle * pi / 180
       ct <- cos(theta)
       st <- sin(theta)
 
-      # Apply rotation (+ optional mirror) to FTIR points
+      # Apply scale + rotation (+ optional mirror) to FTIR points
       if (!mirror) {
-        rx <- ct * ftir_x - st * ftir_y
-        ry <- st * ftir_x + ct * ftir_y
+        rx <- s_cand * (ct * ftir_x - st * ftir_y)
+        ry <- s_cand * (st * ftir_x + ct * ftir_y)
       } else {
-        rx <- ct * ftir_x + st * ftir_y
-        ry <- st * ftir_x - ct * ftir_y
+        rx <- s_cand * (ct * ftir_x + st * ftir_y)
+        ry <- s_cand * (st * ftir_x - ct * ftir_y)
       }
 
       # Anchor-based translation estimation:
@@ -110,20 +135,24 @@ ransac_align <- function(ftir_df, raman_df, config) {
 
       coarse_scores <- rbind(coarse_scores,
                              data.frame(angle = angle, mirror = mirror,
+                                        scale = s_cand,
                                         n_inliers = angle_best_n))
 
       if (angle_best_n > best_score) {
         best_score  <- angle_best_n
         best_angle  <- angle
         best_mirror <- mirror
+        best_scale  <- s_cand
         best_tx     <- angle_best_tx
         best_ty     <- angle_best_ty
       }
     }
   }
+  }
 
   log_message("  Coarse search best: angle = ", best_angle,
               " deg, mirror = ", best_mirror,
+              ", scale = ", best_scale,
               ", inliers = ", best_score, " / ", n_ftir,
               ", translation = (", round(best_tx, 1), ", ", round(best_ty, 1), ")")
 
@@ -146,16 +175,17 @@ ransac_align <- function(ftir_df, raman_df, config) {
   # =========================================================================
   log_message("  Phase 2: RANSAC refinement (", n_ransac, " iterations)")
 
-  # Apply coarse alignment (rotation + mirror + translation) to get tentative correspondences
+  # Apply coarse alignment (scale + rotation + mirror + translation) to get
+  # tentative correspondences
   theta_best <- best_angle * pi / 180
   ct <- cos(theta_best)
   st <- sin(theta_best)
   if (!best_mirror) {
-    coarse_x <- ct * ftir_x - st * ftir_y + best_tx
-    coarse_y <- st * ftir_x + ct * ftir_y + best_ty
+    coarse_x <- best_scale * (ct * ftir_x - st * ftir_y) + best_tx
+    coarse_y <- best_scale * (st * ftir_x + ct * ftir_y) + best_ty
   } else {
-    coarse_x <- ct * ftir_x + st * ftir_y + best_tx
-    coarse_y <- st * ftir_x - ct * ftir_y + best_ty
+    coarse_x <- best_scale * (ct * ftir_x + st * ftir_y) + best_tx
+    coarse_y <- best_scale * (st * ftir_x - ct * ftir_y) + best_ty
   }
 
   # Find tentative nearest-neighbor correspondences with generous threshold
@@ -169,7 +199,7 @@ ransac_align <- function(ftir_df, raman_df, config) {
 
   if (n_tentative < min_samples) {
     log_message("  Too few tentative correspondences for RANSAC. Using coarse alignment.", level = "WARN")
-    M_coarse <- build_coarse_transform_with_translation(best_angle, best_mirror, best_tx, best_ty)
+    M_coarse <- build_coarse_transform_with_translation(best_angle, best_mirror, best_tx, best_ty, scale = best_scale)
     params <- extract_transform_params(M_coarse)
     return(list(
       transform    = M_coarse,
@@ -200,8 +230,11 @@ ransac_align <- function(ftir_df, raman_df, config) {
         allow_reflection = allow_mirror
       )
 
-      # Reject unreasonable transforms (both instruments measure in µm)
-      if (tf$scale < 0.9 || tf$scale > 1.1) next
+      # Reject transforms whose scale strays far from the coarse estimate.
+      # NOT a fixed [0.9, 1.1] window: coordinate scales can legitimately be
+      # far from 1 when an instrument's export doesn't cover the assumed
+      # physical extent (e.g. LDIR deposit-region export -> true scale ~0.38).
+      if (tf$scale < best_scale * 0.8 || tf$scale > best_scale * 1.25) next
 
       transformed <- apply_transform_points(ftir_x, ftir_y, tf$matrix)
       nn_check <- RANN::nn2(raman_mat,
@@ -264,7 +297,7 @@ ransac_align <- function(ftir_df, raman_df, config) {
 
   # Fallback: use coarse alignment
   log_message("  RANSAC did not improve over coarse. Using coarse alignment.", level = "WARN")
-  M_coarse <- build_coarse_transform_with_translation(best_angle, best_mirror, best_tx, best_ty)
+  M_coarse <- build_coarse_transform_with_translation(best_angle, best_mirror, best_tx, best_ty, scale = best_scale)
   params <- extract_transform_params(M_coarse)
 
   list(
@@ -465,10 +498,11 @@ descriptor_ransac_align <- function(ldir_df, raman_df, config,
 }
 
 
-#' Build a 3x3 transform matrix from coarse rotation + optional mirror + translation
-build_coarse_transform_with_translation <- function(angle_deg, mirror, tx, ty) {
+#' Build a 3x3 transform matrix from coarse scale + rotation + optional mirror + translation
+build_coarse_transform_with_translation <- function(angle_deg, mirror, tx, ty,
+                                                    scale = 1) {
   theta <- angle_deg * pi / 180
-  a <- cos(theta)
-  b <- sin(theta)
+  a <- scale * cos(theta)
+  b <- scale * sin(theta)
   build_transform_matrix(a, b, tx = tx, ty = ty, reflect = mirror)
 }
