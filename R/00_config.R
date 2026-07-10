@@ -107,6 +107,13 @@ make_config <- function(ftir_path  = NULL,
     # RANSAC for LDIR→Raman alignment.  Backward-compatible default: FALSE.
     ldir_use_descriptor_ransac = FALSE,
 
+    # Robust global registration for LDIR->Raman alignment (rotation x scale
+    # sweep with translation voting + one-to-one inliers). Runs alongside the
+    # coarse RANSAC and the transform with more inliers wins — fixes the
+    # sparse-anchor case where RANSAC locks onto a poor local optimum
+    # (observed: 5 inliers where 23 are achievable). TRUE = enabled.
+    ldir_use_global_register = TRUE,
+
     # Transform guardrail thresholds (applied to every alignment path):
     icp_min_scale        = 0.5,   # scale below this → WARN (likely degenerate)
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
