@@ -44,7 +44,10 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       div(id = paste0(id_prefix, "_tour_match"),
         checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
                            choices = match_choices,
-                           selected = unname(match_choices), inline = TRUE)),
+                           selected = unname(match_choices), inline = TRUE),
+        checkboxInput(paste0(id_prefix, "_show_all_detected"),
+                      "Show all detected (ignore match status)",
+                      value = FALSE)),
       # Particle highlight: selectInput for single choice, plus text pattern box
       div(id = paste0(id_prefix, "_tour_highlight"),
         selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
@@ -185,6 +188,9 @@ ui <- fluidPage(
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
           selectInput("ldir_material_filter", "Material",
                       choices = c("All"), selected = "All", multiple = TRUE),
+          checkboxInput("ldir_show_all_detected",
+                        "Show all detected (ignore match status)",
+                        value = FALSE),
           checkboxGroupInput("ldir_match_filter", "Match Status",
                              choices = c("Matched \u2194 Raman" = "matched",
                                          "Unmatched (vs Raman)" = "unmatched"),
@@ -1965,6 +1971,14 @@ server <- function(input, output, session) {
     updateTextInput(session, "ftir_bruker_highlight_pattern", value = "")
   })
 
+  # Effective match-status filter for a viewer: when its "Show all detected"
+  # box is ticked, ignore the Match Status checkboxes and keep every status.
+  eff_match_filter <- function(prefix) {
+    if (isTRUE(input[[paste0(prefix, "_show_all_detected")]]))
+      return(c("matched", "unmatched"))
+    input[[paste0(prefix, "_match_filter")]]
+  }
+
   # ==================================================================
   # Helper: generic instrument filter
   # ==================================================================
@@ -2003,22 +2017,28 @@ server <- function(input, output, session) {
 
   make_scatter <- function(df, img_info, bounds, title,
                             match_colours = NULL, highlight_id = NULL,
-                            full_df = NULL, match_labels = NULL) {
+                            full_df = NULL, match_labels = NULL,
+                            plain = FALSE) {
 
     p <- ggplot(df, aes(x = x, y = y))
 
     # Background image (with per-image bounds)
     p <- add_image_bg(p, img_info)
 
-    # Points
-    p <- p + geom_point(aes(colour = match_status, size = feret_max),
-                         alpha = 0.7)
-
-    if (!is.null(match_colours)) {
-      if (!is.null(match_labels))
-        p <- p + scale_colour_manual(values = match_colours, labels = match_labels)
-      else
-        p <- p + scale_colour_manual(values = match_colours)
+    # Points. In "plain" mode (Show all detected) every particle is drawn in a
+    # single colour with no matched/unmatched distinction or legend.
+    if (isTRUE(plain)) {
+      p <- p + geom_point(aes(size = feret_max), colour = "#1f77b4",
+                          alpha = 0.7)
+    } else {
+      p <- p + geom_point(aes(colour = match_status, size = feret_max),
+                          alpha = 0.7)
+      if (!is.null(match_colours)) {
+        if (!is.null(match_labels))
+          p <- p + scale_colour_manual(values = match_colours, labels = match_labels)
+        else
+          p <- p + scale_colour_manual(values = match_colours)
+      }
     }
 
     p <- p +
@@ -2291,9 +2311,9 @@ server <- function(input, output, session) {
     df <- ftir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, ftir_quality_range_d(), ftir_size_range_d(),
-                      input$ftir_material_filter, input$ftir_match_filter)
+                      input$ftir_material_filter, eff_match_filter("ftir"))
   })
-  
+
   ftir_points_df <- reactive({
     df <- ftir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
@@ -2381,7 +2401,8 @@ server <- function(input, output, session) {
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
                  match_labels  = c(matched = "matched to Raman", unmatched = "unmatched"),
                  highlight_id  = hl_ids,
-                 full_df       = full_ftir)
+                 full_df       = full_ftir,
+                 plain         = isTRUE(input$ftir_show_all_detected))
   })
 
   output$ftir_summary_text <- renderText({
@@ -2431,7 +2452,7 @@ server <- function(input, output, session) {
     df <- raman_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, raman_quality_range_d(), raman_size_range_d(),
-                      input$raman_material_filter, input$raman_match_filter)
+                      input$raman_material_filter, eff_match_filter("raman"))
   })
 
   output$raman_plot <- renderPlot({
@@ -2480,7 +2501,8 @@ server <- function(input, output, session) {
                  match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
                  match_labels = c(matched = "matched to FTIR", unmatched = "unmatched"),
                  highlight_id = hl_ids,
-                 full_df = full_raman)
+                 full_df = full_raman,
+                 plain = isTRUE(input$raman_show_all_detected))
   })
 
   output$raman_summary_text <- renderText({
@@ -2526,7 +2548,7 @@ server <- function(input, output, session) {
     df <- ldir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     df <- filter_instrument(df, ldir_quality_range_d(), ldir_size_range_d(),
-                            input$ldir_material_filter, input$ldir_match_filter)
+                            input$ldir_material_filter, eff_match_filter("ldir"))
     # Apply match score filter (LDIR↔Raman): keep NA (unmatched) + within range
     if ("match_score" %in% names(df) && !is.null(ldir_score_range_d())) {
       score_r <- ldir_score_range_d()
@@ -2619,18 +2641,15 @@ server <- function(input, output, session) {
   })
 
   # View rotation for the LDIR native display (multiple of 90 deg).
-  # "auto" derives the total LDIR->Raman rotation from the run's alignment
-  # transform so the LDIR tab shows the same orientation as the Raman tab.
+  # "auto" measures which rotation brings the LDIR particle cloud into the
+  # Raman cloud's orientation directly from the plotted coordinates, so the
+  # LDIR tab matches the Raman tab regardless of export convention / Y-flips.
   ldir_view_rot_deg <- reactive({
     sel <- input$ldir_view_rotation
-    if (is.null(sel) || sel == "auto") {
-      rot <- ldir_total_rotation_deg(selected_run_dir(),
-                                     tryCatch(active_manifest(),
-                                              error = function(e) NULL))
-      if (is.null(rot)) 0L else rot
-    } else {
-      as.integer(sel)
-    }
+    if (!is.null(sel) && sel != "auto") return(as.integer(sel))
+    ld <- ldir_df_full(); rd <- raman_df_full()
+    if (is.null(ld) || is.null(rd) || nrow(ld) == 0 || nrow(rd) == 0) return(0L)
+    ldir_auto_view_rotation(ld$x_orig, ld$y_orig, rd$x_orig, rd$y_orig)
   })
 
   output$ldir_plot <- renderPlot({
@@ -2745,16 +2764,23 @@ server <- function(input, output, session) {
                             stroke = 0.5)
     }
 
-    # Excel-joined particles (main layer)
+    # Excel-joined particles (main layer). "Show all detected" draws every
+    # particle one colour with no matched/unmatched distinction.
     if (nrow(df_disp) > 0) {
-      p <- p + geom_point(data = df_disp,
-                            aes(x = x, y = y, colour = match_status,
-                                size = feret_max),
-                            alpha = 0.7) +
-        scale_colour_manual(values = c(matched = "#d62728",
-                                        unmatched = "#bcbd22"),
-                             labels = c(matched = "matched to Raman",
-                                        unmatched = "unmatched"))
+      if (isTRUE(input$ldir_show_all_detected)) {
+        p <- p + geom_point(data = df_disp,
+                              aes(x = x, y = y, size = feret_max),
+                              colour = "#1f77b4", alpha = 0.7)
+      } else {
+        p <- p + geom_point(data = df_disp,
+                              aes(x = x, y = y, colour = match_status,
+                                  size = feret_max),
+                              alpha = 0.7) +
+          scale_colour_manual(values = c(matched = "#d62728",
+                                          unmatched = "#bcbd22"),
+                               labels = c(matched = "matched to Raman",
+                                          unmatched = "unmatched"))
+      }
     }
 
     # Size legend (single scale for all layers)
@@ -2846,7 +2872,7 @@ server <- function(input, output, session) {
     df <- ftir_bruker_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, ftir_bruker_quality_range_d(), ftir_bruker_size_range_d(),
-                      input$ftir_bruker_material_filter, input$ftir_bruker_match_filter)
+                      input$ftir_bruker_material_filter, eff_match_filter("ftir_bruker"))
   })
 
   output$ftir_bruker_plot <- renderPlot({
@@ -2907,7 +2933,8 @@ server <- function(input, output, session) {
                  match_colours = c(matched="#9467bd", unmatched="#8c564b"),
                  match_labels  = c(matched="matched to Raman", unmatched="unmatched"),
                  highlight_id  = hl_ids,
-                 full_df       = full_fb)
+                 full_df       = full_fb,
+                 plain         = isTRUE(input$ftir_bruker_show_all_detected))
   })
   output$ftir_bruker_summary_text <- renderText({
     df <- ftir_bruker_filtered()
