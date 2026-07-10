@@ -48,6 +48,18 @@ match_particles <- function(src_df, ref_df, config,
 
   force_complete <- isTRUE(config$ldir_force_complete_match) && src_label == "ldir"
 
+  # LDIR spatial precision (coarse circle-calibrated centroids on large
+  # particles) is inherently lower than FTIR/Raman, so genuine LDIR matches
+  # sit at larger residuals — the FTIR-tuned gate rejects them. Use a
+  # dedicated, looser threshold for any pairing that involves LDIR.
+  is_ldir_pair <- src_label == "ldir" || ref_label == "ldir"
+  if (is_ldir_pair && !is.null(config$match_dist_threshold_ldir_um)) {
+    eff <- config$match_dist_threshold_ldir_um
+    log_message("  LDIR pairing: using distance gate ", eff,
+                " um (default ", config$match_dist_threshold_um, " um)")
+    config$match_dist_threshold_um <- eff
+  }
+
   if (method == "hungarian") {
     result <- .match_hungarian(src_df, ref_df, config, src_label, ref_label,
                                force_complete = force_complete)
