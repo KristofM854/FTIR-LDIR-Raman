@@ -83,8 +83,93 @@ cat(sprintf("Current match distances: median %.0f um, 90th pct %.0f um, max %.0f
             quantile(matched$match_distance, 0.9, na.rm = TRUE),
             max(matched$match_distance, na.rm = TRUE)))
 
+# ===========================================================================
+# Independent re-registration: is the pipeline's alignment the limit?
+# ===========================================================================
+# The headroom section below uses the pipeline's transform (fit from the
+# matched pairs), so a poor pipeline alignment caps the headroom it reveals.
+# Here we register the RAW clouds from scratch (full rotation x scale x
+# translation, one-to-one inliers) to find the best ACHIEVABLE alignment,
+# independent of the pipeline, and count matches under it. If this pairs far
+# more particles than the pipeline matched, the ALIGNMENT is the bottleneck,
+# not the match gate.
+cat("\n=== Best achievable alignment (independent re-registration) ===\n")
+LX <- ldir$x_um[lok]; LY <- ldir$y_um[lok]
+RX <- raman$x_um[rok]; RY <- raman$y_um[rok]
+LXc <- LX - mean(LX); LYc <- LY - mean(LY)
+RXc <- RX - mean(RX); RYc <- RY - mean(RY)
+rspan <- function(v) { q <- quantile(v, c(.05, .95), na.rm = TRUE); max(q[2]-q[1], 1e-9) }
+span_ratio <- (rspan(RXc) + rspan(RYc)) / (rspan(LXc) + rspan(LYc))
+TOL <- 250
+
+# The rotation x scale search is O(n_ldir * n_raman) per candidate; subsample
+# large clouds for the search (the spatial pattern survives), then the reported
+# inlier count is recomputed on the FULL clouds under the winning transform.
+set.seed(7)
+sidx <- function(v, m = 150) if (length(v) > m) sort(sample(length(v), m)) else seq_along(v)
+si <- sidx(LXc); ri2 <- sidx(RXc)
+sLXc <- LXc[si]; sLYc <- LYc[si]; sRXc <- RXc[ri2]; sRYc <- RYc[ri2]
+
+one_to_one <- function(px, py, qx, qy, tol) {  # greedy mutual, count only
+  d <- sqrt(outer(qx, px, "-")^2 + outer(qy, py, "-")^2)
+  ok <- which(d <= tol, arr.ind = TRUE)
+  if (nrow(ok) == 0) return(0L)
+  ok <- ok[order(d[ok]), , drop = FALSE]
+  ur <- logical(length(qx)); uc <- logical(length(px)); n <- 0L
+  for (r in seq_len(nrow(ok))) {
+    i <- ok[r, 1]; j <- ok[r, 2]
+    if (!ur[i] && !uc[j]) { ur[i] <- TRUE; uc[j] <- TRUE; n <- n + 1L }
+  }
+  n
+}
+# translation via voting on the subsampled clouds; returns best translation
+score_tr <- function(deg, s, lx, ly, rx2, ry2) {
+  th <- deg * pi / 180
+  X <- s * (cos(th) * lx - sin(th) * ly)
+  Y <- s * (sin(th) * lx + cos(th) * ly)
+  dx <- outer(rx2, X, "-"); dy <- outer(ry2, Y, "-")
+  key <- paste(round(dx / TOL), round(dy / TOL))
+  tb <- sort(table(key), decreasing = TRUE)
+  best <- list(n = 0L, tx = 0, ty = 0)
+  for (k in names(tb)[seq_len(min(5, length(tb)))]) {
+    sel <- key == k; tx <- mean(dx[sel]); ty <- mean(dy[sel])
+    n <- one_to_one(X + tx, Y + ty, rx2, ry2, TOL)
+    if (n > best$n) best <- list(n = n, tx = tx, ty = ty)
+  }
+  best
+}
+apply_tr <- function(deg, s, tx, ty, lx, ly) {
+  th <- deg * pi / 180
+  list(x = s*(cos(th)*lx - sin(th)*ly) + tx, y = s*(sin(th)*lx + cos(th)*ly) + ty)
+}
+scales <- sort(unique(round(c(seq(0.2, 1.3, 0.05),
+                             span_ratio * seq(0.8, 1.2, 0.05)), 3)))
+reg_best <- list(n = -1)
+for (s in scales) for (deg in seq(0, 358, by = 2)) {
+  r <- score_tr(deg, s, sLXc, sLYc, sRXc, sRYc)
+  if (r$n > reg_best$n) reg_best <- c(r, list(deg = deg, s = s))
+}
+# Recompute inlier count on the FULL clouds under the winning transform
+full <- apply_tr(reg_best$deg, reg_best$s, reg_best$tx, reg_best$ty, LXc, LYc)
+reg_full_n <- one_to_one(full$x, full$y, RXc, RYc, TOL)
+reg_best$n <- reg_full_n
+cat(sprintf("Best independent alignment: rotation %d deg, scale %.2f -> %d of %d LDIR within %d um\n",
+            ((reg_best$deg + 180) %% 360) - 180, reg_best$s, reg_best$n,
+            length(LX), TOL))
+cat(sprintf("Pipeline matched %d. ", nrow(matched)))
+if (reg_best$n >= nrow(matched) + 3) {
+  cat("=> ALIGNMENT is the bottleneck: a better-fit transform pairs far more\n")
+  cat("   particles than the pipeline found. Fix sparse LDIR->Raman alignment\n")
+  cat("   (more anchors / global registration), not just the match gate.\n")
+} else {
+  cat("=> Even the best independent alignment finds few pairs, so the two\n")
+  cat("   instruments largely detect different particles (limited true\n")
+  cat("   overlap) — not an alignment or gate problem.\n")
+}
+
 if (sum(u_l) == 0 || sum(u_r) == 0) {
-  cat("No unmatched particles on one side — no headroom to analyse.\n"); quit(save = "no")
+  cat("\nNo unmatched particles on one side — no per-particle headroom to analyse.\n")
+  quit(save = "no")
 }
 
 # --- For each unmatched LDIR, nearest + 2nd-nearest unmatched Raman ----------
