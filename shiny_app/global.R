@@ -973,6 +973,75 @@ raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) 
 }
 
 # ---------------------------------------------------------------------------
+# LDIR view rotation — rotate the whole native LDIR scene (image raster,
+# extent, particle coordinates) by a multiple of 90 deg about the origin so
+# the LDIR tab can be displayed in the Raman orientation for side-by-side
+# comparison.  Display-only: no stored coordinate is modified.
+# deg convention: +90 = counter-clockwise, -90 = clockwise, in {0,90,-90,180}.
+# ---------------------------------------------------------------------------
+rotate_xy_view <- function(x, y, deg) {
+  switch(as.character(((deg %% 360) + 360) %% 360),
+         "90"  = list(x = -y, y =  x),
+         "180" = list(x = -x, y = -y),
+         "270" = list(x =  y, y = -x),
+         list(x = x, y = y))
+}
+
+rotate_extent_view <- function(ext, deg) {
+  d <- ((deg %% 360) + 360) %% 360
+  if (d == 90)  return(list(xmin = -ext$ymax, xmax = -ext$ymin,
+                            ymin =  ext$xmin, ymax =  ext$xmax))
+  if (d == 180) return(list(xmin = -ext$xmax, xmax = -ext$xmin,
+                            ymin = -ext$ymax, ymax = -ext$ymin))
+  if (d == 270) return(list(xmin =  ext$ymin, xmax =  ext$ymax,
+                            ymin = -ext$xmax, ymax = -ext$xmin))
+  ext[c("xmin", "xmax", "ymin", "ymax")]
+}
+
+rotate_raster_view <- function(r, deg) {
+  d <- ((deg %% 360) + 360) %% 360
+  if (d == 0 || is.null(r)) return(r)
+  rot1 <- function(m) {
+    if (d == 90)  return(t(m)[ncol(m):1, , drop = FALSE])   # CCW
+    if (d == 180) return(m[nrow(m):1, ncol(m):1, drop = FALSE])
+    t(m[nrow(m):1, , drop = FALSE])                          # 270 = CW
+  }
+  if (length(dim(r)) == 2) return(rot1(r))
+  ch <- lapply(seq_len(dim(r)[3]), function(k) rot1(r[, , k]))
+  out <- array(0, dim = c(nrow(ch[[1]]), ncol(ch[[1]]), length(ch)))
+  for (k in seq_along(ch)) out[, , k] <- ch[[k]]
+  out
+}
+
+# Total LDIR -> Raman rotation for a run, snapped to the nearest 90 deg —
+# used as the "Auto" choice for the LDIR view rotation.  Combines the
+# pipeline's residual rotation (04_alignment/transform_params_ldir_raman.txt)
+# with the pre-rotation recorded in the manifest snapshot
+# (ldir_rotate_deg_for_alignment; -90 historical default for older runs).
+# Returns NULL when the transform is unavailable or reflected (a mirror
+# cannot be expressed as a rotation).
+ldir_total_rotation_deg <- function(run_dir, manifest = NULL) {
+  if (is.null(run_dir)) return(NULL)
+  tp <- file.path(run_dir, "04_alignment", "transform_params_ldir_raman.txt")
+  if (!file.exists(tp)) return(NULL)
+  ln <- tryCatch(readLines(tp), error = function(e) NULL)
+  if (is.null(ln)) return(NULL)
+  gv <- function(p) suppressWarnings(
+    as.numeric(sub(".*:\\s*", "", grep(p, ln, value = TRUE)[1])))
+  resid <- gv("^rotation_deg")
+  refl_line <- grep("^reflected", ln, value = TRUE)
+  refl <- length(refl_line) > 0 && grepl("TRUE", refl_line[1])
+  if (!is.finite(resid) || isTRUE(refl)) return(NULL)
+  pre <- tryCatch(manifest$config_snapshot$ldir_rotate_deg_for_alignment,
+                  error = function(e) NULL)
+  if (is.null(pre) || !is.numeric(pre)) pre <- -90
+  total   <- ((resid + pre + 180) %% 360) - 180
+  snapped <- (round(total / 90) * 90) %% 360
+  if (snapped > 180) snapped <- snapped - 360
+  as.integer(snapped)
+}
+
+# ---------------------------------------------------------------------------
 # Compute image bounds that preserve the image's native aspect ratio while
 # centering on a set of particles.  The image is expanded (never cropped)
 # so that all particles fit inside, plus padding.
