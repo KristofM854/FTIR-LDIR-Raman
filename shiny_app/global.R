@@ -1013,13 +1013,65 @@ rotate_raster_view <- function(r, deg) {
   out
 }
 
+# Auto LDIR view rotation: directly MEASURE which 90 deg rotation brings the
+# LDIR particle cloud into the Raman particle cloud's orientation, by scoring
+# each of {0, 90, -90, 180} on how many LDIR particles land on a Raman
+# particle after best translation.  Operates on the exact native display
+# coordinates (x_orig/y_orig) the viewer plots, so it is immune to the
+# instrument export convention, Y-flips, and pipeline transform quirks that
+# made the transform-file reconstruction (ldir_total_rotation_deg) unreliable.
+# Scale-free: both clouds are centered and normalized to unit RMS radius
+# first, so a scale mismatch (e.g. LDIR circle-calibration inflation) does
+# not affect the rotation choice.  Returns an integer in {0,90,-90,180};
+# falls back to 0 when no rotation clearly beats leaving it unrotated.
+ldir_auto_view_rotation <- function(ldir_x, ldir_y, raman_x, raman_y) {
+  fk <- is.finite(ldir_x) & is.finite(ldir_y)
+  fr <- is.finite(raman_x) & is.finite(raman_y)
+  lx <- ldir_x[fk]; ly <- ldir_y[fk]
+  rx <- raman_x[fr]; ry <- raman_y[fr]
+  if (length(lx) < 4 || length(rx) < 4) return(0L)
+
+  nrm <- function(x, y) {
+    x <- x - mean(x); y <- y - mean(y)
+    s <- sqrt(mean(x^2 + y^2)); if (!is.finite(s) || s <= 0) s <- 1
+    list(x = x / s, y = y / s)
+  }
+  L <- nrm(lx, ly); R <- nrm(rx, ry)
+  tol <- 0.10   # normalized units (~10% of cloud radius)
+
+  score <- function(deg) {
+    p <- rotate_xy_view(L$x, L$y, deg)
+    dx <- outer(R$x, p$x, "-"); dy <- outer(R$y, p$y, "-")
+    # translation voting: densest bin of pairwise offsets, then inlier count
+    key <- paste(round(dx / tol), round(dy / tol))
+    tb  <- sort(table(key), decreasing = TRUE)
+    best <- 0L
+    for (k in names(tb)[seq_len(min(6, length(tb)))]) {
+      sel <- key == k
+      px <- p$x + mean(dx[sel]); py <- p$y + mean(dy[sel])
+      d <- sqrt(outer(R$x, px, "-")^2 + outer(R$y, py, "-")^2)
+      best <- max(best, sum(apply(d, 2, min) <= tol))
+    }
+    best
+  }
+
+  degs <- c(0L, 90L, -90L, 180L)
+  ns   <- vapply(degs, score, integer(1))
+  bi   <- which.max(ns)
+  if (ns[bi] < 4) return(0L)
+  # only rotate when a rotation clearly beats leaving the view upright
+  if (degs[bi] != 0L && ns[bi] <= ns[1] + 1L) return(0L)
+  degs[bi]
+}
+
 # Total LDIR -> Raman rotation for a run, snapped to the nearest 90 deg —
-# used as the "Auto" choice for the LDIR view rotation.  Combines the
-# pipeline's residual rotation (04_alignment/transform_params_ldir_raman.txt)
-# with the pre-rotation recorded in the manifest snapshot
-# (ldir_rotate_deg_for_alignment; -90 historical default for older runs).
-# Returns NULL when the transform is unavailable or reflected (a mirror
-# cannot be expressed as a rotation).
+# reconstructed from the pipeline's residual rotation
+# (04_alignment/transform_params_ldir_raman.txt) plus the pre-rotation
+# recorded in the manifest snapshot (ldir_rotate_deg_for_alignment; -90
+# historical default).  Kept as a secondary reference; the viewer's Auto
+# mode uses ldir_auto_view_rotation() (direct measurement) instead, which
+# does not depend on parsing pipeline internals.  Returns NULL when the
+# transform is unavailable or reflected (a mirror is not a pure rotation).
 ldir_total_rotation_deg <- function(run_dir, manifest = NULL) {
   if (is.null(run_dir)) return(NULL)
   tp <- file.path(run_dir, "04_alignment", "transform_params_ldir_raman.txt")

@@ -34,6 +34,7 @@ library(ggplot2)
 
 # Source all modules (relative to project root)
 source("R/read_bmp.R")
+source("R/measure_raman_placement.R")
 source("R/utils.R")
 source("R/00_config.R")
 source("R/00b_file_input.R")
@@ -317,6 +318,47 @@ write.csv(ftir_raw, file.path(.out_dirs$ingested, "ftir_perkin_ingested.csv"), r
 # --- Raman ---
 raman_raw <- ingest_raman(config$raman_path, sheet = config$raman_sheet)
 write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
+
+# --- Auto-calibrate Raman image placement ----------------------------------
+# Measure where the exported Raman micrograph actually sits under the
+# particles (the export may be a cropped/zoomed view whose footprint differs
+# from the WITec panel Width/Height).  On a confident, non-mirrored fit, patch
+# the run manifest's config_snapshot so the viewer places the image exactly —
+# no per-run tools/diagnose_raman_placement.R --apply needed.  The config
+# values stay as the scale-search seed; a weak fit leaves them untouched.
+if (!is.null(.raman_image_info) &&
+    !is.null(config$raman_image_width_um) &&
+    !is.null(config$raman_image_height_um)) {
+  .raman_cal_img <- if (!is.null(.raman_image_info$canonical_path) &&
+                        file.exists(.raman_image_info$canonical_path))
+    .raman_image_info$canonical_path else config$raman_image
+  .raman_fit <- tryCatch(
+    measure_raman_image_placement(
+      .raman_cal_img, raman_raw$x_um, raman_raw$y_um,
+      config$raman_image_width_um, config$raman_image_height_um),
+    error = function(e) { log_message("  Raman placement auto-measure error: ",
+                                      conditionMessage(e), level = "WARN"); NULL })
+  if (!is.null(.raman_fit) && !isTRUE(.raman_fit$mirrored)) {
+    log_message(sprintf(paste0(
+      "Raman image auto-calibration: extent %.0f x %.0f um at center (%.0f, %.0f), ",
+      "scale %.2f x WITec, %.0f%% of particles on image."),
+      .raman_fit$width_um, .raman_fit$height_um,
+      .raman_fit$center_x_um, .raman_fit$center_y_um,
+      .raman_fit$scale, 100 * .raman_fit$frac_bright))
+    config$raman_image_width_um    <- .raman_fit$width_um
+    config$raman_image_height_um   <- .raman_fit$height_um
+    config$raman_image_center_x_um <- .raman_fit$center_x_um
+    config$raman_image_center_y_um <- .raman_fit$center_y_um
+    update_manifest_config_snapshot(config$output_dir, list(
+      raman_image_width_um    = .raman_fit$width_um,
+      raman_image_height_um   = .raman_fit$height_um,
+      raman_image_center_x_um = .raman_fit$center_x_um,
+      raman_image_center_y_um = .raman_fit$center_y_um))
+  } else {
+    log_message("Raman image auto-calibration: no confident non-mirrored fit; ",
+                "keeping configured raman_image_* values.")
+  }
+}
 
 # --- LDIR (optional) ---
 ldir_raw <- NULL
