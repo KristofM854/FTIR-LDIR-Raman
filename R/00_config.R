@@ -52,7 +52,11 @@ make_config <- function(ftir_path  = NULL,
     # --- LDIR-specific settings ---
     align_ldir_materials = c("Polyethylene terephthalate", "Polypropylene",
                              "Polycarbonate"),
-    ldir_quality_threshold = 0.6,  # Agilent quality score (0-1)
+    ldir_quality_threshold = 0,    # Agilent quality score (0-1). 0 = keep ALL
+                                   # ingested particles — no quality pre-filter.
+                                   # Filter interactively in the viewer instead;
+                                   # alignment/agreement apply their own
+                                   # anchor-quality criteria independently.
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
     ldir_flip_y_for_alignment = FALSE, # map_pixels_to_um_circle already inverts y;
                                        # Raman y is also upward — no second flip needed
