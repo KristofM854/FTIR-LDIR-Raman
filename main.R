@@ -1005,6 +1005,30 @@ if (has_ldir && !is.null(ldir_raw)) {
           log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
           NULL
         })
+
+        # Global registration: robust for sparse LDIR<->Raman where the
+        # coarse RANSAC locks onto a poor local optimum (few inliers despite
+        # many achievable). Run it and keep whichever transform pairs more
+        # particles. Disable with config$ldir_use_global_register = FALSE.
+        if (!isFALSE(config$ldir_use_global_register)) {
+          ldir_global <- tryCatch(
+            global_register_align(ldir_for_align, raman_norm_align, config),
+            error = function(e) {
+              log_message("  LDIR global registration failed: ",
+                          e$message, level = "WARN"); NULL })
+          if (!is.null(ldir_global)) {
+            r_in <- if (!is.null(ldir_ransac)) ldir_ransac$n_inliers else -1
+            if (ldir_global$n_inliers > r_in) {
+              log_message("  LDIR alignment: using global registration (",
+                          ldir_global$n_inliers, " inliers vs RANSAC ",
+                          max(r_in, 0), ")")
+              ldir_ransac <- ldir_global
+            } else {
+              log_message("  LDIR alignment: keeping RANSAC (", r_in,
+                          " inliers vs global ", ldir_global$n_inliers, ")")
+            }
+          }
+        }
       }
     } else {
       # Procrustes locked — still set ldir_ransac from Procrustes for logging
