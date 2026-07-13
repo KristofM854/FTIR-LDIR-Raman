@@ -35,6 +35,7 @@ library(ggplot2)
 # Source all modules (relative to project root)
 source("R/read_bmp.R")
 source("R/measure_raman_placement.R")
+source("R/tps_refine.R")
 source("R/utils.R")
 source("R/00_config.R")
 source("R/00b_file_input.R")
@@ -1271,6 +1272,48 @@ if (has_ldir && !is.null(ldir_raw)) {
         ldir_aligned, raman_for_match, config,
         src_label = "ldir", ref_label = "raman"
       )
+
+      # 12g-bis. TPS local refinement: a single global similarity can't overlay
+      # every particle when the two coordinate systems differ by a small
+      # non-rigid distortion, leaving peripheral particles unmatched despite
+      # clearly corresponding. Fit a regularized thin-plate spline to the
+      # residual displacement at the confident matches, warp all LDIR
+      # coordinates locally, and re-match — adopting the result only if it
+      # increases matches. Displacement is capped so non-overlapping debris
+      # cannot be flung onto spurious partners. (No-op under force-complete
+      # matching, which already matches everything.)
+      if (isTRUE(config$ldir_tps_refine) &&
+          !is.null(ldir_raman_match$matched) &&
+          nrow(ldir_raman_match$matched) >= (config$ldir_tps_min_controls %||% 6)) {
+        mm <- ldir_raman_match$matched
+        warp <- tryCatch(
+          tps_fit_warp(mm$ldir_x_aligned, mm$ldir_y_aligned,
+                       mm$raman_x_norm,   mm$raman_y_norm,
+                       lambda = config$ldir_tps_lambda %||% 0.5),
+          error = function(e) { log_message("  TPS fit failed: ",
+                                            e$message, level = "WARN"); NULL })
+        if (!is.null(warp)) {
+          w <- tps_apply(warp, ldir_aligned$x_aligned, ldir_aligned$y_aligned)
+          ldir_tps <- ldir_aligned
+          ldir_tps$x_aligned <- w$x; ldir_tps$y_aligned <- w$y
+          match2 <- tryCatch(
+            match_particles(ldir_tps, raman_for_match, config,
+                            src_label = "ldir", ref_label = "raman"),
+            error = function(e) NULL)
+          n0 <- ldir_raman_match$match_stats$n_matched
+          n1 <- if (!is.null(match2)) match2$match_stats$n_matched else -1L
+          if (!is.null(match2) && n1 > n0) {
+            log_message("  LDIR TPS refinement: matches ", n0, " -> ", n1,
+                        " (control residual ", round(warp$ctrl_res), " um, ",
+                        warp$n, " controls)")
+            ldir_aligned     <- ldir_tps
+            ldir_raman_match <- match2
+          } else {
+            log_message("  LDIR TPS refinement: no gain (", n0, " vs ",
+                        max(n1, 0L), ") — keeping global alignment")
+          }
+        }
+      }
 
       # 12h. LDIR↔Raman agreement analysis
       ldir_raman_agreement <- analyze_agreement(
