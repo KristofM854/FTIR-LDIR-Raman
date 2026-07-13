@@ -30,17 +30,52 @@ run_dir <- args[1]
 if (!dir.exists(run_dir)) stop("Run directory not found: ", run_dir)
 
 mpath <- file.path(run_dir, "05_matches", "matched_ldir_raman.csv")
-lpath <- file.path(run_dir, "02_joined", "ldir_joined_raw.csv")
-rpath <- file.path(run_dir, "01_ingested", "raman_ingested.csv")
-for (p in c(mpath, lpath, rpath))
-  if (!file.exists(p)) stop("Missing required file: ", p)
-
+if (!file.exists(mpath)) stop("Missing required file: ", mpath)
 matched <- read.csv(mpath)
-ldir    <- read.csv(lpath)
-raman   <- read.csv(rpath)
 if (nrow(matched) < 3)
   stop("Only ", nrow(matched), " matched LDIR-Raman pairs — need >=3 to fit ",
        "the alignment transform. Nothing to diagnose.")
+
+# --- Load MATCHING-ELIGIBLE particle sets -----------------------------------
+# The matcher runs on filtered particles: prefilter_ldir() (quality + size) and
+# a size-filtered Raman set (raman_for_match). Counting raw joined/ingested
+# particles would treat filtered-out particles as unmatched candidates and
+# over-report recoverable pairs. Prefer the prefiltered LDIR file (exactly what
+# the matcher saw); for Raman, re-apply the size filter from the manifest.
+minfo <- tryCatch(jsonlite::fromJSON(
+  file.path(run_dir, "00_manifest", "manifest.json"), simplifyVector = FALSE)$config_snapshot,
+  error = function(e) NULL)
+min_size <- tryCatch(as.numeric(minfo$min_particle_size_um), error = function(e) NA)
+if (length(min_size) != 1 || is.na(min_size)) min_size <- 0
+ldir_qual <- tryCatch(as.numeric(minfo$ldir_quality_threshold), error = function(e) NA)
+if (length(ldir_qual) != 1 || is.na(ldir_qual)) ldir_qual <- 0
+
+lpref <- file.path(run_dir, "03_prefiltered", "ldir_prefiltered.csv")
+lraw  <- file.path(run_dir, "02_joined", "ldir_joined_raw.csv")
+if (file.exists(lpref)) {
+  ldir <- read.csv(lpref)                  # exact matcher input for LDIR
+  cat("LDIR source: 03_prefiltered/ldir_prefiltered.csv (post-filter)\n")
+} else if (file.exists(lraw)) {
+  ldir <- read.csv(lraw)                   # fall back: re-apply the filters
+  if (ldir_qual > 0 && "quality" %in% names(ldir))
+    ldir <- ldir[is.na(ldir$quality) | ldir$quality >= ldir_qual, ]
+  if (min_size > 0 && "feret_max_um" %in% names(ldir))
+    ldir <- ldir[is.na(ldir$feret_max_um) | ldir$feret_max_um >= min_size, ]
+  cat(sprintf("LDIR source: 02_joined/ldir_joined_raw.csv (re-applied filters: quality>=%.2f, size>=%.0f)\n",
+              ldir_qual, min_size))
+} else stop("Missing LDIR file: ", lpref, " or ", lraw)
+
+rpath <- file.path(run_dir, "01_ingested", "raman_ingested.csv")
+if (!file.exists(rpath)) stop("Missing required file: ", rpath)
+raman <- read.csv(rpath)
+if (min_size > 0 && "feret_max_um" %in% names(raman)) {  # matches raman_for_match
+  n0 <- nrow(raman)
+  raman <- raman[is.na(raman$feret_max_um) | raman$feret_max_um >= min_size, ]
+  cat(sprintf("Raman source: 01_ingested/raman_ingested.csv (size filter >=%.0f um: %d of %d kept)\n",
+              min_size, nrow(raman), n0))
+} else {
+  cat("Raman source: 01_ingested/raman_ingested.csv (no size filter active)\n")
+}
 
 # --- Fit affine map raw -> aligned frame from the matched pairs --------------
 fit_affine <- function(src_x, src_y, dst_x, dst_y) {
