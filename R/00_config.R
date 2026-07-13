@@ -112,6 +112,17 @@ make_config <- function(ftir_path  = NULL,
     # (observed: 5 inliers where 23 are achievable). TRUE = enabled.
     ldir_use_global_register = TRUE,
 
+    # TPS local refinement of LDIR->Raman alignment: after the global
+    # similarity + match, warp LDIR coordinates with a regularized thin-plate
+    # spline fit to the residual displacement at the confident matches, then
+    # re-match. Recovers peripheral particles left unmatched by non-rigid
+    # distortion the global transform can't capture; kept only if it increases
+    # matches. No-op under ldir_force_complete_match.
+    ldir_tps_refine       = TRUE,
+    ldir_tps_lambda       = 0.5,   # spline smoothing (normalized units);
+                                   # larger = smoother/more conservative
+    ldir_tps_min_controls = 6,     # min confident matches to attempt TPS
+
     # Transform guardrail thresholds (applied to every alignment path):
     icp_min_scale        = 0.5,   # scale below this → WARN (likely degenerate)
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
