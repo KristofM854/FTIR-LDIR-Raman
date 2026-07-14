@@ -222,6 +222,20 @@ ui <- fluidPage(
                                          "Image-extracted particles" = "extracted_pts"),
                              selected = c("raw_image"),
                              inline = FALSE),
+          # Background image source — lets you place the LDIR points over the
+          # LDIR image (native), the Raman image (to test whether LDIR points
+          # land on the Raman particles), or an uploaded image.
+          selectInput("ldir_bg_image", "Background image",
+                      choices = c("Auto (LDIR native / Raman aligned)" = "auto",
+                                  "LDIR image" = "ldir",
+                                  "Raman image" = "raman",
+                                  "None" = "none"),
+                      selected = "auto"),
+          # Readable-overlay aids for LDIR<->Raman matches
+          checkboxInput("ldir_show_raman_partners",
+                        "Show Raman partners + match lines (aligned)", value = FALSE),
+          checkboxInput("ldir_hide_unmatched",
+                        "Hide unmatched (single-instrument) particles", value = FALSE),
           hr(),
           div(class = "info-box",
               h5("Summary"), textOutput("ldir_summary_text")),
@@ -2173,6 +2187,7 @@ server <- function(input, output, session) {
   observeEvent(input$ftir_bruker_coord_mode, { zoom$ftir_bruker <- NULL })
   observeEvent(input$ldir_coord_mode,        { zoom$ldir        <- NULL })
   observeEvent(input$ldir_view_rotation,     { zoom$ldir        <- NULL })
+  observeEvent(input$ldir_bg_image,          { zoom$ldir        <- NULL })
 
   # ==================================================================
   # Click-to-select handlers for single-instrument viewers
@@ -2669,16 +2684,32 @@ server <- function(input, output, session) {
         df_disp$y <- df_disp$y_orig
       }
     }
+    # Optionally drop unmatched (single-instrument) particles for a clean view
+    if (isTRUE(input$ldir_hide_unmatched) && nrow(df_disp) > 0)
+      df_disp <- df_disp[df_disp$match_status == "matched", ]
 
-    # In aligned mode use the Raman image in normalised coordinates (same frame
-    # as the aligned particle coords); otherwise use the LDIR image.
-    img <- if (aligned) {
-      overlay_image_info()
-    } else if ("processed_image" %in% overlay_mode) {
-      ldir_processed_image_info()
-    } else if ("raw_image" %in% overlay_mode) {
-      ldir_native_image_info()
-    } else NULL
+    # Background image. "auto" = LDIR image in native mode, Raman image in
+    # aligned mode. The explicit choices let the user test whether LDIR points
+    # land on the Raman image: "raman" shows the Raman micrograph (placed in
+    # the aligned/normalized frame, or — in native mode — scaled to the LDIR
+    # particle extent so the two patterns can be compared).
+    bg_sel <- input$ldir_bg_image %||% "auto"
+    raman_bg_native <- function() {
+      raw_r <- raman_image()
+      if (is.null(raw_r) || nrow(df_disp) == 0) return(NULL)
+      b <- compute_image_bounds(raw_r, df_disp$x_orig, df_disp$y_orig, padding_um = 300)
+      list(raster = raw_r, xmin = b$xmin, xmax = b$xmax, ymin = b$ymin, ymax = b$ymax)
+    }
+    img <- switch(bg_sel,
+      none  = NULL,
+      raman = if (aligned) overlay_image_info() else raman_bg_native(),
+      ldir  = if ("processed_image" %in% overlay_mode) ldir_processed_image_info()
+              else ldir_native_image_info(),
+      # auto (default)
+      if (aligned) overlay_image_info()
+      else if ("processed_image" %in% overlay_mode) ldir_processed_image_info()
+      else if ("raw_image" %in% overlay_mode) ldir_native_image_info()
+      else NULL)
 
     # Rotate the whole native scene (image + particles) into the Raman
     # orientation for side-by-side comparison.  Aligned mode is already in
@@ -2749,6 +2780,30 @@ server <- function(input, output, session) {
 
     # Background image
     p <- add_image_bg(p, img)
+
+    # Raman partners + match lines (aligned mode): draw each matched LDIR
+    # particle's Raman partner as a hollow blue circle and connect the two, so
+    # a match reads as "two dots joined by a short line" and the residual
+    # LDIR<->Raman centroid scatter (~130 um) is visible rather than mistaken
+    # for misalignment.
+    if (aligned && isTRUE(input$ldir_show_raman_partners)) {
+      rd <- tryCatch(run_data()$ldir_raman_matched, error = function(e) NULL)
+      need <- c("ldir_particle_id", "ldir_x_aligned", "ldir_y_aligned",
+                "raman_x_norm", "raman_y_norm")
+      if (!is.null(rd) && nrow(rd) > 0 && all(need %in% names(rd))) {
+        if (nrow(df_disp) > 0)
+          rd <- rd[rd$ldir_particle_id %in% df_disp$particle_id, , drop = FALSE]
+        if (nrow(rd) > 0) {
+          seg <- data.frame(x = rd$ldir_x_aligned, y = rd$ldir_y_aligned,
+                            xend = rd$raman_x_norm, yend = rd$raman_y_norm)
+          p <- p +
+            geom_segment(data = seg, aes(x = x, y = y, xend = xend, yend = yend),
+                         colour = "#00CED1", linewidth = 0.4, alpha = 0.85) +
+            geom_point(data = seg, aes(x = xend, y = yend), shape = 1,
+                       colour = "#1f77b4", size = 3, stroke = 1)
+        }
+      }
+    }
 
     # Image-extracted particles (before join): small open circles
     if ("extracted_pts" %in% overlay_mode && n_extracted > 0) {
