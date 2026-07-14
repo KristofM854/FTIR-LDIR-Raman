@@ -96,3 +96,49 @@ if (is.null(W) || is.null(CX)) {
     "Image frame is consistent: aligned LDIR (= Raman particles) should sit on the image."
     else "MISMATCH: the Raman image is NOT placed over its own particles in the aligned frame -> image-placement bug."))
 }
+
+# --- 4. Is the residual reducible? (systematic vs scatter vs smooth warp) ----
+# The matched residual can be: a constant offset (fixable by translation),
+# a smooth distortion field (fixable by TPS), or random scatter from coarse
+# LDIR centroids (irreducible — 19 matches is then the honest ceiling).
+cat("\n[4] Residual structure (matched pairs):\n")
+dx <- m$raman_x_norm - m$ldir_x_aligned
+dy <- m$raman_y_norm - m$ldir_y_aligned
+ok <- is.finite(dx) & is.finite(dy)
+dx <- dx[ok]; dy <- dy[ok]
+sys_mag <- sqrt(mean(dx)^2 + mean(dy)^2)
+scatter <- sqrt(mean((dx - mean(dx))^2 + (dy - mean(dy))^2))
+cat(sprintf("    systematic offset |mean| = %.0f um; scatter (after removing it) = %.0f um\n",
+            sys_mag, scatter))
+if (sys_mag > scatter)
+  cat("    -> dominated by a CONSTANT offset: a translation tweak recovers most of it.\n")
+
+# Leave-one-out TPS: fit the warp on N-1 controls, predict the held-out one.
+# If the held-out residual drops well below the raw residual, the field is
+# SMOOTH (TPS will help). If not, it is random scatter (TPS cannot help).
+if (exists("tps_fit_warp", mode = "function") ||
+    file.exists("R/tps_refine.R")) {
+  if (!exists("tps_fit_warp", mode = "function")) source("R/tps_refine.R")
+  ax <- m$ldir_x_aligned[ok]; ay <- m$ldir_y_aligned[ok]
+  rx <- m$raman_x_norm[ok];   ry <- m$raman_y_norm[ok]
+  n <- length(ax)
+  if (n > 60) {
+    cat(sprintf("    (%d matched pairs — dense run, residual already tiny; skipping LOO-TPS)\n", n))
+  } else if (n >= 8) {
+    loo <- vapply(seq_len(n), function(i) {
+      w <- tryCatch(tps_fit_warp(ax[-i], ay[-i], rx[-i], ry[-i], lambda = 0.5),
+                    error = function(e) NULL)
+      if (is.null(w)) return(NA_real_)
+      p <- tps_apply(w, ax[i], ay[i])
+      sqrt((p$x - rx[i])^2 + (p$y - ry[i])^2)
+    }, numeric(1))
+    raw_i <- sqrt((ax - rx)^2 + (ay - ry)^2)
+    cat(sprintf("    leave-one-out TPS: median residual %.0f um -> %.0f um (%.0f%% reduction)\n",
+                median(raw_i, na.rm = TRUE), median(loo, na.rm = TRUE),
+                100 * (1 - median(loo, na.rm = TRUE) / median(raw_i, na.rm = TRUE))))
+    if (median(loo, na.rm = TRUE) < 0.6 * median(raw_i, na.rm = TRUE))
+      cat("    -> SMOOTH distortion: TPS should recover stragglers. If the pipeline\n       reported 'no gain', the TPS adopt criterion (count-only) is too strict.\n")
+    else
+      cat("    -> mostly RANDOM scatter (coarse LDIR centroids): the ~130 um is\n       largely irreducible; 19 matches is close to the honest ceiling.\n")
+  }
+}
