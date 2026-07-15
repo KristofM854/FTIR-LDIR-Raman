@@ -1028,6 +1028,27 @@ log_message <- function(..., level = "INFO") {
   message(msg)
 }
 
+#' Evaluate an expression, logging (not swallowing) any error before falling back
+#'
+#' Drop-in replacement for the \code{tryCatch(expr, error = function(e) default)}
+#' idiom for cases where a failure should be visible in the run log rather than
+#' silently masked. Reserve it for operations whose failure changes results or
+#' provenance; leave genuinely optional probes (image-format fallback chains,
+#' absent-metadata reads) and hot-loop control flow as plain tryCatch so the log
+#' stays readable.
+#'
+#' @param expr Expression to evaluate.
+#' @param default Value returned if \code{expr} errors (default \code{NULL}).
+#' @param what Short label describing the operation, used in the log line.
+#' @param level Log level for the message (default "WARN").
+#' @return The value of \code{expr}, or \code{default} on error.
+try_or <- function(expr, default = NULL, what = "operation", level = "WARN") {
+  tryCatch(expr, error = function(e) {
+    log_message("  ", what, " failed: ", conditionMessage(e), level = level)
+    default
+  })
+}
+
 # ---------------------------------------------------------------------------
 # Debug: A3 particle trace (Step 5)
 # ---------------------------------------------------------------------------

@@ -42,6 +42,21 @@ ransac_align <- function(ftir_df, raman_df, config) {
          "FTIR: ", n_ftir, ", Raman: ", n_raman)
   }
 
+  # Deterministic sampling (B3): seed a local RNG stream and restore the
+  # caller's global RNG state on exit, so repeated runs on identical data yield
+  # the same transform (and match counts) without perturbing randomness
+  # elsewhere in the pipeline. on.exit evaluates in this frame, so .old_seed is
+  # in scope when it fires.
+  .seed <- if (is.null(config$align_seed)) 1L else config$align_seed
+  if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    .old_seed <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+    on.exit(assign(".Random.seed", .old_seed, envir = globalenv()), add = TRUE)
+  } else {
+    on.exit(if (exists(".Random.seed", envir = globalenv(), inherits = FALSE))
+              rm(".Random.seed", envir = globalenv()), add = TRUE)
+  }
+  set.seed(.seed)
+
   raman_mat <- cbind(raman_x, raman_y)
 
   # =========================================================================
@@ -398,6 +413,17 @@ descriptor_ransac_align <- function(ldir_df, raman_df, config,
               nrow(raman_d), " Raman pts, ",
               length(eligible), " eligible LDIR pts")
 
+  # Deterministic sampling (B3): local seed + global RNG restore on exit.
+  .seed <- if (is.null(config$align_seed)) 1L else config$align_seed
+  if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    .old_seed <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+    on.exit(assign(".Random.seed", .old_seed, envir = globalenv()), add = TRUE)
+  } else {
+    on.exit(if (exists(".Random.seed", envir = globalenv(), inherits = FALSE))
+              rm(".Random.seed", envir = globalenv()), add = TRUE)
+  }
+  set.seed(.seed)
+
   best_inliers <- 0L
   best_tf      <- NULL
 
@@ -417,6 +443,9 @@ descriptor_ransac_align <- function(ldir_df, raman_df, config,
         raman_d$x_norm[raman_sel], raman_d$y_norm[raman_sel],
         allow_reflection = FALSE   # avoid reflection ambiguity in RANSAC sampling
       ),
+      # Expected control flow, not an error to surface: a degenerate random
+      # triplet (collinear / coincident points) makes the fit unsolvable — we
+      # simply skip this iteration. Runs thousands of times, so no logging.
       error = function(e) NULL
     )
     if (is.null(tf)) next
@@ -550,7 +579,18 @@ global_register_align <- function(src_df, ref_df, config,
   mirrors <- if (allow_mirror) c(FALSE, TRUE) else FALSE
 
   # Subsample for the O(n_src*n_ref) search; re-score winner on full clouds.
-  set.seed(1L)
+  # Deterministic sampling (B3): seed a local RNG stream and restore the
+  # caller's global RNG state on exit (on.exit fires in this frame), so this is
+  # reproducible without leaving the global RNG reset for downstream code.
+  .seed <- if (is.null(config$align_seed)) 1L else config$align_seed
+  if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    .old_seed <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+    on.exit(assign(".Random.seed", .old_seed, envir = globalenv()), add = TRUE)
+  } else {
+    on.exit(if (exists(".Random.seed", envir = globalenv(), inherits = FALSE))
+              rm(".Random.seed", envir = globalenv()), add = TRUE)
+  }
+  set.seed(.seed)
   sub <- function(n, m = 150L) if (n > m) sort(sample.int(n, m)) else seq_len(n)
   si <- sub(n_src); ri <- sub(n_ref)
 
