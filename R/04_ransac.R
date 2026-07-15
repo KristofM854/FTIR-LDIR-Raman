@@ -570,9 +570,8 @@ global_register_align <- function(src_df, ref_df, config,
   sxc <- sx - scx; syc <- sy - scy
   rxc <- rx - rcx; ryc <- ry - rcy
 
-  rspan <- function(v) { q <- stats::quantile(v, c(.05, .95), na.rm = TRUE)
-                         max(q[2] - q[1], 1e-9) }
-  span_ratio <- (rspan(rxc) + rspan(ryc)) / (rspan(sxc) + rspan(syc))
+  span_ratio <- (align_rspan(rxc) + align_rspan(ryc)) /
+                (align_rspan(sxc) + align_rspan(syc))
   scales <- sort(unique(round(c(1, seq(0.2, 1.3, 0.05),
                                 span_ratio * seq(0.75, 1.25, 0.05)), 3)))
   scales <- scales[scales > 0.02]
@@ -594,46 +593,17 @@ global_register_align <- function(src_df, ref_df, config,
   sub <- function(n, m = 150L) if (n > m) sort(sample.int(n, m)) else seq_len(n)
   si <- sub(n_src); ri <- sub(n_ref)
 
-  one_to_one <- function(px, py, qx, qy) {
-    d <- sqrt(outer(qx, px, "-")^2 + outer(qy, py, "-")^2)
-    ok <- which(d <= tol, arr.ind = TRUE)
-    if (nrow(ok) == 0) return(0L)
-    ok <- ok[order(d[ok]), , drop = FALSE]
-    ur <- logical(length(qx)); uc <- logical(length(px)); n <- 0L
-    for (r in seq_len(nrow(ok))) {
-      i <- ok[r, 1]; j <- ok[r, 2]
-      if (!ur[i] && !uc[j]) { ur[i] <- TRUE; uc[j] <- TRUE; n <- n + 1L }
-    }
-    n
-  }
-  pose_xy <- function(deg, s, mir, X, Y) {
-    th <- deg * pi / 180; ct <- cos(th); st <- sin(th)
-    if (!mir) list(x = s * (ct * X - st * Y), y = s * (st * X + ct * Y))
-    else      list(x = s * (ct * X + st * Y), y = s * (st * X - ct * Y))
-  }
-  score <- function(deg, s, mir, sX, sY, rX, rY) {
-    p <- pose_xy(deg, s, mir, sX, sY)
-    dx <- outer(rX, p$x, "-"); dy <- outer(rY, p$y, "-")
-    key <- paste(round(dx / tol), round(dy / tol))
-    tb  <- sort(table(key), decreasing = TRUE)
-    best <- list(n = 0L, tx = 0, ty = 0)
-    for (k in names(tb)[seq_len(min(5, length(tb)))]) {
-      sel <- key == k; tx <- mean(dx[sel]); ty <- mean(dy[sel])
-      n <- one_to_one(p$x + tx, p$y + ty, rX, rY)
-      if (n > best$n) best <- list(n = n, tx = tx, ty = ty)
-    }
-    best
-  }
-
+  # Pose search: align_score_pose() / align_pose_xy() live in R/align_helpers.R
+  # (shared with tools/diagnose_*.R). `tol` is threaded through explicitly.
   best <- list(n = -1)
   angles <- seq(0, 360 - step_deg, by = step_deg)
   for (mir in mirrors) for (s in scales) for (deg in angles) {
-    r <- score(deg, s, mir, sxc[si], syc[si], rxc[ri], ryc[ri])
+    r <- align_score_pose(deg, s, mir, sxc[si], syc[si], rxc[ri], ryc[ri], tol)
     if (r$n > best$n) best <- c(r, list(deg = deg, s = s, mir = mir))
   }
 
   # Correspondences at the winning pose, on the FULL clouds
-  p <- pose_xy(best$deg, best$s, best$mir, sxc, syc)
+  p <- align_pose_xy(best$deg, best$s, best$mir, sxc, syc)
   px <- p$x + best$tx; py <- p$y + best$ty
   d  <- sqrt(outer(rxc, px, "-")^2 + outer(ryc, py, "-")^2)
   ok <- which(d <= tol, arr.ind = TRUE)

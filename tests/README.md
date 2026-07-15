@@ -24,6 +24,7 @@ pull requests.
 | `test-determinism.R` | **B3 regression:** `ransac_align` / `global_register_align` are reproducible run-to-run *and* leave the caller's global RNG untouched. |
 | `test-matching.R` | Hungarian 1-to-1 assignment on known clouds; the dedicated looser LDIR distance gate. |
 | `test-manifest.R` | Provenance: `write_manifest` records config + environment and round-trips through JSON. |
+| `test-align-helpers.R` | Shared pose-search primitives (`R/align_helpers.R`); a characterization test pins `global_register_align`'s exact output so the extraction stays behaviour-preserving. |
 | `test-try-or.R` | **B4 regression:** `try_or` logs on failure instead of swallowing silently. |
 
 Fixtures are synthetic and self-contained (`tests/testthat/helper-setup.R`):
