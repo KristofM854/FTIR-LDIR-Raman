@@ -1,0 +1,38 @@
+Package: FTIR.LDIR.Raman
+Title: Multi-Instrument Microplastic Particle Matching Pipeline
+Version: 0.1.0
+Authors@R:
+    person("Kristof", "Moeller",
+           email = "kristof-moeller@t-online.de",
+           role = c("aut", "cre"))
+Description: Ingests particle data and images from three microspectroscopy
+    instruments (FTIR, Raman, LDIR), aligns their spatial coordinate systems
+    with a landmark + RANSAC + ICP + thin-plate-spline pipeline, matches
+    particles across instrument pairs, scores inter-instrument material
+    agreement, and serves an interactive Shiny viewer of the matched dataset.
+    This DESCRIPTION exists to declare the dependency surface for reproducible
+    environments (renv); the project is run by sourcing main.R rather than
+    installed as a package.
+License: Proprietary — not yet licensed for public distribution (see README).
+    A public license must be chosen before Zenodo / journal deposit.
+Encoding: UTF-8
+Depends:
+    R (>= 4.1.0)
+Imports:
+    clue,
+    dplyr,
+    ggplot2,
+    ggrepel,
+    jpeg,
+    jsonlite,
+    magick,
+    png,
+    RANN,
+    readxl,
+    rintrojs,
+    shiny
+Suggests:
+    reticulate
+SystemRequirements: Python (>= 3.8) with numpy, scipy, Pillow, matplotlib
+    (optional — enables the preferred LDIR image backend; the pipeline falls
+    back to an R-based segmentation when Python or reticulate is unavailable).

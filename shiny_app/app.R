@@ -2140,6 +2140,16 @@ server <- function(input, output, session) {
           interpolate = TRUE)
   }
 
+  # Cheap cache-key identity for a background image: its placement bounds (four
+  # numbers) rather than the raster pixels. Used in the plot renderPlot()
+  # bindCache() keys below — combined with selected_run_dir() (which changes
+  # when the run, and therefore the image pixels, change) this captures image
+  # movement (offset sliders, config) without hashing megapixels on every flush.
+  img_key <- function(ii) {
+    if (is.null(ii)) return("none")
+    paste(round(c(ii$xmin, ii$xmax, ii$ymin, ii$ymax), 1), collapse = ",")
+  }
+
   # ==================================================================
   # Helper: ggplot scatter with optional image background
   # ==================================================================
@@ -2557,7 +2567,17 @@ server <- function(input, output, session) {
                  highlight_id  = hl_ids,
                  full_df       = full_ftir,
                  plain         = isTRUE(input$ftir_show_all_detected))
-  })
+  }) |> bindCache(
+    # Cache key must list EVERY input this render reads: an omission both
+    # serves a stale plot and stops the render invalidating. ftir_filtered()
+    # transitively captures the FTIR quality/size/material filters; run-scoped
+    # data (df_full, manifest) and image pixels are captured by selected_run_dir().
+    selected_run_dir(), is.null(uploaded_data()),
+    ftir_filtered(), input$ftir_coord_mode,
+    input$ftir_highlight_particle, single_highlight_ids$ftir,
+    input$ftir_show_all_detected, zoom$ftir,
+    img_key(ftir_native_image_info()), img_key(overlay_image_info())
+  )
 
   output$ftir_summary_text <- renderText({
     df <- ftir_filtered()
@@ -2657,7 +2677,13 @@ server <- function(input, output, session) {
                  highlight_id = hl_ids,
                  full_df = full_raman,
                  plain = isTRUE(input$raman_show_all_detected))
-  })
+  }) |> bindCache(
+    selected_run_dir(), is.null(uploaded_data()),
+    raman_filtered(),
+    input$raman_highlight_particle, single_highlight_ids$raman,
+    input$raman_show_all_detected, zoom$raman,
+    img_key(raman_native_image_info())
+  )
 
   output$raman_summary_text <- renderText({
     df <- raman_filtered()
@@ -3018,7 +3044,19 @@ server <- function(input, output, session) {
     }
 
     p
-  })
+  }) |> bindCache(
+    # ldir_filtered() captures the LDIR filters; ldir_view_rot_deg() and
+    # ldir_extracted_pts() are reactives whose values fold in their own inputs;
+    # the three image sources are folded in cheaply via img_key().
+    selected_run_dir(), is.null(uploaded_data()),
+    ldir_filtered(), ldir_extracted_pts(), ldir_view_rot_deg(),
+    input$ldir_bg_image, input$ldir_coord_mode, input$ldir_hide_unmatched,
+    input$ldir_overlay_mode, input$ldir_show_raman_partners,
+    input$ldir_show_all_detected, input$ldir_highlight_particle,
+    single_highlight_ids$ldir, zoom$ldir,
+    img_key(ldir_native_image_info()), img_key(ldir_processed_image_info()),
+    img_key(overlay_image_info())
+  )
 
   output$ldir_summary_text <- renderText({
     df <- ldir_filtered()
@@ -3129,7 +3167,13 @@ server <- function(input, output, session) {
                  highlight_id  = hl_ids,
                  full_df       = full_fb,
                  plain         = isTRUE(input$ftir_bruker_show_all_detected))
-  })
+  }) |> bindCache(
+    selected_run_dir(), is.null(uploaded_data()),
+    ftir_bruker_filtered(), input$ftir_bruker_coord_mode,
+    input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
+    input$ftir_bruker_show_all_detected, zoom$ftir_bruker,
+    img_key(ftir_bruker_native_image_info()), img_key(overlay_image_info())
+  )
   output$ftir_bruker_summary_text <- renderText({
     df <- ftir_bruker_filtered()
     if (nrow(df) == 0) return("No FTIR (Bruker) data loaded")
@@ -3315,6 +3359,11 @@ server <- function(input, output, session) {
   })
 
   output$overlay_plot <- renderPlot({
+    # Gate the heaviest render on data being present. run_data() is an empty
+    # list() (falsy) only when no run is loaded at all — it stays populated when
+    # filters yield zero particles — so this suppresses the pre-data render
+    # without hiding any "run loaded, nothing matches" state.
+    req(run_data())
     dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
                 ftir_bruker = ftir_bruker_df_full())
     matched  <- overlay_matched()
@@ -3542,7 +3591,20 @@ server <- function(input, output, session) {
     }
 
     p
-  })
+  }) |> bindCache(
+    # overlay_matched()/overlay_ldir_matched()/overlay_bruker_matched() fold in
+    # every per-instrument quality/size/distance filter; the four material
+    # inputs are read dynamically via input[[.inst_mat(inst)]] in the body, so
+    # they must be listed explicitly. Highlights and the pin bust the cache.
+    selected_run_dir(), is.null(uploaded_data()),
+    overlay_matched(), overlay_ldir_matched(), overlay_bruker_matched(),
+    overlay_triplets(), input$overlay_instruments, input$overlay_relationships,
+    input$overlay_ftir_material, input$overlay_raman_material,
+    input$overlay_ldir_material, input$overlay_ftir_bruker_material,
+    input$overlay_ftir_particles, input$overlay_raman_particles,
+    input$overlay_ldir_particles, input$overlay_ftir_bruker_particles,
+    zoom$overlay, pinned_overlay(), img_key(overlay_image_info())
+  )
   output$overlay_summary_text <- renderText({
     m       <- overlay_matched()
     bm      <- overlay_bruker_matched()
