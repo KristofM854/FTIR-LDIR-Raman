@@ -3273,39 +3273,48 @@ server <- function(input, output, session) {
                                      stringsAsFactors=FALSE)
       }
     } else {
+      # Matched status is evaluated relative to the SELECTED pairings, not each
+      # instrument's primary match. So in a LDIR+Raman overlay, matched = the
+      # LDIR<->Raman pairs (both sides drawn) and "unmatched Raman" = Raman
+      # particles not matched to LDIR (not Raman-vs-FTIR). A particle counts as
+      # matched if it is paired with ANY selected partner.
+      .as_chr <- function(v) if (is.null(v)) character(0) else as.character(v)
+      raman_matched_ids <- unique(c(
+        if (show_pe_raman)     .as_chr(matched$raman_particle_id),
+        if (show_bruker_raman) .as_chr(bruker_m$raman_particle_id),
+        if (show_ldir_raman)   .as_chr(ldir_m$raman_particle_id)))
+      ftir_matched_ids   <- if (show_pe_raman)     unique(.as_chr(matched$ftir_particle_id))  else character(0)
+      bruker_matched_ids <- if (show_bruker_raman) unique(.as_chr(bruker_m$ftir_particle_id)) else character(0)
+      ldir_matched_ids   <- if (show_ldir_raman)   unique(.as_chr(ldir_m$ldir_particle_id))   else character(0)
+
       if ("matched" %in% rel) {
+        .add_matched <- function(label, x, y, feret) {
+          if (length(x) == 0) return(invisible())
+          all_pts[[length(all_pts)+1]] <<- data.frame(
+            x=x, y=y, feret_max=feret, instrument=label,
+            match_status="matched", stringsAsFactors=FALSE)
+        }
         if (show_pe_raman && nrow(matched) > 0) {
-          all_pts[[length(all_pts)+1]] <- data.frame(
-            x=matched$ftir_x_aligned, y=matched$ftir_y_aligned,
-            feret_max=matched$ftir_feret_max_um,
-            instrument="FTIR", match_status="matched", stringsAsFactors=FALSE)
-          all_pts[[length(all_pts)+1]] <- data.frame(
-            x=matched$raman_x_norm, y=matched$raman_y_norm,
-            feret_max=matched$raman_feret_max_um,
-            instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
+          .add_matched("FTIR",  matched$ftir_x_aligned, matched$ftir_y_aligned, matched$ftir_feret_max_um)
+          .add_matched("Raman", matched$raman_x_norm,   matched$raman_y_norm,   matched$raman_feret_max_um)
         }
         if (show_bruker_raman && nrow(bruker_m) > 0) {
-          all_pts[[length(all_pts)+1]] <- data.frame(
-            x=bruker_m$ftir_x_aligned, y=bruker_m$ftir_y_aligned,
-            feret_max=bruker_m$ftir_feret_max_um,
-            instrument="FTIR (Bruker)", match_status="matched", stringsAsFactors=FALSE)
-          all_pts[[length(all_pts)+1]] <- data.frame(
-            x=bruker_m$raman_x_norm, y=bruker_m$raman_y_norm,
-            feret_max=bruker_m$raman_feret_max_um,
-            instrument="Raman", match_status="matched", stringsAsFactors=FALSE)
+          .add_matched("FTIR (Bruker)", bruker_m$ftir_x_aligned, bruker_m$ftir_y_aligned, bruker_m$ftir_feret_max_um)
+          .add_matched("Raman",         bruker_m$raman_x_norm,   bruker_m$raman_y_norm,   bruker_m$raman_feret_max_um)
         }
         if (show_ldir_raman && nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
-          all_pts[[length(all_pts)+1]] <- data.frame(
-            x=ldir_m$ldir_x_aligned, y=ldir_m$ldir_y_aligned,
-            feret_max=ldir_m$ldir_feret_max_um,
-            instrument="LDIR", match_status="matched", stringsAsFactors=FALSE)
+          .add_matched("LDIR",  ldir_m$ldir_x_aligned, ldir_m$ldir_y_aligned, ldir_m$ldir_feret_max_um)
+          .add_matched("Raman", ldir_m$raman_x_norm,   ldir_m$raman_y_norm,   ldir_m$raman_feret_max_um)
         }
       }
 
       if ("unmatched" %in% rel) {
-        .add_unmatched <- function(df_full, inst_key, inst_label, mat_input) {
+        # Unmatched for an instrument = its particles not paired with any
+        # selected partner (uses particle_id against the pairing's matched ids,
+        # so every chosen instrument's unmatched particles are shown).
+        .add_unmatched <- function(df_full, inst_key, inst_label, mat_input, matched_ids) {
           if (!(inst_key %in% inst) || is.null(df_full) || nrow(df_full) == 0) return(NULL)
-          um <- df_full[df_full$match_status == "unmatched", ]
+          um <- df_full[!(as.character(df_full$particle_id) %in% matched_ids), ]
           mat <- input[[mat_input]]
           if (!is.null(mat) && !("All" %in% mat) && nrow(um) > 0)
             um <- um[um$material_family %in% mat, ]
@@ -3314,10 +3323,10 @@ server <- function(input, output, session) {
                      instrument=inst_label, match_status="unmatched", stringsAsFactors=FALSE)
         }
         all_pts <- c(all_pts, Filter(Negate(is.null), list(
-          .add_unmatched(dfs$ftir,        "ftir_pe",     "FTIR",          "overlay_ftir_material"),
-          .add_unmatched(dfs$raman,       "raman",       "Raman",         "overlay_raman_material"),
-          .add_unmatched(dfs$ftir_bruker, "ftir_bruker", "FTIR (Bruker)", "overlay_ftir_bruker_material"),
-          .add_unmatched(dfs$ldir,        "ldir",        "LDIR",          "overlay_ldir_material")
+          .add_unmatched(dfs$ftir,        "ftir_pe",     "FTIR",          "overlay_ftir_material",        ftir_matched_ids),
+          .add_unmatched(dfs$raman,       "raman",       "Raman",         "overlay_raman_material",       raman_matched_ids),
+          .add_unmatched(dfs$ftir_bruker, "ftir_bruker", "FTIR (Bruker)", "overlay_ftir_bruker_material", bruker_matched_ids),
+          .add_unmatched(dfs$ldir,        "ldir",        "LDIR",          "overlay_ldir_material",        ldir_matched_ids)
         )))
       }
     }
