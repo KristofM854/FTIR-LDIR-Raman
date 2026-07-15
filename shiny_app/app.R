@@ -2144,8 +2144,28 @@ server <- function(input, output, session) {
   # Helper: ggplot scatter with optional image background
   # ==================================================================
   # Helper: generate axis breaks at every 1000 µm within a range
-  breaks_1000 <- function(rng) {
-    seq(floor(rng[1] / 1000) * 1000, ceiling(rng[2] / 1000) * 1000, by = 1000)
+  # Adaptive axis breaks: choose interval based on zoom level to keep 4-8 breaks visible
+  breaks_adaptive <- function(rng) {
+    if (is.null(rng) || length(rng) < 2 || rng[1] >= rng[2]) return(NULL)
+
+    span <- rng[2] - rng[1]
+
+    # Choose interval to get ~4-8 breaks (target: 6)
+    intervals <- c(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
+    best_int <- 1000
+    for (int in intervals) {
+      n_breaks <- span / int
+      if (n_breaks >= 4 && n_breaks <= 8) {
+        best_int <- int
+        break
+      }
+      if (n_breaks < 4) {
+        best_int <- int
+        break
+      }
+    }
+
+    seq(floor(rng[1] / best_int) * best_int, ceiling(rng[2] / best_int) * best_int, by = best_int)
   }
 
   make_scatter <- function(df, img_info, bounds, title,
@@ -2176,8 +2196,8 @@ server <- function(input, output, session) {
 
     p <- p +
       scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12)) +
-      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
-      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
+      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
@@ -2883,8 +2903,8 @@ server <- function(input, output, session) {
     }
 
     p <- ggplot() +
-      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
-      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
+      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title_parts, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
@@ -3323,8 +3343,8 @@ server <- function(input, output, session) {
     }
 
     p <- ggplot() +
-      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
-      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
+      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = "Multi-Instrument Overlay (aligned coordinates)",
            x = "X (µm)", y = "Y (µm)") +
