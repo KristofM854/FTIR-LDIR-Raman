@@ -262,4 +262,4 @@ ransac_allow_mirror        = TRUE  # Search reflections (needed for 180° rotati
 
 ## License
 
-Internal research tool. Not yet licensed for public distribution.
+Released under the [MIT License](LICENSE) © 2026 Kristof Moeller.
