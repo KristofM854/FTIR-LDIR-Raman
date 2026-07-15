@@ -1310,10 +1310,10 @@ if (has_ldir && !is.null(ldir_raw)) {
           w <- tps_apply(warp, ldir_aligned$x_aligned, ldir_aligned$y_aligned)
           ldir_tps <- ldir_aligned
           ldir_tps$x_aligned <- w$x; ldir_tps$y_aligned <- w$y
-          match2 <- tryCatch(
+          match2 <- try_or(
             match_particles(ldir_tps, raman_for_match, config,
                             src_label = "ldir", ref_label = "raman"),
-            error = function(e) NULL)
+            default = NULL, what = "LDIR TPS re-match")
           n0 <- ldir_raman_match$match_stats$n_matched
           n1 <- if (!is.null(match2)) match2$match_stats$n_matched else -1L
           if (!is.null(match2) && n1 > n0) {

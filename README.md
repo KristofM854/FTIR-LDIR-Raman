@@ -18,17 +18,40 @@ When the same filter is analysed by multiple instruments, each produces its own 
 
 ### Prerequisites
 
-**R (≥ 4.0)** with these packages:
+**R (≥ 4.1)** — the code uses the native `|>` pipe. Install the full package set:
 ```r
-install.packages(c("readxl", "ggplot2", "RANN", "png", "clue", "reticulate"))
+install.packages(c(
+  "clue", "dplyr", "ggplot2", "ggrepel", "jpeg", "jsonlite", "magick",
+  "png", "RANN", "readxl", "rintrojs", "shiny",
+  "reticulate"   # optional — enables the preferred Python LDIR backend
+))
 ```
 
-**Python 3** with these packages (for LDIR image processing):
+**Python 3** with these packages (optional — for the preferred LDIR image backend):
 ```bash
 pip3 install numpy scipy Pillow matplotlib
 ```
 
-The Python backend is invoked automatically via `reticulate`. If Python or its packages are unavailable, the pipeline falls back to an R-based saturation segmentation approach.
+The Python backend is invoked automatically via `reticulate`. If Python or its
+packages are unavailable, the pipeline falls back to an R-based saturation
+segmentation approach. To pin a specific interpreter, set the
+`RETICULATE_PYTHON` environment variable (e.g. in `~/.Renviron`) before
+launching R; when unset, `reticulate` auto-discovers Python on `PATH`.
+
+#### Reproducible environment (recommended for the deposit)
+
+The exact dependency versions are captured with [`renv`](https://rstudio.github.io/renv/).
+A `DESCRIPTION` file declares the dependency surface; run once on your machine to
+freeze versions into a committed `renv.lock`:
+```r
+install.packages("renv")
+renv::init(bare = TRUE)              # generates renv/activate.R
+renv::snapshot(type = "explicit")   # writes renv.lock from DESCRIPTION
+```
+Anyone re-running the analysis then restores the identical environment with:
+```r
+renv::restore()
+```
 
 ### Running the pipeline
 
