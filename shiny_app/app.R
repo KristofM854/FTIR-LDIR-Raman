@@ -1020,7 +1020,7 @@ server <- function(input, output, session) {
                                    size = 5, colour = "grey50") +
              theme_void())
     }
-    ggplot(df, aes(x = feret_max_um, fill = match_status, colour = match_status)) +
+    ggplot(df, aes(x = feret_max, fill = match_status, colour = match_status)) +
       geom_histogram(alpha = 0.7, bins = 20, position = "identity") +
       scale_fill_manual(values = c(matched = color_matched, unmatched = color_unmatched),
                         labels = c(matched = "Matched", unmatched = "Unmatched")) +
@@ -1069,11 +1069,11 @@ server <- function(input, output, session) {
       n_total <- nrow(df)
       n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
       n_unmatched <- sum(df$match_status == "unmatched", na.rm = TRUE)
-      mn <- mean(df$feret_max_um, na.rm = TRUE)
-      med <- median(df$feret_max_um, na.rm = TRUE)
-      sd_val <- sd(df$feret_max_um, na.rm = TRUE)
-      mn_range <- min(df$feret_max_um, na.rm = TRUE)
-      mx_range <- max(df$feret_max_um, na.rm = TRUE)
+      mn <- mean(df$feret_max, na.rm = TRUE)
+      med <- median(df$feret_max, na.rm = TRUE)
+      sd_val <- sd(df$feret_max, na.rm = TRUE)
+      mn_range <- min(df$feret_max, na.rm = TRUE)
+      mx_range <- max(df$feret_max, na.rm = TRUE)
 
       stats_list[[inst_name]] <- list(
         n_total = n_total, n_matched = n_matched, n_unmatched = n_unmatched,
@@ -3571,68 +3571,31 @@ server <- function(input, output, session) {
   # Checks: matched pairs, LDIR-Raman pairs, then highlighted/selected
   # single-instrument particles (regardless of layer state).
   # ==================================================================
-  # Helper: given a particle ID and match source, find all its matched partners
-  # across all match files (ftir_raman, ldir_raman, bruker_raman)
-  find_all_triple_partners <- function(particle_id, source, matched_ftir_r, matched_ldir_r, matched_bruker_r) {
-    partners <- list(ftir = NULL, raman = NULL, ldir = NULL)
+  # Helper: given a Raman particle id, gather every instrument partner across the
+  # three pairwise match tables. They all share raman_particle_id as the join
+  # key, so a Raman particle matched by FTIR, Bruker and LDIR yields all of them.
+  # matched_pe/matched_ldir/matched_bruker are the run_data() match frames
+  # (may be NULL or empty). Returns single-row partner frames keyed by instrument.
+  gather_partners_by_raman <- function(raman_pid, matched_pe, matched_ldir, matched_bruker) {
+    out <- list(ftir = NULL, ftir_bruker = NULL, raman = NULL, ldir = NULL)
+    if (is.null(raman_pid) || length(raman_pid) == 0 || is.na(raman_pid)) return(out)
+    rp <- as.character(raman_pid)
 
-    if (source == "ftir_raman" && !is.null(matched_ftir_r)) {
-      row_f <- matched_ftir_r[matched_ftir_r$ftir_particle_id == particle_id, ]
-      if (nrow(row_f) > 0) {
-        partners$ftir <- row_f[1, ]
-        raman_pid <- row_f$raman_particle_id[1]
-        # Look for LDIR partner via Raman
-        if (!is.null(matched_ldir_r)) {
-          row_lr <- matched_ldir_r[matched_ldir_r$raman_particle_id == raman_pid, ]
-          if (nrow(row_lr) > 0) {
-            partners$ldir <- row_lr[1, ]
-            partners$raman <- row_f[, c("raman_particle_id", "raman_material", "raman_quality",
-                                        "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
-          } else {
-            partners$raman <- row_f[, c("raman_particle_id", "raman_material", "raman_quality",
-                                        "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
-          }
-        }
-      }
-    } else if (source == "ldir_raman" && !is.null(matched_ldir_r)) {
-      row_lr <- matched_ldir_r[matched_ldir_r$ldir_particle_id == particle_id, ]
-      if (nrow(row_lr) > 0) {
-        partners$ldir <- row_lr[1, ]
-        raman_pid <- row_lr$raman_particle_id[1]
-        # Look for FTIR partner via Raman
-        if (!is.null(matched_ftir_r)) {
-          row_f <- matched_ftir_r[matched_ftir_r$raman_particle_id == raman_pid, ]
-          if (nrow(row_f) > 0) {
-            partners$ftir <- row_f[1, ]
-            partners$raman <- row_f[, c("raman_particle_id", "raman_material", "raman_quality",
-                                        "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
-          } else {
-            partners$raman <- row_lr[, c("raman_particle_id", "raman_material", "raman_quality",
-                                         "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
-          }
-        }
-      }
-    } else if (source == "bruker_raman" && !is.null(matched_bruker_r)) {
-      row_br <- matched_bruker_r[matched_bruker_r$ftir_particle_id == particle_id, ]
-      if (nrow(row_br) > 0) {
-        partners$ftir <- row_br[1, ]
-        raman_pid <- row_br$raman_particle_id[1]
-        # Look for LDIR partner via Raman
-        if (!is.null(matched_ldir_r)) {
-          row_lr <- matched_ldir_r[matched_ldir_r$raman_particle_id == raman_pid, ]
-          if (nrow(row_lr) > 0) {
-            partners$ldir <- row_lr[1, ]
-          }
-        }
-        partners$raman <- row_br[, c("raman_particle_id", "raman_material", "raman_quality",
-                                     "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
-      }
+    .lookup <- function(tbl) {
+      if (is.null(tbl) || nrow(tbl) == 0 || !"raman_particle_id" %in% names(tbl)) return(NULL)
+      hit <- tbl[as.character(tbl$raman_particle_id) == rp, , drop = FALSE]
+      if (nrow(hit) == 0) NULL else hit[1, , drop = FALSE]
     }
 
-    # Count how many partners were found
-    n_partners <- sum(!sapply(partners, is.null))
-    if (n_partners > 0) partners$count <- n_partners
-    partners
+    r_pe <- .lookup(matched_pe)
+    if (!is.null(r_pe)) { out$ftir <- r_pe; out$raman <- r_pe }
+    r_br <- .lookup(matched_bruker)
+    if (!is.null(r_br)) { out$ftir_bruker <- r_br; if (is.null(out$raman)) out$raman <- r_br }
+    r_ld <- .lookup(matched_ldir)
+    if (!is.null(r_ld)) { out$ldir <- r_ld; if (is.null(out$raman)) out$raman <- r_ld }
+
+    out$count <- sum(!vapply(out, is.null, logical(1)))
+    out
   }
 
   find_nearest_overlay_particle <- function(px, py, snap_dist,
@@ -3959,109 +3922,74 @@ server <- function(input, output, session) {
       return(single_overlay_detail(row, inst_label, q_label))
     }
 
-    # Check for triple matches (FTIR + Raman + LDIR)
-    matched_ftir <- run_data()$ftir_raman_matched
-    matched_ldir <- run_data()$ldir_raman_matched
-    matched_bruker <- run_data()$ftir_bruker_raman_matched
+    # Matched particle: gather every instrument partner via the shared Raman id.
+    # run_data() keys: matched = FTIR(PE)<->Raman, matched_ftir_bruker =
+    # FTIR(Bruker)<->Raman, ldir_raman_matched = LDIR<->Raman. All join on
+    # raman_particle_id, so one Raman particle can carry up to three partners.
+    rd <- run_data()
+    raman_pid <- if (!is.null(row$raman_particle_id)) row$raman_particle_id else NULL
+    partners <- gather_partners_by_raman(raman_pid, rd$matched,
+                                         rd$ldir_raman_matched, rd$matched_ftir_bruker)
 
-    if (src == "ftir_raman") {
-      pid <- row$ftir_particle_id
-      partners <- find_all_triple_partners(pid, "ftir_raman", matched_ftir, matched_ldir, matched_bruker)
-    } else if (src == "ldir_raman") {
-      pid <- row$ldir_particle_id
-      partners <- find_all_triple_partners(pid, "ldir_raman", matched_ftir, matched_ldir, matched_bruker)
-    } else if (src == "bruker_raman") {
-      pid <- row$ftir_particle_id
-      partners <- find_all_triple_partners(pid, "bruker_raman", matched_ftir, matched_ldir, matched_bruker)
-    } else {
-      partners <- list(count = 1)
+    # Safe accessors: return NULL/em-dash for missing columns rather than erroring.
+    .g <- function(frame, col) {
+      if (is.null(frame) || !col %in% names(frame)) return(NULL)
+      frame[[col]][1]
+    }
+    .fmt_num <- function(v, digits = 1, prefix = "", suffix = "") {
+      if (is.null(v) || length(v) == 0 || (is.atomic(v) && all(is.na(v)))) return("\u2014")
+      if (is.numeric(v)) return(paste0(prefix, round(v, digits), suffix))
+      as.character(v)
+    }
+    .fmt_pos <- function(frame, xcol, ycol) {
+      xv <- .g(frame, xcol); yv <- .g(frame, ycol)
+      if (is.null(xv) || is.null(yv) || is.na(xv) || is.na(yv)) return("\u2014")
+      paste0("(", round(xv, 1), ", ", round(yv, 1), ")")
     }
 
-    # Display triple match (FTIR + Raman + LDIR) if all three are present
-    if (isTRUE(partners$count >= 3) && !is.null(partners$ftir) && !is.null(partners$raman) && !is.null(partners$ldir)) {
-      p_f <- partners$ftir
-      p_r <- partners$raman
-      p_l <- partners$ldir
+    # One column spec per present partner, in a fixed left-to-right order.
+    specs <- list()
+    if (!is.null(partners$ftir))
+      specs[[length(specs) + 1]] <- list(hdr = "FTIR", f = partners$ftir, p = "ftir_",
+        qpfx = "AAU ", qd = 3, xcol = "ftir_x_aligned", ycol = "ftir_y_aligned", is_raman = FALSE)
+    if (!is.null(partners$ftir_bruker))
+      specs[[length(specs) + 1]] <- list(hdr = "FTIR (Bruker)", f = partners$ftir_bruker, p = "ftir_",
+        qpfx = "AAU ", qd = 3, xcol = "ftir_x_aligned", ycol = "ftir_y_aligned", is_raman = FALSE)
+    if (!is.null(partners$raman))
+      specs[[length(specs) + 1]] <- list(hdr = "Raman", f = partners$raman, p = "raman_",
+        qpfx = "HQI ", qd = 2, xcol = "raman_x_um", ycol = "raman_y_um", is_raman = TRUE)
+    if (!is.null(partners$ldir))
+      specs[[length(specs) + 1]] <- list(hdr = "LDIR", f = partners$ldir, p = "ldir_",
+        qpfx = "", qd = 3, xcol = "ldir_x_aligned", ycol = "ldir_y_aligned", is_raman = FALSE)
+
+    # Fallback: no partner rows resolved (e.g. stale ids) \u2014 show minimal detail.
+    if (length(specs) == 0) {
       return(tags$table(class = "hover-tbl",
-        tags$tr(tags$th(""), tags$th("FTIR"), tags$th("Raman"), tags$th("LDIR")),
-        tags$tr(tags$td(tags$b("Particle ID")),
-                tags$td(p_f$ftir_particle_id),
-                tags$td(p_r$raman_particle_id),
-                tags$td(p_l$ldir_particle_id)),
-        tags$tr(tags$td(tags$b("Material")),
-                tags$td(p_f$ftir_material),
-                tags$td(p_r$raman_material),
-                tags$td(p_l$ldir_material)),
-        tags$tr(tags$td(tags$b("Quality")),
-                tags$td(paste0("AAU ", round(p_f$ftir_quality, 3))),
-                tags$td(paste0("HQI ", round(p_r$raman_quality, 2))),
-                tags$td(round(p_l$ldir_quality, 3))),
-        tags$tr(tags$td(tags$b("Feret Max")),
-                tags$td(paste0(round(p_f$ftir_feret_max_um, 1), " \u00b5m")),
-                tags$td(paste0(round(p_r$raman_feret_max_um, 1), " \u00b5m")),
-                tags$td(paste0(round(p_l$ldir_feret_max_um, 1), " \u00b5m"))),
-        tags$tr(tags$td(tags$b("Area")),
-                tags$td(paste0(round(p_f$ftir_area_um2, 1), " \u00b5m\u00b2")),
-                tags$td(paste0(round(p_r$raman_area_um2, 1), " \u00b5m\u00b2")),
-                tags$td(paste0(round(p_l$ldir_area_um2, 1), " \u00b5m\u00b2"))),
-        tags$tr(tags$td(tags$b("Position")),
-                tags$td(paste0("(", round(p_f$ftir_x_aligned, 1), ", ",
-                                round(p_f$ftir_y_aligned, 1), ")")),
-                tags$td(paste0("(", round(p_r$raman_x_um, 1), ", ",
-                                round(p_r$raman_y_um, 1), ")")),
-                tags$td(paste0("(", round(p_l$ldir_x_aligned, 1), ", ",
-                                round(p_l$ldir_y_aligned, 1), ")")))
-      ))
+        tags$tr(tags$th("Field"), tags$th("Value")),
+        make_detail_row("Raman particle", if (!is.null(raman_pid)) raman_pid else "\u2014"),
+        make_detail_row("Note", "No match record found for this particle.")))
     }
 
-    # Display LDIR-Raman match pair if no FTIR partner
-    if (!is.null(src) && src == "ldir_raman" && isTRUE(partners$count >= 2)) {
-      return(tags$table(class = "hover-tbl",
-        tags$tr(tags$th(""), tags$th("LDIR"), tags$th("Raman")),
-        tags$tr(tags$td(tags$b("Particle ID")),
-                tags$td(row$ldir_particle_id),
-                tags$td(row$raman_particle_id)),
-        tags$tr(tags$td(tags$b("Material")),
-                tags$td(row$ldir_material),
-                tags$td(row$raman_material)),
-        tags$tr(tags$td(tags$b("Quality")),
-                tags$td(round(row$ldir_quality, 3)),
-                tags$td(paste0("HQI ", round(row$raman_quality, 2)))),
-        tags$tr(tags$td(tags$b("Feret Max")),
-                tags$td(paste0(round(row$ldir_feret_max_um, 1), " \u00b5m")),
-                tags$td(paste0(round(row$raman_feret_max_um, 1), " \u00b5m"))),
-        tags$tr(tags$td(tags$b("Match Dist.")),
-                tags$td(colspan = "2",
-                        paste0(round(row$match_distance, 1), " \u00b5m")))
-      ))
-    }
+    .cell <- function(x) tags$td(x)
+    mkrow <- function(label, cellfn)
+      do.call(tags$tr, c(list(tags$td(tags$b(label))),
+                         lapply(specs, function(s) .cell(cellfn(s)))))
 
-    # Default: FTIR-Raman match pair
     tags$table(class = "hover-tbl",
-      tags$tr(tags$th(""), tags$th("FTIR"), tags$th("Raman")),
-      tags$tr(tags$td(tags$b("Particle ID")),
-              tags$td(row$ftir_particle_id),
-              tags$td(row$raman_particle_id)),
-      tags$tr(tags$td(tags$b("Material")),
-              tags$td(row$ftir_material),
-              tags$td(row$raman_material)),
-      tags$tr(tags$td(tags$b("Quality")),
-              tags$td(paste0("AAU ", round(row$ftir_quality, 3))),
-              tags$td(paste0("HQI ", round(row$raman_quality, 2)))),
-      tags$tr(tags$td(tags$b("Feret Max")),
-              tags$td(paste0(round(row$ftir_feret_max_um, 1), " \u00b5m")),
-              tags$td(paste0(round(row$raman_feret_max_um, 1), " \u00b5m"))),
-      tags$tr(tags$td(tags$b("Area")),
-              tags$td(paste0(round(row$ftir_area_um2, 1), " \u00b5m\u00b2")),
-              tags$td(paste0(round(row$raman_area_um2, 1), " \u00b5m\u00b2"))),
-      tags$tr(tags$td(tags$b("Position")),
-              tags$td(paste0("(", round(row$ftir_x_aligned, 1), ", ",
-                              round(row$ftir_y_aligned, 1), ")")),
-              tags$td(paste0("(", round(row$raman_x_um, 1), ", ",
-                              round(row$raman_y_um, 1), ")"))),
-      tags$tr(tags$td(tags$b("Match Dist.")),
-              tags$td(colspan = "2",
-                      paste0(round(row$match_distance, 1), " \u00b5m")))
+      do.call(tags$tr, c(list(tags$th("")), lapply(specs, function(s) tags$th(s$hdr)))),
+      mkrow("Particle ID", function(s) {
+        v <- .g(s$f, paste0(s$p, "particle_id")); if (is.null(v)) "\u2014" else as.character(v) }),
+      mkrow("Material", function(s) {
+        v <- .g(s$f, paste0(s$p, "material")); if (is.null(v)) "\u2014" else as.character(v) }),
+      mkrow("Quality", function(s)
+        .fmt_num(.g(s$f, paste0(s$p, "quality")), s$qd, prefix = s$qpfx)),
+      mkrow("Feret Max", function(s)
+        .fmt_num(.g(s$f, paste0(s$p, "feret_max_um")), 1, suffix = " \u00b5m")),
+      mkrow("Area", function(s)
+        .fmt_num(.g(s$f, paste0(s$p, "area_um2")), 1, suffix = " \u00b5m\u00b2")),
+      mkrow("Position", function(s) .fmt_pos(s$f, s$xcol, s$ycol)),
+      mkrow("Match Dist.", function(s)
+        if (isTRUE(s$is_raman)) "\u2014" else .fmt_num(.g(s$f, "match_distance"), 1, suffix = " \u00b5m"))
     )
   })
 }
