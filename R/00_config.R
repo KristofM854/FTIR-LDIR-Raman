@@ -112,6 +112,13 @@ make_config <- function(ftir_path  = NULL,
     # (observed: 5 inliers where 23 are achievable). TRUE = enabled.
     ldir_use_global_register = TRUE,
 
+    # Allow a reflection (mirror) in the LDIR->Raman transform. FALSE by
+    # default: both instruments image the same filter from the same side, so
+    # there is no physical mirror between them. Allowing one lets the aligner
+    # pick a spurious reflected optimum on sparse data (matching particles to
+    # the wrong neighbours). Only set TRUE if a dataset genuinely needs it.
+    ldir_allow_reflection = FALSE,
+
     # TPS local refinement of LDIR->Raman alignment: after the global
     # similarity + match, warp LDIR coordinates with a regularized thin-plate
     # spline fit to the residual displacement at the confident matches, then
