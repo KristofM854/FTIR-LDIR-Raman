@@ -1000,8 +1000,21 @@ if (has_ldir && !is.null(ldir_raw)) {
         }
         log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
 
+        # LDIR and Raman image the same filter from the same side, so there is
+        # no physical reflection between them. Allowing mirror lets the aligner
+        # lock onto a spurious REFLECTED optimum that matches sparse particles
+        # to the wrong neighbours (observed: reflected transform, wrong
+        # scale/rotation, ~19 spurious matches). Forbid reflection unless the
+        # user explicitly enables it.
+        .ldir_reflect <- isTRUE(config$ldir_allow_reflection)
+        .ldir_align_cfg <- config
+        .ldir_align_cfg$ransac_allow_mirror <- .ldir_reflect
+        if (!.ldir_reflect)
+          log_message("  LDIR alignment: reflection disabled (no physical ",
+                      "mirror between LDIR and Raman)")
+
         ldir_ransac <- tryCatch({
-          ransac_align(ldir_for_align, raman_norm_align, config)
+          ransac_align(ldir_for_align, raman_norm_align, .ldir_align_cfg)
         }, error = function(e) {
           log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
           NULL
@@ -1013,7 +1026,8 @@ if (has_ldir && !is.null(ldir_raw)) {
         # particles. Disable with config$ldir_use_global_register = FALSE.
         if (!isFALSE(config$ldir_use_global_register)) {
           ldir_global <- tryCatch(
-            global_register_align(ldir_for_align, raman_norm_align, config),
+            global_register_align(ldir_for_align, raman_norm_align,
+                                  .ldir_align_cfg, allow_mirror = .ldir_reflect),
             error = function(e) {
               log_message("  LDIR global registration failed: ",
                           e$message, level = "WARN"); NULL })
