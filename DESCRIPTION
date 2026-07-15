@@ -13,8 +13,7 @@ Description: Ingests particle data and images from three microspectroscopy
     This DESCRIPTION exists to declare the dependency surface for reproducible
     environments (renv); the project is run by sourcing main.R rather than
     installed as a package.
-License: Proprietary — not yet licensed for public distribution (see README).
-    A public license must be chosen before Zenodo / journal deposit.
+License: MIT + file LICENSE
 Encoding: UTF-8
 Depends:
     R (>= 4.1.0)
