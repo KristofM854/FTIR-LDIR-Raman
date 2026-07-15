@@ -5,14 +5,28 @@
 #' Create default configuration
 #' 
 #' # ---- Python configuration (must run before any reticulate use) ----
+#
+# The LDIR image backend is optional: if Python or its packages are missing,
+# the pipeline falls back to an R-based segmentation (see README). Python is
+# therefore never hard-required here — a hardcoded interpreter path would break
+# the pipeline on any machine that does not have that exact path installed.
+#
+# To pin a specific interpreter, set the RETICULATE_PYTHON environment variable
+# (e.g. in ~/.Renviron or the shell) before launching R:
+#   RETICULATE_PYTHON=/usr/bin/python3          (Linux/macOS)
+#   RETICULATE_PYTHON=C:/Python314/python.exe   (Windows)
+# When it is unset, reticulate auto-discovers a suitable Python on PATH.
 
 Sys.setenv(RETICULATE_USE_UV = "0")  # prevents uv auto-install attempts
 
 if (requireNamespace("reticulate", quietly = TRUE)) {
-  reticulate::use_python(
-    "C:/Program Files/Python314/python.exe",
-    required = TRUE
-  )
+  .py_path <- Sys.getenv("RETICULATE_PYTHON", unset = "")
+  if (nzchar(.py_path)) {
+    # required = FALSE: a missing/incompatible interpreter degrades to the
+    # R fallback instead of aborting the whole pipeline at source() time.
+    try(reticulate::use_python(.py_path, required = FALSE), silent = TRUE)
+  }
+  rm(.py_path)
 }
 #'
 #' Returns a list of all pipeline parameters. Modify this function or override
@@ -206,6 +220,13 @@ make_config <- function(ftir_path  = NULL,
     landmark_confidence_min_inlier_ratio = 0.5,
     landmark_confidence_max_residual_um  = 50,
     landmark_skip_full_ransac  = TRUE,
+
+    # --- Determinism ---
+    # Seed for the stochastic samplers in RANSAC / global registration. Fixing
+    # it makes alignment (and therefore match counts) reproducible run-to-run.
+    # The seeding is RNG-safe: each aligner saves and restores the global RNG
+    # state, so this does not perturb randomness elsewhere in the pipeline.
+    align_seed = 1L,
 
     # --- RANSAC alignment ---
     ransac_coarse_step_deg = 1,
