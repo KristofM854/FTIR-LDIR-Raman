@@ -504,6 +504,21 @@ ui <- fluidPage(
               column(6, plotOutput("pie_ldir",        height = "300px")),
               column(6, plotOutput("pie_ftir_bruker", height = "300px"))
             )
+          ),
+          hr(),
+          div(class = "info-box",
+            h4("Size Distribution by Instrument"),
+            p(class = "text-muted",
+              "Histogram of particle Feret Max (µm) per instrument.",
+              "Solid bars: matched particles. Outline bars: unmatched."),
+            fluidRow(
+              column(4, plotOutput("size_hist_ftir",    height = "280px")),
+              column(4, plotOutput("size_hist_raman",   height = "280px")),
+              column(4, plotOutput("size_hist_ldir",    height = "280px"))
+            ),
+            hr(),
+            h5("Size Statistics"),
+            uiOutput("size_stats_table")
           )
         )
       )
@@ -996,6 +1011,110 @@ server <- function(input, output, session) {
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode)
+  })
+
+  # Helper: plot size distribution for one instrument
+  plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
+    if (is.null(df) || nrow(df) == 0) {
+      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No data"),
+                                   size = 5, colour = "grey50") +
+             theme_void())
+    }
+    ggplot(df, aes(x = feret_max_um, fill = match_status, colour = match_status)) +
+      geom_histogram(alpha = 0.7, bins = 20, position = "identity") +
+      scale_fill_manual(values = c(matched = color_matched, unmatched = color_unmatched),
+                        labels = c(matched = "Matched", unmatched = "Unmatched")) +
+      scale_colour_manual(values = c(matched = color_matched, unmatched = color_unmatched),
+                          guide = "none") +
+      labs(title = inst_name, x = "Feret Max (µm)", y = "Count", fill = "Match Status") +
+      theme_minimal() + theme(legend.position = "top", plot.title = element_text(size = 11, face = "bold"))
+  }
+
+  output$size_hist_ftir <- renderPlot({
+    df <- ftir_df_full()
+    if (is.null(df) || nrow(df) == 0) {
+      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No FTIR data"),
+                                   size = 4, colour = "grey50") + theme_void())
+    }
+    plot_size_distribution(df, "FTIR (PerkinElmer)")
+  })
+
+  output$size_hist_raman <- renderPlot({
+    df <- raman_df_full()
+    if (is.null(df) || nrow(df) == 0) {
+      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No Raman data"),
+                                   size = 4, colour = "grey50") + theme_void())
+    }
+    plot_size_distribution(df, "Raman", color_matched = "#1f77b4")
+  })
+
+  output$size_hist_ldir <- renderPlot({
+    df <- ldir_df_full()
+    if (is.null(df) || nrow(df) == 0) {
+      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No LDIR data"),
+                                   size = 4, colour = "grey50") + theme_void())
+    }
+    plot_size_distribution(df, "LDIR", color_matched = "#ff7f0e")
+  })
+
+  # Size statistics table
+  output$size_stats_table <- renderUI({
+    stats_list <- list()
+    for (inst_name in c("FTIR", "Raman", "LDIR")) {
+      df <- if (inst_name == "FTIR") ftir_df_full()
+            else if (inst_name == "Raman") raman_df_full()
+            else ldir_df_full()
+      if (is.null(df) || nrow(df) == 0) next
+
+      n_total <- nrow(df)
+      n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
+      n_unmatched <- sum(df$match_status == "unmatched", na.rm = TRUE)
+      mn <- mean(df$feret_max_um, na.rm = TRUE)
+      med <- median(df$feret_max_um, na.rm = TRUE)
+      sd_val <- sd(df$feret_max_um, na.rm = TRUE)
+      mn_range <- min(df$feret_max_um, na.rm = TRUE)
+      mx_range <- max(df$feret_max_um, na.rm = TRUE)
+
+      stats_list[[inst_name]] <- list(
+        n_total = n_total, n_matched = n_matched, n_unmatched = n_unmatched,
+        mean = mn, median = med, sd = sd_val, min = mn_range, max = mx_range
+      )
+    }
+
+    if (length(stats_list) == 0) {
+      return(tags$p(class = "text-muted", "No instrument data available"))
+    }
+
+    # Build table rows
+    rows <- lapply(names(stats_list), function(inst) {
+      s <- stats_list[[inst]]
+      tags$tr(
+        tags$td(tags$b(inst)),
+        tags$td(s$n_total),
+        tags$td(s$n_matched),
+        tags$td(s$n_unmatched),
+        tags$td(paste0(round(s$mean, 1), " µm")),
+        tags$td(paste0(round(s$median, 1), " µm")),
+        tags$td(paste0(round(s$sd, 1), " µm")),
+        tags$td(paste0(round(s$min, 1), "–", round(s$max, 1), " µm"))
+      )
+    })
+
+    tags$table(class = "table table-condensed",
+      tags$thead(
+        tags$tr(
+          tags$th("Instrument"),
+          tags$th("Total"),
+          tags$th("Matched"),
+          tags$th("Unmatched"),
+          tags$th("Mean"),
+          tags$th("Median"),
+          tags$th("Std Dev"),
+          tags$th("Range")
+        )
+      ),
+      tags$tbody(rows)
+    )
   })
 
   # Provenance panel UI
@@ -2025,8 +2144,28 @@ server <- function(input, output, session) {
   # Helper: ggplot scatter with optional image background
   # ==================================================================
   # Helper: generate axis breaks at every 1000 µm within a range
-  breaks_1000 <- function(rng) {
-    seq(floor(rng[1] / 1000) * 1000, ceiling(rng[2] / 1000) * 1000, by = 1000)
+  # Adaptive axis breaks: choose interval based on zoom level to keep 4-8 breaks visible
+  breaks_adaptive <- function(rng) {
+    if (is.null(rng) || length(rng) < 2 || rng[1] >= rng[2]) return(NULL)
+
+    span <- rng[2] - rng[1]
+
+    # Choose interval to get ~4-8 breaks (target: 6)
+    intervals <- c(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
+    best_int <- 1000
+    for (int in intervals) {
+      n_breaks <- span / int
+      if (n_breaks >= 4 && n_breaks <= 8) {
+        best_int <- int
+        break
+      }
+      if (n_breaks < 4) {
+        best_int <- int
+        break
+      }
+    }
+
+    seq(floor(rng[1] / best_int) * best_int, ceiling(rng[2] / best_int) * best_int, by = best_int)
   }
 
   make_scatter <- function(df, img_info, bounds, title,
@@ -2057,8 +2196,8 @@ server <- function(input, output, session) {
 
     p <- p +
       scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12)) +
-      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
-      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
+      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
@@ -2764,8 +2903,8 @@ server <- function(input, output, session) {
     }
 
     p <- ggplot() +
-      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
-      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
+      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = title_parts, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
@@ -3204,8 +3343,8 @@ server <- function(input, output, session) {
     }
 
     p <- ggplot() +
-      scale_x_continuous(breaks = breaks_1000(bounds$x)) +
-      scale_y_continuous(breaks = breaks_1000(bounds$y)) +
+      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = "Multi-Instrument Overlay (aligned coordinates)",
            x = "X (µm)", y = "Y (µm)") +
@@ -3432,6 +3571,70 @@ server <- function(input, output, session) {
   # Checks: matched pairs, LDIR-Raman pairs, then highlighted/selected
   # single-instrument particles (regardless of layer state).
   # ==================================================================
+  # Helper: given a particle ID and match source, find all its matched partners
+  # across all match files (ftir_raman, ldir_raman, bruker_raman)
+  find_all_triple_partners <- function(particle_id, source, matched_ftir_r, matched_ldir_r, matched_bruker_r) {
+    partners <- list(ftir = NULL, raman = NULL, ldir = NULL)
+
+    if (source == "ftir_raman" && !is.null(matched_ftir_r)) {
+      row_f <- matched_ftir_r[matched_ftir_r$ftir_particle_id == particle_id, ]
+      if (nrow(row_f) > 0) {
+        partners$ftir <- row_f[1, ]
+        raman_pid <- row_f$raman_particle_id[1]
+        # Look for LDIR partner via Raman
+        if (!is.null(matched_ldir_r)) {
+          row_lr <- matched_ldir_r[matched_ldir_r$raman_particle_id == raman_pid, ]
+          if (nrow(row_lr) > 0) {
+            partners$ldir <- row_lr[1, ]
+            partners$raman <- row_f[, c("raman_particle_id", "raman_material", "raman_quality",
+                                        "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
+          } else {
+            partners$raman <- row_f[, c("raman_particle_id", "raman_material", "raman_quality",
+                                        "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
+          }
+        }
+      }
+    } else if (source == "ldir_raman" && !is.null(matched_ldir_r)) {
+      row_lr <- matched_ldir_r[matched_ldir_r$ldir_particle_id == particle_id, ]
+      if (nrow(row_lr) > 0) {
+        partners$ldir <- row_lr[1, ]
+        raman_pid <- row_lr$raman_particle_id[1]
+        # Look for FTIR partner via Raman
+        if (!is.null(matched_ftir_r)) {
+          row_f <- matched_ftir_r[matched_ftir_r$raman_particle_id == raman_pid, ]
+          if (nrow(row_f) > 0) {
+            partners$ftir <- row_f[1, ]
+            partners$raman <- row_f[, c("raman_particle_id", "raman_material", "raman_quality",
+                                        "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
+          } else {
+            partners$raman <- row_lr[, c("raman_particle_id", "raman_material", "raman_quality",
+                                         "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
+          }
+        }
+      }
+    } else if (source == "bruker_raman" && !is.null(matched_bruker_r)) {
+      row_br <- matched_bruker_r[matched_bruker_r$ftir_particle_id == particle_id, ]
+      if (nrow(row_br) > 0) {
+        partners$ftir <- row_br[1, ]
+        raman_pid <- row_br$raman_particle_id[1]
+        # Look for LDIR partner via Raman
+        if (!is.null(matched_ldir_r)) {
+          row_lr <- matched_ldir_r[matched_ldir_r$raman_particle_id == raman_pid, ]
+          if (nrow(row_lr) > 0) {
+            partners$ldir <- row_lr[1, ]
+          }
+        }
+        partners$raman <- row_br[, c("raman_particle_id", "raman_material", "raman_quality",
+                                     "raman_feret_max_um", "raman_area_um2", "raman_x_um", "raman_y_um"), drop = FALSE]
+      }
+    }
+
+    # Count how many partners were found
+    n_partners <- sum(!sapply(partners, is.null))
+    if (n_partners > 0) partners$count <- n_partners
+    partners
+  }
+
   find_nearest_overlay_particle <- function(px, py, snap_dist,
                                             inst, rel, matched, ldir_m, dfs,
                                             bruker_m = data.frame()) {
@@ -3756,8 +3959,63 @@ server <- function(input, output, session) {
       return(single_overlay_detail(row, inst_label, q_label))
     }
 
-    # LDIR-Raman match pair
-    if (!is.null(src) && src == "ldir_raman") {
+    # Check for triple matches (FTIR + Raman + LDIR)
+    matched_ftir <- run_data()$ftir_raman_matched
+    matched_ldir <- run_data()$ldir_raman_matched
+    matched_bruker <- run_data()$ftir_bruker_raman_matched
+
+    if (src == "ftir_raman") {
+      pid <- row$ftir_particle_id
+      partners <- find_all_triple_partners(pid, "ftir_raman", matched_ftir, matched_ldir, matched_bruker)
+    } else if (src == "ldir_raman") {
+      pid <- row$ldir_particle_id
+      partners <- find_all_triple_partners(pid, "ldir_raman", matched_ftir, matched_ldir, matched_bruker)
+    } else if (src == "bruker_raman") {
+      pid <- row$ftir_particle_id
+      partners <- find_all_triple_partners(pid, "bruker_raman", matched_ftir, matched_ldir, matched_bruker)
+    } else {
+      partners <- list(count = 1)
+    }
+
+    # Display triple match (FTIR + Raman + LDIR) if all three are present
+    if (isTRUE(partners$count >= 3) && !is.null(partners$ftir) && !is.null(partners$raman) && !is.null(partners$ldir)) {
+      p_f <- partners$ftir
+      p_r <- partners$raman
+      p_l <- partners$ldir
+      return(tags$table(class = "hover-tbl",
+        tags$tr(tags$th(""), tags$th("FTIR"), tags$th("Raman"), tags$th("LDIR")),
+        tags$tr(tags$td(tags$b("Particle ID")),
+                tags$td(p_f$ftir_particle_id),
+                tags$td(p_r$raman_particle_id),
+                tags$td(p_l$ldir_particle_id)),
+        tags$tr(tags$td(tags$b("Material")),
+                tags$td(p_f$ftir_material),
+                tags$td(p_r$raman_material),
+                tags$td(p_l$ldir_material)),
+        tags$tr(tags$td(tags$b("Quality")),
+                tags$td(paste0("AAU ", round(p_f$ftir_quality, 3))),
+                tags$td(paste0("HQI ", round(p_r$raman_quality, 2))),
+                tags$td(round(p_l$ldir_quality, 3))),
+        tags$tr(tags$td(tags$b("Feret Max")),
+                tags$td(paste0(round(p_f$ftir_feret_max_um, 1), " \u00b5m")),
+                tags$td(paste0(round(p_r$raman_feret_max_um, 1), " \u00b5m")),
+                tags$td(paste0(round(p_l$ldir_feret_max_um, 1), " \u00b5m"))),
+        tags$tr(tags$td(tags$b("Area")),
+                tags$td(paste0(round(p_f$ftir_area_um2, 1), " \u00b5m\u00b2")),
+                tags$td(paste0(round(p_r$raman_area_um2, 1), " \u00b5m\u00b2")),
+                tags$td(paste0(round(p_l$ldir_area_um2, 1), " \u00b5m\u00b2"))),
+        tags$tr(tags$td(tags$b("Position")),
+                tags$td(paste0("(", round(p_f$ftir_x_aligned, 1), ", ",
+                                round(p_f$ftir_y_aligned, 1), ")")),
+                tags$td(paste0("(", round(p_r$raman_x_um, 1), ", ",
+                                round(p_r$raman_y_um, 1), ")")),
+                tags$td(paste0("(", round(p_l$ldir_x_aligned, 1), ", ",
+                                round(p_l$ldir_y_aligned, 1), ")")))
+      ))
+    }
+
+    # Display LDIR-Raman match pair if no FTIR partner
+    if (!is.null(src) && src == "ldir_raman" && isTRUE(partners$count >= 2)) {
       return(tags$table(class = "hover-tbl",
         tags$tr(tags$th(""), tags$th("LDIR"), tags$th("Raman")),
         tags$tr(tags$td(tags$b("Particle ID")),
