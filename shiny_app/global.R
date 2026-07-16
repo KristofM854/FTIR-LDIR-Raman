@@ -347,8 +347,69 @@ load_run_data <- function(run_info) {
     }
   }
 
+  data <- annotate_ldir_gate(data, run_info$dir)
   enrich_material_family(data)
 }
+
+# ---------------------------------------------------------------------------
+# LDIR<->Raman acceptance gate + genuine-match classification
+# ---------------------------------------------------------------------------
+# ldir_force_complete_match = TRUE makes the pipeline pair EVERY LDIR particle
+# with a Raman particle regardless of distance, so "matched" in the raw CSV is
+# vacuous — every LDIR is always paired. The per-pair `match_distance` (aligned
+# coordinate Euclidean distance, recomputed after any TPS refinement) is the
+# real signal: a pair is a genuine match only when it falls within the LDIR
+# acceptance gate. Classifying here, once, keeps the summary, the overlay plot,
+# and the hover/tables perfectly consistent — the image agrees with the table.
+
+# Return the LDIR<->Raman acceptance gate (µm) for a run. Read from the run
+# manifest's config snapshot; falls back to the pipeline default (250 µm) for
+# runs whose manifest predates the gate being recorded.
+ldir_acceptance_gate <- function(run_dir) {
+  default_gate <- 250
+  if (is.null(run_dir) || !nzchar(run_dir)) return(default_gate)
+  man <- tryCatch(load_run_manifest(run_dir), error = function(e) NULL)
+  cs  <- if (!is.null(man)) man$config_snapshot else NULL
+  g <- NULL
+  if (!is.null(cs)) {
+    g <- cs$match_dist_threshold_ldir_um
+    if (is.null(g)) g <- cs$match_dist_threshold_um
+  }
+  g <- suppressWarnings(as.numeric(unlist(g)))
+  g <- g[is.finite(g)]
+  if (length(g) == 0 || g[1] <= 0) return(default_gate)
+  g[1]
+}
+
+# Tag each LDIR<->Raman pair with `within_gate` (TRUE = genuine match). Records
+# the resolved gate on data$ldir_match_gate_um for the summary line.
+annotate_ldir_gate <- function(data, run_dir) {
+  m <- data$ldir_raman_matched
+  if (is.null(m) || nrow(m) == 0) return(data)
+  gate <- ldir_acceptance_gate(run_dir)
+  data$ldir_match_gate_um <- gate
+  if ("match_distance" %in% names(m)) {
+    m$within_gate <- !is.na(m$match_distance) & m$match_distance <= gate
+  } else {
+    # Legacy CSVs without a per-pair distance: preserve prior behaviour
+    # (treat all forced pairs as matched) rather than silently dropping them.
+    m$within_gate <- TRUE
+  }
+  data$ldir_raman_matched <- m
+  data
+}
+
+# Subset of an ldir_raman_matched frame that are genuine (within-gate) matches.
+# When the frame has not been annotated (defensive: no within_gate column) every
+# pair is treated as genuine, preserving legacy behaviour.
+ldir_genuine_pairs <- function(m) {
+  if (is.null(m) || nrow(m) == 0) return(m)
+  if (!"within_gate" %in% names(m)) return(m)
+  m[isTRUE_vec(m$within_gate), , drop = FALSE]
+}
+
+# Vectorised isTRUE (NA-safe): TRUE only where the value is exactly TRUE.
+isTRUE_vec <- function(x) !is.na(x) & x
 
 # Helper: add *_material_family columns to matched & ldir_raman_matched
 # so the overlay tab can filter on harmonized family names.
@@ -598,11 +659,14 @@ build_instrument_dfs <- function(data) {
   if (!is.null(result$raman))
     result$raman$material_family <- classify_family_vec(result$raman$material)
 
-  # Add LDIR→Raman match flag if LDIR-Raman match data available
+  # Add LDIR→Raman match flag if LDIR-Raman match data available. Only
+  # genuine (within-gate) pairs count as matched — an over-gate forced pairing
+  # leaves the Raman particle effectively unmatched to LDIR.
   if (!is.null(result$raman) && nrow(result$raman) > 0 &&
       !is.null(data$ldir_raman_matched) && nrow(data$ldir_raman_matched) > 0) {
+    genuine <- ldir_genuine_pairs(data$ldir_raman_matched)
     result$raman$matched_to_ldir <- result$raman$particle_id %in%
-      data$ldir_raman_matched$raman_particle_id
+      genuine$raman_particle_id
   } else if (!is.null(result$raman) && nrow(result$raman) > 0) {
     result$raman$matched_to_ldir <- FALSE
   }
@@ -617,6 +681,10 @@ build_instrument_dfs <- function(data) {
       message("[Particle Viewer] WARNING: ldir_raman_matched.csv missing ldir_x_aligned; ",
               "falling back to ldir_x_um (original coordinates)")
     }
+    # Genuine match = within the acceptance gate. Over-gate rows are forced
+    # pairings (ldir_force_complete_match); report them as unmatched LDIR so the
+    # summary, the overlay (lone red point), and the tables all agree.
+    within <- if ("within_gate" %in% names(m)) isTRUE_vec(m$within_gate) else rep(TRUE, nrow(m))
     ldir_parts[[1]] <- data.frame(
       particle_id = m$ldir_particle_id,
       x = if (has_aligned) m$ldir_x_aligned else m$ldir_x_um,
@@ -626,8 +694,9 @@ build_instrument_dfs <- function(data) {
       major_um = m$ldir_major_um, minor_um = m$ldir_minor_um,
       feret_max = m$ldir_feret_max_um,
       material = m$ldir_material, quality = m$ldir_quality,
-      match_status = "matched", match_id = m$match_id,
-      matched_to_raman = TRUE,
+      match_status = ifelse(within, "matched", "unmatched"),
+      match_id = ifelse(within, m$match_id, NA_integer_),
+      matched_to_raman = within,
       match_score       = if ("match_score"           %in% names(m)) m$match_score           else NA_real_,
       coord_match_cost  = if ("ldir_coord_match_cost" %in% names(m)) m$ldir_coord_match_cost else NA_real_,
       stringsAsFactors = FALSE)
