@@ -998,26 +998,29 @@ server <- function(input, output, session) {
     })
   })
 
+  # The four pies read exactly pie_classified() + the two display-mode inputs,
+  # so those form a complete cache key (revisiting the Summary tab or toggling
+  # back to a prior mode returns the cached bitmap with no ggplot work).
   output$pie_ftir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$ftir, "FTIR (PerkinElmer)", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$ftir, input$pie_display_mode, input$pie_category_mode)
   output$pie_raman <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$raman, "Raman", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$raman, input$pie_display_mode, input$pie_category_mode)
   output$pie_ldir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$ldir, "LDIR", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$ldir, input$pie_display_mode, input$pie_category_mode)
   output$pie_ftir_bruker <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$ftir_bruker, input$pie_display_mode, input$pie_category_mode)
 
   # Helper: plot size distribution for one instrument
   plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
@@ -1687,22 +1690,33 @@ server <- function(input, output, session) {
     m   <- load_run_manifest(run_dir)
     img <- get_run_image_paths(m, run_dir)
 
+    # Downsize run-directory images the same way uploads are (max 2000 px).
+    # Instrument exports are often several thousand px; a full-res raster in
+    # annotation_raster makes every uncached plot render slow. downsample_raster
+    # records orig_width_px so µm-per-px placement stays exact (see
+    # raman_native_image_info Priority 2).
+    load_bg <- function(path) {
+      raw <- load_image_raster(path)
+      if (is.null(raw)) return(NULL)
+      downsample_raster(raw, max_dim = BG_IMAGE_MAX_DIM)
+    }
+
     if (!is.null(img$ftir)) {
-      raw <- load_image_raster(img$ftir)
+      raw <- load_bg(img$ftir)
       if (!is.null(raw)) ftir_raw_image(raw)
     } else {
       ftir_raw_image(NULL)
     }
 
     if (!is.null(img$ftir_bruker)) {
-      raw <- load_image_raster(img$ftir_bruker)
+      raw <- load_bg(img$ftir_bruker)
       if (!is.null(raw)) ftir_bruker_raw_image(raw)
     } else {
       ftir_bruker_raw_image(NULL)
     }
 
     if (!is.null(img$raman)) {
-      raw <- load_image_raster(img$raman)
+      raw <- load_bg(img$raman)
       if (!is.null(raw)) {
         raman_image(raw)
         raman_image_path(img$raman)
@@ -1713,7 +1727,7 @@ server <- function(input, output, session) {
     }
 
     if (!is.null(img$ldir)) {
-      raw <- load_image_raster(img$ldir)
+      raw <- load_bg(img$ldir)
       if (!is.null(raw)) ldir_raw_image(raw)
     } else {
       ldir_raw_image(NULL)
@@ -3741,6 +3755,39 @@ server <- function(input, output, session) {
     search_all <- is.null(inst)
 
     chk <- function(rel_val, ...) search_all || (rel_val %in% rel && all(c(...) %in% inst))
+
+    # Single-instrument mode: the plot draws ALL particles of the one selected
+    # instrument, ignoring the matched/unmatched relationship filter (see the
+    # length(inst)==1 branch in output$overlay_plot). The pairing/unmatched
+    # branches below can't reach those points — a matched particle's branch
+    # needs its partner instrument selected, and unmatched only fires when
+    # "unmatched" is in rel — so hovering a Raman-only view found nothing.
+    # Mirror the plot here: search every particle of that instrument.
+    if (!search_all && length(inst) == 1) {
+      one     <- inst[[1]]
+      one_key <- switch(one, ftir_pe = "ftir", ftir_bruker = "ftir_bruker",
+                              raman = "raman", ldir = "ldir", NA_character_)
+      one_src <- switch(one, ftir_pe = "single_ftir", ftir_bruker = "single_ftir_bruker",
+                              raman = "single_raman", ldir = "single_ldir", NA_character_)
+      one_mat <- switch(one, ftir_pe = "overlay_ftir_material",
+                              ftir_bruker = "overlay_ftir_bruker_material",
+                              raman = "overlay_raman_material",
+                              ldir = "overlay_ldir_material", NA_character_)
+      df_s <- if (!is.na(one_key)) dfs[[one_key]] else NULL
+      if (!is.null(df_s) && nrow(df_s) > 0) {
+        # Respect the same material filter the plot applies.
+        mat <- if (!is.na(one_mat)) input[[one_mat]] else NULL
+        if (!is.null(mat) && !("All" %in% mat) && "material_family" %in% names(df_s))
+          df_s <- df_s[df_s$material_family %in% mat, ]
+        if (nrow(df_s) > 0) {
+          d_s <- sqrt((df_s$x - px)^2 + (df_s$y - py)^2); idx_s <- which.min(d_s)
+          if (length(idx_s) > 0 && d_s[idx_s] < best_dist) {
+            best_dist <- d_s[idx_s]; best_row <- df_s[idx_s, , drop = FALSE]
+            best_source <- one_src
+          }
+        }
+      }
+    }
 
     # FTIR-PE <-> Raman matched
     if (chk("matched", "ftir_pe", "raman") && !is.null(matched) && nrow(matched) > 0) {
