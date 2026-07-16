@@ -218,8 +218,21 @@ make_config <- function(ftir_path  = NULL,
 
     # When TRUE, Hungarian matching forces a 1-to-1 assignment for every LDIR
     # particle regardless of spatial distance — no pairs are rejected.
-    # Use the match_score slider in the Shiny viewer to post-hoc filter bad matches.
-    ldir_force_complete_match = TRUE,
+    #
+    # DO NOT ENABLE. Forcing every particle removes the spatial gate, so the
+    # Hungarian minimises the GLOBAL SUM of pairing costs across all forced
+    # pairs. That lets a partner-less particle "rob" a good particle's correct
+    # match through a multi-particle cascade: e.g. a particle sitting 22 µm from
+    # its true partner was reassigned to one 2049 µm away so a partner-less
+    # neighbour could take the 22 µm one (its own best option was ~1092 µm).
+    # Post-hoc filtering (the viewer match-gate slider) CANNOT repair this — the
+    # corrupted assignment has already given the partner away.
+    #
+    # FALSE (correct): the LDIR distance gate (match_dist_threshold_ldir_um,
+    # with adaptive expansion for large particles) is a hard match-time
+    # constraint. Only within-gate pairs are formed; particles with no plausible
+    # partner are reported unmatched instead of stealing someone else's.
+    ldir_force_complete_match = FALSE,
 
     # Named explicit landmark correspondences: LDIR particle_id → Raman particle_id
     # Example: c("A3" = "A3", "MP_11" = "Raman_190")
