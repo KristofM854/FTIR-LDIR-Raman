@@ -60,33 +60,23 @@ subsample_idx <- function(v, n_max = 150)
 li <- subsample_idx(lx); ri <- subsample_idx(rx)
 slx <- lx[li]; sly <- ly[li]; srx <- rx[ri]; sry <- ry[ri]
 
-rotate_cloud <- function(px, py, angle_deg, mirror, s) {
-  th <- angle_deg * pi / 180
-  ct <- cos(th); st <- sin(th)
-  if (!mirror) list(x = s * (ct * px - st * py), y = s * (st * px + ct * py))
-  else         list(x = s * (ct * px + st * py), y = s * (st * px - ct * py))
-}
+# Shared pose transform + one-to-one inlier count (R/align_helpers.R), resolved
+# relative to this script so it works from any working directory. rotate_cloud
+# and count_inliers wrap them with this tool's argument order / INLIER_UM.
+.this_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+.tools_dir <- if (length(.this_file)) dirname(.this_file[1]) else "tools"
+source(file.path(.tools_dir, "..", "R", "align_helpers.R"))
+
+rotate_cloud <- function(px, py, angle_deg, mirror, s)
+  align_pose_xy(angle_deg, s, mirror, px, py)
 
 # ONE-TO-ONE inlier count of transformed LDIR (X,Y) against Raman (ax,ay):
 # greedy nearest-pair matching where each particle on either side is used at
 # most once.  Plain nearest-neighbor counting rewards collapsing the whole
 # LDIR cloud into the densest Raman region at tiny scales (every point finds
 # SOME neighbor); one-to-one matching caps that at the local particle count.
-count_inliers <- function(X, Y, ax, ay) {
-  d <- sqrt(outer(ax, X, "-")^2 + outer(ay, Y, "-")^2)  # [n_raman, n_ldir]
-  ok <- which(d <= INLIER_UM, arr.ind = TRUE)
-  if (nrow(ok) == 0) return(0L)
-  ord <- order(d[ok])
-  used_r <- logical(length(ax)); used_l <- logical(length(X))
-  n <- 0L
-  for (k in ord) {
-    i <- ok[k, 1]; j <- ok[k, 2]
-    if (!used_r[i] && !used_l[j]) {
-      used_r[i] <- TRUE; used_l[j] <- TRUE; n <- n + 1L
-    }
-  }
-  n
-}
+count_inliers <- function(X, Y, ax, ay)
+  align_one_to_one(X, Y, ax, ay, INLIER_UM)
 
 score_orientation <- function(angle_deg, mirror, s) {
   p <- rotate_cloud(slx, sly, angle_deg, mirror, s)
