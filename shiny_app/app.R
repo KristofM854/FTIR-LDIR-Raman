@@ -3742,6 +3742,39 @@ server <- function(input, output, session) {
 
     chk <- function(rel_val, ...) search_all || (rel_val %in% rel && all(c(...) %in% inst))
 
+    # Single-instrument mode: the plot draws ALL particles of the one selected
+    # instrument, ignoring the matched/unmatched relationship filter (see the
+    # length(inst)==1 branch in output$overlay_plot). The pairing/unmatched
+    # branches below can't reach those points — a matched particle's branch
+    # needs its partner instrument selected, and unmatched only fires when
+    # "unmatched" is in rel — so hovering a Raman-only view found nothing.
+    # Mirror the plot here: search every particle of that instrument.
+    if (!search_all && length(inst) == 1) {
+      one     <- inst[[1]]
+      one_key <- switch(one, ftir_pe = "ftir", ftir_bruker = "ftir_bruker",
+                              raman = "raman", ldir = "ldir", NA_character_)
+      one_src <- switch(one, ftir_pe = "single_ftir", ftir_bruker = "single_ftir_bruker",
+                              raman = "single_raman", ldir = "single_ldir", NA_character_)
+      one_mat <- switch(one, ftir_pe = "overlay_ftir_material",
+                              ftir_bruker = "overlay_ftir_bruker_material",
+                              raman = "overlay_raman_material",
+                              ldir = "overlay_ldir_material", NA_character_)
+      df_s <- if (!is.na(one_key)) dfs[[one_key]] else NULL
+      if (!is.null(df_s) && nrow(df_s) > 0) {
+        # Respect the same material filter the plot applies.
+        mat <- if (!is.na(one_mat)) input[[one_mat]] else NULL
+        if (!is.null(mat) && !("All" %in% mat) && "material_family" %in% names(df_s))
+          df_s <- df_s[df_s$material_family %in% mat, ]
+        if (nrow(df_s) > 0) {
+          d_s <- sqrt((df_s$x - px)^2 + (df_s$y - py)^2); idx_s <- which.min(d_s)
+          if (length(idx_s) > 0 && d_s[idx_s] < best_dist) {
+            best_dist <- d_s[idx_s]; best_row <- df_s[idx_s, , drop = FALSE]
+            best_source <- one_src
+          }
+        }
+      }
+    }
+
     # FTIR-PE <-> Raman matched
     if (chk("matched", "ftir_pe", "raman") && !is.null(matched) && nrow(matched) > 0) {
       dist_f <- sqrt((matched$ftir_x_aligned - px)^2 + (matched$ftir_y_aligned - py)^2)
