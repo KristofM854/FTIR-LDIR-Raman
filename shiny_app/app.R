@@ -2956,7 +2956,11 @@ server <- function(input, output, session) {
       need <- c("ldir_particle_id", "ldir_x_aligned", "ldir_y_aligned",
                 "raman_x_norm", "raman_y_norm")
       if (!is.null(rd) && nrow(rd) > 0 && all(need %in% names(rd))) {
-        if (nrow(df_disp) > 0)
+        # Genuine matches only: a partner line for a forced over-gate pair would
+        # contradict its "unmatched" status elsewhere.
+        if ("within_gate" %in% names(rd))
+          rd <- rd[!is.na(rd$within_gate) & rd$within_gate, , drop = FALSE]
+        if (nrow(rd) > 0 && nrow(df_disp) > 0)
           rd <- rd[rd$ldir_particle_id %in% df_disp$particle_id, , drop = FALSE]
         if (nrow(rd) > 0) {
           seg <- data.frame(x = rd$ldir_x_aligned, y = rd$ldir_y_aligned,
@@ -3288,6 +3292,15 @@ server <- function(input, output, session) {
       return(data.frame())
     df <- d$ldir_raman_matched
 
+    # Genuine matches only: drop forced over-gate pairings so the overlay draws
+    # the same matched set the summary counts. Over-gate LDIR then fall through
+    # to the unmatched layer (lone red) and their Raman partners to unmatched
+    # Raman (lone blue) — image and table stay consistent.
+    if ("within_gate" %in% names(df)) {
+      df <- df[!is.na(df$within_gate) & df$within_gate, , drop = FALSE]
+      if (nrow(df) == 0) return(data.frame())
+    }
+
     # LDIR quality filter
     ldir_q <- overlay_ldir_quality_d()
     if (!is.null(ldir_q) && "ldir_quality" %in% names(df)) {
@@ -3355,7 +3368,16 @@ server <- function(input, output, session) {
   overlay_triplets <- reactive({
     d <- run_data()
     if (is.null(d$triplets) || nrow(d$triplets) == 0) return(data.frame())
-    d$triplets
+    tr <- d$triplets
+    # A triplet is only real if its LDIR↔Raman leg is a genuine (within-gate)
+    # match — otherwise the LDIR partner is a forced over-gate assignment and
+    # the "triple" is spurious. Keeps the triple count honest alongside the
+    # gated LDIR↔Raman count.
+    gate <- d$ldir_match_gate_um
+    if (!is.null(gate) && is.finite(gate) && "ldir_raman_distance" %in% names(tr)) {
+      tr <- tr[!is.na(tr$ldir_raman_distance) & tr$ldir_raman_distance <= gate, , drop = FALSE]
+    }
+    tr
   })
 
   output$overlay_plot <- renderPlot({
@@ -3618,12 +3640,19 @@ server <- function(input, output, session) {
     n_ldir    <- if (!is.null(dfs$ldir))        nrow(dfs$ldir)                                   else 0
     n_ldir_m  <- if (!is.null(dfs$ldir))        sum(dfs$ldir$match_status == "matched")          else 0
     n_trip    <- nrow(triplets)
+    # Genuine matches only: over-gate forced pairings are reported as unmatched
+    # LDIR. Show the gate so the count is self-explanatory.
+    gate      <- run_data()$ldir_match_gate_um
+    ldir_lbl  <- if (!is.null(gate) && is.finite(gate))
+                   paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched (\u2264", gate, "\u00b5m)")
+                 else
+                   paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched")
     paste0(nrow(m),  " FTIR\u2194Raman pairs | ",
            n_um_f,   " FTIR unmatched | ",
            n_um_r,   " Raman unmatched | ",
            nrow(bm), " Bruker\u2194Raman pairs | ",
            n_um_fb,  " Bruker unmatched | ",
-           n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched | ",
+           ldir_lbl, " | ",
            n_trip,   " triple matches")
   })
 
@@ -3990,8 +4019,12 @@ server <- function(input, output, session) {
     # raman_particle_id, so one Raman particle can carry up to three partners.
     rd <- run_data()
     raman_pid <- if (!is.null(row$raman_particle_id)) row$raman_particle_id else NULL
+    # Only surface a genuine (within-gate) LDIR partner — a forced over-gate
+    # pairing is reported as unmatched everywhere else, so it must not appear
+    # here as a partner.
     partners <- gather_partners_by_raman(raman_pid, rd$matched,
-                                         rd$ldir_raman_matched, rd$matched_ftir_bruker)
+                                         ldir_genuine_pairs(rd$ldir_raman_matched),
+                                         rd$matched_ftir_bruker)
 
     # Safe accessors: return NULL/em-dash for missing columns rather than erroring.
     .g <- function(frame, col) {

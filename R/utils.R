@@ -845,6 +845,11 @@ write_manifest <- function(run_dir, run_id, config,
                  # reconstruct the matching-eligible particle set.
                  "min_particle_size_um", "ldir_quality_threshold",
                  "ransac_iterations", "icp_max_iter", "match_radius_um",
+                 # Match acceptance gates — the Shiny viewer reads these from
+                 # the manifest to decide which forced LDIR<->Raman pairs are
+                 # genuine (match_distance <= gate) vs over-gate assignments
+                 # produced by ldir_force_complete_match.
+                 "match_dist_threshold_um", "match_dist_threshold_ldir_um",
                  # Raman image placement — the Shiny viewer reads these from
                  # the manifest snapshot to place the background image at its
                  # exact physical extent (raman_native_image_info Priority 1).
