@@ -91,6 +91,23 @@ test_that("legacy match frames without match_distance stay fully matched", {
   expect_true(all(data$ldir_raman_matched$within_gate))
 })
 
+test_that("regate_ldir retunes within_gate to an explicit gate", {
+  env <- .load_global_helpers()
+  m <- .synthetic_ldir_match(c(50, 120, 200, 240, 10, 400, 600, 900))
+  d <- list(ldir_raman_matched = m)
+
+  expect_equal(sum(env$regate_ldir(d, 100)$ldir_raman_matched$within_gate), 2L)
+  expect_equal(sum(env$regate_ldir(d, 250)$ldir_raman_matched$within_gate), 5L)
+  expect_equal(sum(env$regate_ldir(d, 1000)$ldir_raman_matched$within_gate), 8L)
+
+  # Stored gate follows the override.
+  expect_equal(env$regate_ldir(d, 500)$ldir_match_gate_um, 500)
+
+  # Invalid gate is a no-op (no within_gate written, data untouched).
+  out <- env$regate_ldir(d, NA)
+  expect_false("within_gate" %in% names(out$ldir_raman_matched))
+})
+
 test_that("ldir_acceptance_gate falls back to 250 when unrecorded", {
   env <- .load_global_helpers()
   # Override the manifest loader to return no gate keys.
