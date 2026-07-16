@@ -133,7 +133,15 @@ LX <- ldir$x_um[lok]; LY <- ldir$y_um[lok]
 RX <- raman$x_um[rok]; RY <- raman$y_um[rok]
 LXc <- LX - mean(LX); LYc <- LY - mean(LY)
 RXc <- RX - mean(RX); RYc <- RY - mean(RY)
-rspan <- function(v) { q <- quantile(v, c(.05, .95), na.rm = TRUE); max(q[2]-q[1], 1e-9) }
+# Shared pose-search primitives (rotation/scale transform, one-to-one inlier
+# count, robust span, translation-voting score) live in R/align_helpers.R — one
+# implementation shared with the alignment core. Resolve the path relative to
+# this script so it works regardless of the caller's working directory.
+.this_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+.tools_dir <- if (length(.this_file)) dirname(.this_file[1]) else "tools"
+source(file.path(.tools_dir, "..", "R", "align_helpers.R"))
+
+rspan <- align_rspan
 span_ratio <- (rspan(RXc) + rspan(RYc)) / (rspan(LXc) + rspan(LYc))
 TOL <- 250
 
@@ -145,34 +153,12 @@ sidx <- function(v, m = 150) if (length(v) > m) sort(sample(length(v), m)) else 
 si <- sidx(LXc); ri2 <- sidx(RXc)
 sLXc <- LXc[si]; sLYc <- LYc[si]; sRXc <- RXc[ri2]; sRYc <- RYc[ri2]
 
-one_to_one <- function(px, py, qx, qy, tol) {  # greedy mutual, count only
-  d <- sqrt(outer(qx, px, "-")^2 + outer(qy, py, "-")^2)
-  ok <- which(d <= tol, arr.ind = TRUE)
-  if (nrow(ok) == 0) return(0L)
-  ok <- ok[order(d[ok]), , drop = FALSE]
-  ur <- logical(length(qx)); uc <- logical(length(px)); n <- 0L
-  for (r in seq_len(nrow(ok))) {
-    i <- ok[r, 1]; j <- ok[r, 2]
-    if (!ur[i] && !uc[j]) { ur[i] <- TRUE; uc[j] <- TRUE; n <- n + 1L }
-  }
-  n
-}
-# translation via voting on the subsampled clouds; returns best translation
-score_tr <- function(deg, s, lx, ly, rx2, ry2) {
-  th <- deg * pi / 180
-  X <- s * (cos(th) * lx - sin(th) * ly)
-  Y <- s * (sin(th) * lx + cos(th) * ly)
-  dx <- outer(rx2, X, "-"); dy <- outer(ry2, Y, "-")
-  key <- paste(round(dx / TOL), round(dy / TOL))
-  tb <- sort(table(key), decreasing = TRUE)
-  best <- list(n = 0L, tx = 0, ty = 0)
-  for (k in names(tb)[seq_len(min(5, length(tb)))]) {
-    sel <- key == k; tx <- mean(dx[sel]); ty <- mean(dy[sel])
-    n <- one_to_one(X + tx, Y + ty, rx2, ry2, TOL)
-    if (n > best$n) best <- list(n = n, tx = tx, ty = ty)
-  }
-  best
-}
+# one_to_one() and the rotation/scale + translation-voting score are shared with
+# the alignment core (R/align_helpers.R). score_tr fixes mirror = FALSE (this
+# tool never reflects) and threads in the module's TOL.
+one_to_one <- align_one_to_one
+score_tr <- function(deg, s, lx, ly, rx2, ry2)
+  align_score_pose(deg, s, FALSE, lx, ly, rx2, ry2, TOL)
 apply_tr <- function(deg, s, tx, ty, lx, ly) {
   th <- deg * pi / 180
   list(x = s*(cos(th)*lx - sin(th)*ly) + tx, y = s*(sin(th)*lx + cos(th)*ly) + ty)

@@ -24,7 +24,7 @@ local({
   rdir <- file.path(REPO_ROOT, "R")
   # Order matters only for %||% / helpers used at source time; these four are
   # self-contained given base R + RANN + clue.
-  for (m in c("utils.R", "00_config.R", "04_ransac.R", "07_match.R")) {
+  for (m in c("utils.R", "00_config.R", "align_helpers.R", "04_ransac.R", "07_match.R")) {
     sys.source(file.path(rdir, m), envir = globalenv())
   }
 })
