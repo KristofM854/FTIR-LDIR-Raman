@@ -1687,22 +1687,33 @@ server <- function(input, output, session) {
     m   <- load_run_manifest(run_dir)
     img <- get_run_image_paths(m, run_dir)
 
+    # Downsize run-directory images the same way uploads are (max 2000 px).
+    # Instrument exports are often several thousand px; a full-res raster in
+    # annotation_raster makes every uncached plot render slow. downsample_raster
+    # records orig_width_px so µm-per-px placement stays exact (see
+    # raman_native_image_info Priority 2).
+    load_bg <- function(path) {
+      raw <- load_image_raster(path)
+      if (is.null(raw)) return(NULL)
+      downsample_raster(raw, max_dim = BG_IMAGE_MAX_DIM)
+    }
+
     if (!is.null(img$ftir)) {
-      raw <- load_image_raster(img$ftir)
+      raw <- load_bg(img$ftir)
       if (!is.null(raw)) ftir_raw_image(raw)
     } else {
       ftir_raw_image(NULL)
     }
 
     if (!is.null(img$ftir_bruker)) {
-      raw <- load_image_raster(img$ftir_bruker)
+      raw <- load_bg(img$ftir_bruker)
       if (!is.null(raw)) ftir_bruker_raw_image(raw)
     } else {
       ftir_bruker_raw_image(NULL)
     }
 
     if (!is.null(img$raman)) {
-      raw <- load_image_raster(img$raman)
+      raw <- load_bg(img$raman)
       if (!is.null(raw)) {
         raman_image(raw)
         raman_image_path(img$raman)
@@ -1713,7 +1724,7 @@ server <- function(input, output, session) {
     }
 
     if (!is.null(img$ldir)) {
-      raw <- load_image_raster(img$ldir)
+      raw <- load_bg(img$ldir)
       if (!is.null(raw)) ldir_raw_image(raw)
     } else {
       ldir_raw_image(NULL)
