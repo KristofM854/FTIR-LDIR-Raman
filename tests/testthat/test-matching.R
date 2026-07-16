@@ -82,6 +82,34 @@ test_that("distance gate leaves a partner-less LDIR particle unmatched", {
   expect_equal(res$match_stats$n_matched, 1L)
 })
 
+test_that("cross-instrument pairs match in the shared aligned frame", {
+  # All instruments are co-registered into the Raman frame; a non-Raman pair is
+  # matched by dropping the reference into that frame (x_norm <- x_aligned).
+  mk_src <- function(ids, x, y) data.frame(
+    particle_id = ids, x_aligned = x, y_aligned = y,
+    area_um2 = 1000, feret_max_um = 50, major_um = 50, minor_um = 50,
+    stringsAsFactors = FALSE)
+  mk_ref <- function(ids, x, y) {
+    d <- mk_src(ids, x, y); d$x_norm <- d$x_aligned; d$y_norm <- d$y_aligned; d
+  }
+
+  # Bruker <-> Perkin: both FTIR -> fine 100 µm gate. P3 is 180 µm off (outside).
+  bru <- mk_src(c("B1", "B2", "B3"), c(0, 1000, 2000), c(0, 0, 0))
+  per <- mk_ref(c("P1", "P2", "P3"), c(2, 1000, 2180), c(0, 0, 0))
+  cfg <- make_config()
+  res <- match_particles(bru, per, cfg, src_label = "ftir_bruker", ref_label = "ftir_perkin")
+  expect_equal(res$match_stats$n_matched, 2L)      # 180 µm pair rejected at 100 µm
+  expect_true(all(c("ftir_bruker_particle_id", "ftir_perkin_particle_id") %in%
+                  names(res$matched)))
+
+  # Bruker <-> LDIR: pair involves LDIR -> looser 250 µm gate admits the 180 µm pair.
+  ldr <- mk_ref(c("L1", "L2", "L3"), c(2, 1000, 2180), c(0, 0, 0))
+  res2 <- match_particles(bru, ldr, cfg, src_label = "ftir_bruker", ref_label = "ldir")
+  expect_equal(res2$match_stats$n_matched, 3L)
+  expect_true(all(c("ftir_bruker_particle_id", "ldir_particle_id") %in%
+                  names(res2$matched)))
+})
+
 test_that("force_complete would instead force the orphan onto a spurious partner", {
   fx  <- .robbing_fixture()
   cfg <- make_config()
