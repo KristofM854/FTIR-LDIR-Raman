@@ -286,7 +286,14 @@ load_run_data <- function(run_info) {
       matched_ftir_bruker   = c("05_matches/matched_ftir_bruker_raman.csv",
                                  "matched_ftir_bruker_raman.csv"),
       unmatched_ftir_bruker = c("05_matches/unmatched_ftir_bruker_vs_raman.csv",
-                                 "unmatched_ftir_bruker.csv")
+                                 "unmatched_ftir_bruker.csv"),
+      # Cross-instrument (non-Raman) pairwise matches
+      matched_bruker_perkin = c("05_matches/matched_ftir_bruker_ftir_perkin.csv",
+                                 "matched_ftir_bruker_ftir_perkin.csv"),
+      matched_bruker_ldir   = c("05_matches/matched_ftir_bruker_ldir.csv",
+                                 "matched_ftir_bruker_ldir.csv"),
+      matched_perkin_ldir   = c("05_matches/matched_ldir_ftir_perkin.csv",
+                                 "matched_ldir_ftir_perkin.csv")
     )
     for (nm in names(file_map)) {
       fp <- resolve(file_map[[nm]][1], file_map[[nm]][2])
@@ -340,7 +347,10 @@ load_run_data <- function(run_info) {
       list(nm = "ldir_raman_matched",  prefix = "ldir_raman_matched"),
       list(nm = "unmatched_ldir",      prefix = "unmatched_ldir"),
       list(nm = "triplets",            prefix = "triplets_3way"),
-      list(nm = "ldir_image_extracted", prefix = "ldir_image_extracted")
+      list(nm = "ldir_image_extracted", prefix = "ldir_image_extracted"),
+      list(nm = "matched_bruker_perkin", prefix = "matched_ftir_bruker_ftir_perkin"),
+      list(nm = "matched_bruker_ldir",   prefix = "matched_ftir_bruker_ldir"),
+      list(nm = "matched_perkin_ldir",   prefix = "matched_ldir_ftir_perkin")
     )) {
       fp <- find_flat(info$prefix)
       if (!is.null(fp)) data[[info$nm]] <- read.csv(fp, stringsAsFactors = FALSE)
@@ -427,20 +437,22 @@ ldir_genuine_pairs <- function(m) {
 # Vectorised isTRUE (NA-safe): TRUE only where the value is exactly TRUE.
 isTRUE_vec <- function(x) !is.na(x) & x
 
-# Helper: add *_material_family columns to matched & ldir_raman_matched
-# so the overlay tab can filter on harmonized family names.
+# Helper: add <prefix>_material_family columns for every <prefix>_material
+# column in the named match tables, so the overlay can filter any instrument
+# side on harmonized family names — including the cross-instrument pair tables.
 enrich_material_family <- function(data) {
-  if (!is.null(data$matched) && nrow(data$matched) > 0) {
-    if ("ftir_material" %in% names(data$matched))
-      data$matched$ftir_material_family <- classify_family_vec(data$matched$ftir_material)
-    if ("raman_material" %in% names(data$matched))
-      data$matched$raman_material_family <- classify_family_vec(data$matched$raman_material)
-  }
-  if (!is.null(data$ldir_raman_matched) && nrow(data$ldir_raman_matched) > 0) {
-    if ("ldir_material" %in% names(data$ldir_raman_matched))
-      data$ldir_raman_matched$ldir_material_family <- classify_family_vec(data$ldir_raman_matched$ldir_material)
-    if ("raman_material" %in% names(data$ldir_raman_matched))
-      data$ldir_raman_matched$raman_material_family <- classify_family_vec(data$ldir_raman_matched$raman_material)
+  match_tables <- c("matched", "matched_ftir_bruker", "ldir_raman_matched",
+                    "matched_bruker_perkin", "matched_bruker_ldir",
+                    "matched_perkin_ldir")
+  for (tbl in match_tables) {
+    d <- data[[tbl]]
+    if (is.null(d) || nrow(d) == 0) next
+    mat_cols <- grep("_material$", names(d), value = TRUE)
+    for (mc in mat_cols) {
+      fam <- sub("_material$", "_material_family", mc)
+      d[[fam]] <- classify_family_vec(d[[mc]])
+    }
+    data[[tbl]] <- d
   }
   data
 }

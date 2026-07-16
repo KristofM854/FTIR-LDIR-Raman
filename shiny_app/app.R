@@ -3450,6 +3450,66 @@ server <- function(input, output, session) {
     tr
   })
 
+  # ---- Cross-instrument (non-Raman) pair registry --------------------------
+  # The three Raman pairs keep their dedicated reactives (overlay_matched /
+  # overlay_ldir_matched / overlay_bruker_matched). These specs cover the other
+  # three pairs so the overlay reacts to every instrument combination. Each spec
+  # names, per endpoint, the common-frame coordinate/id/Feret/material-family
+  # columns of its match table and the overlay material input to honour.
+  CROSS_PAIR_SPECS <- list(
+    list(table = "matched_bruker_perkin",
+         a = list(inst="ftir_bruker", x="ftir_bruker_x_aligned", y="ftir_bruker_y_aligned",
+                  id="ftir_bruker_particle_id", feret="ftir_bruker_feret_max_um",
+                  fam="ftir_bruker_material_family", matinput="overlay_ftir_bruker_material",
+                  label="FTIR (Bruker)"),
+         b = list(inst="ftir_pe", x="ftir_perkin_x_aligned", y="ftir_perkin_y_aligned",
+                  id="ftir_perkin_particle_id", feret="ftir_perkin_feret_max_um",
+                  fam="ftir_perkin_material_family", matinput="overlay_ftir_material",
+                  label="FTIR")),
+    list(table = "matched_bruker_ldir",
+         a = list(inst="ftir_bruker", x="ftir_bruker_x_aligned", y="ftir_bruker_y_aligned",
+                  id="ftir_bruker_particle_id", feret="ftir_bruker_feret_max_um",
+                  fam="ftir_bruker_material_family", matinput="overlay_ftir_bruker_material",
+                  label="FTIR (Bruker)"),
+         b = list(inst="ldir", x="ldir_x_aligned", y="ldir_y_aligned",
+                  id="ldir_particle_id", feret="ldir_feret_max_um",
+                  fam="ldir_material_family", matinput="overlay_ldir_material",
+                  label="LDIR")),
+    list(table = "matched_perkin_ldir",
+         a = list(inst="ldir", x="ldir_x_aligned", y="ldir_y_aligned",
+                  id="ldir_particle_id", feret="ldir_feret_max_um",
+                  fam="ldir_material_family", matinput="overlay_ldir_material",
+                  label="LDIR"),
+         b = list(inst="ftir_pe", x="ftir_x_aligned", y="ftir_y_aligned",
+                  id="ftir_particle_id", feret="ftir_feret_max_um",
+                  fam="ftir_material_family", matinput="overlay_ftir_material",
+                  label="FTIR"))
+  )
+
+  # Material-filtered match table for a cross-pair spec, or NULL when either
+  # endpoint's instrument is not selected / the table is absent / empty.
+  cross_pair_df <- function(spec, inst) {
+    if (!(spec$a$inst %in% inst && spec$b$inst %in% inst)) return(NULL)
+    df <- run_data_gated()[[spec$table]]
+    if (is.null(df) || nrow(df) == 0) return(NULL)
+    for (ep in list(spec$a, spec$b)) {
+      mat <- input[[ep$matinput]]
+      if (!is.null(mat) && !("All" %in% mat) && ep$fam %in% names(df))
+        df <- df[df[[ep$fam]] %in% mat, , drop = FALSE]
+    }
+    if (is.null(df) || nrow(df) == 0) return(NULL)
+    df
+  }
+
+  # All cross-pairs whose two instruments are both currently selected, each with
+  # its filtered table. Reused by the plot, the summary and hover/click.
+  active_cross_pairs <- function(inst) {
+    Filter(Negate(is.null), lapply(CROSS_PAIR_SPECS, function(s) {
+      df <- cross_pair_df(s, inst)
+      if (is.null(df)) NULL else list(spec = s, df = df)
+    }))
+  }
+
   output$overlay_plot <- renderPlot({
     # Gate the heaviest render on data being present. run_data() is an empty
     # list() (falsy) only when no run is loaded at all — it stays populated when
@@ -3471,6 +3531,10 @@ server <- function(input, output, session) {
     show_pe_raman     <- "ftir_pe"     %in% inst && "raman" %in% inst
     show_bruker_raman <- "ftir_bruker" %in% inst && "raman" %in% inst
     show_ldir_raman   <- "ldir"        %in% inst && "raman" %in% inst
+
+    # Non-Raman pairs (Bruker↔Perkin, Bruker↔LDIR, Perkin↔LDIR) whose two
+    # instruments are both selected, each with its material-filtered table.
+    cross_active <- active_cross_pairs(inst)
 
     bounds <- if (!is.null(zoom$overlay)) zoom$overlay else {
       img_info <- overlay_image_info()
@@ -3526,6 +3590,16 @@ server <- function(input, output, session) {
         p <- p + geom_segment(data = ldir_seg, aes(x=x, y=y, xend=xend, yend=yend),
                                colour = "#d62728", alpha = 0.5, linewidth = 0.7)
       }
+      # Cross-instrument (non-Raman) pair lines
+      for (ca in cross_active) {
+        s <- ca$spec; cdf <- ca$df
+        if (all(c(s$a$x, s$a$y, s$b$x, s$b$y) %in% names(cdf))) {
+          cseg <- data.frame(x = cdf[[s$a$x]], y = cdf[[s$a$y]],
+                             xend = cdf[[s$b$x]], yend = cdf[[s$b$y]])
+          p <- p + geom_segment(data = cseg, aes(x=x, y=y, xend=xend, yend=yend),
+                                 colour = "grey55", alpha = 0.5, linewidth = 0.6)
+        }
+      }
     }
 
     all_pts <- list()
@@ -3567,6 +3641,19 @@ server <- function(input, output, session) {
       bruker_matched_ids <- if (show_bruker_raman) unique(.as_chr(bruker_m$ftir_particle_id)) else character(0)
       ldir_matched_ids   <- if (show_ldir_raman)   unique(.as_chr(ldir_m$ldir_particle_id))   else character(0)
 
+      # Fold in cross-pair matches: a particle counts as matched (and so drops
+      # out of the unmatched layer) if it is paired with ANY selected partner,
+      # Raman or otherwise.
+      for (ca in cross_active) {
+        for (ep in list(ca$spec$a, ca$spec$b)) {
+          ids <- .as_chr(ca$df[[ep$id]])
+          if      (ep$inst == "ftir_pe")     ftir_matched_ids   <- unique(c(ftir_matched_ids, ids))
+          else if (ep$inst == "ftir_bruker") bruker_matched_ids <- unique(c(bruker_matched_ids, ids))
+          else if (ep$inst == "ldir")        ldir_matched_ids   <- unique(c(ldir_matched_ids, ids))
+          else if (ep$inst == "raman")       raman_matched_ids  <- unique(c(raman_matched_ids, ids))
+        }
+      }
+
       if ("matched" %in% rel) {
         .add_matched <- function(label, x, y, feret) {
           if (length(x) == 0) return(invisible())
@@ -3585,6 +3672,14 @@ server <- function(input, output, session) {
         if (show_ldir_raman && nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
           .add_matched("LDIR",  ldir_m$ldir_x_aligned, ldir_m$ldir_y_aligned, ldir_m$ldir_feret_max_um)
           .add_matched("Raman", ldir_m$raman_x_norm,   ldir_m$raman_y_norm,   ldir_m$raman_feret_max_um)
+        }
+        # Cross-instrument pairs: draw both endpoints filled.
+        for (ca in cross_active) {
+          s <- ca$spec; cdf <- ca$df
+          if (all(c(s$a$x, s$a$y, s$a$feret) %in% names(cdf)))
+            .add_matched(s$a$label, cdf[[s$a$x]], cdf[[s$a$y]], cdf[[s$a$feret]])
+          if (all(c(s$b$x, s$b$y, s$b$feret) %in% names(cdf)))
+            .add_matched(s$b$label, cdf[[s$b$x]], cdf[[s$b$y]], cdf[[s$b$feret]])
         }
       }
 
@@ -3735,13 +3830,24 @@ server <- function(input, output, session) {
                    paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched (\u2264", gate, "\u00b5m)")
                  else
                    paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched")
+    # Cross-instrument (non-Raman) pair counts \u2014 only shown when present.
+    .cross_n <- function(tbl) { d <- gd[[tbl]]; if (is.null(d)) 0L else nrow(d) }
+    cross_bits <- c()
+    if (!is.null(gd$matched_bruker_perkin))
+      cross_bits <- c(cross_bits, paste0(.cross_n("matched_bruker_perkin"), " Bruker\u2194FTIR pairs"))
+    if (!is.null(gd$matched_bruker_ldir))
+      cross_bits <- c(cross_bits, paste0(.cross_n("matched_bruker_ldir"), " Bruker\u2194LDIR pairs"))
+    if (!is.null(gd$matched_perkin_ldir))
+      cross_bits <- c(cross_bits, paste0(.cross_n("matched_perkin_ldir"), " FTIR\u2194LDIR pairs"))
+    cross_lbl <- if (length(cross_bits) > 0) paste0(" | ", paste(cross_bits, collapse = " | ")) else ""
     paste0(nrow(m),  " FTIR\u2194Raman pairs | ",
            n_um_f,   " FTIR unmatched | ",
            n_um_r,   " Raman unmatched | ",
            nrow(bm), " Bruker\u2194Raman pairs | ",
            n_um_fb,  " Bruker unmatched | ",
            ldir_lbl, " | ",
-           n_trip,   " triple matches")
+           n_trip,   " triple matches",
+           cross_lbl)
   })
 
   # ==================================================================
