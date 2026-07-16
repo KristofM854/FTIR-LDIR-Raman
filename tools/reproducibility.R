@@ -1,0 +1,144 @@
+# =============================================================================
+# reproducibility.R — compare repeat runs of one filter on one instrument
+# =============================================================================
+# Quantifies intra-instrument reproducibility (and, given the known reference
+# plastic, accuracy) across N repeat measurements of the SAME filter on the
+# SAME instrument. See R/reproducibility.R for the method.
+#
+# Usage — edit the CONFIG block below, then:
+#   Rscript tools/reproducibility.R
+#
+# Or pass an instrument and run files on the command line:
+#   Rscript tools/reproducibility.R <instrument> <run1> <run2> <run3> [...]
+#   (instrument = ftir_perkin | ftir_bruker | raman | ldir)
+#   For ldir, pass image files interleaved:  ldir <excel1> <img1> <excel2> <img2> ...
+# =============================================================================
+
+# --- locate repo root and load modules --------------------------------------
+.script_path <- tryCatch({
+  a <- commandArgs(FALSE)
+  f <- sub("^--file=", "", a[grep("^--file=", a)])
+  if (length(f) == 1) normalizePath(f) else NA_character_
+}, error = function(e) NA_character_)
+REPO_ROOT <- if (!is.na(.script_path)) dirname(dirname(.script_path)) else getwd()
+
+for (m in c("utils.R", "00_config.R", "01_ingest.R", "01c_ingest_ldir.R",
+            "07_match.R", "08b_material_map.R", "reproducibility.R")) {
+  source(file.path(REPO_ROOT, "R", m))
+}
+
+# =============================================================================
+# CONFIG — edit these, or override via command-line arguments
+# =============================================================================
+CONFIG <- list(
+  instrument = "ftir_perkin",           # ftir_perkin | ftir_bruker | raman | ldir
+  # One entry per run. For ldir, set image = path to the companion image.
+  runs = list(
+    list(file = "data/repro/run1.xlsx", image = NULL),
+    list(file = "data/repro/run2.xlsx", image = NULL),
+    list(file = "data/repro/run3.xlsx", image = NULL)
+  ),
+  reference_material = "Polyethylene terephthalate",  # NULL to skip accuracy
+  match_gate_um  = 75,     # tight: same-instrument localization is precise
+  align_gate_um  = 300,    # ICP correspondence gate (absorbs a slight re-seat)
+  output_dir     = "output/reproducibility"
+)
+
+# --- command-line override ---------------------------------------------------
+.args <- commandArgs(trailingOnly = TRUE)
+if (length(.args) >= 3) {
+  CONFIG$instrument <- .args[1]
+  rest <- .args[-1]
+  if (identical(CONFIG$instrument, "ldir")) {
+    if (length(rest) %% 2 != 0)
+      stop("ldir needs interleaved <excel> <image> pairs")
+    CONFIG$runs <- lapply(seq(1, length(rest), by = 2),
+                          function(i) list(file = rest[i], image = rest[i + 1]))
+  } else {
+    CONFIG$runs <- lapply(rest, function(f) list(file = f, image = NULL))
+  }
+}
+
+# --- instrument-agnostic particle acquisition -------------------------------
+# Returns a standardized particle frame (x_um/y_um/material/feret...) for one
+# run, dispatching on instrument. LDIR coordinates come from the image pipeline.
+get_run_particles <- function(instrument, file, image = NULL, config) {
+  df <- switch(instrument,
+    ftir_perkin = ingest_ftir(file),
+    ftir_bruker = ingest_ftir_bruker(file),
+    raman       = ingest_raman(file),
+    ldir        = {
+      raw <- ingest_ldir(file)
+      if (is.null(image) || !nzchar(image) || !file.exists(image))
+        stop("LDIR run needs a companion image with spatial coordinates: ", file)
+      diam   <- config$ldir_scan_diameter_um %||% 13000
+      bounds <- list(x_min = 0, x_max = diam, y_min = 0, y_max = diam)
+      ext <- extract_ldir_image_coords(image, scan_bounds = bounds,
+                                       expected_count = nrow(raw), config = config)
+      join_ldir_coords(raw, ext$particles, config = config)
+    },
+    stop("Unknown instrument: ", instrument))
+  if (!all(c("x_um", "y_um") %in% names(df)))
+    stop("Run ingestion did not yield x_um/y_um for ", instrument, " (", file, ")")
+  df[is.finite(df$x_um) & is.finite(df$y_um), , drop = FALSE]
+}
+
+# --- run ---------------------------------------------------------------------
+cfg <- make_config()
+if (length(CONFIG$runs) < 2) stop("Need at least 2 runs to compare.")
+
+log_message("Reproducibility: ", CONFIG$instrument, " — ", length(CONFIG$runs), " runs")
+runs <- lapply(CONFIG$runs, function(r)
+  get_run_particles(CONFIG$instrument, r$file, r$image, cfg))
+for (i in seq_along(runs))
+  log_message("  run", i, ": ", nrow(runs[[i]]), " particles (", CONFIG$runs[[i]]$file, ")")
+
+ref_fam <- if (!is.null(CONFIG$reference_material))
+             classify_family_vec(CONFIG$reference_material) else NULL
+
+res <- run_reproducibility(runs,
+                           gate = CONFIG$match_gate_um,
+                           align_gate = CONFIG$align_gate_um,
+                           reference_family = ref_fam)
+
+# --- write outputs -----------------------------------------------------------
+out <- CONFIG$output_dir
+if (!dir.exists(out)) dir.create(out, recursive = TRUE)
+
+write.csv(res$consensus, file.path(out, "reproducibility_particles.csv"),
+          row.names = FALSE)
+
+s <- res$summary
+summary_df <- data.frame(
+  instrument            = CONFIG$instrument,
+  n_runs                = s$n_runs,
+  count_mean            = round(s$count_mean, 2),
+  count_cv              = round(s$count_cv, 4),
+  n_consensus           = s$n_consensus,
+  detected_in_all       = s$detected_in_all,
+  detected_in_all_frac  = round(s$detected_in_all_frac, 4),
+  material_concordance  = round(s$material_concordance, 4),
+  accuracy_vs_reference = if (is.na(s$accuracy_vs_reference)) NA else round(s$accuracy_vs_reference, 4),
+  median_feret_cv       = round(s$median_feret_cv, 4),
+  median_pos_jitter_um  = round(s$median_pos_jitter_um, 2),
+  stringsAsFactors = FALSE)
+write.csv(summary_df, file.path(out, "reproducibility_summary.csv"), row.names = FALSE)
+
+plots <- repro_plots(res, out, title_prefix = CONFIG$instrument)
+
+# --- console overview --------------------------------------------------------
+log_message(strrep("=", 60))
+log_message("Reproducibility summary (", CONFIG$instrument, ")")
+log_message("  Runs / counts:        ", paste(s$counts_per_run, collapse = ", "),
+            "  (CV ", round(100 * s$count_cv, 1), "%)")
+log_message("  Physical particles:   ", s$n_consensus)
+log_message("  Detected in all runs: ", s$detected_in_all,
+            " (", round(100 * s$detected_in_all_frac, 1), "%)")
+log_message("  Material concordance: ", round(100 * s$material_concordance, 1), "%")
+if (!is.na(s$accuracy_vs_reference))
+  log_message("  Accuracy vs '", CONFIG$reference_material, "': ",
+              round(100 * s$accuracy_vs_reference, 1), "%")
+log_message("  Median Feret CV:      ", round(100 * s$median_feret_cv, 1), "%")
+log_message("  Median jitter:        ", round(s$median_pos_jitter_um, 1), " um")
+log_message("  Wrote: reproducibility_particles.csv, reproducibility_summary.csv, ",
+            length(plots), " plots -> ", out)
