@@ -384,6 +384,12 @@ ui <- fluidPage(
 
           # --- LD-IR SECTION ---
           h4("LD-IR", style = "color: #d62728; margin-bottom: 4px;"),
+          # Live acceptance gate: a LDIR<->Raman pair counts as matched only when
+          # its aligned-coordinate distance is at/under this value. Seeded from
+          # the run's recorded gate; drag to retune matched vs unmatched in real
+          # time (summary, overlay and triplet counts all follow).
+          sliderInput("overlay_ldir_dist_gate", "Match Gate (µm, LDIR↔Raman)",
+                      min = 0, max = 500, value = 250, step = 5),
           sliderInput("overlay_ldir_quality", "Quality",
                       min = 0, max = 1, value = c(0, 1), step = 0.01),
           sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
@@ -1294,6 +1300,22 @@ server <- function(input, output, session) {
   overlay_raman_size_d   <- debounce(reactive(input$overlay_raman_size), 300)
   overlay_ldir_quality_d <- debounce(reactive(input$overlay_ldir_quality), 300)
   overlay_ldir_size_d    <- debounce(reactive(input$overlay_ldir_size), 300)
+  overlay_ldir_gate_d    <- debounce(reactive(input$overlay_ldir_dist_gate), 300)
+
+  # Effective LDIR<->Raman acceptance gate (µm): the live slider value, falling
+  # back to the run's recorded default until the slider is initialised.
+  eff_ldir_gate <- reactive({
+    v <- overlay_ldir_gate_d()
+    if (is.null(v) || !is.finite(v) || v <= 0) {
+      g <- run_data()$ldir_match_gate_um
+      if (!is.null(g) && is.finite(g)) g else 250
+    } else v
+  })
+
+  # run_data() re-gated against the live slider. Only the LDIR<->Raman
+  # classification changes; all other frames pass through untouched. LDIR
+  # consumers read this so the gate retunes matched/unmatched in real time.
+  run_data_gated <- reactive({ regate_ldir(run_data(), eff_ldir_gate()) })
   overlay_ftir_bruker_quality_d <- debounce(reactive(input$overlay_ftir_bruker_quality), 300)
   overlay_ftir_bruker_size_d    <- debounce(reactive(input$overlay_ftir_bruker_size), 300)
 
@@ -1999,6 +2021,19 @@ server <- function(input, output, session) {
       max_dist <- ceiling(max(run_data()$matched$match_distance, na.rm = TRUE))
       updateSliderInput(session, "overlay_dist_range",
                         min = 0, max = max_dist, value = c(0, max_dist))
+    }
+
+    # LDIR<->Raman live match gate: seed the slider at the run's recorded gate
+    # and open the range up to the largest forced-pair distance so every pair
+    # can be admitted if the user drags it all the way up.
+    lrm <- run_data()$ldir_raman_matched
+    if (!is.null(lrm) && "match_distance" %in% names(lrm) &&
+        any(is.finite(lrm$match_distance))) {
+      gate0 <- run_data()$ldir_match_gate_um
+      if (is.null(gate0) || !is.finite(gate0)) gate0 <- 250
+      max_g <- max(ceiling(max(lrm$match_distance, na.rm = TRUE)), gate0)
+      updateSliderInput(session, "overlay_ldir_dist_gate",
+                        min = 0, max = max_g, value = gate0)
     }
   })
 
@@ -2952,7 +2987,7 @@ server <- function(input, output, session) {
     # LDIR<->Raman centroid scatter (~130 um) is visible rather than mistaken
     # for misalignment.
     if (aligned && isTRUE(input$ldir_show_raman_partners)) {
-      rd <- tryCatch(run_data()$ldir_raman_matched, error = function(e) NULL)
+      rd <- tryCatch(run_data_gated()$ldir_raman_matched, error = function(e) NULL)
       need <- c("ldir_particle_id", "ldir_x_aligned", "ldir_y_aligned",
                 "raman_x_norm", "raman_y_norm")
       if (!is.null(rd) && nrow(rd) > 0 && all(need %in% names(rd))) {
@@ -3287,7 +3322,7 @@ server <- function(input, output, session) {
 
   # LDIR-Raman matched data for overlay (filtered by per-instrument controls)
   overlay_ldir_matched <- reactive({
-    d <- run_data()
+    d <- run_data_gated()
     if (is.null(d$ldir_raman_matched) || nrow(d$ldir_raman_matched) == 0)
       return(data.frame())
     df <- d$ldir_raman_matched
@@ -3366,7 +3401,7 @@ server <- function(input, output, session) {
 
   # Triple-match data: particles detected by all three instruments
   overlay_triplets <- reactive({
-    d <- run_data()
+    d <- run_data_gated()
     if (is.null(d$triplets) || nrow(d$triplets) == 0) return(data.frame())
     tr <- d$triplets
     # A triplet is only real if its LDIR↔Raman leg is a genuine (within-gate)
@@ -3638,11 +3673,17 @@ server <- function(input, output, session) {
     n_um_r    <- if (!is.null(dfs$raman))       sum(dfs$raman$match_status == "unmatched")       else 0
     n_um_fb   <- if (!is.null(dfs$ftir_bruker)) sum(dfs$ftir_bruker$match_status == "unmatched") else 0
     n_ldir    <- if (!is.null(dfs$ldir))        nrow(dfs$ldir)                                   else 0
-    n_ldir_m  <- if (!is.null(dfs$ldir))        sum(dfs$ldir$match_status == "matched")          else 0
     n_trip    <- nrow(triplets)
-    # Genuine matches only: over-gate forced pairings are reported as unmatched
-    # LDIR. Show the gate so the count is self-explanatory.
-    gate      <- run_data()$ldir_match_gate_um
+    # Genuine matches only, against the LIVE gate slider: over-gate forced
+    # pairings are reported as unmatched LDIR. Count from the re-gated frame so
+    # the summary tracks the slider in real time; show the gate for clarity.
+    gd        <- run_data_gated()
+    lrm       <- gd$ldir_raman_matched
+    n_ldir_m  <- if (!is.null(lrm) && nrow(lrm) > 0)
+                   sum(if ("within_gate" %in% names(lrm)) (!is.na(lrm$within_gate) & lrm$within_gate)
+                       else rep(TRUE, nrow(lrm)))
+                 else 0
+    gate      <- gd$ldir_match_gate_um
     ldir_lbl  <- if (!is.null(gate) && is.finite(gate))
                    paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched (\u2264", gate, "\u00b5m)")
                  else
@@ -4017,11 +4058,11 @@ server <- function(input, output, session) {
     # run_data() keys: matched = FTIR(PE)<->Raman, matched_ftir_bruker =
     # FTIR(Bruker)<->Raman, ldir_raman_matched = LDIR<->Raman. All join on
     # raman_particle_id, so one Raman particle can carry up to three partners.
-    rd <- run_data()
+    rd <- run_data_gated()
     raman_pid <- if (!is.null(row$raman_particle_id)) row$raman_particle_id else NULL
     # Only surface a genuine (within-gate) LDIR partner — a forced over-gate
     # pairing is reported as unmatched everywhere else, so it must not appear
-    # here as a partner.
+    # here as a partner. Honours the live gate slider.
     partners <- gather_partners_by_raman(raman_pid, rd$matched,
                                          ldir_genuine_pairs(rd$ldir_raman_matched),
                                          rd$matched_ftir_bruker)

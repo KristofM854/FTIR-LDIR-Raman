@@ -399,6 +399,22 @@ annotate_ldir_gate <- function(data, run_dir) {
   data
 }
 
+# Recompute the within_gate classification against an explicit gate (µm). Used
+# by the viewer's live gate slider so the user can retune the acceptance
+# distance in real time; annotate_ldir_gate() seeds the default from the
+# manifest, this overrides it with the slider value.
+regate_ldir <- function(data, gate) {
+  m <- data$ldir_raman_matched
+  if (is.null(m) || nrow(m) == 0) return(data)
+  if (is.null(gate) || !is.finite(gate) || gate <= 0) return(data)
+  data$ldir_match_gate_um <- gate
+  if ("match_distance" %in% names(m)) {
+    m$within_gate <- !is.na(m$match_distance) & m$match_distance <= gate
+    data$ldir_raman_matched <- m
+  }
+  data
+}
+
 # Subset of an ldir_raman_matched frame that are genuine (within-gate) matches.
 # When the frame has not been annotated (defensive: no within_gate column) every
 # pair is treated as genuine, preserving legacy behaviour.
