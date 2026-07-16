@@ -45,3 +45,53 @@ test_that("LDIR pairing uses the looser LDIR distance gate", {
   ldir_res <- match_particles(src, ref, cfg, src_label = "ldir", ref_label = "raman")
   expect_equal(ldir_res$match_stats$n_matched, 1L)
 })
+
+# Regression for the partner-robbing bug: ldir_force_complete_match = TRUE drops
+# the spatial gate and minimises the GLOBAL SUM of pairing costs, so a
+# partner-less particle can steal a good particle's correct match. The gate
+# (force_complete = FALSE) must leave partner-less particles unmatched instead.
+.robbing_fixture <- function() {
+  mk_src <- function(id, x, y) data.frame(
+    particle_id = id, x_aligned = x, y_aligned = y,
+    area_um2 = 1000, feret_max_um = 50, major_um = 50, minor_um = 50,
+    stringsAsFactors = FALSE)
+  mk_ref <- function(id, x, y) data.frame(
+    particle_id = id, x_norm = x, y_norm = y,
+    area_um2 = 1000, feret_max_um = 50, major_um = 50, minor_um = 50,
+    stringsAsFactors = FALSE)
+  list(
+    src = rbind(mk_src("S_good", 0, 0), mk_src("S_orphan", 0, 300)),
+    # R_perfect coincides with S_good; the only other refs are far away.
+    ref = rbind(mk_ref("R_perfect", 0, 0), mk_ref("R_far", 0, 100000))
+  )
+}
+
+test_that("distance gate leaves a partner-less LDIR particle unmatched", {
+  fx  <- .robbing_fixture()
+  cfg <- make_config()
+  cfg$match_dist_threshold_ldir_um <- 250
+  cfg$ldir_force_complete_match    <- FALSE
+
+  res  <- match_particles(fx$src, fx$ref, cfg, src_label = "ldir", ref_label = "raman")
+  pair <- setNames(res$matched$raman_particle_id, res$matched$ldir_particle_id)
+
+  # S_good keeps its coincident partner; S_orphan (nearest ref 300 um away,
+  # outside the gate) is reported unmatched rather than force-assigned.
+  expect_equal(unname(pair["S_good"]), "R_perfect")
+  expect_false("S_orphan" %in% names(pair))
+  expect_equal(res$match_stats$n_matched, 1L)
+})
+
+test_that("force_complete would instead force the orphan onto a spurious partner", {
+  fx  <- .robbing_fixture()
+  cfg <- make_config()
+  cfg$match_dist_threshold_ldir_um <- 250
+  cfg$ldir_force_complete_match    <- TRUE   # the disproven setting
+
+  res  <- match_particles(fx$src, fx$ref, cfg, src_label = "ldir", ref_label = "raman")
+  # Both particles get forced into pairs — the orphan lands on the far ref, a
+  # spurious ~100 mm match. This is exactly the behaviour the default disables.
+  expect_equal(res$match_stats$n_matched, 2L)
+  orphan <- res$matched[res$matched$ldir_particle_id == "S_orphan", ]
+  expect_gt(orphan$match_distance, 1000)
+})
