@@ -2227,6 +2227,19 @@ server <- function(input, output, session) {
     seq(floor(rng[1] / best_int) * best_int, ceiling(rng[2] / best_int) * best_int, by = best_int)
   }
 
+  # Positive-width limits for scale_size_continuous. When a view is filtered down
+  # to a single particle (or one distinct Feret), the default size domain has
+  # zero width, so ggplot rescales from 0/0 -> NaN and the NaN-sized legend key
+  # throws "non-finite location/size for viewport", killing the whole plot.
+  # Returns NULL when there are no finite values (scale then goes unused).
+  safe_size_limits <- function(v) {
+    v <- v[is.finite(v)]
+    if (length(v) == 0) return(NULL)
+    r <- range(v)
+    if (r[1] == r[2]) r <- c(0, r[2] + 1)
+    r
+  }
+
   make_scatter <- function(df, img_info, bounds, title,
                             match_colours = NULL, highlight_id = NULL,
                             full_df = NULL, match_labels = NULL,
@@ -2254,7 +2267,8 @@ server <- function(input, output, session) {
     }
 
     p <- p +
-      scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12)) +
+      scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12),
+                            limits = safe_size_limits(df$feret_max)) +
       scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
       scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -3056,8 +3070,15 @@ server <- function(input, output, session) {
       }
     }
 
-    # Size legend (single scale for all layers)
-    p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12))
+    # Size legend (single scale for all layers). Union the Feret values of the
+    # size-mapped layers so a single displayed particle can't collapse the
+    # domain to zero width (NaN rescale -> non-finite viewport crash).
+    size_vals <- c(
+      if ("extracted_pts" %in% overlay_mode && n_extracted > 0) extracted$feret_max_um,
+      if (nrow(df_disp) > 0) df_disp$feret_max
+    )
+    p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12),
+                                   limits = safe_size_limits(size_vals))
 
     # Highlight selected particle(s) — always shown even if filtered out
     hl_single <- input$ldir_highlight_particle
@@ -3590,21 +3611,32 @@ server <- function(input, output, session) {
       }
     }
 
+    # Size-scale domain, kept stable and positive-width. A tight match gate can
+    # leave a single point (or one distinct Feret); scale_size_continuous would
+    # then rescale from a zero-width range (0/0 -> NaN) and the NaN-sized legend
+    # key throws "non-finite location/size for viewport", killing the whole plot
+    # (image and points vanish). NULL until points exist -> default (unused) scale.
+    size_limits <- NULL
     if (length(all_pts) > 0) {
       both <- do.call(rbind, all_pts)
-      p <- p + geom_point(data = both,
-                           aes(x=x, y=y, size=feret_max, colour=instrument, shape=match_status),
-                           alpha = 0.65) +
-        scale_colour_manual(
-          name   = "Instrument",
-          values = c(FTIR = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
-                     Raman = "#1f77b4", LDIR = "#d62728")
-        ) +
-        scale_shape_manual(
-          name   = "Match Status",
-          values = c(matched = 19, unmatched = 1),
-          labels = c(matched = "Matched (filled)", unmatched = "Unmatched (open)")
-        )
+      # Defensive: never let a non-finite coordinate reach a geom/viewport.
+      both <- both[is.finite(both$x) & is.finite(both$y), , drop = FALSE]
+      if (nrow(both) > 0) {
+        size_limits <- safe_size_limits(both$feret_max)
+        p <- p + geom_point(data = both,
+                             aes(x=x, y=y, size=feret_max, colour=instrument, shape=match_status),
+                             alpha = 0.65) +
+          scale_colour_manual(
+            name   = "Instrument",
+            values = c(FTIR = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
+                       Raman = "#1f77b4", LDIR = "#d62728")
+          ) +
+          scale_shape_manual(
+            name   = "Match Status",
+            values = c(matched = 19, unmatched = 1),
+            labels = c(matched = "Matched (filled)", unmatched = "Unmatched (open)")
+          )
+      }
     }
 
     # Multi-instrument highlights (3+)
@@ -3625,7 +3657,8 @@ server <- function(input, output, session) {
       }
     }
 
-    p <- p + scale_size_continuous(name = "Feret Max (µm)", range = c(2, 12))
+    p <- p + scale_size_continuous(name = "Feret Max (µm)", range = c(2, 12),
+                                   limits = size_limits)
 
     hl_specs <- list(
       list(ids = input$overlay_ftir_particles,        df = dfs$ftir,        col = "#2ca02c"),
