@@ -1454,6 +1454,48 @@ if (has_ldir && !is.null(ldir_raw)) {
 }
 
 # ---------------------------------------------------------------------------
+# 12b. Cross-instrument pairwise matches (non-Raman pairs)
+# ---------------------------------------------------------------------------
+# Every instrument is co-registered into the Raman-normalized frame via its
+# aligned coordinates, so any pair can be matched directly. We reuse the
+# x_norm <- x_aligned trick (as in the LDIR<->FTIR match above) to drop the
+# "reference" instrument into that shared frame. match_particles picks the
+# acceptance gate automatically from the instrument labels — a pair that
+# involves LDIR uses the looser LDIR gate, an FTIR<->FTIR pair the fine gate.
+bruker_perkin_match <- NULL   # FTIR (Bruker) <-> FTIR (PerkinElmer)
+bruker_ldir_match   <- NULL   # FTIR (Bruker) <-> LDIR
+
+.have_bruker_aligned <- exists("bruker_aligned") && !is.null(bruker_aligned) &&
+  is.data.frame(bruker_aligned) && nrow(bruker_aligned) > 0
+
+if (.have_bruker_aligned && exists("ftir_aligned") && !is.null(ftir_aligned) &&
+    nrow(ftir_aligned) > 0) {
+  perkin_as_ref <- ftir_aligned
+  perkin_as_ref$x_norm <- perkin_as_ref$x_aligned
+  perkin_as_ref$y_norm <- perkin_as_ref$y_aligned
+  bruker_perkin_match <- match_particles(
+    bruker_aligned, perkin_as_ref, config,
+    src_label = "ftir_bruker", ref_label = "ftir_perkin"
+  )
+  log_message("FTIR (Bruker) <-> FTIR (PerkinElmer): ",
+              bruker_perkin_match$match_stats$n_matched, " matched")
+}
+
+if (.have_bruker_aligned && exists("ldir_aligned") && !is.null(ldir_aligned) &&
+    is.data.frame(ldir_aligned) && "x_aligned" %in% names(ldir_aligned) &&
+    nrow(ldir_aligned) > 0) {
+  ldir_as_ref <- ldir_aligned
+  ldir_as_ref$x_norm <- ldir_as_ref$x_aligned
+  ldir_as_ref$y_norm <- ldir_as_ref$y_aligned
+  bruker_ldir_match <- match_particles(
+    bruker_aligned, ldir_as_ref, config,
+    src_label = "ftir_bruker", ref_label = "ldir"
+  )
+  log_message("FTIR (Bruker) <-> LDIR: ",
+              bruker_ldir_match$match_stats$n_matched, " matched")
+}
+
+# ---------------------------------------------------------------------------
 # 13. Diagnostics (use full datasets for overlay, matched pairs for detail)
 # ---------------------------------------------------------------------------
 
@@ -1595,6 +1637,23 @@ if (!is.null(bruker_match_result)) {
             file.path(.export_dirs$matches, "unmatched_ftir_bruker.csv"),
             row.names = FALSE)
   log_message("  Wrote unmatched_ftir_bruker.csv (", nrow(ftir_bruker_raw), " particles)")
+}
+
+# Export cross-instrument matches (Bruker<->Perkin, Bruker<->LDIR). Perkin<->LDIR
+# is written by export_ldir_results() as matched_ldir_ftir_perkin.csv.
+if (!is.null(bruker_perkin_match) && nrow(bruker_perkin_match$matched) > 0) {
+  write.csv(bruker_perkin_match$matched,
+            file.path(.export_dirs$matches, "matched_ftir_bruker_ftir_perkin.csv"),
+            row.names = FALSE)
+  log_message("  Wrote matched_ftir_bruker_ftir_perkin.csv (",
+              nrow(bruker_perkin_match$matched), " pairs)")
+}
+if (!is.null(bruker_ldir_match) && nrow(bruker_ldir_match$matched) > 0) {
+  write.csv(bruker_ldir_match$matched,
+            file.path(.export_dirs$matches, "matched_ftir_bruker_ldir.csv"),
+            row.names = FALSE)
+  log_message("  Wrote matched_ftir_bruker_ldir.csv (",
+              nrow(bruker_ldir_match$matched), " pairs)")
 }
 
 # Export composite matches if found
