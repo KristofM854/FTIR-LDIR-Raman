@@ -998,26 +998,29 @@ server <- function(input, output, session) {
     })
   })
 
+  # The four pies read exactly pie_classified() + the two display-mode inputs,
+  # so those form a complete cache key (revisiting the Summary tab or toggling
+  # back to a prior mode returns the cached bitmap with no ggplot work).
   output$pie_ftir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$ftir, "FTIR (PerkinElmer)", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$ftir, input$pie_display_mode, input$pie_category_mode)
   output$pie_raman <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$raman, "Raman", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$raman, input$pie_display_mode, input$pie_category_mode)
   output$pie_ldir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$ldir, "LDIR", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$ldir, input$pie_display_mode, input$pie_category_mode)
   output$pie_ftir_bruker <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
     make_instrument_pie(pie_classified()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode)
-  })
+  }) |> bindCache(pie_classified()$ftir_bruker, input$pie_display_mode, input$pie_category_mode)
 
   # Helper: plot size distribution for one instrument
   plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
