@@ -864,7 +864,12 @@ server <- function(input, output, session) {
       })
       tags$tr(tags$td(tags$b(fam)), tags$td(cat), cells)
     })
-    tags$table(class = "hover-tbl", header, body_rows)
+    # Totals footer: sum of each device column across all families shown.
+    total_cells <- lapply(per_dev, function(dt) tags$td(tags$b(as.character(sum(dt$n)))))
+    total_row <- tags$tr(
+      style = "border-top: 2px solid #888;",
+      tags$td(tags$b("Total")), tags$td(""), total_cells)
+    tags$table(class = "hover-tbl", header, body_rows, total_row)
   })
 
   # ------------------------------------------------------------------
