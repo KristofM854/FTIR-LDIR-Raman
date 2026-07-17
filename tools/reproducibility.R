@@ -124,6 +124,23 @@ summary_df <- data.frame(
   stringsAsFactors = FALSE)
 write.csv(summary_df, file.path(out, "reproducibility_summary.csv"), row.names = FALSE)
 
+# Viewer-ready long table (per run × consensus particle, aligned frame).
+long <- repro_long_table(res)
+write.csv(long, file.path(out, "reproducibility_points.csv"), row.names = FALSE)
+
+# Backdrop image for the Multi-Run view: copy run 1's image (if supplied) into
+# the output dir. The viewer places it at the point extent (aspect-preserving),
+# so no calibration is replicated here.
+bg_image <- NA_character_
+img1 <- CONFIG$runs[[1]]$image
+if (!is.null(img1) && nzchar(img1) && file.exists(img1)) {
+  bg_image <- paste0("background", tools::file_ext(img1) |> (\(e) if (nzchar(e)) paste0(".", e) else ".png")())
+  file.copy(img1, file.path(out, bg_image), overwrite = TRUE)
+}
+write.csv(data.frame(instrument = CONFIG$instrument, n_runs = length(runs),
+                     bg_image = bg_image, stringsAsFactors = FALSE),
+          file.path(out, "reproducibility_meta.csv"), row.names = FALSE)
+
 plots <- repro_plots(res, out, title_prefix = CONFIG$instrument)
 
 # --- console overview --------------------------------------------------------
