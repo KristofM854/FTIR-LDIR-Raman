@@ -609,9 +609,15 @@ ui <- fluidPage(
                       choices = c("0°" = "0", "90°" = "90",
                                   "180°" = "180", "270°" = "270"),
                       selected = "0"),
-          numericInput("repro_img_width_um",
-                       "Image width (µm, blank = auto-fit to particles)",
-                       value = NA, min = 0, step = 100),
+          helpText("Physical image size in µm (blank = auto-fit). Set BOTH ",
+                   "width and height for non-square pixels — matches the ",
+                   "instrument tabs."),
+          fluidRow(
+            column(6, numericInput("repro_img_width_um", "Width (µm)",
+                                   value = NA, min = 0, step = 100)),
+            column(6, numericInput("repro_img_height_um", "Height (µm)",
+                                   value = NA, min = 0, step = 100))
+          ),
           fluidRow(
             column(6, numericInput("repro_img_offset_x", "X offset (µm)",
                                    value = 0, step = 100)),
@@ -4494,15 +4500,17 @@ server <- function(input, output, session) {
           ox <- input$repro_img_offset_x %||% 0
           oy <- input$repro_img_offset_y %||% 0
           w_um <- input$repro_img_width_um
+          h_um <- input$repro_img_height_um
           if (!is.null(w_um) && is.finite(w_um) && w_um > 0) {
-            # True-scale placement: fix the image's physical width and derive
-            # height from the raster aspect (like the Raman/LDIR tabs), so the
-            # image sits at real scale and particles fall where they physically
-            # are — not fit/centred to the particle box. Centre on the particle
+            # True-scale placement: use the PHYSICAL image size. Height comes
+            # from the height field when given (correct for non-square pixels,
+            # like the instrument tabs' width/height metadata); otherwise it is
+            # derived from the raster's pixel aspect. Centre on the particle
             # mean; nudge with the offsets.
-            aspect <- ncol(raw) / nrow(raw)            # width / height
             half_w <- w_um / 2
-            half_h <- (w_um / aspect) / 2
+            half_h <- if (!is.null(h_um) && is.finite(h_um) && h_um > 0)
+                        h_um / 2
+                      else (w_um / (ncol(raw) / nrow(raw))) / 2
             cx <- mean(pts$x_aligned, na.rm = TRUE) + ox
             cy <- mean(pts$y_aligned, na.rm = TRUE) + oy
             b <- list(xmin = cx - half_w, xmax = cx + half_w,
