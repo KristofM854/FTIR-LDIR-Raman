@@ -588,11 +588,16 @@ ui <- fluidPage(
         sidebarPanel(width = 3,
           h4("Reproducibility (Multi-Run)"),
           p(class = "text-muted",
-            "Overlay repeat runs of one filter on one instrument. Point at a ",
-            code("tools/reproducibility.R"), " output folder."),
-          textInput("repro_dir", "Output folder", value = "output/reproducibility"),
-          actionButton("repro_load", "Load", class = "btn-primary",
-                       icon = icon("refresh")),
+            "Overlay repeat runs of one filter on one instrument, produced by ",
+            code("tools/reproducibility.R"), "."),
+          textInput("repro_base", "Reproducibility folder",
+                    value = "output/reproducibility"),
+          div(style = "margin-bottom: 8px;",
+              actionButton("repro_refresh", "Scan", class = "btn-sm btn-primary",
+                           icon = icon("refresh")),
+              uiOutput("repro_browse_ui", inline = TRUE)),
+          selectInput("repro_run_select", "Run", choices = character(0),
+                      width = "100%"),
           hr(),
           checkboxInput("repro_only_nonrepro",
                         "Show only non-reproducible particles", value = FALSE),
@@ -4352,10 +4357,52 @@ server <- function(input, output, session) {
   # ==================================================================
   # MULTI-RUN (reproducibility) TAB
   # ==================================================================
-  repro_dir_r <- reactiveVal("output/reproducibility")
-  observeEvent(input$repro_load, {
-    if (!is.null(input$repro_dir) && nzchar(input$repro_dir)) repro_dir_r(input$repro_dir)
+  repro_dir_r <- reactiveVal(NULL)
+
+  # Scan the base folder for reproducibility runs: any subfolder (or the base
+  # itself) containing reproducibility_points.csv. Newest first.
+  repro_scan <- reactive({
+    input$repro_refresh                       # manual rescan trigger
+    base <- input$repro_base
+    if (is.null(base) || !nzchar(base)) base <- "output/reproducibility"
+    has_pts <- function(d) file.exists(file.path(d, "reproducibility_points.csv"))
+    dirs <- character(0)
+    if (has_pts(base)) dirs <- c(dirs, base)
+    subs <- tryCatch(list.dirs(base, recursive = FALSE, full.names = TRUE),
+                     error = function(e) character(0))
+    subs <- subs[vapply(subs, has_pts, logical(1))]
+    unique(c(dirs, sort(subs, decreasing = TRUE)))
   })
+
+  observeEvent(repro_scan(), {
+    choices <- repro_scan()
+    updateSelectInput(session, "repro_run_select", choices = choices,
+                      selected = if (length(choices)) choices[[1]] else character(0))
+  }, ignoreNULL = FALSE)
+
+  observeEvent(input$repro_run_select, {
+    if (!is.null(input$repro_run_select) && nzchar(input$repro_run_select))
+      repro_dir_r(input$repro_run_select)
+  })
+
+  # Optional native folder picker — only when shinyFiles is installed; the
+  # scan dropdown works regardless.
+  output$repro_browse_ui <- renderUI({
+    if (!requireNamespace("shinyFiles", quietly = TRUE)) return(NULL)
+    shinyFiles::shinyDirButton("repro_dir_btn", "Browse…",
+                               "Choose a reproducibility folder", class = "btn-sm")
+  })
+  if (requireNamespace("shinyFiles", quietly = TRUE)) {
+    .repro_roots <- c(project = normalizePath(".", mustWork = FALSE),
+                      home = path.expand("~"))
+    shinyFiles::shinyDirChoose(input, "repro_dir_btn", roots = .repro_roots,
+                               session = session)
+    observeEvent(input$repro_dir_btn, {
+      p <- tryCatch(shinyFiles::parseDirPath(.repro_roots, input$repro_dir_btn),
+                    error = function(e) character(0))
+      if (length(p) == 1 && nzchar(p)) updateTextInput(session, "repro_base", value = p)
+    })
+  }
 
   # Load a tools/reproducibility.R output folder (points + meta + summary).
   repro_data <- reactive({

@@ -111,8 +111,11 @@ res <- run_reproducibility(runs,
                            reference_family = ref_fam)
 
 # --- write outputs -----------------------------------------------------------
-out <- CONFIG$output_dir
-if (!dir.exists(out)) dir.create(out, recursive = TRUE)
+# Each run goes in its own timestamped subfolder so results are never
+# overwritten and the Shiny Multi-Run tab can list them side by side.
+run_id <- paste0(CONFIG$instrument, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+out <- file.path(CONFIG$output_dir, run_id)
+dir.create(out, recursive = TRUE, showWarnings = FALSE)
 
 write.csv(res$consensus, file.path(out, "reproducibility_particles.csv"),
           row.names = FALSE)
