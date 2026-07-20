@@ -31,12 +31,21 @@ for (m in c("utils.R", "00_config.R", "01_ingest.R", "01c_ingest_ldir.R",
 # CONFIG — edit these, or override via command-line arguments
 # =============================================================================
 CONFIG <- list(
-  instrument = "ftir_perkin",           # ftir_perkin | ftir_bruker | raman | ldir
+  instrument = "raman",           # ftir_perkin | ftir_bruker | raman | ldir
   # One entry per run. For ldir, set image = path to the companion image.
   runs = list(
-    list(file = "data/repro/run1.xlsx", image = NULL),
-    list(file = "data/repro/run2.xlsx", image = NULL),
-    list(file = "data/repro/run3.xlsx", image = NULL)
+    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\A\\Comparstic2026 PET A Kev 260417.csv"
+         # , 
+         # image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET C Kev 260401.png"
+         ),
+    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\B\\Comparstic2026 PET B Kev 260417.csv"
+         # , 
+         # image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET C Kev 260401.png"
+         ),
+    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET C Kev 260417.csv"
+         # , 
+         # image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET C Kev 260401.png"
+         )
   ),
   reference_material = "Polyethylene terephthalate",  # NULL to skip accuracy
   match_gate_um  = 75,     # tight: same-instrument localization is precise
