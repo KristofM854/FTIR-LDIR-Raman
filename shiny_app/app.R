@@ -591,7 +591,7 @@ ui <- fluidPage(
             "Overlay repeat runs of one filter on one instrument, produced by ",
             code("tools/reproducibility.R"), "."),
           textInput("repro_base", "Reproducibility folder",
-                    value = "output/reproducibility"),
+                    value = "C:/Users/moellerkr/OneDrive - IAEA/My Documents/Automatisations/FTIR-LDIR-Raman/output/reproducibility/"),
           div(style = "margin-bottom: 8px;",
               actionButton("repro_refresh", "Scan", class = "btn-sm btn-primary",
                            icon = icon("refresh")),
@@ -609,6 +609,15 @@ ui <- fluidPage(
                       choices = c("0°" = "0", "90°" = "90",
                                   "180°" = "180", "270°" = "270"),
                       selected = "0"),
+          numericInput("repro_img_width_um",
+                       "Image width (µm, blank = auto-fit to particles)",
+                       value = NA, min = 0, step = 100),
+          fluidRow(
+            column(6, numericInput("repro_img_offset_x", "X offset (µm)",
+                                   value = 0, step = 100)),
+            column(6, numericInput("repro_img_offset_y", "Y offset (µm)",
+                                   value = 0, step = 100))
+          ),
           checkboxInput("repro_show_lines", "Link instances across runs", value = TRUE),
           selectizeInput("repro_material", "Material",
                          choices = c("All"), selected = "All", multiple = TRUE),
@@ -4482,23 +4491,38 @@ server <- function(input, output, session) {
         if (!is.null(raw)) {
           rot <- suppressWarnings(as.integer(input$repro_img_rotation))
           if (!is.na(rot) && rot != 0L) raw <- rotate_raster_view(raw, rot)
-          # Aspect derived from the (rotated) raster, so annotation_raster under
-          # coord_fixed is never stretched.
-          b <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned, padding_um = 200)
+          ox <- input$repro_img_offset_x %||% 0
+          oy <- input$repro_img_offset_y %||% 0
+          w_um <- input$repro_img_width_um
+          if (!is.null(w_um) && is.finite(w_um) && w_um > 0) {
+            # True-scale placement: fix the image's physical width and derive
+            # height from the raster aspect (like the Raman/LDIR tabs), so the
+            # image sits at real scale and particles fall where they physically
+            # are — not fit/centred to the particle box. Centre on the particle
+            # mean; nudge with the offsets.
+            aspect <- ncol(raw) / nrow(raw)            # width / height
+            half_w <- w_um / 2
+            half_h <- (w_um / aspect) / 2
+            cx <- mean(pts$x_aligned, na.rm = TRUE) + ox
+            cy <- mean(pts$y_aligned, na.rm = TRUE) + oy
+            b <- list(xmin = cx - half_w, xmax = cx + half_w,
+                      ymin = cy - half_h, ymax = cy + half_h)
+          } else {
+            # No width given: aspect-preserving fit to the particle extent.
+            b <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned, padding_um = 200)
+            b <- list(xmin = b$xmin + ox, xmax = b$xmax + ox,
+                      ymin = b$ymin + oy, ymax = b$ymax + oy)
+          }
           img_info <- c(list(raster = raw), b)
         }
       }
     }
 
-    # Frame the view on the image extent when one is shown (so the whole,
-    # aspect-correct image is visible); otherwise on the particle extent.
-    bounds <- if (!is.null(img_info)) {
-      pad <- 200
-      list(x = c(img_info$xmin - pad, img_info$xmax + pad),
-           y = c(img_info$ymin - pad, img_info$ymax + pad))
-    } else {
-      compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
-    }
+    # Frame on the particle extent — particles are the subject; the background
+    # image sits behind at its own (true-scale or fitted) placement, cropped to
+    # this view. With true-scale placement the image aligns with the particles
+    # regardless of framing.
+    bounds <- compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
 
     run_levels <- paste("Run", sort(unique(pts$run)))
     run_pal <- setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
