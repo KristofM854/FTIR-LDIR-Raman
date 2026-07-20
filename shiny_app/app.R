@@ -1751,16 +1751,11 @@ server <- function(input, output, session) {
     m   <- load_run_manifest(run_dir)
     img <- get_run_image_paths(m, run_dir)
 
-    # Downsize run-directory images the same way uploads are (max 2000 px).
-    # Instrument exports are often several thousand px; a full-res raster in
-    # annotation_raster makes every uncached plot render slow. downsample_raster
-    # records orig_width_px so µm-per-px placement stays exact (see
-    # raman_native_image_info Priority 2).
-    load_bg <- function(path) {
-      raw <- load_image_raster(path)
-      if (is.null(raw)) return(NULL)
-      downsample_raster(raw, max_dim = BG_IMAGE_MAX_DIM)
-    }
+    # Load run-directory images at full resolution. (An earlier downsample here
+    # for render speed block-averaged the raster, washing out crisp instrument
+    # images — reverted; correctness of the background wins over the render
+    # speed-up. Uploaded images are still downsized in handle_image_upload.)
+    load_bg <- function(path) load_image_raster(path)
 
     if (!is.null(img$ftir)) {
       raw <- load_bg(img$ftir)
