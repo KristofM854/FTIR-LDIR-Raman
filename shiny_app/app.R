@@ -602,6 +602,9 @@ ui <- fluidPage(
           checkboxInput("repro_only_nonrepro",
                         "Show only non-reproducible particles", value = FALSE),
           checkboxInput("repro_show_image", "Show background image", value = TRUE),
+          fileInput("repro_bg_upload", "Background image (optional)",
+                    accept = c("image/png", "image/jpeg", "image/tiff",
+                               ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")),
           checkboxInput("repro_show_lines", "Link instances across runs", value = TRUE),
           selectizeInput("repro_material", "Material",
                          choices = c("All"), selected = "All", multiple = TRUE),
@@ -4458,10 +4461,19 @@ server <- function(input, output, session) {
     bounds <- compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
 
     img_info <- NULL
-    if (isTRUE(input$repro_show_image) && !is.null(d$meta) && "bg_image" %in% names(d$meta)) {
-      bgf <- d$meta$bg_image[1]
-      if (!is.na(bgf) && nzchar(bgf) && file.exists(file.path(d$dir, bgf))) {
-        raw <- tryCatch(downsample_raster(load_image_raster(file.path(d$dir, bgf))),
+    if (isTRUE(input$repro_show_image)) {
+      # Uploaded image takes precedence over the tool-copied backdrop.
+      bg_path <- NULL
+      up <- input$repro_bg_upload
+      if (!is.null(up) && !is.null(up$datapath) && file.exists(up$datapath)) {
+        bg_path <- up$datapath
+      } else if (!is.null(d$meta) && "bg_image" %in% names(d$meta)) {
+        bgf <- d$meta$bg_image[1]
+        if (!is.na(bgf) && nzchar(bgf) && file.exists(file.path(d$dir, bgf)))
+          bg_path <- file.path(d$dir, bgf)
+      }
+      if (!is.null(bg_path)) {
+        raw <- tryCatch(downsample_raster(load_image_raster(bg_path)),
                         error = function(e) NULL)
         if (!is.null(raw)) {
           b <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned, padding_um = 200)
