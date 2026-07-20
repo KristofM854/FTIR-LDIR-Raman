@@ -605,6 +605,10 @@ ui <- fluidPage(
           fileInput("repro_bg_upload", "Background image (optional)",
                     accept = c("image/png", "image/jpeg", "image/tiff",
                                ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")),
+          selectInput("repro_img_rotation", "Rotate background image",
+                      choices = c("0°" = "0", "90°" = "90",
+                                  "180°" = "180", "270°" = "270"),
+                      selected = "0"),
           checkboxInput("repro_show_lines", "Link instances across runs", value = TRUE),
           selectizeInput("repro_material", "Material",
                          choices = c("All"), selected = "All", multiple = TRUE),
@@ -4458,11 +4462,11 @@ server <- function(input, output, session) {
                     col = "#2ca02c", size = 6))
     }
 
-    bounds <- compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
-
+    # Background image first (it frames the view). Uploaded image takes
+    # precedence over the tool-copied backdrop; an optional 90° rotation lets
+    # the user orient the image to the particle layout.
     img_info <- NULL
     if (isTRUE(input$repro_show_image)) {
-      # Uploaded image takes precedence over the tool-copied backdrop.
       bg_path <- NULL
       up <- input$repro_bg_upload
       if (!is.null(up) && !is.null(up$datapath) && file.exists(up$datapath)) {
@@ -4476,10 +4480,24 @@ server <- function(input, output, session) {
         raw <- tryCatch(downsample_raster(load_image_raster(bg_path)),
                         error = function(e) NULL)
         if (!is.null(raw)) {
+          rot <- suppressWarnings(as.integer(input$repro_img_rotation))
+          if (!is.na(rot) && rot != 0L) raw <- rotate_raster_view(raw, rot)
+          # Aspect derived from the (rotated) raster, so annotation_raster under
+          # coord_fixed is never stretched.
           b <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned, padding_um = 200)
           img_info <- c(list(raster = raw), b)
         }
       }
+    }
+
+    # Frame the view on the image extent when one is shown (so the whole,
+    # aspect-correct image is visible); otherwise on the particle extent.
+    bounds <- if (!is.null(img_info)) {
+      pad <- 200
+      list(x = c(img_info$xmin - pad, img_info$xmax + pad),
+           y = c(img_info$ymin - pad, img_info$ymax + pad))
+    } else {
+      compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
     }
 
     run_levels <- paste("Run", sort(unique(pts$run)))
