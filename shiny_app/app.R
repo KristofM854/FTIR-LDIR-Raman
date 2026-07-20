@@ -579,6 +579,35 @@ ui <- fluidPage(
         )
       )
       ) # end div#upload_panel
+    ),
+
+    # Tab 8: Multi-Run reproducibility view
+    tabPanel("Multi-Run",
+      div(id = "multirun_panel",
+      sidebarLayout(
+        sidebarPanel(width = 3,
+          h4("Reproducibility (Multi-Run)"),
+          p(class = "text-muted",
+            "Overlay repeat runs of one filter on one instrument. Point at a ",
+            code("tools/reproducibility.R"), " output folder."),
+          textInput("repro_dir", "Output folder", value = "output/reproducibility"),
+          actionButton("repro_load", "Load", class = "btn-primary",
+                       icon = icon("refresh")),
+          hr(),
+          checkboxInput("repro_only_nonrepro",
+                        "Show only non-reproducible particles", value = FALSE),
+          checkboxInput("repro_show_image", "Show background image", value = TRUE),
+          checkboxInput("repro_show_lines", "Link instances across runs", value = TRUE),
+          selectizeInput("repro_material", "Material",
+                         choices = c("All"), selected = "All", multiple = TRUE),
+          hr(),
+          uiOutput("repro_summary_ui")
+        ),
+        mainPanel(width = 9,
+          plotOutput("repro_plot", height = "720px")
+        )
+      )
+      ) # end div#multirun_panel
     )
   )
 )
@@ -4317,6 +4346,147 @@ server <- function(input, output, session) {
       mkrow("Position", function(s) .fmt_pos(s$f, s$xcol, s$ycol)),
       mkrow("Match Dist.", function(s)
         if (isTRUE(s$is_raman)) "\u2014" else .fmt_num(.g(s$f, "match_distance"), 1, suffix = " \u00b5m"))
+    )
+  })
+
+  # ==================================================================
+  # MULTI-RUN (reproducibility) TAB
+  # ==================================================================
+  repro_dir_r <- reactiveVal("output/reproducibility")
+  observeEvent(input$repro_load, {
+    if (!is.null(input$repro_dir) && nzchar(input$repro_dir)) repro_dir_r(input$repro_dir)
+  })
+
+  # Load a tools/reproducibility.R output folder (points + meta + summary).
+  repro_data <- reactive({
+    dir <- repro_dir_r()
+    if (is.null(dir) || !nzchar(dir)) return(NULL)
+    pts_path <- file.path(dir, "reproducibility_points.csv")
+    if (!file.exists(pts_path)) return(NULL)
+    pts <- tryCatch(read.csv(pts_path, stringsAsFactors = FALSE), error = function(e) NULL)
+    if (is.null(pts) || nrow(pts) == 0) return(NULL)
+    rd <- function(f) tryCatch(read.csv(file.path(dir, f), stringsAsFactors = FALSE),
+                               error = function(e) NULL)
+    list(points = pts, meta = rd("reproducibility_meta.csv"),
+         summary = rd("reproducibility_summary.csv"), dir = dir)
+  })
+
+  observeEvent(repro_data(), {
+    d <- repro_data()
+    fams <- if (!is.null(d) && "material_family" %in% names(d$points))
+              sort(unique(d$points$material_family)) else character(0)
+    updateSelectizeInput(session, "repro_material",
+                         choices = c("All", fams), selected = "All")
+  }, ignoreNULL = FALSE)
+
+  output$repro_plot <- renderPlot({
+    d <- repro_data()
+    .msg <- function(txt, col = "grey40", size = 5)
+      ggplot() + annotate("text", x = 0, y = 0, label = txt, size = size, colour = col) +
+        theme_void()
+    if (is.null(d))
+      return(.msg(paste0("No reproducibility output found.\nRun tools/reproducibility.R, ",
+                         "then set the folder and press Load.")))
+    pts    <- d$points
+    n_runs <- if (!is.null(d$meta) && "n_runs" %in% names(d$meta)) d$meta$n_runs[1]
+              else max(pts$run, na.rm = TRUE)
+
+    mats <- input$repro_material
+    if (!is.null(mats) && !("All" %in% mats) && "material_family" %in% names(pts))
+      pts <- pts[pts$material_family %in% mats, , drop = FALSE]
+    if (nrow(pts) == 0) return(.msg("No particles match the material filter."))
+
+    pts$status <- ifelse(!as.logical(pts$material_concordant), "discordant",
+                  ifelse(pts$n_runs_detected < n_runs, "missing", "consensus"))
+    pts$run_lbl <- paste("Run", pts$run)
+
+    if (isTRUE(input$repro_only_nonrepro)) {
+      keep <- unique(pts$consensus_id[pts$status != "consensus"])
+      pts  <- pts[pts$consensus_id %in% keep, , drop = FALSE]
+      if (nrow(pts) == 0)
+        return(.msg("No non-reproducible particles \u2014 every particle is consistent.",
+                    col = "#2ca02c", size = 6))
+    }
+
+    bounds <- compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
+
+    img_info <- NULL
+    if (isTRUE(input$repro_show_image) && !is.null(d$meta) && "bg_image" %in% names(d$meta)) {
+      bgf <- d$meta$bg_image[1]
+      if (!is.na(bgf) && nzchar(bgf) && file.exists(file.path(d$dir, bgf))) {
+        raw <- tryCatch(downsample_raster(load_image_raster(file.path(d$dir, bgf))),
+                        error = function(e) NULL)
+        if (!is.null(raw)) {
+          b <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned, padding_um = 200)
+          img_info <- c(list(raster = raw), b)
+        }
+      }
+    }
+
+    run_levels <- paste("Run", sort(unique(pts$run)))
+    run_pal <- setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
+                          "#8c564b")[seq_along(run_levels)], run_levels)
+
+    p <- ggplot() +
+      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
+      coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+      labs(title = "Multi-Run reproducibility overlay",
+           subtitle = "Amber ring = missing in \u22651 run  \u00b7  Red ring = material disagreement",
+           x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+      theme_minimal(base_size = 15) +
+      theme(plot.background = element_rect(fill = "white", colour = NA),
+            panel.background = element_rect(fill = "grey98", colour = NA),
+            panel.grid = element_line(colour = "grey90"), legend.position = "right")
+    if (!is.null(img_info)) p <- add_image_bg(p, img_info)
+
+    if (isTRUE(input$repro_show_lines)) {
+      multi <- pts[pts$consensus_id %in% pts$consensus_id[duplicated(pts$consensus_id)], ]
+      if (nrow(multi) > 0)
+        p <- p + geom_path(data = multi[order(multi$consensus_id, multi$run), ],
+                           aes(x = x_aligned, y = y_aligned, group = consensus_id),
+                           colour = "grey50", alpha = 0.3, linewidth = 0.4)
+    }
+
+    base_alpha <- if (isTRUE(input$repro_only_nonrepro)) 0.85 else 0.5
+    p <- p + geom_point(data = pts,
+                        aes(x = x_aligned, y = y_aligned, colour = run_lbl, size = feret_max_um),
+                        alpha = base_alpha) +
+      scale_colour_manual(name = "Run", values = run_pal) +
+      scale_size_continuous(name = "Feret (\u00b5m)", range = c(1.5, 7),
+                            limits = safe_size_limits(pts$feret_max_um))
+
+    miss <- pts[pts$status == "missing", ]
+    disc <- pts[pts$status == "discordant", ]
+    if (nrow(miss) > 0)
+      p <- p + geom_point(data = miss, aes(x = x_aligned, y = y_aligned),
+                          shape = 21, size = 5, stroke = 1.2, fill = NA, colour = "#ff7f0e")
+    if (nrow(disc) > 0)
+      p <- p + geom_point(data = disc, aes(x = x_aligned, y = y_aligned),
+                          shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#d62728")
+    p
+  })
+
+  output$repro_summary_ui <- renderUI({
+    d <- repro_data()
+    if (is.null(d) || is.null(d$summary) || nrow(d$summary) == 0)
+      return(tags$p(class = "text-muted", "Load a reproducibility output to see the summary."))
+    s <- d$summary[1, ]
+    pct <- function(v) if (is.null(v) || is.na(v)) "\u2014" else paste0(round(100 * v, 1), "%")
+    val <- function(nm) if (nm %in% names(s)) s[[nm]] else NA
+    tags$table(class = "hover-tbl",
+      tags$tr(tags$td("Instrument"), tags$td(tags$b(as.character(val("instrument"))))),
+      tags$tr(tags$td("Runs"), tags$td(val("n_runs"))),
+      tags$tr(tags$td("Physical particles"), tags$td(val("n_consensus"))),
+      tags$tr(tags$td("Detected in all"),
+              tags$td(paste0(val("detected_in_all"), " (", pct(val("detected_in_all_frac")), ")"))),
+      tags$tr(tags$td("Count CV"), tags$td(pct(val("count_cv")))),
+      tags$tr(tags$td("Material concordance"), tags$td(pct(val("material_concordance")))),
+      tags$tr(tags$td("Accuracy vs reference"), tags$td(pct(val("accuracy_vs_reference")))),
+      tags$tr(tags$td("Median Feret CV"), tags$td(pct(val("median_feret_cv")))),
+      tags$tr(tags$td("Median jitter"),
+              tags$td(if (is.na(val("median_pos_jitter_um"))) "\u2014"
+                      else paste0(round(val("median_pos_jitter_um"), 1), " \u00b5m")))
     )
   })
 }

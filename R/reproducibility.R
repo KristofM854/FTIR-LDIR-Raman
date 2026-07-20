@@ -280,6 +280,41 @@ run_reproducibility <- function(runs, gate = 75, align_gate = 300,
   list(runs = runs, membership = memb, consensus = consensus, summary = summary)
 }
 
+# ---- viewer-ready long table ------------------------------------------------
+
+#' One row per (consensus particle x run it was detected in), in the aligned
+#' frame. Drives the Multi-Run viewer: colour by `run`, group by `consensus_id`
+#' for lines/hover, encode reproducibility from `n_runs_detected` /
+#' `material_concordant`.
+repro_long_table <- function(res) {
+  runs <- res$runs; memb <- res$membership; cons <- res$consensus
+  n_runs <- length(runs)
+  rows <- list()
+  for (ci in seq_len(nrow(memb))) {
+    ndet <- cons$n_runs_detected[ci]
+    conc <- cons$material_concordant[ci]
+    for (r in seq_len(n_runs)) {
+      idx <- memb[ci, r]
+      if (is.na(idx)) next
+      d <- runs[[r]]
+      rows[[length(rows) + 1]] <- data.frame(
+        consensus_id        = ci,
+        run                 = r,
+        particle_id         = as.character(d$particle_id[idx]),
+        x_aligned           = d$x_aligned[idx],
+        y_aligned           = d$y_aligned[idx],
+        material            = as.character(d$material[idx]),
+        material_family     = .repro_family(d$material[idx]),
+        feret_max_um        = d$feret_max_um[idx],
+        n_runs_detected     = ndet,
+        material_concordant = conc,
+        stringsAsFactors = FALSE)
+    }
+  }
+  if (length(rows) == 0) return(data.frame())
+  do.call(rbind, rows)
+}
+
 # ---- overview plots ---------------------------------------------------------
 
 #' Write the four overview plots (detection consistency, per-run material
