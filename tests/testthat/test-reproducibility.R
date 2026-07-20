@@ -70,3 +70,21 @@ test_that("consensus links particles and surfaces detection + material flips", {
 test_that("run_reproducibility needs at least two runs", {
   expect_error(run_reproducibility(list(.base_filter())))
 })
+
+test_that("long table has one row per detected (particle x run) with repro flags", {
+  run1 <- .base_filter()
+  run2 <- .move(run1, deg = 3,  tx = 120, ty = -80, seed = 2)
+  run3 <- .move(run1[-5, ], deg = -2, tx = -70, ty = 140, seed = 3)
+  res  <- run_reproducibility(list(run1, run2, run3), gate = 50)
+  long <- repro_long_table(res)
+
+  # 12 in all-3 (11) contribute 3 rows, the 2-run particle contributes 2:
+  # 11*3 + 1*2 = 35 detections total.
+  expect_equal(nrow(long), 35L)
+  expect_setequal(unique(long$run), 1:3)
+  expect_true(all(c("consensus_id", "x_aligned", "material_family",
+                    "n_runs_detected", "material_concordant") %in% names(long)))
+  # Every consensus particle's row count equals its n_runs_detected.
+  by_c <- tapply(long$run, long$consensus_id, length)
+  expect_true(all(by_c == long$n_runs_detected[match(names(by_c), long$consensus_id)]))
+})
