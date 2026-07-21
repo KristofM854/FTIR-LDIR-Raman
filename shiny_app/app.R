@@ -601,13 +601,18 @@ ui <- fluidPage(
           hr(),
           checkboxInput("repro_only_nonrepro",
                         "Show only non-reproducible particles", value = FALSE),
+          checkboxGroupInput("repro_run_visibility", "Show Runs",
+                             choices = character(0), selected = character(0),
+                             inline = TRUE),
           checkboxInput("repro_show_image", "Show background image", value = TRUE),
           fileInput("repro_bg_upload", "Background image (optional)",
                     accept = c("image/png", "image/jpeg", "image/tiff",
                                ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")),
           selectInput("repro_img_rotation", "Rotate background image",
-                      choices = c("0°" = "0", "90°" = "90",
-                                  "180°" = "180", "270°" = "270"),
+                      choices = c("None (0°)" = "0",
+                                  "90° counter-clockwise" = "90",
+                                  "90° clockwise" = "-90",
+                                  "180°" = "180"),
                       selected = "0"),
           helpText("The image is placed automatically from the run's recorded ",
                    "metadata (matches the single-instrument tab). Only set ",
@@ -653,7 +658,8 @@ ui <- fluidPage(
               h5("Particle Counts per Run"),
               p(class = "text-muted",
                 "Total particles detected in each run (independent of the ",
-                "material filter and non-reproducible-only toggle above)."),
+                "material filter, non-reproducible-only toggle, and Show ",
+                "Runs selection above)."),
               plotOutput("repro_counts_barplot", height = "280px")),
           hr(),
           div(class = "info-box",
@@ -2491,6 +2497,8 @@ server <- function(input, output, session) {
   observeEvent(input$repro_material,       { zoom$repro <- NULL })
   observeEvent(input$repro_only_nonrepro,  { zoom$repro <- NULL })
   observeEvent(input$repro_run_select,     { zoom$repro <- NULL })
+  observeEvent(input$repro_run_visibility, { zoom$repro <- NULL })
+  observeEvent(input$repro_img_rotation,   { zoom$repro <- NULL })
 
   observeEvent(input$ftir_coord_mode,        { zoom$ftir        <- NULL })
   observeEvent(input$ftir_bruker_coord_mode, { zoom$ftir_bruker <- NULL })
@@ -4482,6 +4490,17 @@ server <- function(input, output, session) {
               sort(unique(d$points$material_family)) else character(0)
     updateSelectizeInput(session, "repro_material",
                          choices = c("All", fams), selected = "All")
+
+    run_ids <- if (!is.null(d) && "run" %in% names(d$points))
+                 sort(unique(d$points$run)) else integer(0)
+    # paste("Run", integer(0)) returns "Run " (length 1, NOT character(0)),
+    # so setNames() below would fail its length check unless run_ids is
+    # empty is handled explicitly first.
+    run_choices <- if (length(run_ids) > 0)
+                     setNames(as.character(run_ids), paste("Run", run_ids))
+                   else character(0)
+    updateCheckboxGroupInput(session, "repro_run_visibility",
+                             choices = run_choices, selected = run_choices)
   }, ignoreNULL = FALSE)
 
   # Filtered/annotated points shared by the plot AND the hover lookup, so
@@ -4493,6 +4512,17 @@ server <- function(input, output, session) {
     pts    <- d$points
     n_runs <- if (!is.null(d$meta) && "n_runs" %in% names(d$meta)) d$meta$n_runs[1]
               else max(pts$run, na.rm = TRUE)
+
+    # Run visibility: same "empty selection -> empty result" convention as the
+    # instrument tabs' match-status checkboxGroupInput (eff_match_filter());
+    # NULL (widget not yet populated on initial load) is treated as "no
+    # filter yet" so data isn't hidden before repro_data()'s observer runs.
+    vis <- input$repro_run_visibility
+    if (!is.null(vis)) {
+      visible_runs <- suppressWarnings(as.integer(vis))
+      pts <- pts[pts$run %in% visible_runs, , drop = FALSE]
+      if (nrow(pts) == 0) { attr(pts, "empty_reason") <- "runs"; return(pts) }
+    }
 
     mats <- input$repro_material
     if (!is.null(mats) && !("All" %in% mats) && "material_family" %in% names(pts))
@@ -4511,6 +4541,34 @@ server <- function(input, output, session) {
     pts
   })
 
+  # Current background-image rotation (degrees; 0 if unset/invalid). Shared by
+  # the plot and the hover lookup so both agree on which orientation is shown.
+  # Mirrors the single LDIR tab's view-rotation control (rotate_raster_view/
+  # rotate_xy_view already normalise negative values via %% 360, so -90 and
+  # 270 are equivalent).
+  repro_rotation_deg <- reactive({
+    rot <- suppressWarnings(as.integer(input$repro_img_rotation))
+    if (is.na(rot)) 0L else rot
+  })
+
+  # Rotate a points frame's aligned coordinates in place (no-op at 0 deg).
+  .repro_rotate_view <- function(pts, rot) {
+    if (is.null(pts) || nrow(pts) == 0 || is.na(rot) || rot == 0L) return(pts)
+    rc <- rotate_xy_view(pts$x_aligned, pts$y_aligned, rot)
+    pts$x_aligned <- rc$x
+    pts$y_aligned <- rc$y
+    pts
+  }
+
+  # Points in the CURRENTLY DISPLAYED (rotated) frame — what the plot actually
+  # draws once a background-image rotation is applied. Used by the hover
+  # lookup so it matches rotated positions; the plot itself rotates its own
+  # copy after computing the (calibration-based) image placement, which must
+  # happen in the native/unrotated frame — see output$repro_plot.
+  repro_view_pts <- reactive({
+    .repro_rotate_view(repro_filtered_pts(), repro_rotation_deg())
+  })
+
   output$repro_plot <- renderPlot({
     d <- repro_data()
     .msg <- function(txt, col = "grey40", size = 5)
@@ -4521,9 +4579,12 @@ server <- function(input, output, session) {
                          "then set the folder and press Load.")))
     pts <- repro_filtered_pts()
     if (is.null(pts) || nrow(pts) == 0) {
-      if (identical(attr(pts, "empty_reason"), "nonrepro"))
+      reason <- attr(pts, "empty_reason")
+      if (identical(reason, "nonrepro"))
         return(.msg("No non-reproducible particles \u2014 every particle is consistent.",
                     col = "#2ca02c", size = 6))
+      if (identical(reason, "runs"))
+        return(.msg("No runs selected \u2014 check at least one run above."))
       return(.msg("No particles match the material filter."))
     }
 
@@ -4544,8 +4605,15 @@ server <- function(input, output, session) {
       if (!is.null(bg_path)) {
         raw <- tryCatch(load_image_raster(bg_path), error = function(e) NULL)
         if (!is.null(raw)) {
-          rot <- suppressWarnings(as.integer(input$repro_img_rotation))
-          if (!is.na(rot) && rot != 0L) raw <- rotate_raster_view(raw, rot)
+          # NOTE: rotation is applied LAST, to the finished (native-frame)
+          # placement — not here. Calibration-based placement (WITec extent,
+          # LDIR scan-circle, um-per-px scale) is defined in the image's
+          # native/unrotated pixel frame, so rotating the raster before
+          # computing `base` would place a rotated (width<->height swapped)
+          # raster into a box sized for the unrotated image, and would
+          # silently drift out of registration with the (also unrotated)
+          # particle points. See the co-rotation step below, which mirrors
+          # the single LDIR tab's ldir_view_rot_deg() handling exactly.
           ox <- input$repro_img_offset_x %||% 0
           oy <- input$repro_img_offset_y %||% 0
           w_um <- input$repro_img_width_um
@@ -4580,6 +4648,22 @@ server <- function(input, output, session) {
           img_info <- c(list(raster = raw), b)
         }
       }
+    }
+
+    # Co-rotate the finished (native-frame) image AND the particle points
+    # together — exactly mirroring the single LDIR tab's view-rotation
+    # handling (rotate_extent_view/rotate_raster_view/rotate_xy_view), so the
+    # two can never drift out of registration the way rotating only the
+    # raster (the previous behaviour) did.
+    rot <- repro_rotation_deg()
+    if (rot != 0L) {
+      if (!is.null(img_info)) {
+        ext <- rotate_extent_view(img_info, rot)
+        img_info <- list(raster = rotate_raster_view(img_info$raster, rot),
+                         xmin = ext$xmin, xmax = ext$xmax,
+                         ymin = ext$ymin, ymax = ext$ymax)
+      }
+      pts <- .repro_rotate_view(pts, rot)
     }
 
     # Frame on the IMAGE extent when a background is placed (matches the single
@@ -4644,7 +4728,7 @@ server <- function(input, output, session) {
   observeEvent(input$repro_hover, {
     hover <- input$repro_hover
     if (is.null(hover)) return()
-    pts <- repro_filtered_pts()
+    pts <- repro_view_pts()
     if (is.null(pts) || nrow(pts) == 0) return()
     d <- sqrt((pts$x_aligned - hover$x)^2 + (pts$y_aligned - hover$y)^2)
     idx <- which.min(d)

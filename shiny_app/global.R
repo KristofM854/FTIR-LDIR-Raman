@@ -8,6 +8,17 @@ library(ggrepel)
 library(png)
 library(rintrojs)
 
+# %||% is used throughout this app (image offsets, placement fallbacks, etc.)
+# but is only DEFINED (guarded) in R/07_match.R / R/09_diagnostics.R, which
+# this file does not source. It was silently relying on main.R having been
+# run earlier in the same R session (which sources those files) to define it
+# globally; a Shiny session started fresh (Rscript/rsconnect/a new R process)
+# never gets it, so any code path that actually uses %||% (e.g. placing an
+# uploaded background image) fails with "could not find function \"%||%\"".
+if (!exists("%||%")) {
+  `%||%` <- function(a, b) if (is.null(a)) b else a
+}
+
 # Allow large instrument images (TIFF micrographs are commonly 10-40 MB;
 # Shiny's default cap is only 5 MB).  NOTE: this limit is enforced by Shiny
 # at the HTTP layer BEFORE any server code runs, so an oversized upload can
