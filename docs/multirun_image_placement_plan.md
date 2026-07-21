@@ -1,8 +1,10 @@
 # Plan v3: Multi-Run image↔coordinate placement — current status
 
-**Status: plan only — nothing in this doc has been implemented. This section
-supersedes v2's §2-4 (kept below as historical context) now that its central
-open question has been answered by production log evidence. v1 is Appendix A.**
+**Status: FIXED. The lead hypothesis was confirmed on the user's machine
+(see "v3 diagnostic findings" below) and the fix is implemented — see "v3 fix
+implemented" at the end of this section. This section supersedes v2's §2-4
+(kept below as historical context) now that its central open question has
+been answered by production log evidence. v1 is Appendix A.**
 
 ## v3 update — the "P3 fallback" theory is DISPROVEN; new lead hypothesis
 
@@ -166,6 +168,65 @@ It prints (A) the WITec values Multi-Run actually uses (newest
 run whose MD5 matches the replicate file, (C) the current `R/00_config.R`
 values, and a per-field MATCH/MISMATCH verdict that maps directly onto step 5
 (values fix) vs step 6 (fall back to v2 §4/§5).
+
+### User-run diagnostic result: MISMATCH confirmed (2026-07-21)
+
+The user ran `tools/diagnose_multirun_placement.R` against their real
+`output/` (17 pipeline runs, not the 2 committed to this repo) with the PET-A
+replicate file (`Comparstic2026 PET A Kev 260417.csv`). Findings:
+
+- **The raw file was reprocessed repeatedly with drifting calibration.**
+  MD5-matching runs for this exact file show at least three distinct WITec
+  calibrations over six weeks: `<NA>` (2026-05-20 to 2026-07-09, P3 fallback)
+  → `5133.146/5068.031/2296.34/2355.731` (2026-07-09_1) →
+  `12471.2/12313.0/1487.6/-4394.0` (2026-07-09_4, matches current
+  `R/00_config.R`) → `5237.904/5171.46/2314.045/2354.009` (2026-07-10_1
+  onward, stable through the most recent run, 2026-07-15_1).
+- **Multi-Run's `reproducibility_meta.csv` had `12471.2/12313.0/1487.6/-4394.0`**
+  — a straight copy of whatever was in `R/00_config.R` when the user last
+  edited `tools/reproducibility.R`'s CONFIG. That is the value from
+  2026-07-09_4, six days stale relative to the run the single tab is actually
+  showing (2026-07-15_1, `5237.904/...`) — a **2.38x width ratio**
+  (12471.2 / 5237.904), matching the observed compression almost exactly.
+- **Verdict: MISMATCH CONFIRMED.** The lead hypothesis (manual hand-copy of a
+  per-dataset value going stale) is the entire root cause. No further
+  investigation into v2 §4/§5 (instrumentation, shared-function extraction)
+  is needed for this symptom — that work remains valid future hardening but
+  is no longer required to fix this bug.
+
+### v3 fix implemented (2026-07-21)
+
+Per step 5's stronger recommendation, `tools/reproducibility.R` now
+**auto-resolves** the Raman calibration instead of requiring hand entry:
+
+- `resolve_raman_calibration_from_manifests()` (`R/utils.R`) takes the raw
+  Raman file used as `CONFIG$runs[[1]]$file`, MD5-matches it against every
+  `output/*/manifest.json`'s `inputs.raman.md5`, and returns the
+  `config_snapshot.raman_image_*` values from the **latest** matching run
+  (latest = most recent processing of that exact file, i.e. the user's most
+  recent belief about the correct calibration for that scan). Returns `NULL`
+  if no run matches or the matching run's snapshot is incomplete.
+- `tools/reproducibility.R` calls this for `CONFIG$instrument == "raman"`
+  before writing output. Priority order: **auto-resolved from manifest** →
+  **manual `CONFIG$raman_image_*` fields** (now a fallback, not the primary
+  path) → none (particle-extent fit). The resolution outcome is logged and
+  recorded in `reproducibility_meta.csv` as `raman_calibration_source`
+  (`"manifest:<run_id>"` / `"manual"` / `"none"`).
+- `reproducibility_meta.csv` now also always records `run1_file`/`run1_md5`
+  (any instrument) so a reproducibility output can be traced back to its
+  exact raw file — closing the traceability gap noted in the original v3
+  lead hypothesis write-up.
+- `tools/diagnose_multirun_placement.R` uses the new `run1_md5` field to
+  auto-detect the replicate file on a re-run, so it needs no arguments once a
+  reproducibility output has been produced by the fixed tool.
+- Regression coverage: `tests/testthat/test-raman-calibration-resolve.R`
+  (MD5 match + latest-wins, no-match, incomplete-snapshot, and
+  nonexistent-file/dir cases). Full suite (`Rscript run_tests.R`) passes.
+
+**Remaining step for the user:** re-run `tools/reproducibility.R` for the
+Raman instrument (no CONFIG edits needed — the calibration now resolves
+automatically) and confirm the Multi-Run tab's image scale now matches the
+single Raman tab.
 
 ---
 
