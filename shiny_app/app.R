@@ -601,6 +601,10 @@ ui <- fluidPage(
           hr(),
           checkboxInput("repro_only_nonrepro",
                         "Show only non-reproducible particles", value = FALSE),
+          checkboxInput("repro_show_missing_ring",
+                        "Show amber ring (missing in ≥1 run)", value = TRUE),
+          checkboxInput("repro_show_discordant_ring",
+                        "Show red ring (material disagreement)", value = TRUE),
           checkboxGroupInput("repro_run_visibility", "Show Runs",
                              choices = character(0), selected = character(0),
                              inline = TRUE),
@@ -4681,12 +4685,21 @@ server <- function(input, output, session) {
     run_pal <- setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
                           "#8c564b")[seq_along(run_levels)], run_levels)
 
+    show_miss <- isTRUE(input$repro_show_missing_ring)
+    show_disc <- isTRUE(input$repro_show_discordant_ring)
+    ring_subtitle <- paste(c(
+      if (show_miss) "Amber ring = missing in \u22651 run",
+      if (show_disc) "Red ring = material disagreement"
+    ), collapse = "  \u00b7  ")
+    if (!nzchar(ring_subtitle))
+      ring_subtitle <- "Diagnostic rings hidden \u2014 see checkboxes at left"
+
     p <- ggplot() +
       scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
       scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = "Multi-Run reproducibility overlay",
-           subtitle = "Amber ring = missing in \u22651 run  \u00b7  Red ring = material disagreement",
+           subtitle = ring_subtitle,
            x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
       theme(plot.background = element_rect(fill = "white", colour = NA),
@@ -4710,14 +4723,18 @@ server <- function(input, output, session) {
       scale_size_continuous(name = "Feret (\u00b5m)", range = c(1.5, 7),
                             limits = safe_size_limits(pts$feret_max_um))
 
-    miss <- pts[pts$status == "missing", ]
-    disc <- pts[pts$status == "discordant", ]
-    if (nrow(miss) > 0)
-      p <- p + geom_point(data = miss, aes(x = x_aligned, y = y_aligned),
-                          shape = 21, size = 5, stroke = 1.2, fill = NA, colour = "#ff7f0e")
-    if (nrow(disc) > 0)
-      p <- p + geom_point(data = disc, aes(x = x_aligned, y = y_aligned),
-                          shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#d62728")
+    if (show_miss) {
+      miss <- pts[pts$status == "missing", ]
+      if (nrow(miss) > 0)
+        p <- p + geom_point(data = miss, aes(x = x_aligned, y = y_aligned),
+                            shape = 21, size = 5, stroke = 1.2, fill = NA, colour = "#ff7f0e")
+    }
+    if (show_disc) {
+      disc <- pts[pts$status == "discordant", ]
+      if (nrow(disc) > 0)
+        p <- p + geom_point(data = disc, aes(x = x_aligned, y = y_aligned),
+                            shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#d62728")
+    }
     p
   })
 
