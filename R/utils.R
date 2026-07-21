@@ -902,6 +902,79 @@ write_manifest <- function(run_dir, run_id, config,
 }
 
 
+#' Resolve the Raman WITec image calibration (width/height/center X/Y, all
+#' in microns) that a pipeline run recorded for a specific raw Raman file.
+#'
+#' The four \code{raman_image_*} values are PER-DATASET (re-entered in
+#' \code{R/00_config.R} for each new WITec scan; see the comment there). Any
+#' tool that needs "the calibration for raw file X" must read it from the
+#' \code{config_snapshot} of the pipeline run whose \code{inputs$raman$md5}
+#' matches X's current content, NOT from whatever happens to be in
+#' \code{R/00_config.R} right now — that may have since been edited for a
+#' different scan. This is what \code{tools/reproducibility.R} got wrong
+#' (see \code{docs/multirun_image_placement_plan.md}, plan v3): its CONFIG
+#' fields were hand-copied from \code{R/00_config.R} at whatever moment the
+#' user last edited them, which drifted out of sync with the actual
+#' calibration in effect for the replicate runs being compared.
+#'
+#' If the same raw file was processed by the pipeline multiple times with
+#' different calibrations (e.g. the user corrected the WITec values and
+#' reprocessed), the run with the latest timestamp wins — that best reflects
+#' the user's most recent belief about the true calibration for that scan.
+#'
+#' @param raw_file   Path to the raw Raman file (matched by MD5 content, so
+#'   renamed/copied files still match).
+#' @param output_dir Root directory containing per-run subfolders (each with
+#'   \code{00_manifest/manifest.json} or a legacy \code{manifest.json}).
+#' @return A list with \code{width_um}, \code{height_um}, \code{center_x_um},
+#'   \code{center_y_um}, \code{run_id}, \code{timestamp} — or \code{NULL} if
+#'   no run's manifest has a matching \code{inputs$raman$md5} with all four
+#'   calibration fields present and finite.
+resolve_raman_calibration_from_manifests <- function(raw_file, output_dir = "output") {
+  if (is.null(raw_file) || !nzchar(raw_file) || !file.exists(raw_file)) return(NULL)
+  if (!requireNamespace("jsonlite", quietly = TRUE)) return(NULL)
+  if (!dir.exists(output_dir)) return(NULL)
+
+  target_md5 <- file_md5(raw_file)
+  if (is.na(target_md5)) return(NULL)
+
+  cal_fields <- c("raman_image_width_um", "raman_image_height_um",
+                  "raman_image_center_x_um", "raman_image_center_y_um")
+  finite1 <- function(v) !is.null(v) && length(v) == 1 && is.finite(suppressWarnings(as.numeric(v)))
+
+  run_dirs <- list.dirs(output_dir, recursive = FALSE)
+  run_dirs <- run_dirs[basename(run_dirs) != "reproducibility"]
+
+  best <- NULL
+  best_time <- -Inf
+  for (rd in run_dirs) {
+    mp <- resolve_manifest_path(rd)
+    if (!file.exists(mp)) next
+    m <- tryCatch(jsonlite::fromJSON(mp, simplifyVector = TRUE),
+                  error = function(e) NULL)
+    if (is.null(m)) next
+    if (!identical(m$inputs$raman$md5, target_md5)) next
+    cs <- m$config_snapshot
+    if (is.null(cs) || !all(vapply(cal_fields, function(f) finite1(cs[[f]]), logical(1)))) next
+
+    t <- suppressWarnings(as.numeric(as.POSIXct(m$timestamp, format = "%Y-%m-%dT%H:%M:%S")))
+    if (is.na(t)) t <- 0
+    if (t > best_time) {
+      best_time <- t
+      best <- list(
+        width_um    = as.numeric(cs$raman_image_width_um),
+        height_um   = as.numeric(cs$raman_image_height_um),
+        center_x_um = as.numeric(cs$raman_image_center_x_um),
+        center_y_um = as.numeric(cs$raman_image_center_y_um),
+        run_id      = m$run_id %||% basename(rd),
+        timestamp   = m$timestamp %||% NA_character_
+      )
+    }
+  }
+  best
+}
+
+
 #' Update the stage field in an existing manifest
 #'
 #' @param run_dir   Run output directory
