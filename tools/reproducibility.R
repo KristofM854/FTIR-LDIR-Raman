@@ -51,7 +51,12 @@ CONFIG <- list(
   raman_image_width_um    = NULL,
   raman_image_height_um   = NULL,
   raman_image_center_x_um = NULL,
-  raman_image_center_y_um = NULL
+  raman_image_center_y_um = NULL,
+  # If your dataset has NO WITec extent (the single Raman tab shows the image at
+  # the µm-per-pixel scale, not the WITec width), leave the four fields above
+  # blank and either upload the original TIFF in the viewer (its DPI is read
+  # automatically) or set the µm-per-pixel here:
+  raman_um_per_px         = NULL
 )
 
 # --- command-line override ---------------------------------------------------
@@ -163,6 +168,7 @@ if (identical(CONFIG$instrument, "raman")) {
   meta$raman_image_height_um   <- CONFIG$raman_image_height_um   %||% NA_real_
   meta$raman_image_center_x_um <- CONFIG$raman_image_center_x_um %||% NA_real_
   meta$raman_image_center_y_um <- CONFIG$raman_image_center_y_um %||% NA_real_
+  meta$raman_um_per_px         <- CONFIG$raman_um_per_px         %||% NA_real_
 }
 if (identical(CONFIG$instrument, "ldir")) {
   ci <- attr(runs[[1]], "ldir_circle")
