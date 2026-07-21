@@ -4514,7 +4514,8 @@ server <- function(input, output, session) {
             # the metadata the tool recorded (Raman = WITec extent, FTIR/Bruker =
             # particle extent, LDIR = scan-circle). NULL when metadata is absent.
             base <- place_image_multirun(instrument, d$meta,
-                                         pts$x_aligned, pts$y_aligned)
+                                         pts$x_aligned, pts$y_aligned,
+                                         raw = raw, bg_path = bg_path)
           }
           # Last resort: aspect-preserving fit to the particle extent.
           if (is.null(base))
