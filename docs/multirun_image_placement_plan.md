@@ -1,8 +1,117 @@
-# Plan v2: Multi-Run image↔coordinate placement — diagnosis-first rebuild
+# Plan v3: Multi-Run image↔coordinate placement — current status
 
-**Status: plan only — nothing in this doc has been implemented. Supersedes v1
-below (kept as Appendix A for history — its Raman "3-tier cascade" assumption
-turned out to be wrong for the dataset that exposed this bug; see §2).**
+**Status: plan only — nothing in this doc has been implemented. This section
+supersedes v2's §2-4 (kept below as historical context) now that its central
+open question has been answered by production log evidence. v1 is Appendix A.**
+
+## v3 update — the "P3 fallback" theory is DISPROVEN; new lead hypothesis
+
+**New evidence (from the user's console log on the single Raman tab):**
+
+```
+[Particle Viewer] Raman image placed from WITec extent (Center Y as reported; 100% of particles inside).
+```
+
+This message can only be emitted from `raman_native_image_info`'s **Priority 1**
+branch (`shiny_app/app.R:1580`, confirmed by reading the code). It fires
+**twice** in the log — once on run load, once after the user additionally
+uploaded `raman_image_canonical.png` through the tab's own upload control
+(downsized 8956×8828 → 1791×1765 there, same as everywhere else) — and both
+times reports **100% of run 1's particles inside the WITec-defined box**,
+using the center-Y value **as configured, not negated**. That is a real,
+correctly-calibrated placement — not a coincidental fallback. **v2's §3
+hypothesis (single tab silently using P3/fit-to-particles) is wrong; discard
+it.**
+
+**The zoom-state theory is also ruled out** — the user confirmed the single
+Raman tab is not zoomed and is displaying the full (downsampled) image at
+100%, yet still visually looks different in scale from the Multi-Run tab
+showing "the same" image.
+
+**So: P1 (WITec) is confirmed correct and active on the single tab. The
+question is now why Multi-Run — also supposedly using P1 with WITec values —
+produces a different, wrong-looking scale for what should be the identical
+placement math.**
+
+### Lead hypothesis (check this FIRST — cheap, concrete, high-probability)
+
+`R/00_config.R` explicitly documents `raman_image_width_um` /
+`_height_um` / `_center_x_um` / `_center_y_um` as **per-dataset values**
+("PER-DATASET value — read them from WITec's Particle Scout for each new
+Raman scan and update them here, or the viewer falls back to heuristic
+placement"). This means:
+
+- The single Raman tab reads its WITec numbers from **`active_manifest()$config_snapshot`**
+  — the config that was actually in effect **when that specific pipeline run
+  was processed** (baked into that run's `manifest.json` at run time).
+- The reproducibility tool's `CONFIG$raman_image_*` fields were filled in by
+  the user **by hand**, presumably by copying whatever is **currently** in
+  `R/00_config.R` — which may have since been edited for a *different* scan,
+  or may simply not be the same values that were in effect for the specific
+  raw Raman file(s) used as the three reproducibility replicates.
+- **Quantitative smoking gun:** the WITec width in the current `R/00_config.R`
+  is `12471.2`. The visually-apparent scale mismatch has consistently looked
+  like ~2.5×. `12471.2 / ~5000 ≈ 2.5`. This is exactly the ratio you'd expect
+  if Multi-Run is using stale/wrong-scan WITec values roughly 2.5× too large
+  for the actual replicate dataset's true calibration.
+- It is also possible the pipeline run currently selected in the single
+  Raman tab (`2026-07-16_1`, the newest) is not even the **same physical scan**
+  as the reproducibility tool's "run 1" raw file — in which case their WITec
+  values could legitimately differ and comparing them was apples-to-oranges
+  from the start. This needs to be checked, not assumed either way.
+
+### Sharpened diagnostic step (replaces v2 §4 as the first thing to do)
+
+1. Identify exactly which raw Raman file was used as
+   `CONFIG$runs[[1]]$file` in `tools/reproducibility.R` for this comparison
+   (its filename, and ideally its MD5 — `tools::md5sum(path)`).
+2. Find the pipeline `output/<run_dir>/` whose inputs correspond to that same
+   raw file: open each candidate run's `manifest.json` and check
+   `inputs.raman.basename` (and/or `inputs.raman.md5`, which is more
+   reliable if the file was ever renamed/copied) — confirmed field names,
+   written by `write_manifest()` in `R/utils.R:783-799`. **Do not assume**
+   it's "the newest run" (`2026-07-16_1`) or "whatever's currently selected
+   in the single tab" without actually matching the file.
+3. Open that specific run's `manifest.json` and read
+   `config_snapshot.raman_image_width_um`, `_height_um`, `_center_x_um`,
+   `_center_y_um` — these are the numbers that produced the "100% inside,
+   correct" placement.
+4. Diff those against what's currently entered in `tools/reproducibility.R`'s
+   `CONFIG$raman_image_*` fields.
+5. **If they differ:** that's almost certainly the entire bug. Fix is trivial
+   — enter the exact manifest values into the reproducibility tool's CONFIG
+   (or, better, have the tool read them automatically from the corresponding
+   run's manifest instead of requiring hand entry — this removes the
+   copy-paste/staleness failure mode entirely for future datasets). Re-run
+   the tool, reload Multi-Run, compare.
+6. **If they match exactly** and the problem still reproduces, THEN fall back
+   to v2's original §4 (add temporary diagnostic logging to both code paths
+   and diff the actual computed extents/tier numbers) and §5 (extract the
+   native placement logic into a function shared by both tabs) — the
+   duplication risk documented in v2 is still real and still worth fixing
+   regardless of whether it's the cause of this specific symptom.
+
+### Design implication worth carrying into the fix
+
+Regardless of what the diagnostic finds, **requiring the user to hand-copy
+per-dataset WITec values into a second place (the reproducibility tool's
+CONFIG) is itself a latent bug generator** — it's exactly the kind of value
+that drifts silently. If feasible, the tool should instead resolve these
+values automatically from the pipeline run corresponding to each replicate
+file (matching on source filename against existing `output/*/manifest.json`
+entries), falling back to manual CONFIG entry only when no matching run is
+found. This is a stronger, more permanent fix than "remember to keep two
+config blocks in sync."
+
+---
+
+# Plan v2 (superseded — kept for its still-valid architectural analysis, now Phase 2 material)
+
+**Original status when written: plan only. Its central diagnostic question
+(§3/§4 below) has been answered — see the v3 update above. v2's §5
+(extract-and-share architecture) and its non-goals/guardrails remain valid
+and should still be done if the lead hypothesis above doesn't fully resolve
+the symptom, or as follow-up hardening regardless.**
 
 **Why v2 exists:** v1 was implemented in good faith but iterated on *screenshots*
 without ever positively confirming what the single-instrument tab actually
