@@ -103,6 +103,70 @@ entries), falling back to manual CONFIG entry only when no matching run is
 found. This is a stronger, more permanent fix than "remember to keep two
 config blocks in sync."
 
+### v3 diagnostic findings (remote session 2026-07-21)
+
+The decisive numeric comparison (steps 1–4 above) **cannot be completed from
+the repository alone** — all three artifacts it needs exist only on the
+user's machine:
+
+1. The locally-edited `tools/reproducibility.R` CONFIG (the committed copy
+   has all `raman_image_*` fields `NULL` and placeholder run paths).
+2. The pipeline run for the problem dataset (e.g. `2026-07-16_1`) — the
+   committed `output/` holds only `2026-03-06_2` and `2026-03-09_3`, which are
+   a **different dataset** (Raman input is a CSV with an 892×864 PNG image,
+   not the 8956×8828 BMP), and whose `config_snapshot` contains **no
+   `raman_image_*` keys at all** (they were `NULL` at run time; `write_manifest`
+   drops NULLs).
+3. Any `output/reproducibility/*/reproducibility_meta.csv`.
+
+What the repo/history **does** establish, all supporting the lead hypothesis:
+
+- **The per-dataset drift mechanism is real and recent.** `R/00_config.R` git
+  history shows two different WITec calibration sets within two days:
+  `12569.2097 / 12153.0107 / -272.4737 / +7277.1328` (until 2026-07-09,
+  removed in `21a401b`, which set the fields NULL with `raman_um_per_px = 0.38`)
+  → `12471.2 / 12313.0 / 1487.6 / -4394.0` (activated 2026-07-10 in `6857109`,
+  still current). Note: **neither historical set is ~5000 µm wide** — if the
+  observed mismatch really is ~2.5× in scale, the replicate scan's true
+  calibration has never been committed anywhere; it exists only in WITec's
+  Particle Scout panel and possibly the local run's manifest.
+- **"100% of particles inside" does not validate the scale.**
+  `raman_image_extent_from_config()` accepts any extent with
+  `frac_inside >= 0.5`; an oversized box trivially contains 100% of the
+  particles, so the containment check can reject too-small/mispositioned
+  values but *structurally cannot reject too-large ones*. Both tabs would
+  silently accept a 2.5×-too-big calibration.
+- **The P1 math and the framing genuinely cannot diverge.** Both the single
+  tab (`app.R:1575`) and Multi-Run (`place_image_raman_meta`,
+  `global.R:1095`) call the same `raman_image_extent_from_config()`, and both
+  frame the plot on the image extent + 200 µm pad (`app.R:2761` vs
+  `app.R:4534`). The Multi-Run manual Width/Height override defaults to `NA`
+  (inactive). So with identical WITec values and identical run-1 particles the
+  two tabs mathematically render the same scale — the only remaining degrees
+  of freedom are (a) the values themselves (meta vs manifest snapshot — the
+  lead hypothesis), (b) the particle sets (the replicate raw file may not be
+  the same physical scan the pipeline run ingested), or (c) a leftover manual
+  Width entry in the Multi-Run sidebar during testing.
+- **Traceability gap:** `reproducibility_meta.csv` records no source
+  filenames/MD5s, so a repro output cannot be traced back to its raw files.
+  The auto-resolve fix should also record `run<i>_file` / `run<i>_md5` in the
+  meta for future diagnosability.
+
+**New tool committed for the decisive check:**
+`tools/diagnose_multirun_placement.R` (read-only) automates steps 1–4 on the
+user's machine:
+
+```
+Rscript tools/diagnose_multirun_placement.R <path/to/run1-raman-file> [repro_output_dir]
+```
+
+It prints (A) the WITec values Multi-Run actually uses (newest
+`reproducibility_meta.csv`), (B) every pipeline run's
+`inputs.raman.basename/md5` + `config_snapshot.raman_image_*`, flagging the
+run whose MD5 matches the replicate file, (C) the current `R/00_config.R`
+values, and a per-field MATCH/MISMATCH verdict that maps directly onto step 5
+(values fix) vs step 6 (fall back to v2 §4/§5).
+
 ---
 
 # Plan v2 (superseded — kept for its still-valid architectural analysis, now Phase 2 material)
