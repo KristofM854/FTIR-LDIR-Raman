@@ -632,7 +632,22 @@ ui <- fluidPage(
           uiOutput("repro_summary_ui")
         ),
         mainPanel(width = 9,
-          plotOutput("repro_plot", height = "720px")
+          plotOutput("repro_plot", height = "720px",
+                     hover    = hoverOpts("repro_hover", delay = 100,
+                                         delayType = "throttle"),
+                     brush    = brushOpts("repro_brush", resetOnNew = TRUE),
+                     dblclick = "repro_dblclick"),
+          fluidRow(
+            column(10, tags$p(class = "text-muted",
+                   "Drag to zoom in. Double-click to reset.")),
+            column(2, actionButton("repro_reset_zoom", "Reset Zoom",
+                                   class = "btn-sm btn-default",
+                                   style = "float:right; margin-top:2px;"))
+          ),
+          hr(),
+          div(class = "info-box",
+              h5("Particle Details (hover)"),
+              detail_table_ui("repro_hover_info"))
         )
       )
       ) # end div#multirun_panel
@@ -2402,7 +2417,7 @@ server <- function(input, output, session) {
   # particle when hovering over empty background.
   # ==================================================================
   last_hover <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL,
-                               ftir_bruker = NULL)
+                               ftir_bruker = NULL, repro = NULL)
 
   # Pinned overlay particle: persists across hover events until cleared.
   # Stores a data row (matched or single-instrument) and its source type.
@@ -2413,7 +2428,7 @@ server <- function(input, output, session) {
   # Zoom state: NULL means full view, otherwise list(x=c(lo,hi), y=c(lo,hi))
   # ==================================================================
   zoom <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL,
-                         ftir_bruker = NULL)
+                         ftir_bruker = NULL, repro = NULL)
 
   observeEvent(input$ftir_brush, {
     b <- input$ftir_brush
@@ -2445,12 +2460,25 @@ server <- function(input, output, session) {
   })
   observeEvent(input$overlay_dblclick, { zoom$overlay <- NULL })
 
+  observeEvent(input$repro_brush, {
+    b <- input$repro_brush
+    zoom$repro <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+  })
+  observeEvent(input$repro_dblclick, { zoom$repro <- NULL })
+
   # Reset-zoom buttons (same effect as double-click)
   observeEvent(input$ftir_reset_zoom,        { zoom$ftir <- NULL })
   observeEvent(input$raman_reset_zoom,       { zoom$raman <- NULL })
   observeEvent(input$ldir_reset_zoom,        { zoom$ldir <- NULL })
   observeEvent(input$ftir_bruker_reset_zoom, { zoom$ftir_bruker <- NULL })
   observeEvent(input$overlay_reset_zoom,     { zoom$overlay <- NULL })
+  observeEvent(input$repro_reset_zoom,       { zoom$repro <- NULL })
+
+  # Filter changes invalidate any active zoom (matches other tabs: a coord
+  # or filter change can move the data outside the old zoom window).
+  observeEvent(input$repro_material,       { zoom$repro <- NULL })
+  observeEvent(input$repro_only_nonrepro,  { zoom$repro <- NULL })
+  observeEvent(input$repro_run_select,     { zoom$repro <- NULL })
 
   observeEvent(input$ftir_coord_mode,        { zoom$ftir        <- NULL })
   observeEvent(input$ftir_bruker_coord_mode, { zoom$ftir_bruker <- NULL })
@@ -4444,14 +4472,12 @@ server <- function(input, output, session) {
                          choices = c("All", fams), selected = "All")
   }, ignoreNULL = FALSE)
 
-  output$repro_plot <- renderPlot({
+  # Filtered/annotated points shared by the plot AND the hover lookup, so
+  # hovering always matches what's actually drawn (mirrors ftir_filtered() /
+  # raman_filtered() etc. used the same way for the single-instrument tabs).
+  repro_filtered_pts <- reactive({
     d <- repro_data()
-    .msg <- function(txt, col = "grey40", size = 5)
-      ggplot() + annotate("text", x = 0, y = 0, label = txt, size = size, colour = col) +
-        theme_void()
-    if (is.null(d))
-      return(.msg(paste0("No reproducibility output found.\nRun tools/reproducibility.R, ",
-                         "then set the folder and press Load.")))
+    if (is.null(d)) return(NULL)
     pts    <- d$points
     n_runs <- if (!is.null(d$meta) && "n_runs" %in% names(d$meta)) d$meta$n_runs[1]
               else max(pts$run, na.rm = TRUE)
@@ -4459,7 +4485,7 @@ server <- function(input, output, session) {
     mats <- input$repro_material
     if (!is.null(mats) && !("All" %in% mats) && "material_family" %in% names(pts))
       pts <- pts[pts$material_family %in% mats, , drop = FALSE]
-    if (nrow(pts) == 0) return(.msg("No particles match the material filter."))
+    if (nrow(pts) == 0) { attr(pts, "empty_reason") <- "material"; return(pts) }
 
     pts$status <- ifelse(!as.logical(pts$material_concordant), "discordant",
                   ifelse(pts$n_runs_detected < n_runs, "missing", "consensus"))
@@ -4468,9 +4494,25 @@ server <- function(input, output, session) {
     if (isTRUE(input$repro_only_nonrepro)) {
       keep <- unique(pts$consensus_id[pts$status != "consensus"])
       pts  <- pts[pts$consensus_id %in% keep, , drop = FALSE]
-      if (nrow(pts) == 0)
+      if (nrow(pts) == 0) attr(pts, "empty_reason") <- "nonrepro"
+    }
+    pts
+  })
+
+  output$repro_plot <- renderPlot({
+    d <- repro_data()
+    .msg <- function(txt, col = "grey40", size = 5)
+      ggplot() + annotate("text", x = 0, y = 0, label = txt, size = size, colour = col) +
+        theme_void()
+    if (is.null(d))
+      return(.msg(paste0("No reproducibility output found.\nRun tools/reproducibility.R, ",
+                         "then set the folder and press Load.")))
+    pts <- repro_filtered_pts()
+    if (is.null(pts) || nrow(pts) == 0) {
+      if (identical(attr(pts, "empty_reason"), "nonrepro"))
         return(.msg("No non-reproducible particles \u2014 every particle is consistent.",
                     col = "#2ca02c", size = 6))
+      return(.msg("No particles match the material filter."))
     }
 
     # Background image first (it frames the view). Uploaded image takes
@@ -4530,8 +4572,8 @@ server <- function(input, output, session) {
 
     # Frame on the IMAGE extent when a background is placed (matches the single
     # Raman tab: shows the whole image, not just the particle sub-region), else
-    # on the particle extent.
-    bounds <- if (!is.null(img_info)) {
+    # on the particle extent. A brushed zoom overrides both.
+    bounds <- if (!is.null(zoom$repro)) zoom$repro else if (!is.null(img_info)) {
       pad <- 200
       list(x = c(img_info$xmin - pad, img_info$xmax + pad),
            y = c(img_info$ymin - pad, img_info$ymax + pad))
@@ -4581,6 +4623,56 @@ server <- function(input, output, session) {
       p <- p + geom_point(data = disc, aes(x = x_aligned, y = y_aligned),
                           shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#d62728")
     p
+  })
+
+  # Nearest-particle lookup in the aligned (plot) frame, mirroring
+  # raman_hover/ldir_hover etc. Matches against the SAME filtered points the
+  # plot actually draws (repro_filtered_pts()), so hovering never highlights
+  # a point that isn't visible.
+  observeEvent(input$repro_hover, {
+    hover <- input$repro_hover
+    if (is.null(hover)) return()
+    pts <- repro_filtered_pts()
+    if (is.null(pts) || nrow(pts) == 0) return()
+    d <- sqrt((pts$x_aligned - hover$x)^2 + (pts$y_aligned - hover$y)^2)
+    idx <- which.min(d)
+    threshold <- max(diff(range(pts$x_aligned, na.rm = TRUE)),
+                     diff(range(pts$y_aligned, na.rm = TRUE)), 500) * 0.05
+    if (d[idx] <= threshold) {
+      cid <- pts$consensus_id[idx]
+      last_hover$repro <- pts[pts$consensus_id == cid, , drop = FALSE]
+    }
+  })
+
+  # Particle Details (hover): one row per run the hovered physical particle
+  # was detected in — the cross-run comparison this tab exists to show.
+  output$repro_hover_info <- renderUI({
+    rows <- last_hover$repro
+    if (is.null(rows) || nrow(rows) == 0)
+      return(tags$p(class = "text-muted",
+                    "Hover over a particle to see it across runs"))
+    rows <- rows[order(rows$run), ]
+    tags$table(class = "hover-tbl",
+      tags$tr(tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
+              tags$th("Feret Max"), tags$th("Position (aligned)")),
+      lapply(seq_len(nrow(rows)), function(i) {
+        r <- rows[i, ]
+        tags$tr(
+          tags$td(tags$b(paste("Run", r$run))),
+          tags$td(r$particle_id),
+          tags$td(r$material),
+          tags$td(paste0(round(r$feret_max_um, 1), " µm")),
+          tags$td(paste0("(", round(r$x_aligned, 1), ", ", round(r$y_aligned, 1), ")"))
+        )
+      }),
+      tags$tr(tags$td(colspan = "5",
+                      style = "border-top: 2px solid #adb5bd; padding-top: 6px;",
+        tags$span(class = "text-muted",
+          paste0(nrow(rows), " of ", rows$n_runs_detected[1], " run(s) detected",
+                 if (!isTRUE(rows$material_concordant[1]))
+                   " — material mismatch across runs" else ""))
+      ))
+    )
   })
 
   output$repro_summary_ui <- renderUI({
