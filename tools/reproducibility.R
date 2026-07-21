@@ -22,8 +22,9 @@
 }, error = function(e) NA_character_)
 REPO_ROOT <- if (!is.na(.script_path)) dirname(dirname(.script_path)) else getwd()
 
-for (m in c("utils.R", "00_config.R", "01_ingest.R", "01c_ingest_ldir.R",
-            "07_match.R", "08b_material_map.R", "reproducibility.R")) {
+for (m in c("utils.R", "00_config.R", "01_ingest.R", "utils_python.R",
+            "01c_ingest_ldir.R", "07_match.R", "08b_material_map.R",
+            "reproducibility.R")) {
   source(file.path(REPO_ROOT, "R", m))
 }
 

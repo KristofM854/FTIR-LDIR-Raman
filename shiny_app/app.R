@@ -647,7 +647,19 @@ ui <- fluidPage(
           hr(),
           div(class = "info-box",
               h5("Particle Details (hover)"),
-              detail_table_ui("repro_hover_info"))
+              detail_table_ui("repro_hover_info")),
+          hr(),
+          div(class = "info-box",
+              h5("Particle Counts per Run"),
+              p(class = "text-muted",
+                "Total particles detected in each run (independent of the ",
+                "material filter and non-reproducible-only toggle above)."),
+              plotOutput("repro_counts_barplot", height = "280px")),
+          hr(),
+          div(class = "info-box",
+              h5("Polymer Composition per Run"),
+              p(class = "text-muted", "Non-plastic materials excluded."),
+              plotOutput("repro_composition_pies", height = "320px"))
         )
       )
       ) # end div#multirun_panel
@@ -4673,6 +4685,108 @@ server <- function(input, output, session) {
                    " — material mismatch across runs" else ""))
       ))
     )
+  })
+
+  # Run colour palette shared by the counts bar chart and (via strip colour)
+  # visually anchored to the same run identity as the main scatter plot.
+  .repro_run_palette <- function(run_levels) {
+    setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
+              "#8c564b")[((seq_along(run_levels) - 1) %% 5) + 1],
+             paste("Run", run_levels))
+  }
+
+  # Total particles detected per run — the raw, unfiltered per-run counts
+  # (every particle from every run always ends up as its own consensus
+  # particle if it matches nothing, so this equals the true ingest count;
+  # see repro_link_runs() in R/reproducibility.R). Deliberately independent
+  # of the material filter / non-reproducible-only toggle, mirroring how
+  # the "Physical particles" summary panel is always unfiltered.
+  output$repro_counts_barplot <- renderPlot({
+    d <- repro_data()
+    if (is.null(d)) return(NULL)
+    pts <- d$points
+    if (is.null(pts) || nrow(pts) == 0 || !"run" %in% names(pts)) return(NULL)
+
+    run_levels <- sort(unique(pts$run))
+    run_pal    <- .repro_run_palette(run_levels)
+    counts     <- as.integer(table(factor(pts$run, levels = run_levels)))
+    bar_df <- data.frame(
+      run_lbl = factor(paste("Run", run_levels), levels = paste("Run", run_levels)),
+      count   = counts, stringsAsFactors = FALSE
+    )
+    ggplot2::ggplot(bar_df, ggplot2::aes(x = run_lbl, y = count, fill = run_lbl)) +
+      ggplot2::geom_col(width = 0.6) +
+      ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.3, size = 5.2) +
+      ggplot2::scale_fill_manual(values = run_pal, guide = "none") +
+      ggplot2::scale_y_continuous(limits = c(0, max(bar_df$count) * 1.25)) +
+      ggplot2::labs(x = NULL, y = "Particle Count", title = "Particles detected per run") +
+      ggplot2::theme_minimal(base_size = 16) +
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(hjust = 0.5, face = "bold",
+                                           margin = ggplot2::margin(b = 14)),
+        plot.margin = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
+        axis.text.x = ggplot2::element_text(size = 14),
+        panel.grid.major.x = ggplot2::element_blank()
+      )
+  })
+
+  # Polymer composition per run: one donut per run, faceted so it scales to
+  # however many runs the reproducibility tool was given (not fixed at 3).
+  # Same family palette (.pie_palette) and Synthetic+Semi-synthetic filter as
+  # the Summary tab's per-instrument pies, for a consistent "polymer
+  # composition" definition app-wide. Unfiltered, like the counts bar chart.
+  output$repro_composition_pies <- renderPlot({
+    d <- repro_data()
+    if (is.null(d)) return(NULL)
+    pts <- d$points
+    if (is.null(pts) || nrow(pts) == 0 || !"material" %in% names(pts)) return(NULL)
+
+    fam <- classify_family_vec(pts$material)
+    cat <- classify_category_vec(fam)
+    keep <- cat %in% c("Synthetic", "Semi-synthetic")
+    if (!any(keep)) return(NULL)
+
+    run_levels <- sort(unique(pts$run))
+    df <- data.frame(run = pts$run[keep], material = fam[keep], stringsAsFactors = FALSE)
+    df$run_lbl <- factor(paste("Run", df$run), levels = paste("Run", run_levels))
+
+    agg <- as.data.frame(table(run_lbl = df$run_lbl, material = df$material))
+    names(agg) <- c("run_lbl", "material", "count")
+    agg <- agg[agg$count > 0, , drop = FALSE]
+    if (nrow(agg) == 0) return(NULL)
+    totals <- stats::aggregate(count ~ run_lbl, agg, sum)
+    names(totals)[2] <- "run_total"
+    agg <- merge(agg, totals, by = "run_lbl")
+    agg$pct   <- agg$count / agg$run_total * 100
+    agg$label <- ifelse(agg$pct >= 5, paste0(round(agg$pct), "%"), "")
+
+    strip_n <- setNames(paste0(totals$run_lbl, "\n(n = ", totals$run_total, ")"),
+                        totals$run_lbl)
+    agg$strip_lbl <- factor(strip_n[as.character(agg$run_lbl)],
+                            levels = strip_n[paste("Run", run_levels)])
+
+    fam_colors <- .pie_palette[sort(unique(as.character(agg$material)))]
+    fam_colors[is.na(fam_colors)] <- "#cccccc"
+    names(fam_colors) <- sort(unique(as.character(agg$material)))
+
+    ggplot2::ggplot(agg, ggplot2::aes(x = "", y = count, fill = material)) +
+      ggplot2::geom_col(width = 1, colour = "white", linewidth = 0.3,
+                        position = ggplot2::position_fill()) +
+      ggplot2::geom_text(ggplot2::aes(label = label),
+                        position = ggplot2::position_fill(vjust = 0.5),
+                        size = 3.4, colour = "white", fontface = "bold",
+                        show.legend = FALSE) +
+      ggplot2::coord_polar(theta = "y") +
+      ggplot2::facet_wrap(~ strip_lbl, nrow = 1) +
+      ggplot2::scale_fill_manual(values = fam_colors, name = "Material") +
+      ggplot2::labs(title = "Polymer composition per run") +
+      ggplot2::theme_void(base_size = 13) +
+      ggplot2::theme(
+        plot.title  = ggplot2::element_text(hjust = 0.5, face = "bold",
+                                            margin = ggplot2::margin(b = 10)),
+        strip.text  = ggplot2::element_text(face = "bold", size = 12),
+        legend.position = "right"
+      )
   })
 
   output$repro_summary_ui <- renderUI({
