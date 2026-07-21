@@ -70,6 +70,8 @@ if (!is.null(repro_dir) && file.exists(file.path(repro_dir, "reproducibility_met
   cat("instrument:", meta$instrument[1], "  n_runs:", meta$n_runs[1], "\n")
   for (f in c(WITEC_FIELDS, "raman_um_per_px"))
     cat(sprintf("  %-26s %s\n", f, fmt(meta[[f]])))
+  if ("raman_calibration_source" %in% names(meta))
+    cat("  raman_calibration_source:  ", meta$raman_calibration_source[1], "\n", sep = "")
   all_na <- all(vapply(WITEC_FIELDS, function(f)
     is.null(meta[[f]]) || all(is.na(meta[[f]])), logical(1)))
   if (all_na)
@@ -95,6 +97,15 @@ if (!is.null(replicate_file)) {
     cat("WARNING: replicate file not found:", replicate_file,
         "- matching by basename only.\n\n")
   }
+}
+# Reproducibility outputs written after the auto-resolve fix record run1's
+# MD5 directly in the meta - use it when no file path was given (or the given
+# path no longer exists), so this script needs no arguments on a re-run.
+if (is.null(rep_md5) && !is.null(meta) && "run1_md5" %in% names(meta) &&
+    !is.na(meta$run1_md5[1]) && nzchar(meta$run1_md5[1])) {
+  rep_md5 <- meta$run1_md5[1]
+  cat("Using run1 MD5 recorded in reproducibility_meta.csv:", rep_md5,
+      " (run1_file: ", meta$run1_file[1] %||% "?", ")\n\n", sep = "")
 }
 run_dirs <- list.dirs(file.path(REPO_ROOT, "output"), recursive = FALSE)
 run_dirs <- run_dirs[basename(run_dirs) != "reproducibility"]
@@ -166,10 +177,18 @@ if (is.null(meta)) {
                 fmt(a), fmt(b), if (same) "OK" else "<<< MISMATCH"))
   }
   if (any_mismatch) {
-    cat("\n=> MISMATCH CONFIRMED: the Multi-Run tab is placing the image with\n",
-        "  different WITec values than the single Raman tab used for this scan.\n",
-        "  Fix: enter the manifest values into tools/reproducibility.R CONFIG\n",
-        "  and re-run the tool (plan v3 step 5).\n")
+    src <- if ("raman_calibration_source" %in% names(meta)) meta$raman_calibration_source[1] else NA
+    if (!is.na(src) && startsWith(src, "manifest:")) {
+      cat("\n=> Unexpected: meta was auto-resolved (", src, ") yet still differs\n",
+          "  from the matched run's CURRENT manifest - re-run tools/reproducibility.R\n",
+          "  to pick up the latest calibration, then re-check.\n", sep = "")
+    } else {
+      cat("\n=> MISMATCH CONFIRMED: this reproducibility_meta.csv predates the\n",
+          "  auto-resolve fix (or fell back to manual/none). Re-run\n",
+          "  tools/reproducibility.R - it now reads the calibration directly\n",
+          "  from the matching pipeline run's manifest instead of requiring\n",
+          "  hand-entry (plan v3 step 5).\n")
+    }
   } else {
     cat("\n=> Values match exactly. The stale-values hypothesis is RULED OUT;\n",
         "  proceed to plan v2 §4/§5 (instrument both paths, then extract the\n",
