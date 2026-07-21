@@ -4527,11 +4527,16 @@ server <- function(input, output, session) {
       }
     }
 
-    # Frame on the particle extent — particles are the subject; the background
-    # image sits behind at its own (true-scale or fitted) placement, cropped to
-    # this view. With true-scale placement the image aligns with the particles
-    # regardless of framing.
-    bounds <- compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
+    # Frame on the IMAGE extent when a background is placed (matches the single
+    # Raman tab: shows the whole image, not just the particle sub-region), else
+    # on the particle extent.
+    bounds <- if (!is.null(img_info)) {
+      pad <- 200
+      list(x = c(img_info$xmin - pad, img_info$xmax + pad),
+           y = c(img_info$ymin - pad, img_info$ymax + pad))
+    } else {
+      compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
+    }
 
     run_levels <- paste("Run", sort(unique(pts$run)))
     run_pal <- setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
