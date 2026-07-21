@@ -54,9 +54,20 @@ CONFIG <- list(
 
   # Raman background-image placement (WITec metadata) — recorded to the meta so
   # the Multi-Run viewer places the image EXACTLY like the single Raman tab.
-  # Fill these in for a Raman run (same values as your pipeline config for that
-  # scan); ignored for other instruments. LDIR placement is captured
-  # automatically from its scan-circle calibration; FTIR/Bruker need nothing.
+  #
+  # You normally do NOT need to fill these in: the script auto-resolves the
+  # correct per-dataset calibration by finding the pipeline run whose
+  # inputs$raman file matches runs[[1]]$file (by MD5) and reading that run's
+  # OWN manifest.json config_snapshot — the exact values that were in effect
+  # when that scan was processed, not whatever happens to be in R/00_config.R
+  # right now. This is what used to go stale: hand-copying "whatever's
+  # currently in 00_config.R" silently drifted from the actual calibration
+  # once R/00_config.R was edited for a different scan (see
+  # docs/multirun_image_placement_plan.md, plan v3).
+  #
+  # These fields are now only a MANUAL OVERRIDE/fallback, used only when no
+  # pipeline run's manifest matches runs[[1]]$file's content. Leave them NULL
+  # unless you need to force specific values (e.g. no matching run exists yet).
   raman_image_width_um    = NULL,
   raman_image_height_um   = NULL,
   raman_image_center_x_um = NULL,
@@ -115,6 +126,40 @@ get_run_particles <- function(instrument, file, image = NULL, config) {
 cfg <- make_config()
 if (length(CONFIG$runs) < 2) stop("Need at least 2 runs to compare.")
 
+# Raman calibration: auto-resolve from the pipeline run whose raw Raman file
+# matches runs[[1]]$file's content, falling back to the manual CONFIG fields
+# above only when no matching run is found. See CONFIG comment above and
+# resolve_raman_calibration_from_manifests() in R/utils.R for the rationale.
+raman_calibration_source <- "none"
+if (identical(CONFIG$instrument, "raman")) {
+  run1_file <- CONFIG$runs[[1]]$file
+  resolved <- tryCatch(
+    resolve_raman_calibration_from_manifests(run1_file, file.path(REPO_ROOT, "output")),
+    error = function(e) NULL)
+  if (!is.null(resolved)) {
+    log_message("Raman calibration: auto-resolved from pipeline run ", resolved$run_id,
+                " (manifest timestamp ", resolved$timestamp, ") for ",
+                basename(run1_file), " — width=", resolved$width_um,
+                " height=", resolved$height_um, " center=(", resolved$center_x_um,
+                ", ", resolved$center_y_um, ")")
+    CONFIG$raman_image_width_um    <- resolved$width_um
+    CONFIG$raman_image_height_um   <- resolved$height_um
+    CONFIG$raman_image_center_x_um <- resolved$center_x_um
+    CONFIG$raman_image_center_y_um <- resolved$center_y_um
+    raman_calibration_source <- paste0("manifest:", resolved$run_id)
+  } else if (!is.null(CONFIG$raman_image_width_um)) {
+    log_message("Raman calibration: no pipeline run's manifest matches ",
+                basename(run1_file), " (by MD5) — using the manually-entered ",
+                "CONFIG$raman_image_* values. Verify these are correct for ",
+                "THIS scan, not a leftover from a previous dataset.")
+    raman_calibration_source <- "manual"
+  } else {
+    log_message("Raman calibration: no matching pipeline run and no manual ",
+                "CONFIG$raman_image_* values — the Multi-Run viewer will fall ",
+                "back to a particle-extent fit for the background image.")
+  }
+}
+
 log_message("Reproducibility: ", CONFIG$instrument, " — ", length(CONFIG$runs), " runs")
 runs <- lapply(CONFIG$runs, function(r)
   get_run_particles(CONFIG$instrument, r$file, r$image, cfg))
@@ -170,14 +215,21 @@ if (!is.null(img1) && nzchar(img1) && file.exists(img1)) {
 }
 # Per-instrument image-placement metadata so the Multi-Run viewer reproduces
 # the single-instrument tab's exact image<->coordinate relationship.
+# run1_file/run1_md5 are recorded for every instrument so a reproducibility
+# output can always be traced back to the exact raw file it was built from
+# (tools/diagnose_multirun_placement.R reads these).
 meta <- data.frame(instrument = CONFIG$instrument, n_runs = length(runs),
-                   bg_image = bg_image, stringsAsFactors = FALSE)
+                   bg_image = bg_image,
+                   run1_file = basename(CONFIG$runs[[1]]$file),
+                   run1_md5  = file_md5(CONFIG$runs[[1]]$file) %||% NA_character_,
+                   stringsAsFactors = FALSE)
 if (identical(CONFIG$instrument, "raman")) {
   meta$raman_image_width_um    <- CONFIG$raman_image_width_um    %||% NA_real_
   meta$raman_image_height_um   <- CONFIG$raman_image_height_um   %||% NA_real_
   meta$raman_image_center_x_um <- CONFIG$raman_image_center_x_um %||% NA_real_
   meta$raman_image_center_y_um <- CONFIG$raman_image_center_y_um %||% NA_real_
   meta$raman_um_per_px         <- CONFIG$raman_um_per_px         %||% NA_real_
+  meta$raman_calibration_source <- raman_calibration_source
 }
 if (identical(CONFIG$instrument, "ldir")) {
   ci <- attr(runs[[1]], "ldir_circle")
