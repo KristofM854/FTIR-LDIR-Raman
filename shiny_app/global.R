@@ -1090,7 +1090,7 @@ place_image_particle_extent <- function(x, y) {
   list(xmin = min(x), xmax = max(x), ymin = min(y), ymax = max(y))
 }
 
-# Raman: WITec width/height/center from meta; Y auto-detected against the
+# Raman P1: WITec width/height/center from meta; Y auto-detected against the
 # particles (reuses raman_image_extent_from_config, exactly like the Raman tab).
 place_image_raman_meta <- function(meta, x, y) {
   cfg <- list(
@@ -1103,6 +1103,22 @@ place_image_raman_meta <- function(meta, x, y) {
   list(xmin = ext$xmin, xmax = ext$xmax, ymin = ext$ymin, ymax = ext$ymax)
 }
 
+# Raman P2: known µm-per-pixel scale (from meta, or read from a TIFF backdrop),
+# centred on the particle mean — mirrors raman_native_image_info Priority 2. This
+# is the tier the Raman tab uses when no WITec metadata is present.
+place_image_raman_umpx <- function(meta, x, y, raw, bg_path = NULL) {
+  if (is.null(raw)) return(NULL)
+  upp <- .repro_meta_num(meta, "raman_um_per_px")
+  if (!is.finite(upp) && !is.null(bg_path))
+    upp <- tryCatch(extract_tiff_um_per_px(bg_path), error = function(e) NULL)
+  if (is.null(upp) || !is.finite(upp) || upp <= 0) return(NULL)
+  x <- x[is.finite(x)]; y <- y[is.finite(y)]
+  if (length(x) == 0 || length(y) == 0) return(NULL)
+  cx <- mean(x); cy <- mean(y)
+  hw <- ncol(raw) * upp / 2; hh <- nrow(raw) * upp / 2
+  list(xmin = cx - hw, xmax = cx + hw, ymin = cy - hh, ymax = cy + hh)
+}
+
 # LDIR: scan-circle calibration from meta (mirrors ldir_native_image_info).
 place_image_ldir_meta <- function(meta) {
   s  <- .repro_meta_num(meta, "ldir_scale_um_per_px")
@@ -1113,10 +1129,17 @@ place_image_ldir_meta <- function(meta) {
   list(xmin = -cx * s, xmax = (w - cx) * s, ymin = (cy - h) * s, ymax = cy * s)
 }
 
-# Dispatch to the instrument-appropriate placement; NULL if unavailable.
-place_image_multirun <- function(instrument, meta, x, y) {
+# Dispatch to the instrument-appropriate placement; NULL if unavailable. For
+# Raman this runs the same cascade as raman_native_image_info: WITec extent
+# (P1) then µm-per-pixel scale (P2); P3 (particle-extent fit) is left to the
+# caller's fallback. `raw`/`bg_path` are needed only for the Raman P2 tier.
+place_image_multirun <- function(instrument, meta, x, y, raw = NULL, bg_path = NULL) {
   switch(as.character(instrument),
-    raman       = place_image_raman_meta(meta, x, y),
+    raman = {
+      ext <- place_image_raman_meta(meta, x, y)                 # P1: WITec
+      if (is.null(ext)) ext <- place_image_raman_umpx(meta, x, y, raw, bg_path)  # P2
+      ext
+    },
     ftir_perkin = place_image_particle_extent(x, y),
     ftir_bruker = place_image_particle_extent(x, y),
     ldir        = place_image_ldir_meta(meta),
