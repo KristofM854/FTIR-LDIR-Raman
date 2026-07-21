@@ -609,9 +609,10 @@ ui <- fluidPage(
                       choices = c("0°" = "0", "90°" = "90",
                                   "180°" = "180", "270°" = "270"),
                       selected = "0"),
-          helpText("Physical image size in µm (blank = auto-fit). Set BOTH ",
-                   "width and height for non-square pixels — matches the ",
-                   "instrument tabs."),
+          helpText("The image is placed automatically from the run's recorded ",
+                   "metadata (matches the single-instrument tab). Only set ",
+                   "width/height below to override that, or when no metadata ",
+                   "was recorded."),
           fluidRow(
             column(6, numericInput("repro_img_width_um", "Width (µm)",
                                    value = NA, min = 0, step = 100)),
@@ -4487,8 +4488,7 @@ server <- function(input, output, session) {
           bg_path <- file.path(d$dir, bgf)
       }
       if (!is.null(bg_path)) {
-        raw <- tryCatch(downsample_raster(load_image_raster(bg_path)),
-                        error = function(e) NULL)
+        raw <- tryCatch(load_image_raster(bg_path), error = function(e) NULL)
         if (!is.null(raw)) {
           rot <- suppressWarnings(as.integer(input$repro_img_rotation))
           if (!is.na(rot) && rot != 0L) raw <- rotate_raster_view(raw, rot)
@@ -4496,26 +4496,32 @@ server <- function(input, output, session) {
           oy <- input$repro_img_offset_y %||% 0
           w_um <- input$repro_img_width_um
           h_um <- input$repro_img_height_um
+          instrument <- if (!is.null(d$meta) && "instrument" %in% names(d$meta))
+                          d$meta$instrument[1] else NA_character_
+          base <- NULL
           if (!is.null(w_um) && is.finite(w_um) && w_um > 0) {
-            # True-scale placement: use the PHYSICAL image size. Height comes
-            # from the height field when given (correct for non-square pixels,
-            # like the instrument tabs' width/height metadata); otherwise it is
-            # derived from the raster's pixel aspect. Centre on the particle
-            # mean; nudge with the offsets.
+            # Manual override: physical width (+ optional height) centred on the
+            # particle mean. Overrides the metadata placement below.
             half_w <- w_um / 2
             half_h <- if (!is.null(h_um) && is.finite(h_um) && h_um > 0)
-                        h_um / 2
-                      else (w_um / (ncol(raw) / nrow(raw))) / 2
-            cx <- mean(pts$x_aligned, na.rm = TRUE) + ox
-            cy <- mean(pts$y_aligned, na.rm = TRUE) + oy
-            b <- list(xmin = cx - half_w, xmax = cx + half_w,
-                      ymin = cy - half_h, ymax = cy + half_h)
+                        h_um / 2 else (w_um / (ncol(raw) / nrow(raw))) / 2
+            cx0 <- mean(pts$x_aligned, na.rm = TRUE)
+            cy0 <- mean(pts$y_aligned, na.rm = TRUE)
+            base <- list(xmin = cx0 - half_w, xmax = cx0 + half_w,
+                         ymin = cy0 - half_h, ymax = cy0 + half_h)
           } else {
-            # No width given: aspect-preserving fit to the particle extent.
-            b <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned, padding_um = 200)
-            b <- list(xmin = b$xmin + ox, xmax = b$xmax + ox,
-                      ymin = b$ymin + oy, ymax = b$ymax + oy)
+            # Default: reproduce the single-instrument tab's exact placement from
+            # the metadata the tool recorded (Raman = WITec extent, FTIR/Bruker =
+            # particle extent, LDIR = scan-circle). NULL when metadata is absent.
+            base <- place_image_multirun(instrument, d$meta,
+                                         pts$x_aligned, pts$y_aligned)
           }
+          # Last resort: aspect-preserving fit to the particle extent.
+          if (is.null(base))
+            base <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned,
+                                         padding_um = 200)
+          b <- list(xmin = base$xmin + ox, xmax = base$xmax + ox,
+                    ymin = base$ymin + oy, ymax = base$ymax + oy)
           img_info <- c(list(raster = raw), b)
         }
       }

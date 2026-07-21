@@ -1070,6 +1070,60 @@ raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) 
 }
 
 # ---------------------------------------------------------------------------
+# Multi-Run image placement — mirror each single-instrument tab so the
+# reproducibility overlay reproduces the exact image<->coordinate relationship.
+# Each returns a bare extent list(xmin,xmax,ymin,ymax) in the run-1 (raw) frame,
+# or NULL when the required metadata is absent.
+# ---------------------------------------------------------------------------
+
+# Single numeric field from a one-row meta data frame (NA if absent/non-finite).
+.repro_meta_num <- function(meta, field) {
+  if (is.null(meta) || !field %in% names(meta)) return(NA_real_)
+  v <- suppressWarnings(as.numeric(meta[[field]][1]))
+  if (length(v) == 0 || !is.finite(v)) NA_real_ else v
+}
+
+# FTIR / Bruker: image spans the raw particle extent (ftir_native_image_info).
+place_image_particle_extent <- function(x, y) {
+  x <- x[is.finite(x)]; y <- y[is.finite(y)]
+  if (length(x) == 0 || length(y) == 0) return(NULL)
+  list(xmin = min(x), xmax = max(x), ymin = min(y), ymax = max(y))
+}
+
+# Raman: WITec width/height/center from meta; Y auto-detected against the
+# particles (reuses raman_image_extent_from_config, exactly like the Raman tab).
+place_image_raman_meta <- function(meta, x, y) {
+  cfg <- list(
+    raman_image_width_um    = .repro_meta_num(meta, "raman_image_width_um"),
+    raman_image_height_um   = .repro_meta_num(meta, "raman_image_height_um"),
+    raman_image_center_x_um = .repro_meta_num(meta, "raman_image_center_x_um"),
+    raman_image_center_y_um = .repro_meta_num(meta, "raman_image_center_y_um"))
+  ext <- raman_image_extent_from_config(cfg, x, y)
+  if (is.null(ext)) return(NULL)
+  list(xmin = ext$xmin, xmax = ext$xmax, ymin = ext$ymin, ymax = ext$ymax)
+}
+
+# LDIR: scan-circle calibration from meta (mirrors ldir_native_image_info).
+place_image_ldir_meta <- function(meta) {
+  s  <- .repro_meta_num(meta, "ldir_scale_um_per_px")
+  cx <- .repro_meta_num(meta, "ldir_cx_px");  cy <- .repro_meta_num(meta, "ldir_cy_px")
+  w  <- .repro_meta_num(meta, "ldir_image_width_px")
+  h  <- .repro_meta_num(meta, "ldir_image_height_px")
+  if (any(!is.finite(c(s, cx, cy, w, h))) || s <= 0) return(NULL)
+  list(xmin = -cx * s, xmax = (w - cx) * s, ymin = (cy - h) * s, ymax = cy * s)
+}
+
+# Dispatch to the instrument-appropriate placement; NULL if unavailable.
+place_image_multirun <- function(instrument, meta, x, y) {
+  switch(as.character(instrument),
+    raman       = place_image_raman_meta(meta, x, y),
+    ftir_perkin = place_image_particle_extent(x, y),
+    ftir_bruker = place_image_particle_extent(x, y),
+    ldir        = place_image_ldir_meta(meta),
+    NULL)
+}
+
+# ---------------------------------------------------------------------------
 # LDIR view rotation — rotate the whole native LDIR scene (image raster,
 # extent, particle coordinates) by a multiple of 90 deg about the origin so
 # the LDIR tab can be displayed in the Raman orientation for side-by-side

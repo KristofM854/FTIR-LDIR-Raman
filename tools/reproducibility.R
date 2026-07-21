@@ -41,7 +41,17 @@ CONFIG <- list(
   reference_material = "Polyethylene terephthalate",  # NULL to skip accuracy
   match_gate_um  = 75,     # tight: same-instrument localization is precise
   align_gate_um  = 300,    # ICP correspondence gate (absorbs a slight re-seat)
-  output_dir     = "output/reproducibility"
+  output_dir     = "output/reproducibility",
+
+  # Raman background-image placement (WITec metadata) — recorded to the meta so
+  # the Multi-Run viewer places the image EXACTLY like the single Raman tab.
+  # Fill these in for a Raman run (same values as your pipeline config for that
+  # scan); ignored for other instruments. LDIR placement is captured
+  # automatically from its scan-circle calibration; FTIR/Bruker need nothing.
+  raman_image_width_um    = NULL,
+  raman_image_height_um   = NULL,
+  raman_image_center_x_um = NULL,
+  raman_image_center_y_um = NULL
 )
 
 # --- command-line override ---------------------------------------------------
@@ -63,6 +73,7 @@ if (length(.args) >= 3) {
 # Returns a standardized particle frame (x_um/y_um/material/feret...) for one
 # run, dispatching on instrument. LDIR coordinates come from the image pipeline.
 get_run_particles <- function(instrument, file, image = NULL, config) {
+  ldir_circle <- NULL
   df <- switch(instrument,
     ftir_perkin = ingest_ftir(file),
     ftir_bruker = ingest_ftir_bruker(file),
@@ -75,12 +86,15 @@ get_run_particles <- function(instrument, file, image = NULL, config) {
       bounds <- list(x_min = 0, x_max = diam, y_min = 0, y_max = diam)
       ext <- extract_ldir_image_coords(image, scan_bounds = bounds,
                                        expected_count = nrow(raw), config = config)
+      ldir_circle <<- ext$circle_info            # captured for image placement
       join_ldir_coords(raw, ext$particles, config = config)
     },
     stop("Unknown instrument: ", instrument))
   if (!all(c("x_um", "y_um") %in% names(df)))
     stop("Run ingestion did not yield x_um/y_um for ", instrument, " (", file, ")")
-  df[is.finite(df$x_um) & is.finite(df$y_um), , drop = FALSE]
+  df <- df[is.finite(df$x_um) & is.finite(df$y_um), , drop = FALSE]
+  attr(df, "ldir_circle") <- ldir_circle
+  df
 }
 
 # --- run ---------------------------------------------------------------------
@@ -140,9 +154,27 @@ if (!is.null(img1) && nzchar(img1) && file.exists(img1)) {
   bg_image <- paste0("background", tools::file_ext(img1) |> (\(e) if (nzchar(e)) paste0(".", e) else ".png")())
   file.copy(img1, file.path(out, bg_image), overwrite = TRUE)
 }
-write.csv(data.frame(instrument = CONFIG$instrument, n_runs = length(runs),
-                     bg_image = bg_image, stringsAsFactors = FALSE),
-          file.path(out, "reproducibility_meta.csv"), row.names = FALSE)
+# Per-instrument image-placement metadata so the Multi-Run viewer reproduces
+# the single-instrument tab's exact image<->coordinate relationship.
+meta <- data.frame(instrument = CONFIG$instrument, n_runs = length(runs),
+                   bg_image = bg_image, stringsAsFactors = FALSE)
+if (identical(CONFIG$instrument, "raman")) {
+  meta$raman_image_width_um    <- CONFIG$raman_image_width_um    %||% NA_real_
+  meta$raman_image_height_um   <- CONFIG$raman_image_height_um   %||% NA_real_
+  meta$raman_image_center_x_um <- CONFIG$raman_image_center_x_um %||% NA_real_
+  meta$raman_image_center_y_um <- CONFIG$raman_image_center_y_um %||% NA_real_
+}
+if (identical(CONFIG$instrument, "ldir")) {
+  ci <- attr(runs[[1]], "ldir_circle")
+  if (!is.null(ci)) {
+    meta$ldir_cx_px           <- ci$cx_px           %||% NA_real_
+    meta$ldir_cy_px           <- ci$cy_px           %||% NA_real_
+    meta$ldir_scale_um_per_px <- ci$scale_um_per_px %||% NA_real_
+    meta$ldir_image_width_px  <- ci$width           %||% NA_real_
+    meta$ldir_image_height_px <- ci$height          %||% NA_real_
+  }
+}
+write.csv(meta, file.path(out, "reproducibility_meta.csv"), row.names = FALSE)
 
 plots <- repro_plots(res, out, title_prefix = CONFIG$instrument)
 
