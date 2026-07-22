@@ -286,6 +286,16 @@ run_reproducibility <- function(runs, gate = 75, align_gate = 300,
 #' frame. Drives the Multi-Run viewer: colour by `run`, group by `consensus_id`
 #' for lines/hover, encode reproducibility from `n_runs_detected` /
 #' `material_concordant`.
+#'
+#' `coord_match_cost` (LDIR only; NA for instruments with native coordinates)
+#' is the Hungarian-assignment cost from join_ldir_coords() — how confidently
+#' that particle's Excel row (material/quality) was matched to an
+#' image-detected blob purely by size similarity (no position is involved in
+#' that join; see docs/multirun_image_placement_plan.md). A high cost here
+#' flags particles whose MATERIAL LABEL could plausibly have been assigned to
+#' the wrong blob, which the viewer surfaces as a false "material
+#' disagreement" (red ring) between runs even when the physical particle
+#' genuinely reproduced.
 repro_long_table <- function(res) {
   runs <- res$runs; memb <- res$membership; cons <- res$consensus
   n_runs <- length(runs)
@@ -308,6 +318,8 @@ repro_long_table <- function(res) {
         feret_max_um        = d$feret_max_um[idx],
         n_runs_detected     = ndet,
         material_concordant = conc,
+        coord_match_cost    = if ("coord_match_cost" %in% names(d))
+                                as.numeric(d$coord_match_cost[idx]) else NA_real_,
         stringsAsFactors = FALSE)
     }
   }

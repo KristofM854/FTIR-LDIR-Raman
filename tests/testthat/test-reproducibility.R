@@ -88,3 +88,39 @@ test_that("long table has one row per detected (particle x run) with repro flags
   by_c <- tapply(long$run, long$consensus_id, length)
   expect_true(all(by_c == long$n_runs_detected[match(names(by_c), long$consensus_id)]))
 })
+
+test_that("long table propagates each run's own coord_match_cost (LDIR join confidence)", {
+  run1 <- .base_filter()
+  run1$coord_match_cost <- seq(0, 1, length.out = nrow(run1))
+  run2 <- .move(run1, deg = 3, tx = 120, ty = -80, seed = 2)
+  # .move() carries the column through unchanged; give run2 its own distinct
+  # values so a mixup between runs' costs (not just presence/absence) would
+  # be caught below.
+  run2$coord_match_cost <- seq(1, 0, length.out = nrow(run2))
+
+  res  <- run_reproducibility(list(run1, run2), gate = 50)
+  long <- repro_long_table(res)
+  expect_true("coord_match_cost" %in% names(long))
+  expect_true(all(is.finite(long$coord_match_cost)))
+
+  memb <- res$membership
+  runs <- list(run1, run2)
+  for (ci in seq_len(nrow(memb))) {
+    for (r in 1:2) {
+      idx <- memb[ci, r]
+      if (is.na(idx)) next
+      expected <- runs[[r]]$coord_match_cost[idx]
+      got <- long$coord_match_cost[long$consensus_id == ci & long$run == r]
+      expect_equal(got, expected)
+    }
+  }
+})
+
+test_that("long table's coord_match_cost is NA for instruments without it (FTIR/Raman)", {
+  run1 <- .base_filter()
+  run2 <- .move(run1, deg = 3, tx = 120, ty = -80, seed = 2)
+  res  <- run_reproducibility(list(run1, run2), gate = 50)
+  long <- repro_long_table(res)
+  expect_true("coord_match_cost" %in% names(long))
+  expect_true(all(is.na(long$coord_match_cost)))
+})
