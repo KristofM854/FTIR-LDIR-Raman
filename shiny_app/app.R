@@ -4839,7 +4839,8 @@ server <- function(input, output, session) {
                         paste0("(", origin, ")")))
     }
 
-    tags$table(class = "hover-tbl",
+    div(style = "overflow-x: auto; width: 100%;",
+    tags$table(class = "hover-tbl", style = "white-space: nowrap; min-width: 100%;",
       tags$tr(
         tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
         .th_orig("Feret Max",  "image"),
@@ -4870,7 +4871,7 @@ server <- function(input, output, session) {
                  if (!isTRUE(rows$material_concordant[1]))
                    " — material mismatch across runs" else ""))
       ))
-    )
+    ))   # close tags$table and wrapping div
   })
 
   # LDIR only: coord match cost slider (image↔Excel join confidence).
