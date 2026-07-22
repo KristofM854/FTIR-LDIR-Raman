@@ -998,76 +998,168 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
     return(excel_df)
   }
 
-  # Build cost matrix using morphological similarity (vectorized)
-  n_max <- max(n_excel, n_image)
+  # --- Config knobs ---
+  w_ar      <- if (!is.null(config$ldir_join_weight_ar))            config$ldir_join_weight_ar            else 0.3
+  w_rank    <- if (!is.null(config$ldir_join_weight_rank))          config$ldir_join_weight_rank          else 0.4
+  conf_thr  <- if (!is.null(config$ldir_join_confidence_threshold)) config$ldir_join_confidence_threshold else 0.3
+  conf_marg <- if (!is.null(config$ldir_join_confidence_margin))    config$ldir_join_confidence_margin    else 1.5
 
+  # --- Excel features ---
   excel_area  <- excel_df$area_um2
-  image_area  <- image_df$area_um2
   excel_feret <- excel_df$feret_max_um
+  excel_ar    <- if ("aspect_ratio" %in% names(excel_df)) excel_df$aspect_ratio else rep(NA_real_, n_excel)
+
+  # --- Image features ---
+  image_area  <- image_df$area_um2
   image_feret <- image_df$feret_max_um
+  image_ar <- if ("major_um" %in% names(image_df) && "minor_um" %in% names(image_df)) {
+    image_df$major_um / pmax(image_df$minor_um, 1e-6)
+  } else if ("aspect_ratio" %in% names(image_df)) {
+    image_df$aspect_ratio
+  } else {
+    rep(NA_real_, n_image)
+  }
 
   BIG <- 1e9
-  cost <- matrix(BIG, nrow = n_max, ncol = n_max)
 
-  # Vectorized log-ratio cost: outer() gives the full n_excel × n_image matrix
-  # without any R-level loops.
+  # --- Feret + area log-ratio (as before) ---
   log_area <- outer(
-    log(pmax(excel_area, 1e-6, na.rm = FALSE)),
+    log(pmax(excel_area,  1e-6, na.rm = FALSE)),
     log(pmax(image_area,  1e-6, na.rm = FALSE)),
     FUN = function(a, b) abs(a - b)
   )
   log_feret <- outer(
     log(pmax(excel_feret, 1e-6, na.rm = FALSE)),
-    log(pmax(image_feret,  1e-6, na.rm = FALSE)),
+    log(pmax(image_feret, 1e-6, na.rm = FALSE)),
     FUN = function(a, b) abs(a - b)
   )
-
-  # NA → 0 (missing size contributes no cost so we don't penalize)
   log_area[is.na(log_area)]   <- 0
   log_feret[is.na(log_feret)] <- 0
 
-  cost[seq_len(n_excel), seq_len(n_image)] <- log_area + 0.5 * log_feret
-
-  # Hungarian assignment
-  if (requireNamespace("clue", quietly = TRUE)) {
-    assignment <- as.integer(clue::solve_LSAP(cost, maximum = FALSE))
+  # --- Aspect-ratio term (normalized to [0, 1]) ---
+  use_ar <- w_ar > 0 && !all(is.na(excel_ar)) && !all(is.na(image_ar))
+  if (use_ar) {
+    ar_cost <- outer(
+      ifelse(is.na(excel_ar), 1.0, excel_ar),
+      ifelse(is.na(image_ar), 1.0, image_ar),
+      FUN = function(a, b) abs(a - b)
+    )
+    ar_max <- max(ar_cost, na.rm = TRUE)
+    if (ar_max > 0) ar_cost <- ar_cost / ar_max
   } else {
-    # Greedy fallback: for each excel row, pick best remaining image
-    assignment <- rep(NA_integer_, n_excel)
-    taken <- logical(n_image)
-    for (i in order(apply(cost[seq_len(n_excel), seq_len(n_image), drop = FALSE], 1, min))) {
-      best_j <- which.min(cost[i, seq_len(n_image)] + ifelse(taken, BIG, 0))
-      if (cost[i, best_j] < BIG && !taken[best_j]) {
-        assignment[i] <- best_j
-        taken[best_j] <- TRUE
-      }
-    }
+    ar_cost <- matrix(0, nrow = n_excel, ncol = n_image)
   }
 
-  # Apply coordinates
+  # --- Rank-consistency penalty ---
+  # LDIR Excel rows are in descending-size order; image blobs are ranked the
+  # same way.  A normalized rank difference penalises improbable size-order
+  # swaps without hard-rejecting them.
+  if (w_rank > 0) {
+    rank_excel <- seq_len(n_excel) / n_excel
+    rank_image <- rank(-ifelse(is.na(image_feret), 0, image_feret),
+                       ties.method = "average") / n_image
+    rank_cost <- outer(rank_excel, rank_image, FUN = function(a, b) abs(a - b))
+  } else {
+    rank_cost <- matrix(0, nrow = n_excel, ncol = n_image)
+  }
+
+  # Combined base cost (same dimensions: n_excel × n_image)
+  base_cost <- log_area + 0.5 * log_feret + w_ar * ar_cost + w_rank * rank_cost
+
+  # --- Pass 1: lock high-confidence, unambiguous matches ---
+  # A pair (i, j) is locked when:
+  #   (a) base_cost[i, j] < conf_thr  (absolute confidence)
+  #   (b) the second-best Excel row for blob j costs ≥ conf_marg × best cost
+  #       (uniqueness from the blob's side)
+  locked_j <- rep(NA_integer_, n_excel)
+
+  if (conf_thr > 0 && conf_marg > 1) {
+    locked_image <- integer(0)
+    # Process Excel rows in order of their best available cost (greediest first)
+    best_costs <- apply(base_cost, 1, min, na.rm = TRUE)
+    for (i in order(best_costs)) {
+      if (best_costs[i] >= conf_thr) next  # too costly to be confident
+      row_c  <- base_cost[i, ]
+      j_best <- which.min(row_c)
+      if (j_best %in% locked_image) next   # blob already claimed
+      # Uniqueness: second-best Excel row for this blob column
+      col_c  <- base_cost[, j_best]
+      col_c[i] <- Inf  # exclude current row when looking for second-best
+      min2   <- min(col_c, na.rm = TRUE)
+      if (min2 >= conf_marg * row_c[j_best]) {
+        locked_j[i]     <- j_best
+        locked_image     <- c(locked_image, j_best)
+      }
+    }
+    n_locked <- sum(!is.na(locked_j))
+    log_message("  Confidence-first: locked ", n_locked, " high-confidence pairs")
+  }
+
+  # --- Pass 2: Hungarian on unmatched rows/columns ---
+  free_excel <- which(is.na(locked_j))
+  all_image  <- seq_len(n_image)
+  locked_image_used <- locked_j[!is.na(locked_j)]
+  free_image <- setdiff(all_image, locked_image_used)
+
+  assignment <- locked_j  # will be filled in below for free rows
+
+  if (length(free_excel) > 0 && length(free_image) > 0) {
+    n_fe   <- length(free_excel)
+    n_fi   <- length(free_image)
+    n_max2 <- max(n_fe, n_fi)
+    cost2  <- matrix(BIG, nrow = n_max2, ncol = n_max2)
+    cost2[seq_len(n_fe), seq_len(n_fi)] <-
+      base_cost[free_excel, free_image, drop = FALSE]
+
+    if (requireNamespace("clue", quietly = TRUE)) {
+      asgn2 <- as.integer(clue::solve_LSAP(cost2, maximum = FALSE))
+    } else {
+      asgn2 <- rep(NA_integer_, n_fe)
+      taken  <- logical(n_fi)
+      for (ii in order(apply(cost2[seq_len(n_fe), seq_len(n_fi), drop = FALSE], 1, min))) {
+        best_jj <- which.min(cost2[ii, seq_len(n_fi)] + ifelse(taken, BIG, 0))
+        if (cost2[ii, best_jj] < BIG && !taken[best_jj]) {
+          asgn2[ii]    <- best_jj
+          taken[best_jj] <- TRUE
+        }
+      }
+    }
+    for (ii in seq_len(n_fe)) {
+      jj <- asgn2[ii]
+      if (!is.na(jj) && jj <= n_fi) {
+        assignment[free_excel[ii]] <- free_image[jj]
+      }
+    }
+  } else if (length(free_excel) > 0) {
+    log_message("  All image particles consumed by confident matches; ",
+                length(free_excel), " Excel particle(s) unmatched")
+  }
+
+  # --- Apply coordinates ---
   # When ldir_force_coord_match = TRUE (default), every Excel particle receives
   # the coordinates of its assigned image particle regardless of size-match cost.
   # When FALSE, matches above ldir_match_threshold are rejected.
-  force_coord  <- isTRUE(if (!is.null(config)) config$ldir_force_coord_match else TRUE)
-  max_cost     <- if (!is.null(config$ldir_match_threshold)) config$ldir_match_threshold else 2.0
+  force_coord <- isTRUE(if (!is.null(config)) config$ldir_force_coord_match else TRUE)
+  max_cost    <- if (!is.null(config$ldir_match_threshold)) config$ldir_match_threshold else 2.0
   excel_df$coord_match_cost <- NA_real_
   excel_df$coord_source <- "none"
-  n_joined <- 0
+  n_joined   <- 0
   n_rejected <- 0
 
   for (i in seq_len(n_excel)) {
     j <- assignment[i]
-    if (is.na(j) || j > n_image || cost[i, j] >= BIG) next
+    if (is.na(j) || j > n_image) next
+    match_cost <- base_cost[i, j]
+    if (match_cost >= BIG) next
 
-    if (!force_coord && cost[i, j] > max_cost) {
+    if (!force_coord && match_cost > max_cost) {
       n_rejected <- n_rejected + 1
       next
     }
 
     excel_df$x_um[i] <- image_df$x_um[j]
     excel_df$y_um[i] <- image_df$y_um[j]
-    excel_df$coord_match_cost[i] <- cost[i, j]
-    # Propagate coord_source from image extraction (e.g. "circle_calibrated")
+    excel_df$coord_match_cost[i] <- match_cost
     excel_df$coord_source[i] <- if ("coord_source" %in% names(image_df) &&
                                      !is.na(image_df$coord_source[j])) {
       image_df$coord_source[j]
