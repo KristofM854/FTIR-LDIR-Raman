@@ -4826,12 +4826,26 @@ server <- function(input, output, session) {
     # Hidden for instruments with native coordinates (always NA there).
     show_cost <- "coord_match_cost" %in% names(rows) &&
       any(is.finite(rows$coord_match_cost))
-    ncol <- if (show_cost) 6 else 5
+    has_area  <- "area_um2" %in% names(rows) && any(is.finite(rows$area_um2))
+    has_major <- "major_um" %in% names(rows) && any(is.finite(rows$major_um))
+    ncol <- 5L + has_area + has_major + show_cost
+
+    # Column header helper: label + small muted origin tag
+    .th_orig <- function(label, origin) {
+      tags$th(label,
+              tags$span(class = "text-muted",
+                        style = "font-weight:normal; font-size:0.78em; margin-left:3px;",
+                        paste0("(", origin, ")")))
+    }
 
     tags$table(class = "hover-tbl",
-      tags$tr(tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
-              tags$th("Feret Max"), tags$th("Position (aligned)"),
-              if (show_cost) tags$th("Coord Match Cost")),
+      tags$tr(
+        tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
+        .th_orig("Feret Max",  "image"),
+        if (has_major) .th_orig("Diameter",  "machine"),
+        if (has_area)  .th_orig("Area",      "machine"),
+        tags$th("Position (aligned)"),
+        if (show_cost) tags$th("Coord Match Cost")),
       lapply(seq_len(nrow(rows)), function(i) {
         r <- rows[i, ]
         tags$tr(
@@ -4839,6 +4853,10 @@ server <- function(input, output, session) {
           tags$td(r$particle_id),
           tags$td(r$material),
           tags$td(paste0(round(r$feret_max_um, 1), " µm")),
+          if (has_major) tags$td(
+            if (is.finite(r$major_um)) paste0(round(r$major_um, 1), " µm") else "—"),
+          if (has_area) tags$td(
+            if (is.finite(r$area_um2)) paste0(round(r$area_um2, 0), " µm²") else "—"),
           tags$td(paste0("(", round(r$x_aligned, 1), ", ", round(r$y_aligned, 1), ")")),
           if (show_cost) tags$td(
             if (is.finite(r$coord_match_cost)) round(r$coord_match_cost, 3) else "—")
