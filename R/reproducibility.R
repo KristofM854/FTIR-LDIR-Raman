@@ -320,8 +320,10 @@ repro_long_table <- function(res) {
         material            = as.character(d$material[idx]),
         material_family     = .repro_family(d$material[idx]),
         feret_max_um        = d$feret_max_um[idx],
-        area_um2            = if ("area_um2"  %in% names(d)) as.numeric(d$area_um2[idx])  else NA_real_,
-        major_um            = if ("major_um"  %in% names(d)) as.numeric(d$major_um[idx])  else NA_real_,
+        area_um2            = if ("area_um2"       %in% names(d)) as.numeric(d$area_um2[idx])       else NA_real_,
+        major_um            = if ("major_um"       %in% names(d)) as.numeric(d$major_um[idx])       else NA_real_,
+        image_area_um2      = if ("image_area_um2" %in% names(d)) as.numeric(d$image_area_um2[idx]) else NA_real_,
+        image_feret_um      = if ("image_feret_um" %in% names(d)) as.numeric(d$image_feret_um[idx]) else NA_real_,
         n_runs_detected     = ndet,
         material_concordant = conc,
         coord_match_cost    = if ("coord_match_cost" %in% names(d))

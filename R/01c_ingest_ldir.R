@@ -999,10 +999,27 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   }
 
   # --- Config knobs ---
-  w_ar      <- if (!is.null(config$ldir_join_weight_ar))            config$ldir_join_weight_ar            else 0.3
-  w_rank    <- if (!is.null(config$ldir_join_weight_rank))          config$ldir_join_weight_rank          else 0.4
-  conf_thr  <- if (!is.null(config$ldir_join_confidence_threshold)) config$ldir_join_confidence_threshold else 0.3
-  conf_marg <- if (!is.null(config$ldir_join_confidence_margin))    config$ldir_join_confidence_margin    else 1.5
+  w_ar        <- if (!is.null(config$ldir_join_weight_ar))            config$ldir_join_weight_ar            else 0.3
+  w_rank      <- if (!is.null(config$ldir_join_weight_rank))          config$ldir_join_weight_rank          else 2.0
+  conf_thr    <- if (!is.null(config$ldir_join_confidence_threshold)) config$ldir_join_confidence_threshold else 0.3
+  conf_marg   <- if (!is.null(config$ldir_join_confidence_margin))    config$ldir_join_confidence_margin    else 1.5
+  keep_factor <- if (!is.null(config$ldir_join_blob_keep_factor))     config$ldir_join_blob_keep_factor     else 1.1
+
+  # --- Pre-filter image blobs ---
+  # Keep only the top N blobs by area (N = n_excel * keep_factor) so that
+  # spurious small fragments do not shift the size rank ordering and push
+  # large particles to wrong matches.
+  if (is.finite(keep_factor) && keep_factor > 0) {
+    n_keep <- ceiling(n_excel * keep_factor)
+    if (n_image > n_keep) {
+      keep_idx <- order(ifelse(is.na(image_df$area_um2), 0, image_df$area_um2),
+                        decreasing = TRUE)[seq_len(n_keep)]
+      image_df <- image_df[keep_idx, , drop = FALSE]
+      log_message("  Pre-filter: kept top ", n_keep, " of ", n_image,
+                  " image blobs by area (keep_factor ", keep_factor, ")")
+      n_image  <- n_keep
+    }
+  }
 
   # --- Excel features ---
   excel_area  <- excel_df$area_um2
@@ -1022,7 +1039,11 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
 
   BIG <- 1e9
 
-  # --- Feret + area log-ratio (as before) ---
+  # --- Feret + area log-ratio with tanh compression ---
+  # tanh maps [0, ∞) → [0, 1), capping the size-mismatch contribution at ~1
+  # per term regardless of how extreme the discrepancy is.  Without this,
+  # large particles whose image-derived size diverges from the machine value
+  # generate costs of 3–5+ that overwhelm the rank signal.
   log_area <- outer(
     log(pmax(excel_area,  1e-6, na.rm = FALSE)),
     log(pmax(image_area,  1e-6, na.rm = FALSE)),
@@ -1035,6 +1056,8 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   )
   log_area[is.na(log_area)]   <- 0
   log_feret[is.na(log_feret)] <- 0
+  log_area  <- tanh(log_area)
+  log_feret <- tanh(log_feret)
 
   # --- Aspect-ratio term (normalized to [0, 1]) ---
   use_ar <- w_ar > 0 && !all(is.na(excel_ar)) && !all(is.na(image_ar))
@@ -1142,7 +1165,9 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   force_coord <- isTRUE(if (!is.null(config)) config$ldir_force_coord_match else TRUE)
   max_cost    <- if (!is.null(config$ldir_match_threshold)) config$ldir_match_threshold else 2.0
   excel_df$coord_match_cost <- NA_real_
-  excel_df$coord_source <- "none"
+  excel_df$coord_source     <- "none"
+  excel_df$image_area_um2   <- NA_real_
+  excel_df$image_feret_um   <- NA_real_
   n_joined   <- 0
   n_rejected <- 0
 
@@ -1157,11 +1182,13 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
       next
     }
 
-    excel_df$x_um[i] <- image_df$x_um[j]
-    excel_df$y_um[i] <- image_df$y_um[j]
+    excel_df$x_um[i]             <- image_df$x_um[j]
+    excel_df$y_um[i]             <- image_df$y_um[j]
     excel_df$coord_match_cost[i] <- match_cost
-    excel_df$coord_source[i] <- if ("coord_source" %in% names(image_df) &&
-                                     !is.na(image_df$coord_source[j])) {
+    excel_df$image_area_um2[i]   <- if ("area_um2"     %in% names(image_df)) image_df$area_um2[j]     else NA_real_
+    excel_df$image_feret_um[i]   <- if ("feret_max_um" %in% names(image_df)) image_df$feret_max_um[j] else NA_real_
+    excel_df$coord_source[i]     <- if ("coord_source" %in% names(image_df) &&
+                                        !is.na(image_df$coord_source[j])) {
       image_df$coord_source[j]
     } else {
       "image"
