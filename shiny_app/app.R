@@ -4433,6 +4433,7 @@ server <- function(input, output, session) {
 
   # Scan the base folder for reproducibility runs: any subfolder (or the base
   # itself) containing reproducibility_points.csv. Newest first.
+  # Returns a list of records: list(dir, instrument, n_runs) — newest first.
   repro_scan <- reactive({
     input$repro_refresh                       # manual rescan trigger
     base <- input$repro_base
@@ -4443,13 +4444,51 @@ server <- function(input, output, session) {
     subs <- tryCatch(list.dirs(base, recursive = FALSE, full.names = TRUE),
                      error = function(e) character(0))
     subs <- subs[vapply(subs, has_pts, logical(1))]
-    unique(c(dirs, sort(subs, decreasing = TRUE)))
+    dirs <- unique(c(dirs, sort(subs, decreasing = TRUE)))
+    lapply(dirs, function(d) {
+      m <- tryCatch(
+        read.csv(file.path(d, "reproducibility_meta.csv"),
+                 stringsAsFactors = FALSE, nrows = 1),
+        error = function(e) NULL
+      )
+      list(
+        dir        = d,
+        instrument = if (!is.null(m) && "instrument" %in% names(m)) tolower(m$instrument[1]) else NA_character_,
+        n_runs     = if (!is.null(m) && "n_runs"     %in% names(m)) as.integer(m$n_runs[1])  else NA_integer_
+      )
+    })
   })
 
+  .repro_instrument_group <- function(inst) {
+    if (is.na(inst)) return("Unknown")
+    switch(inst,
+      ldir        = "LDIR — Agilent 8700",
+      raman       = "Raman — WITec",
+      ftir_perkin = "FTIR — PerkinElmer Spotlight",
+      ftir_bruker = "FTIR — Bruker OPUS / ALPHA",
+      paste0("Other (", inst, ")")
+    )
+  }
+
   observeEvent(repro_scan(), {
-    choices <- repro_scan()
-    updateSelectInput(session, "repro_run_select", choices = choices,
-                      selected = if (length(choices)) choices[[1]] else character(0))
+    items <- repro_scan()
+    if (length(items) == 0) {
+      updateSelectInput(session, "repro_run_select",
+                        choices = character(0), selected = character(0))
+      return()
+    }
+    # Build optgroup choices: named list where top-level names are group headers
+    # and each element is a named character vector (label → path value).
+    groups <- list()
+    for (item in items) {
+      grp <- .repro_instrument_group(item$instrument)
+      lbl <- basename(item$dir)
+      if (!is.na(item$n_runs)) lbl <- paste0(lbl, " (", item$n_runs, " runs)")
+      groups[[grp]] <- c(groups[[grp]], setNames(item$dir, lbl))
+    }
+    updateSelectInput(session, "repro_run_select",
+                      choices  = groups,
+                      selected = items[[1]]$dir)
   }, ignoreNULL = FALSE)
 
   observeEvent(input$repro_run_select, {
@@ -4787,12 +4826,26 @@ server <- function(input, output, session) {
     # Hidden for instruments with native coordinates (always NA there).
     show_cost <- "coord_match_cost" %in% names(rows) &&
       any(is.finite(rows$coord_match_cost))
-    ncol <- if (show_cost) 6 else 5
+    has_area  <- "area_um2" %in% names(rows) && any(is.finite(rows$area_um2))
+    has_major <- "major_um" %in% names(rows) && any(is.finite(rows$major_um))
+    ncol <- 5L + has_area + has_major + show_cost
+
+    # Column header helper: label + small muted origin tag
+    .th_orig <- function(label, origin) {
+      tags$th(label,
+              tags$span(class = "text-muted",
+                        style = "font-weight:normal; font-size:0.78em; margin-left:3px;",
+                        paste0("(", origin, ")")))
+    }
 
     tags$table(class = "hover-tbl",
-      tags$tr(tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
-              tags$th("Feret Max"), tags$th("Position (aligned)"),
-              if (show_cost) tags$th("Coord Match Cost")),
+      tags$tr(
+        tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
+        .th_orig("Feret Max",  "image"),
+        if (has_major) .th_orig("Diameter",  "machine"),
+        if (has_area)  .th_orig("Area",      "machine"),
+        tags$th("Position (aligned)"),
+        if (show_cost) tags$th("Coord Match Cost")),
       lapply(seq_len(nrow(rows)), function(i) {
         r <- rows[i, ]
         tags$tr(
@@ -4800,6 +4853,10 @@ server <- function(input, output, session) {
           tags$td(r$particle_id),
           tags$td(r$material),
           tags$td(paste0(round(r$feret_max_um, 1), " µm")),
+          if (has_major) tags$td(
+            if (is.finite(r$major_um)) paste0(round(r$major_um, 1), " µm") else "—"),
+          if (has_area) tags$td(
+            if (is.finite(r$area_um2)) paste0(round(r$area_um2, 0), " µm²") else "—"),
           tags$td(paste0("(", round(r$x_aligned, 1), ", ", round(r$y_aligned, 1), ")")),
           if (show_cost) tags$td(
             if (is.finite(r$coord_match_cost)) round(r$coord_match_cost, 3) else "—")
