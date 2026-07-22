@@ -5,13 +5,20 @@
 # plastic, accuracy) across N repeat measurements of the SAME filter on the
 # SAME instrument. See R/reproducibility.R for the method.
 #
-# Usage — edit the CONFIG block below, then:
+# Usage (interactive — recommended):
 #   Rscript tools/reproducibility.R
+#   → a menu asks for instrument type, then file-picker dialogs collect
+#     replicate files one at a time; Cancel / Escape ends file selection.
+#     For LDIR, each data file is immediately followed by an image prompt.
 #
-# Or pass an instrument and run files on the command line:
+# Usage (batch / scripted — pass files on the command line):
 #   Rscript tools/reproducibility.R <instrument> <run1> <run2> <run3> [...]
 #   (instrument = ftir_perkin | ftir_bruker | raman | ldir)
 #   For ldir, pass image files interleaved:  ldir <excel1> <img1> <excel2> <img2> ...
+#
+# Usage (unattended batch without command-line args):
+#   Set CONFIG$instrument and CONFIG$runs in the CONFIG block below, then:
+#   Rscript tools/reproducibility.R
 # =============================================================================
 
 # --- locate repo root and load modules --------------------------------------
@@ -29,61 +36,142 @@ for (m in c("utils.R", "00_config.R", "01_ingest.R", "utils_python.R",
 }
 
 # =============================================================================
-# CONFIG — edit these, or override via command-line arguments
+# CONFIG — algorithm parameters only.
+#
+# instrument and runs are set by:
+#   1. Command-line arguments (highest priority, for scripted/CI use)
+#   2. Interactive file-picker dialogs (when running interactively with no CL args)
+#   3. The values you hardcode below (set instrument + runs to non-NULL for
+#      unattended batch use without command-line arguments)
 # =============================================================================
 CONFIG <- list(
-  instrument = "ftir_perkin",           # ftir_perkin | ftir_bruker | raman | ldir
-  # One entry per run. For ldir, set image = path to the companion image.
-  runs = list(
-    list(file = "data/repro/run1.xlsx", image = NULL),
-    list(file = "data/repro/run2.xlsx", image = NULL),
-    list(file = "data/repro/run3.xlsx", image = NULL)
-  ),
-  reference_material = "Polyethylene terephthalate",  # NULL to skip accuracy
+  # --- File inputs (NULL = use interactive file picker) ---
+  instrument = NULL,   # ftir_perkin | ftir_bruker | raman | ldir
+  runs       = NULL,   # list(list(file=..., image=...), ...) — NULL = interactive
+
+  # --- Reference material for accuracy metric (NULL to skip) ---
+  reference_material = "Polyethylene terephthalate",
+
+  # --- Matching gates ---
   match_gate_um  = 75,     # tight: same-instrument localization is precise
   align_gate_um  = 300,    # ICP correspondence gate (absorbs a slight re-seat)
-  output_dir     = "output/reproducibility",
 
-  # Raman background-image placement (WITec metadata) — recorded to the meta so
-  # the Multi-Run viewer places the image EXACTLY like the single Raman tab.
-  #
+  # --- Output ---
+  output_dir = "output/reproducibility",
+
+  # Raman background-image placement (WITec metadata).
   # You normally do NOT need to fill these in: the script auto-resolves the
-  # correct per-dataset calibration by finding the pipeline run whose
-  # inputs$raman file matches runs[[1]]$file (by MD5) and reading that run's
-  # OWN manifest.json config_snapshot — the exact values that were in effect
-  # when that scan was processed, not whatever happens to be in R/00_config.R
-  # right now. This is what used to go stale: hand-copying "whatever's
-  # currently in 00_config.R" silently drifted from the actual calibration
-  # once R/00_config.R was edited for a different scan (see
-  # docs/multirun_image_placement_plan.md, plan v3).
-  #
-  # These fields are now only a MANUAL OVERRIDE/fallback, used only when no
-  # pipeline run's manifest matches runs[[1]]$file's content. Leave them NULL
-  # unless you need to force specific values (e.g. no matching run exists yet).
+  # correct per-dataset calibration from the pipeline manifest that processed
+  # runs[[1]]$file (by MD5). These fields are a MANUAL OVERRIDE/fallback only —
+  # leave them NULL unless no matching pipeline run exists yet.
   raman_image_width_um    = NULL,
   raman_image_height_um   = NULL,
   raman_image_center_x_um = NULL,
   raman_image_center_y_um = NULL,
-  # If your dataset has NO WITec extent (the single Raman tab shows the image at
-  # the µm-per-pixel scale, not the WITec width), leave the four fields above
-  # blank and either upload the original TIFF in the viewer (its DPI is read
-  # automatically) or set the µm-per-pixel here:
+  # Fixed µm-per-pixel (Priority 2 fallback when the four fields above are NULL).
   raman_um_per_px         = NULL
 )
 
-# --- command-line override ---------------------------------------------------
+# =============================================================================
+# Interactive file collection
+# =============================================================================
+#' Prompt for instrument type and replicate files via file-picker dialogs.
+#' Cancel on any file dialog finishes the selection.
+#' For LDIR, each data file is immediately followed by a companion-image prompt.
+#' Returns list(instrument = character, runs = list of list(file, image)).
+collect_repro_inputs_interactive <- function() {
+  if (!interactive())
+    stop("Interactive mode requires an interactive R session.\n",
+         "Pass files on the command line:\n",
+         "  Rscript tools/reproducibility.R <instrument> <file1> <file2> ...\n",
+         "  (ldir: interleave excel+image pairs)")
+
+  # 1. Instrument choice via menu()
+  inst_names  <- c("ftir_perkin", "ftir_bruker", "raman", "ldir")
+  inst_labels <- c(
+    "FTIR — PerkinElmer Spotlight",
+    "FTIR — Bruker OPUS / ALPHA / Lumos",
+    "Raman — WITec",
+    "LDIR — Agilent 8700"
+  )
+  message("\n=== Reproducibility tool — select instrument ===")
+  choice <- menu(inst_labels, title = "Which instrument produced these replicates?")
+  if (choice == 0L) stop("No instrument selected. Exiting.")
+  instrument <- inst_names[choice]
+  message("Instrument: ", instrument)
+
+  # 2. Collect replicate data files one at a time; Cancel ends the loop.
+  message("")
+  is_ldir <- identical(instrument, "ldir")
+  if (is_ldir) {
+    message("Select LDIR replicate Excel files one at a time.")
+    message("After each Excel file you will be asked for its companion image.")
+  } else {
+    message("Select replicate data files one at a time.")
+  }
+  message("Press Cancel (or Escape) when you have selected all replicates.")
+  message("")
+
+  runs <- list()
+  repeat {
+    run_n <- length(runs) + 1
+    message("Select run #", run_n, " data file (Cancel to finish)...")
+    data_file <- tryCatch(file.choose(), error = function(e) NULL)
+    if (is.null(data_file)) { message("Selection complete."); break }
+    message("  Data:  ", basename(data_file))
+
+    img_file <- NULL
+    if (is_ldir) {
+      message("  Select the companion IMAGE for run #", run_n, " (Cancel to skip this run)...")
+      img_file <- tryCatch(file.choose(), error = function(e) NULL)
+      if (is.null(img_file)) {
+        message("  No image chosen — skipping run #", run_n,
+                " (LDIR requires a companion image).")
+        next
+      }
+      message("  Image: ", basename(img_file))
+    }
+
+    runs[[length(runs) + 1L]] <- list(file = data_file, image = img_file)
+  }
+
+  if (length(runs) < 2L)
+    stop("At least 2 runs are required (got ", length(runs),
+         "). Re-run and select more files.")
+
+  # Echo summary before analysis starts
+  message("")
+  message("=== ", length(runs), " runs selected ===")
+  for (i in seq_along(runs)) {
+    r <- runs[[i]]
+    if (!is.null(r$image))
+      message("  Run ", i, ": ", basename(r$file), " + image: ", basename(r$image))
+    else
+      message("  Run ", i, ": ", basename(r$file))
+  }
+  message("")
+
+  list(instrument = instrument, runs = runs)
+}
+
+# --- Command-line override (highest priority) --------------------------------
 .args <- commandArgs(trailingOnly = TRUE)
-if (length(.args) >= 3) {
+if (length(.args) >= 3L) {
   CONFIG$instrument <- .args[1]
   rest <- .args[-1]
   if (identical(CONFIG$instrument, "ldir")) {
     if (length(rest) %% 2 != 0)
       stop("ldir needs interleaved <excel> <image> pairs")
     CONFIG$runs <- lapply(seq(1, length(rest), by = 2),
-                          function(i) list(file = rest[i], image = rest[i + 1]))
+                          function(i) list(file = rest[i], image = rest[i + 1L]))
   } else {
     CONFIG$runs <- lapply(rest, function(f) list(file = f, image = NULL))
   }
+} else if (is.null(CONFIG$instrument) || is.null(CONFIG$runs)) {
+  # Interactive mode: pop up file-picker dialogs
+  .inp <- collect_repro_inputs_interactive()
+  CONFIG$instrument <- .inp$instrument
+  CONFIG$runs       <- .inp$runs
 }
 
 # --- instrument-agnostic particle acquisition -------------------------------
