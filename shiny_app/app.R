@@ -1563,8 +1563,8 @@ server <- function(input, output, session) {
     x_vals <- ftir_d$x_orig[is.finite(ftir_d$x_orig)]
     y_vals <- ftir_d$y_orig[is.finite(ftir_d$y_orig)]
     if (length(x_vals) == 0) return(NULL)
-    ox <- if (!is.null(input$ftir_img_offset_x)) input$ftir_img_offset_x else 0
-    oy <- if (!is.null(input$ftir_img_offset_y)) input$ftir_img_offset_y else 0
+    ox <- if (isTRUE(is.finite(input$ftir_img_offset_x))) input$ftir_img_offset_x else 0
+    oy <- if (isTRUE(is.finite(input$ftir_img_offset_y))) input$ftir_img_offset_y else 0
     list(raster = raw,
          xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
          ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
@@ -1579,8 +1579,8 @@ server <- function(input, output, session) {
     x_vals <- fb_d$x_orig[is.finite(fb_d$x_orig)]
     y_vals <- fb_d$y_orig[is.finite(fb_d$y_orig)]
     if (length(x_vals) == 0) return(NULL)
-    ox <- if (!is.null(input$ftir_bruker_img_offset_x)) input$ftir_bruker_img_offset_x else 0
-    oy <- if (!is.null(input$ftir_bruker_img_offset_y)) input$ftir_bruker_img_offset_y else 0
+    ox <- if (isTRUE(is.finite(input$ftir_bruker_img_offset_x))) input$ftir_bruker_img_offset_x else 0
+    oy <- if (isTRUE(is.finite(input$ftir_bruker_img_offset_y))) input$ftir_bruker_img_offset_y else 0
     list(raster = raw,
          xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
          ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
@@ -1594,8 +1594,8 @@ server <- function(input, output, session) {
     raw <- raman_image()
     if (is.null(raw)) return(NULL)
     raman_df <- raman_df_full()
-    ox <- if (!is.null(input$raman_img_offset_x)) input$raman_img_offset_x else 0
-    oy <- if (!is.null(input$raman_img_offset_y)) input$raman_img_offset_y else 0
+    ox <- if (isTRUE(is.finite(input$raman_img_offset_x))) input$raman_img_offset_x else 0
+    oy <- if (isTRUE(is.finite(input$raman_img_offset_y))) input$raman_img_offset_y else 0
 
     x_vals <- if (!is.null(raman_df)) raman_df$x_orig[is.finite(raman_df$x_orig)] else numeric(0)
     y_vals <- if (!is.null(raman_df)) raman_df$y_orig[is.finite(raman_df$y_orig)] else numeric(0)
@@ -1677,8 +1677,8 @@ server <- function(input, output, session) {
     if (length(raman_x) == 0) return(NULL)
 
     # Apply user fine-tuning offsets
-    ox <- if (!is.null(input$overlay_img_offset_x)) input$overlay_img_offset_x else 0
-    oy <- if (!is.null(input$overlay_img_offset_y)) input$overlay_img_offset_y else 0
+    ox <- if (isTRUE(is.finite(input$overlay_img_offset_x))) input$overlay_img_offset_x else 0
+    oy <- if (isTRUE(is.finite(input$overlay_img_offset_y))) input$overlay_img_offset_y else 0
 
     # Exact placement when WITec metadata is available: overlay coordinates
     # are Raman stage coordinates minus the Raman centroid (pure translation,
@@ -1717,8 +1717,8 @@ server <- function(input, output, session) {
   ldir_native_image_info <- reactive({
     raw <- ldir_raw_image()
     if (is.null(raw)) return(NULL)
-    ox <- if (!is.null(input$ldir_img_offset_x)) input$ldir_img_offset_x else 0
-    oy <- if (!is.null(input$ldir_img_offset_y)) input$ldir_img_offset_y else 0
+    ox <- if (isTRUE(is.finite(input$ldir_img_offset_x))) input$ldir_img_offset_x else 0
+    oy <- if (isTRUE(is.finite(input$ldir_img_offset_y))) input$ldir_img_offset_y else 0
 
     m <- tryCatch(active_manifest(), error = function(e) NULL)
 
@@ -4619,8 +4619,8 @@ server <- function(input, output, session) {
           # silently drift out of registration with the (also unrotated)
           # particle points. See the co-rotation step below, which mirrors
           # the single LDIR tab's ldir_view_rot_deg() handling exactly.
-          ox <- input$repro_img_offset_x %||% 0
-          oy <- input$repro_img_offset_y %||% 0
+          ox <- if (isTRUE(is.finite(input$repro_img_offset_x))) input$repro_img_offset_x else 0
+          oy <- if (isTRUE(is.finite(input$repro_img_offset_y))) input$repro_img_offset_y else 0
           w_um <- input$repro_img_width_um
           h_um <- input$repro_img_height_um
           instrument <- if (!is.null(d$meta) && "instrument" %in% names(d$meta))
