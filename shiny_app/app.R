@@ -596,8 +596,7 @@ ui <- fluidPage(
               actionButton("repro_refresh", "Scan", class = "btn-sm btn-primary",
                            icon = icon("refresh")),
               uiOutput("repro_browse_ui", inline = TRUE)),
-          selectInput("repro_run_select", "Run", choices = character(0),
-                      width = "100%"),
+          uiOutput("repro_run_select_ui"),
           hr(),
           checkboxInput("repro_only_nonrepro",
                         "Show only non-reproducible particles", value = FALSE),
@@ -4462,23 +4461,22 @@ server <- function(input, output, session) {
   .repro_instrument_group <- function(inst) {
     if (is.na(inst)) return("Unknown")
     switch(inst,
-      ldir        = "LDIR — Agilent 8700",
-      raman       = "Raman — WITec",
-      ftir_perkin = "FTIR — PerkinElmer Spotlight",
-      ftir_bruker = "FTIR — Bruker OPUS / ALPHA",
+      ldir        = "LDIR - Agilent 8700",
+      raman       = "Raman - WITec",
+      ftir_perkin = "FTIR - PerkinElmer Spotlight",
+      ftir_bruker = "FTIR - Bruker OPUS / ALPHA",
       paste0("Other (", inst, ")")
     )
   }
 
-  observeEvent(repro_scan(), {
+  # Render the Run selector as a grouped (optgroup) selectInput. Using renderUI
+  # rather than updateSelectInput because renderUI reliably supports named-list
+  # choices (optgroups) across all Shiny versions.
+  output$repro_run_select_ui <- renderUI({
     items <- repro_scan()
-    if (length(items) == 0) {
-      updateSelectInput(session, "repro_run_select",
-                        choices = character(0), selected = character(0))
-      return()
-    }
-    # Build optgroup choices: named list where top-level names are group headers
-    # and each element is a named character vector (label → path value).
+    if (length(items) == 0)
+      return(selectInput("repro_run_select", "Run",
+                         choices = character(0), width = "100%"))
     groups <- list()
     for (item in items) {
       grp <- .repro_instrument_group(item$instrument)
@@ -4486,10 +4484,13 @@ server <- function(input, output, session) {
       if (!is.na(item$n_runs)) lbl <- paste0(lbl, " (", item$n_runs, " runs)")
       groups[[grp]] <- c(groups[[grp]], setNames(item$dir, lbl))
     }
-    updateSelectInput(session, "repro_run_select",
-                      choices  = groups,
-                      selected = items[[1]]$dir)
-  }, ignoreNULL = FALSE)
+    # Preserve current selection if it still exists after a rescan.
+    all_dirs <- vapply(items, `[[`, character(1), "dir")
+    cur <- isolate(input$repro_run_select)
+    sel <- if (!is.null(cur) && nzchar(cur) && cur %in% all_dirs) cur else items[[1]]$dir
+    selectInput("repro_run_select", "Run",
+                choices = groups, selected = sel, width = "100%")
+  })
 
   observeEvent(input$repro_run_select, {
     if (!is.null(input$repro_run_select) && nzchar(input$repro_run_select))
