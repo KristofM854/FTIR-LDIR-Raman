@@ -222,18 +222,18 @@ make_config <- function(ftir_path  = NULL,
     #   LDIR numbers particles largest-first; a large rank discrepancy between
     #   an Excel row and an image blob indicates a probable size-order swap.
     #   0 = disable.
-    ldir_join_weight_rank = 0.4,
+    ldir_join_weight_rank = 0.8,
 
     # ldir_join_confidence_threshold: base cost below which a pair is eligible
     #   to be locked in the confidence-first pass (Pass 1). Set 0 to skip Pass 1
     #   and fall back to a single global Hungarian solve.
-    ldir_join_confidence_threshold = 0.3,
+    ldir_join_confidence_threshold = 0.5,
 
     # ldir_join_confidence_margin: uniqueness ratio for Pass 1 locking.
     #   The second-best competing Excel row for a candidate blob must cost at
     #   least this many times the best cost before the match is locked.
     #   Higher values = stricter uniqueness requirement.
-    ldir_join_confidence_margin = 1.5,
+    ldir_join_confidence_margin = 2.0,
 
     # When TRUE, every Excel particle is assigned an image coordinate regardless
     # of size-match cost — no joins are rejected. Use the coord_match_cost slider
