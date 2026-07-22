@@ -71,6 +71,26 @@ test_that("run_reproducibility needs at least two runs", {
   expect_error(run_reproducibility(list(.base_filter())))
 })
 
+test_that("accuracy accepts a vector reference set (mixed-polymer filter)", {
+  run1 <- .base_filter()
+  # Add a second polymer so the filter is genuinely mixed.
+  run1$material[1:3] <- "Polypropylene"
+  run2 <- .move(run1, deg = 2, tx = 100, ty = -60, seed = 5)
+
+  # Reference set contains both materials on the filter.
+  ref_fams <- unique(classify_family_vec(c("Polyethylene terephthalate", "Polypropylene")))
+  res <- run_reproducibility(list(run1, run2), gate = 50, reference_family = ref_fams)
+  s <- res$summary
+
+  # Every particle is one of the two known materials → accuracy should be 1.
+  expect_equal(s$accuracy_vs_reference, 1)
+
+  # A reference set that excludes PP → accuracy drops below 1.
+  ref_pet_only <- classify_family_vec("Polyethylene terephthalate")
+  res2 <- run_reproducibility(list(run1, run2), gate = 50, reference_family = ref_pet_only)
+  expect_lt(res2$summary$accuracy_vs_reference, 1)
+})
+
 test_that("long table has one row per detected (particle x run) with repro flags", {
   run1 <- .base_filter()
   run2 <- .move(run1, deg = 3,  tx = 120, ty = -80, seed = 2)

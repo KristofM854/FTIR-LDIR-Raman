@@ -49,8 +49,12 @@ CONFIG <- list(
   instrument = NULL,   # ftir_perkin | ftir_bruker | raman | ldir
   runs       = NULL,   # list(list(file=..., image=...), ...) — NULL = interactive
 
-  # --- Reference material for accuracy metric (NULL to skip) ---
-  reference_material = "Polyethylene terephthalate",
+  # --- Reference material(s) for accuracy metric (NULL to skip) ---
+  # Single string → monotype filter (all particles should be that polymer).
+  # Character vector → mixed-polymer reference standard; accuracy = fraction
+  #   of calls assigned to any material in the set.
+  # NULL → skip accuracy (only concordance reported).
+  reference_material = NULL,
 
   # --- Matching gates ---
   match_gate_um  = 75,     # tight: same-instrument localization is precise
@@ -139,6 +143,16 @@ collect_repro_inputs_interactive <- function() {
     stop("At least 2 runs are required (got ", length(runs),
          "). Re-run and select more files.")
 
+  # 3. Optional reference material(s) for accuracy metric.
+  message("Reference material(s) for accuracy metric (optional).")
+  message("  Monotype filter  → enter the single polymer name (e.g. Polyethylene terephthalate)")
+  message("  Mixed-polymer standard → enter names separated by commas")
+  message("  Press Enter with no input to skip accuracy and report concordance only.")
+  ref_input <- readline("  Reference material(s): ")
+  ref_material <- if (nzchar(trimws(ref_input))) {
+    trimws(strsplit(ref_input, ",")[[1]])
+  } else NULL
+
   # Echo summary before analysis starts
   message("")
   message("=== ", length(runs), " runs selected ===")
@@ -149,9 +163,13 @@ collect_repro_inputs_interactive <- function() {
     else
       message("  Run ", i, ": ", basename(r$file))
   }
+  if (!is.null(ref_material))
+    message("  Reference: ", paste(ref_material, collapse = ", "))
+  else
+    message("  Reference: (none — concordance only)")
   message("")
 
-  list(instrument = instrument, runs = runs)
+  list(instrument = instrument, runs = runs, reference_material = ref_material)
 }
 
 # --- Command-line override (highest priority) --------------------------------
@@ -170,8 +188,9 @@ if (length(.args) >= 3L) {
 } else if (is.null(CONFIG$instrument) || is.null(CONFIG$runs)) {
   # Interactive mode: pop up file-picker dialogs
   .inp <- collect_repro_inputs_interactive()
-  CONFIG$instrument <- .inp$instrument
-  CONFIG$runs       <- .inp$runs
+  CONFIG$instrument        <- .inp$instrument
+  CONFIG$runs              <- .inp$runs
+  CONFIG$reference_material <- .inp$reference_material   # may be NULL, scalar, or vector
 }
 
 # --- instrument-agnostic particle acquisition -------------------------------
@@ -247,7 +266,7 @@ for (i in seq_along(runs))
   log_message("  run", i, ": ", nrow(runs[[i]]), " particles (", CONFIG$runs[[i]]$file, ")")
 
 ref_fam <- if (!is.null(CONFIG$reference_material))
-             classify_family_vec(CONFIG$reference_material) else NULL
+             unique(classify_family_vec(CONFIG$reference_material)) else NULL
 
 res <- run_reproducibility(runs,
                            gate = CONFIG$match_gate_um,
@@ -354,7 +373,7 @@ log_message("  Detected in all runs: ", s$detected_in_all,
             " (", round(100 * s$detected_in_all_frac, 1), "%)")
 log_message("  Material concordance: ", round(100 * s$material_concordance, 1), "%")
 if (!is.na(s$accuracy_vs_reference))
-  log_message("  Accuracy vs '", CONFIG$reference_material, "': ",
+  log_message("  Accuracy vs {", paste(CONFIG$reference_material, collapse = ", "), "}: ",
               round(100 * s$accuracy_vs_reference, 1), "%")
 log_message("  Median Feret CV:      ", round(100 * s$median_feret_cv, 1), "%")
 log_message("  Median jitter:        ", round(s$median_pos_jitter_um, 1), " um")
