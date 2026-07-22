@@ -602,9 +602,9 @@ ui <- fluidPage(
           checkboxInput("repro_only_nonrepro",
                         "Show only non-reproducible particles", value = FALSE),
           checkboxInput("repro_show_missing_ring",
-                        "Show amber ring (missing in ≥1 run)", value = TRUE),
+                        "Show cyan ring (missing in ≥1 run)", value = TRUE),
           checkboxInput("repro_show_discordant_ring",
-                        "Show red ring (material disagreement)", value = TRUE),
+                        "Show pink ring (material disagreement)", value = TRUE),
           checkboxGroupInput("repro_run_visibility", "Show Runs",
                              choices = character(0), selected = character(0),
                              inline = TRUE),
@@ -4683,14 +4683,13 @@ server <- function(input, output, session) {
     }
 
     run_levels <- paste("Run", sort(unique(pts$run)))
-    run_pal <- setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
-                          "#8c564b")[seq_along(run_levels)], run_levels)
+    run_pal <- .REPRO_RUN_PALETTE[run_levels]
 
     show_miss <- isTRUE(input$repro_show_missing_ring)
     show_disc <- isTRUE(input$repro_show_discordant_ring)
     ring_subtitle <- paste(c(
-      if (show_miss) "Amber ring = missing in \u22651 run",
-      if (show_disc) "Red ring = material disagreement"
+      if (show_miss) "Cyan ring = missing in \u22651 run",
+      if (show_disc) "Pink ring = material disagreement"
     ), collapse = "  \u00b7  ")
     if (!nzchar(ring_subtitle))
       ring_subtitle <- "Diagnostic rings hidden \u2014 see checkboxes at left"
@@ -4728,13 +4727,13 @@ server <- function(input, output, session) {
       miss <- pts[pts$status == "missing", ]
       if (nrow(miss) > 0)
         p <- p + geom_point(data = miss, aes(x = x_aligned, y = y_aligned),
-                            shape = 21, size = 5, stroke = 1.2, fill = NA, colour = "#ff7f0e")
+                            shape = 21, size = 5, stroke = 1.2, fill = NA, colour = "#22d3ee")
     }
     if (show_disc) {
       disc <- pts[pts$status == "discordant", ]
       if (nrow(disc) > 0)
         p <- p + geom_point(data = disc, aes(x = x_aligned, y = y_aligned),
-                            shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#d62728")
+                            shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#ff1493")
     }
     p
   })
@@ -4863,12 +4862,21 @@ server <- function(input, output, session) {
     )
   })
 
-  # Run colour palette shared by the counts bar chart and (via strip colour)
-  # visually anchored to the same run identity as the main scatter plot.
+  # Fixed palette keyed by "Run N" — each run number always gets the same
+  # colour regardless of which subset is currently visible.
+  # Run 1 is golden yellow, not blue: blue reads poorly on the dark LDIR
+  # scan image (light-blue particle blobs blend into the dot).
+  .REPRO_RUN_PALETTE <- c(
+    "Run 1" = "#e8d44d",   # golden yellow
+    "Run 2" = "#ff7f0e",   # orange
+    "Run 3" = "#2ca02c",   # green
+    "Run 4" = "#9467bd",   # purple
+    "Run 5" = "#8c564b"    # brown
+  )
+
+  # Run colour palette shared by the counts bar chart and the main scatter.
   .repro_run_palette <- function(run_levels) {
-    setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
-              "#8c564b")[((seq_along(run_levels) - 1) %% 5) + 1],
-             paste("Run", run_levels))
+    .REPRO_RUN_PALETTE[paste("Run", run_levels)]
   }
 
   # Total particles detected per run — the raw, unfiltered per-run counts
