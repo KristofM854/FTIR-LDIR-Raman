@@ -221,8 +221,16 @@ make_config <- function(ftir_path  = NULL,
     # ldir_join_weight_rank: weight for the normalized rank-consistency penalty.
     #   LDIR numbers particles largest-first; a large rank discrepancy between
     #   an Excel row and an image blob indicates a probable size-order swap.
+    #   Set high (2.0+) so rank dominates over size when the two disagree —
+    #   size terms are tanh-compressed to [0,1] so rank can always compete.
     #   0 = disable.
-    ldir_join_weight_rank = 0.8,
+    ldir_join_weight_rank = 2.0,
+
+    # ldir_join_blob_keep_factor: before matching, sort image blobs by area
+    #   (descending) and keep only the top ceiling(n_excel * factor) blobs.
+    #   Removes spurious small fragments that shift the size rank ordering and
+    #   cause large particles to be mismatched. Inf = keep all blobs.
+    ldir_join_blob_keep_factor = 1.1,
 
     # ldir_join_confidence_threshold: base cost below which a pair is eligible
     #   to be locked in the confidence-first pass (Pass 1). Set 0 to skip Pass 1

@@ -4825,11 +4825,12 @@ server <- function(input, output, session) {
     # here may belong to a different blob than the one actually plotted,
     # which can surface as a false "material disagreement" between runs.
     # Hidden for instruments with native coordinates (always NA there).
-    show_cost <- "coord_match_cost" %in% names(rows) &&
-      any(is.finite(rows$coord_match_cost))
-    has_area  <- "area_um2" %in% names(rows) && any(is.finite(rows$area_um2))
-    has_major <- "major_um" %in% names(rows) && any(is.finite(rows$major_um))
-    ncol <- 5L + has_area + has_major + show_cost
+    show_cost      <- "coord_match_cost" %in% names(rows) && any(is.finite(rows$coord_match_cost))
+    has_area       <- "area_um2"        %in% names(rows) && any(is.finite(rows$area_um2))
+    has_major      <- "major_um"        %in% names(rows) && any(is.finite(rows$major_um))
+    has_img_area   <- "image_area_um2"  %in% names(rows) && any(is.finite(rows$image_area_um2))
+    has_img_feret  <- "image_feret_um"  %in% names(rows) && any(is.finite(rows$image_feret_um))
+    ncol <- 5L + has_area + has_major + has_img_area + has_img_feret + show_cost
 
     # Column header helper: label + small muted origin tag
     .th_orig <- function(label, origin) {
@@ -4839,12 +4840,15 @@ server <- function(input, output, session) {
                         paste0("(", origin, ")")))
     }
 
-    tags$table(class = "hover-tbl",
+    div(style = "overflow-x: auto; width: 100%;",
+    tags$table(class = "hover-tbl", style = "white-space: nowrap; min-width: 100%;",
       tags$tr(
         tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
-        .th_orig("Feret Max",  "image"),
-        if (has_major) .th_orig("Diameter",  "machine"),
-        if (has_area)  .th_orig("Area",      "machine"),
+        .th_orig("Feret Max",      "machine"),
+        if (has_img_feret) .th_orig("Feret Max", "image"),
+        if (has_major)     .th_orig("Diameter",  "machine"),
+        if (has_area)      .th_orig("Area",       "machine"),
+        if (has_img_area)  .th_orig("Area",       "image"),
         tags$th("Position (aligned)"),
         if (show_cost) tags$th("Coord Match Cost")),
       lapply(seq_len(nrow(rows)), function(i) {
@@ -4854,10 +4858,14 @@ server <- function(input, output, session) {
           tags$td(r$particle_id),
           tags$td(r$material),
           tags$td(paste0(round(r$feret_max_um, 1), " µm")),
+          if (has_img_feret) tags$td(
+            if (is.finite(r$image_feret_um)) paste0(round(r$image_feret_um, 1), " µm") else "—"),
           if (has_major) tags$td(
             if (is.finite(r$major_um)) paste0(round(r$major_um, 1), " µm") else "—"),
           if (has_area) tags$td(
             if (is.finite(r$area_um2)) paste0(round(r$area_um2, 0), " µm²") else "—"),
+          if (has_img_area) tags$td(
+            if (is.finite(r$image_area_um2)) paste0(round(r$image_area_um2, 0), " µm²") else "—"),
           tags$td(paste0("(", round(r$x_aligned, 1), ", ", round(r$y_aligned, 1), ")")),
           if (show_cost) tags$td(
             if (is.finite(r$coord_match_cost)) round(r$coord_match_cost, 3) else "—")
@@ -4870,7 +4878,7 @@ server <- function(input, output, session) {
                  if (!isTRUE(rows$material_concordant[1]))
                    " — material mismatch across runs" else ""))
       ))
-    )
+    ))   # close tags$table and wrapping div
   })
 
   # LDIR only: coord match cost slider (image↔Excel join confidence).
