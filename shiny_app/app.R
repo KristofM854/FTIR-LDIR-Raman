@@ -4433,6 +4433,7 @@ server <- function(input, output, session) {
 
   # Scan the base folder for reproducibility runs: any subfolder (or the base
   # itself) containing reproducibility_points.csv. Newest first.
+  # Returns a list of records: list(dir, instrument, n_runs) — newest first.
   repro_scan <- reactive({
     input$repro_refresh                       # manual rescan trigger
     base <- input$repro_base
@@ -4443,13 +4444,51 @@ server <- function(input, output, session) {
     subs <- tryCatch(list.dirs(base, recursive = FALSE, full.names = TRUE),
                      error = function(e) character(0))
     subs <- subs[vapply(subs, has_pts, logical(1))]
-    unique(c(dirs, sort(subs, decreasing = TRUE)))
+    dirs <- unique(c(dirs, sort(subs, decreasing = TRUE)))
+    lapply(dirs, function(d) {
+      m <- tryCatch(
+        read.csv(file.path(d, "reproducibility_meta.csv"),
+                 stringsAsFactors = FALSE, nrows = 1),
+        error = function(e) NULL
+      )
+      list(
+        dir        = d,
+        instrument = if (!is.null(m) && "instrument" %in% names(m)) tolower(m$instrument[1]) else NA_character_,
+        n_runs     = if (!is.null(m) && "n_runs"     %in% names(m)) as.integer(m$n_runs[1])  else NA_integer_
+      )
+    })
   })
 
+  .repro_instrument_group <- function(inst) {
+    if (is.na(inst)) return("Unknown")
+    switch(inst,
+      ldir        = "LDIR — Agilent 8700",
+      raman       = "Raman — WITec",
+      ftir_perkin = "FTIR — PerkinElmer Spotlight",
+      ftir_bruker = "FTIR — Bruker OPUS / ALPHA",
+      paste0("Other (", inst, ")")
+    )
+  }
+
   observeEvent(repro_scan(), {
-    choices <- repro_scan()
-    updateSelectInput(session, "repro_run_select", choices = choices,
-                      selected = if (length(choices)) choices[[1]] else character(0))
+    items <- repro_scan()
+    if (length(items) == 0) {
+      updateSelectInput(session, "repro_run_select",
+                        choices = character(0), selected = character(0))
+      return()
+    }
+    # Build optgroup choices: named list where top-level names are group headers
+    # and each element is a named character vector (label → path value).
+    groups <- list()
+    for (item in items) {
+      grp <- .repro_instrument_group(item$instrument)
+      lbl <- basename(item$dir)
+      if (!is.na(item$n_runs)) lbl <- paste0(lbl, " (", item$n_runs, " runs)")
+      groups[[grp]] <- c(groups[[grp]], setNames(item$dir, lbl))
+    }
+    updateSelectInput(session, "repro_run_select",
+                      choices  = groups,
+                      selected = items[[1]]$dir)
   }, ignoreNULL = FALSE)
 
   observeEvent(input$repro_run_select, {
