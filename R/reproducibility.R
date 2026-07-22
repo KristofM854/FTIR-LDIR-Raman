@@ -238,6 +238,10 @@ repro_consensus_table <- function(runs, memb) {
 }
 
 #' Aggregate reproducibility (and, if reference_family given, accuracy) metrics.
+#'
+#' `reference_family` may be a single polymer-family string (monotype filter) or
+#' a character vector of expected families (mixed-polymer reference standard).
+#' Accuracy = fraction of all per-run calls whose family is in that set.
 repro_summary <- function(runs, consensus, reference_family = NULL) {
   n_runs  <- length(runs)
   counts  <- vapply(runs, nrow, integer(1))
@@ -247,10 +251,10 @@ repro_summary <- function(runs, consensus, reference_family = NULL) {
   concord_rate <- if (nrow(multi) > 0) mean(multi$material_concordant) else NA_real_
 
   accuracy <- NA_real_
-  if (!is.null(reference_family)) {
+  if (!is.null(reference_family) && length(reference_family) > 0) {
     all_fams <- unlist(lapply(runs, function(d) .repro_family(d$material)))
     all_fams <- all_fams[!is.na(all_fams)]
-    accuracy <- if (length(all_fams) > 0) mean(all_fams == reference_family) else NA_real_
+    accuracy <- if (length(all_fams) > 0) mean(all_fams %in% reference_family) else NA_real_
   }
 
   list(
