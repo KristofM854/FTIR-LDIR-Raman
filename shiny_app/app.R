@@ -634,6 +634,7 @@ ui <- fluidPage(
             column(6, numericInput("repro_img_offset_y", "Y offset (µm)",
                                    value = 0, step = 100))
           ),
+          uiOutput("repro_coord_cost_ui"),
           checkboxInput("repro_show_lines", "Link instances across runs", value = TRUE),
           selectizeInput("repro_material", "Material",
                          choices = c("All"), selected = "All", multiple = TRUE),
@@ -4543,6 +4544,17 @@ server <- function(input, output, session) {
       pts  <- pts[pts$consensus_id %in% keep, , drop = FALSE]
       if (nrow(pts) == 0) attr(pts, "empty_reason") <- "nonrepro"
     }
+
+    # Coord match cost filter (LDIR only — coord_match_cost is NA for FTIR/Raman).
+    # Keeps rows with NA cost (non-LDIR instruments) and within-range rows.
+    cost_r <- input$repro_coord_cost_range
+    if (!is.null(cost_r) && length(cost_r) == 2 &&
+        "coord_match_cost" %in% names(pts)) {
+      pts <- pts[is.na(pts$coord_match_cost) |
+                 (pts$coord_match_cost >= cost_r[1] &
+                  pts$coord_match_cost <= cost_r[2]), , drop = FALSE]
+    }
+
     pts
   })
 
@@ -4801,6 +4813,22 @@ server <- function(input, output, session) {
                    " — material mismatch across runs" else ""))
       ))
     )
+  })
+
+  # LDIR only: coord match cost slider (image↔Excel join confidence).
+  # Auto-sized to the actual range in the loaded dataset; returns NULL for
+  # FTIR/Raman runs where coord_match_cost is always NA.
+  output$repro_coord_cost_ui <- renderUI({
+    d <- repro_data()
+    if (is.null(d)) return(NULL)
+    pts <- d$points
+    if (is.null(pts) || !"coord_match_cost" %in% names(pts)) return(NULL)
+    finite_costs <- pts$coord_match_cost[is.finite(pts$coord_match_cost)]
+    if (length(finite_costs) == 0) return(NULL)
+    cost_max <- ceiling(max(finite_costs) * 20) / 20
+    sliderInput("repro_coord_cost_range",
+                "Coord Match Cost (image↔Excel)",
+                min = 0, max = cost_max, value = c(0, cost_max), step = 0.05)
   })
 
   # LDIR only: each run's own detected scan circle, side by side. Lets you

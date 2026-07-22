@@ -211,6 +211,30 @@ make_config <- function(ftir_path  = NULL,
     #   Only used when ldir_force_coord_match = FALSE (the default is TRUE).
     ldir_match_threshold = 2.0,
 
+    # --- Coordinate-join cost weights (join_ldir_coords) ---
+    # The base cost is: log_area + 0.5*log_feret + w_ar*ar_term + w_rank*rank_term
+    #
+    # ldir_join_weight_ar: weight for the normalized aspect-ratio difference term.
+    #   0 = disable. Higher values penalise shape-order swaps more strongly.
+    ldir_join_weight_ar = 0.3,
+
+    # ldir_join_weight_rank: weight for the normalized rank-consistency penalty.
+    #   LDIR numbers particles largest-first; a large rank discrepancy between
+    #   an Excel row and an image blob indicates a probable size-order swap.
+    #   0 = disable.
+    ldir_join_weight_rank = 0.4,
+
+    # ldir_join_confidence_threshold: base cost below which a pair is eligible
+    #   to be locked in the confidence-first pass (Pass 1). Set 0 to skip Pass 1
+    #   and fall back to a single global Hungarian solve.
+    ldir_join_confidence_threshold = 0.3,
+
+    # ldir_join_confidence_margin: uniqueness ratio for Pass 1 locking.
+    #   The second-best competing Excel row for a candidate blob must cost at
+    #   least this many times the best cost before the match is locked.
+    #   Higher values = stricter uniqueness requirement.
+    ldir_join_confidence_margin = 1.5,
+
     # When TRUE, every Excel particle is assigned an image coordinate regardless
     # of size-match cost — no joins are rejected. Use the coord_match_cost slider
     # in the Shiny viewer to post-hoc filter poor-quality coordinate assignments.
