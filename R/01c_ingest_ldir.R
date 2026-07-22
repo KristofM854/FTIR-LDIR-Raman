@@ -975,6 +975,45 @@ extract_ldir_image_coords <- function(image_path,
 }
 
 
+# Merge nearby image blobs into single pseudo-particles via Union-Find.
+# Used when large particles are fragmented across multiple image blobs.
+.merge_image_blobs <- function(df, dist_um) {
+  if (!is.numeric(dist_um) || dist_um <= 0 || nrow(df) <= 1) return(df)
+  x <- df$x_um; y <- df$y_um; n <- nrow(df)
+  parent <- seq_len(n)
+  find_root <- function(i) {
+    while (parent[i] != i) { parent[i] <<- parent[parent[i]]; i <- parent[i] }
+    i
+  }
+  for (i in seq_len(n - 1)) {
+    for (j in seq(i + 1L, n)) {
+      if (sqrt((x[i] - x[j])^2 + (y[i] - y[j])^2) <= dist_um) {
+        ri <- find_root(i); rj <- find_root(j)
+        if (ri != rj) parent[ri] <<- rj
+      }
+    }
+  }
+  roots <- vapply(seq_len(n), find_root, integer(1))
+  do.call(rbind, lapply(split(seq_len(n), roots), function(idx) {
+    sub <- df[idx, , drop = FALSE]
+    if (nrow(sub) == 1L) return(sub)
+    areas <- pmax(sub$area_um2, 1e-6, na.rm = FALSE)
+    areas[is.na(areas)] <- 1e-6
+    wt  <- areas / sum(areas)
+    dm  <- as.matrix(dist(cbind(sub$x_um, sub$y_um)))
+    new_feret <- max(dm) + max(sub$feret_max_um, na.rm = TRUE)
+    best <- sub[which.max(areas), , drop = FALSE]
+    best$x_um        <- sum(wt * sub$x_um)
+    best$y_um        <- sum(wt * sub$y_um)
+    best$area_um2    <- sum(sub$area_um2, na.rm = TRUE)
+    best$feret_max_um <- new_feret
+    if ("major_um" %in% names(sub)) best$major_um <- max(sub$major_um, na.rm = TRUE)
+    if ("minor_um" %in% names(sub)) best$minor_um <- max(sub$minor_um, na.rm = TRUE)
+    best
+  }))
+}
+
+
 #' Join image-extracted coordinates with Excel particle table
 #'
 #' Since the LDIR Excel has IDs + sizes but no coordinates, and the image
@@ -1019,6 +1058,20 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
                   " image blobs by area (keep_factor ", keep_factor, ")")
       n_image  <- n_keep
     }
+  }
+
+  # --- Optional blob merging ---
+  # When ldir_join_merge_dist_um is set, nearby image blobs are fused into
+  # single pseudo-particles before matching.  This reconstructs large particles
+  # that the image segmenter split across multiple blobs.
+  merge_dist <- config$ldir_join_merge_dist_um
+  if (!is.null(merge_dist) && is.finite(merge_dist) && merge_dist > 0) {
+    n_before <- n_image
+    image_df <- .merge_image_blobs(image_df, merge_dist)
+    n_image  <- nrow(image_df)
+    if (n_image < n_before)
+      log_message("  Blob merge (", merge_dist, " µm): ", n_before,
+                  " -> ", n_image, " blobs")
   }
 
   # --- Excel features ---
@@ -1089,19 +1142,50 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   # Combined base cost (same dimensions: n_excel × n_image)
   base_cost <- log_area + 0.5 * log_feret + w_ar * ar_cost + w_rank * rank_cost
 
+  # --- Pass 0: rank-first mini-Hungarian for the largest particles ---
+  # The LDIR instrument guarantees that Excel rows are in descending-size order,
+  # and the image blobs are ranked the same way.  For the top K particles the
+  # rank signal is extremely reliable (1-to-1 correspondence expected), so we
+  # run a rank-only Hungarian sub-problem and lock those assignments before
+  # letting the size-based cost (which degrades for large, irregular particles)
+  # interfere.
+  rank_first_frac <- if (!is.null(config$ldir_join_rank_first_frac)) config$ldir_join_rank_first_frac else 0.25
+  rank_first_k    <- min(ceiling(n_excel * rank_first_frac), n_image)
+  locked_j        <- rep(NA_integer_, n_excel)
+
+  if (rank_first_k >= 2L && w_rank > 0) {
+    top_e <- seq_len(rank_first_k)
+    top_i <- order(ifelse(is.na(image_area), 0, image_area),
+                   decreasing = TRUE)[seq_len(rank_first_k)]
+    k_cost <- rank_cost[top_e, top_i, drop = FALSE]
+
+    if (requireNamespace("clue", quietly = TRUE)) {
+      k_asgn <- as.integer(clue::solve_LSAP(k_cost, maximum = FALSE))
+    } else {
+      k_asgn <- seq_len(rank_first_k)  # identity fallback
+    }
+    for (k in seq_len(rank_first_k)) {
+      j_local <- k_asgn[k]
+      if (!is.na(j_local) && j_local >= 1L && j_local <= rank_first_k)
+        locked_j[top_e[k]] <- top_i[j_local]
+    }
+    log_message("  Pass 0 rank-first (top ", rank_first_k, "): locked ",
+                sum(!is.na(locked_j)), " pairs")
+  }
+
   # --- Pass 1: lock high-confidence, unambiguous matches ---
   # A pair (i, j) is locked when:
   #   (a) base_cost[i, j] < conf_thr  (absolute confidence)
   #   (b) the second-best Excel row for blob j costs ≥ conf_marg × best cost
   #       (uniqueness from the blob's side)
-  locked_j <- rep(NA_integer_, n_excel)
-
   if (conf_thr > 0 && conf_marg > 1) {
-    locked_image <- integer(0)
+    # Seed locked_image with whatever Pass 0 already claimed
+    locked_image <- locked_j[!is.na(locked_j)]
     # Process Excel rows in order of their best available cost (greediest first)
     best_costs <- apply(base_cost, 1, min, na.rm = TRUE)
     for (i in order(best_costs)) {
-      if (best_costs[i] >= conf_thr) next  # too costly to be confident
+      if (!is.na(locked_j[i])) next         # already locked by Pass 0
+      if (best_costs[i] >= conf_thr) next   # too costly to be confident
       row_c  <- base_cost[i, ]
       j_best <- which.min(row_c)
       if (j_best %in% locked_image) next   # blob already claimed

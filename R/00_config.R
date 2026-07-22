@@ -243,6 +243,21 @@ make_config <- function(ftir_path  = NULL,
     #   Higher values = stricter uniqueness requirement.
     ldir_join_confidence_margin = 1.5,
 
+    # ldir_join_rank_first_frac: fraction of Excel particles (from the top, i.e.
+    #   the largest) that are matched in a rank-only mini-Hungarian (Pass 0)
+    #   before the full cost is applied.  For the largest particles the
+    #   LDIR-guaranteed descending ordering is more reliable than the image-
+    #   derived sizes, so anchoring these pairs first prevents cascade failures.
+    #   Set 0 to disable Pass 0.
+    ldir_join_rank_first_frac = 0.25,
+
+    # ldir_join_merge_dist_um: if non-NULL and > 0, image blobs whose centroids
+    #   are within this distance (in µm) are fused into a single pseudo-particle
+    #   before matching (Union-Find clustering).  Useful when the image
+    #   segmenter splits a large particle into several fragments.
+    #   NULL = disabled.
+    ldir_join_merge_dist_um = NULL,
+
     # When TRUE, every Excel particle is assigned an image coordinate regardless
     # of size-match cost — no joins are rejected. Use the coord_match_cost slider
     # in the Shiny viewer to post-hoc filter poor-quality coordinate assignments.
