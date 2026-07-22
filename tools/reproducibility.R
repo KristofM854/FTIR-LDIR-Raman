@@ -233,6 +233,9 @@ if (identical(CONFIG$instrument, "raman")) {
   meta$raman_calibration_source <- raman_calibration_source
 }
 if (identical(CONFIG$instrument, "ldir")) {
+  # Run 1's circle calibration, flat (unchanged): this is what the viewer's
+  # image placement (place_image_ldir_meta) reads, since only run 1's image
+  # is shown as the Multi-Run background.
   ci <- attr(runs[[1]], "ldir_circle")
   if (!is.null(ci)) {
     meta$ldir_cx_px           <- ci$cx_px           %||% NA_real_
@@ -240,6 +243,22 @@ if (identical(CONFIG$instrument, "ldir")) {
     meta$ldir_scale_um_per_px <- ci$scale_um_per_px %||% NA_real_
     meta$ldir_image_width_px  <- ci$width           %||% NA_real_
     meta$ldir_image_height_px <- ci$height          %||% NA_real_
+  }
+  # Every run's own detected circle, so a scan-circle detection drift between
+  # repeat runs (a candidate cause of spurious "particles don't match between
+  # runs" results - see docs/multirun_image_placement_plan.md) can be
+  # compared at a glance instead of opening each run's own
+  # ldir_calibration.txt individually.
+  for (i in seq_along(runs)) {
+    rci <- attr(runs[[i]], "ldir_circle")
+    if (is.null(rci)) next
+    meta[[paste0("ldir_run", i, "_cx_px")]]           <- rci$cx_px           %||% NA_real_
+    meta[[paste0("ldir_run", i, "_cy_px")]]           <- rci$cy_px           %||% NA_real_
+    meta[[paste0("ldir_run", i, "_radius_px")]]       <- rci$radius_px       %||% NA_real_
+    meta[[paste0("ldir_run", i, "_scale_um_per_px")]] <- rci$scale_um_per_px %||% NA_real_
+    meta[[paste0("ldir_run", i, "_export_type")]]     <- rci$export_type    %||% NA_character_
+    meta[[paste0("ldir_run", i, "_method")]]          <- rci$method         %||% NA_character_
+    meta[[paste0("ldir_run", i, "_detected")]]        <- isTRUE(rci$detected)
   }
 }
 write.csv(meta, file.path(out, "reproducibility_meta.csv"), row.names = FALSE)

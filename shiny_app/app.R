@@ -601,6 +601,10 @@ ui <- fluidPage(
           hr(),
           checkboxInput("repro_only_nonrepro",
                         "Show only non-reproducible particles", value = FALSE),
+          checkboxInput("repro_show_missing_ring",
+                        "Show amber ring (missing in ≥1 run)", value = TRUE),
+          checkboxInput("repro_show_discordant_ring",
+                        "Show red ring (material disagreement)", value = TRUE),
           checkboxGroupInput("repro_run_visibility", "Show Runs",
                              choices = character(0), selected = character(0),
                              inline = TRUE),
@@ -653,6 +657,7 @@ ui <- fluidPage(
           div(class = "info-box",
               h5("Particle Details (hover)"),
               detail_table_ui("repro_hover_info")),
+          uiOutput("repro_ldir_circle_ui"),
           hr(),
           div(class = "info-box",
               h5("Particle Counts per Run"),
@@ -4681,12 +4686,21 @@ server <- function(input, output, session) {
     run_pal <- setNames(c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd",
                           "#8c564b")[seq_along(run_levels)], run_levels)
 
+    show_miss <- isTRUE(input$repro_show_missing_ring)
+    show_disc <- isTRUE(input$repro_show_discordant_ring)
+    ring_subtitle <- paste(c(
+      if (show_miss) "Amber ring = missing in \u22651 run",
+      if (show_disc) "Red ring = material disagreement"
+    ), collapse = "  \u00b7  ")
+    if (!nzchar(ring_subtitle))
+      ring_subtitle <- "Diagnostic rings hidden \u2014 see checkboxes at left"
+
     p <- ggplot() +
       scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
       scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
       labs(title = "Multi-Run reproducibility overlay",
-           subtitle = "Amber ring = missing in \u22651 run  \u00b7  Red ring = material disagreement",
+           subtitle = ring_subtitle,
            x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
       theme(plot.background = element_rect(fill = "white", colour = NA),
@@ -4710,14 +4724,18 @@ server <- function(input, output, session) {
       scale_size_continuous(name = "Feret (\u00b5m)", range = c(1.5, 7),
                             limits = safe_size_limits(pts$feret_max_um))
 
-    miss <- pts[pts$status == "missing", ]
-    disc <- pts[pts$status == "discordant", ]
-    if (nrow(miss) > 0)
-      p <- p + geom_point(data = miss, aes(x = x_aligned, y = y_aligned),
-                          shape = 21, size = 5, stroke = 1.2, fill = NA, colour = "#ff7f0e")
-    if (nrow(disc) > 0)
-      p <- p + geom_point(data = disc, aes(x = x_aligned, y = y_aligned),
-                          shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#d62728")
+    if (show_miss) {
+      miss <- pts[pts$status == "missing", ]
+      if (nrow(miss) > 0)
+        p <- p + geom_point(data = miss, aes(x = x_aligned, y = y_aligned),
+                            shape = 21, size = 5, stroke = 1.2, fill = NA, colour = "#ff7f0e")
+    }
+    if (show_disc) {
+      disc <- pts[pts$status == "discordant", ]
+      if (nrow(disc) > 0)
+        p <- p + geom_point(data = disc, aes(x = x_aligned, y = y_aligned),
+                            shape = 21, size = 6, stroke = 1.6, fill = NA, colour = "#d62728")
+    }
     p
   })
 
@@ -4748,9 +4766,22 @@ server <- function(input, output, session) {
       return(tags$p(class = "text-muted",
                     "Hover over a particle to see it across runs"))
     rows <- rows[order(rows$run), ]
+
+    # LDIR only: how confidently this particle's material/quality (an Excel
+    # row) was matched to its image-detected position, purely by size
+    # similarity (no position is involved in that join - see
+    # docs/multirun_image_placement_plan.md). High cost => the material shown
+    # here may belong to a different blob than the one actually plotted,
+    # which can surface as a false "material disagreement" between runs.
+    # Hidden for instruments with native coordinates (always NA there).
+    show_cost <- "coord_match_cost" %in% names(rows) &&
+      any(is.finite(rows$coord_match_cost))
+    ncol <- if (show_cost) 6 else 5
+
     tags$table(class = "hover-tbl",
       tags$tr(tags$th("Run"), tags$th("Particle ID"), tags$th("Material"),
-              tags$th("Feret Max"), tags$th("Position (aligned)")),
+              tags$th("Feret Max"), tags$th("Position (aligned)"),
+              if (show_cost) tags$th("Coord Match Cost")),
       lapply(seq_len(nrow(rows)), function(i) {
         r <- rows[i, ]
         tags$tr(
@@ -4758,16 +4789,77 @@ server <- function(input, output, session) {
           tags$td(r$particle_id),
           tags$td(r$material),
           tags$td(paste0(round(r$feret_max_um, 1), " µm")),
-          tags$td(paste0("(", round(r$x_aligned, 1), ", ", round(r$y_aligned, 1), ")"))
+          tags$td(paste0("(", round(r$x_aligned, 1), ", ", round(r$y_aligned, 1), ")")),
+          if (show_cost) tags$td(
+            if (is.finite(r$coord_match_cost)) round(r$coord_match_cost, 3) else "—")
         )
       }),
-      tags$tr(tags$td(colspan = "5",
+      tags$tr(tags$td(colspan = as.character(ncol),
                       style = "border-top: 2px solid #adb5bd; padding-top: 6px;",
         tags$span(class = "text-muted",
           paste0(nrow(rows), " of ", rows$n_runs_detected[1], " run(s) detected",
                  if (!isTRUE(rows$material_concordant[1]))
                    " — material mismatch across runs" else ""))
       ))
+    )
+  })
+
+  # LDIR only: each run's own detected scan circle, side by side. Lets you
+  # check whether a scan-circle detection drift between repeat runs (rather
+  # than a genuine reproducibility failure) explains missing/discordant
+  # particles - see docs/multirun_image_placement_plan.md. NULL (nothing
+  # rendered) for any other instrument or when no per-run circle was
+  # recorded (outputs from before this was added).
+  output$repro_ldir_circle_ui <- renderUI({
+    d <- repro_data()
+    if (is.null(d) || is.null(d$meta) ||
+        !identical(d$meta$instrument[1], "ldir")) return(NULL)
+    meta <- d$meta
+    n_runs <- if ("n_runs" %in% names(meta)) meta$n_runs[1] else 0
+    run_ids <- seq_len(n_runs)
+    has_any <- any(vapply(run_ids, function(i)
+      paste0("ldir_run", i, "_cx_px") %in% names(meta), logical(1)))
+    if (!has_any) return(NULL)
+
+    g <- function(i, field, default = NA) {
+      col <- paste0("ldir_run", i, "_", field)
+      if (col %in% names(meta)) meta[[col]][1] else default
+    }
+    fmt_num <- function(v, digits = 1)
+      if (is.null(v) || length(v) == 0 || is.na(v)) "—" else round(as.numeric(v), digits)
+
+    rows <- lapply(run_ids, function(i) {
+      tags$tr(
+        tags$td(tags$b(paste("Run", i))),
+        tags$td(paste0("(", fmt_num(g(i, "cx_px")), ", ", fmt_num(g(i, "cy_px")), ")")),
+        tags$td(fmt_num(g(i, "radius_px"))),
+        tags$td(fmt_num(g(i, "scale_um_per_px"), 4)),
+        tags$td(as.character(g(i, "export_type", "—"))),
+        tags$td(as.character(g(i, "method", "—"))),
+        tags$td(if (isTRUE(g(i, "detected", FALSE))) "Yes" else "No")
+      )
+    })
+
+    tagList(
+      hr(),
+      div(class = "info-box",
+        h5("LDIR Scan-Circle Calibration per Run"),
+        p(class = "text-muted",
+          "Each run's own detected scan circle. A meaningfully different ",
+          "center/radius between runs means their coordinate frames were ",
+          "calibrated differently before alignment — a plausible cause of ",
+          "spurious mismatches independent of true particle reproducibility. ",
+          "“mosaic_*”/“full_field” export types use the ",
+          "deterministic image bounds (no edge-detection noise possible); ",
+          "a real circular-disc detection (other export types) is the ",
+          "case to scrutinize."),
+        tags$table(class = "hover-tbl",
+          tags$tr(tags$th("Run"), tags$th("Center (px)"), tags$th("Radius (px)"),
+                  tags$th("Scale (µm/px)"), tags$th("Export Type"),
+                  tags$th("Method"), tags$th("Detected")),
+          rows
+        )
+      )
     )
   })
 
