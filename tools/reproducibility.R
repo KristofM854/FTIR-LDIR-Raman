@@ -32,20 +32,20 @@ for (m in c("utils.R", "00_config.R", "01_ingest.R", "utils_python.R",
 # CONFIG — edit these, or override via command-line arguments
 # =============================================================================
 CONFIG <- list(
-  instrument = "ldir",           # ftir_perkin | ftir_bruker | raman | ldir
+  instrument = "ftir_bruker",           # ftir_perkin | ftir_bruker | raman | ldir
   # One entry per run. For ldir, set image = path to the companion image.
   runs = list(
-    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\A\\Comparstic2026 PET A Kev 260401.xlsx"
-         ,
-         image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\A\\Comparstic2026 PET A Kev 260401.png"
+    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\A\\Comparstic2026 PET2 Kev A 260413_bruker.csv"
+         # ,
+         # image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\A\\Comparstic2026 PET A Kev 260401.png"
          ),
-    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\B\\Comparstic2026 PET B Kev 260401.xlsx"
-         ,
-         image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\B\\Comparstic2026 PET B Kev 260401.png"
+    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\B\\Comparstic2026 PET2 Kev B 260413.csv"
+         # ,
+         # image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\B\\Comparstic2026 PET B Kev 260401.png"
     ),
-    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET C Kev 260401.xlsx"
-         ,
-         image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET C Kev 260401.png"
+    list(file = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET2 Kev C 260413.csv"
+         # ,
+         # image = "C:\\Users\\moellerkr\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\test-data\\PET\\C\\Comparstic2026 PET C Kev 260401.png"
     )
   ),
   reference_material = "Polyethylene terephthalate",  # NULL to skip accuracy
