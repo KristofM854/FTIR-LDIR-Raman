@@ -874,12 +874,25 @@ find_ldir_processed_image <- function(img_path, config = NULL) {
 #' (so two touching same-colour particles do not merge), label connected
 #' components per channel (8-connectivity), then pool the blobs.
 #'
+#' Pixel centroids are mapped to µm in the SAME circle-centred, y-up frame the
+#' optical path uses (map_pixels_to_um_circle), so the result is a drop-in for
+#' extract_ldir_image_coords(): downstream alignment and the Shiny image overlay
+#' both work unchanged.  The processed overlay carries no visible scan circle, so
+#' full-image bounds are used for calibration (equivalent to the optical path
+#' with ldir_use_circle_detection = FALSE).
+#'
 #' @param img_path Path to the processed overlay image (PNG/JPEG/TIFF/BMP)
+#' @param scan_bounds Optional physical scan bounds (list x_min/x_max/...); used
+#'   only to derive the scan diameter when config$ldir_scan_diameter_um is unset.
 #' @param config   Pipeline config. Uses ldir_processed_image_min_brightness,
-#'   ldir_min_blob_area_px, ldir_image_scale_um_per_px.
-#' @return Data frame with x_um, y_um, area_um2, feret_max_um, major_um,
-#'   minor_um, aspect_ratio, coord_source = "processed_image"
-extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
+#'   ldir_min_blob_area_px, ldir_image_scale_um_per_px, ldir_scan_diameter_um,
+#'   ldir_image_width_um.
+#' @return list(particles = data.frame with x_um, y_um, area_um2, feret_max_um,
+#'   feret_min_um, major_um, minor_um, aspect_ratio, coord_source =
+#'   "processed_image"; circle_info = calibration list matching
+#'   extract_ldir_image_coords())
+extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
+                                                config = NULL) {
   log_message("Extracting LDIR coordinates from processed particle image: ",
               basename(img_path))
 
@@ -896,6 +909,38 @@ extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
   w    <- dim(arr)[2]
   n_ch <- dim(arr)[3]
 
+  # --- Calibration (full-image bounds; processed overlay has no scan circle) ---
+  # Mirrors extract_ldir_image_coords() with ldir_use_circle_detection = FALSE:
+  # the full image is the scan field, centre = image centre, radius = min/2.
+  circle_info <- list(
+    cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
+    width = w, height = h, edge_gap_px = 0,
+    export_type = "processed_image", detected = TRUE, method = "processed_image"
+  )
+  scan_diam_um <- if (!is.null(config$ldir_scan_diameter_um)) {
+    config$ldir_scan_diameter_um
+  } else if (!is.null(scan_bounds)) {
+    scan_bounds$x_max - scan_bounds$x_min
+  } else {
+    13000
+  }
+  # Physical-width override (same semantics as the optical path).
+  if (!is.null(config$ldir_image_width_um) &&
+      is.numeric(config$ldir_image_width_um) &&
+      config$ldir_image_width_um > 0 && w > 0) {
+    scan_diam_um <- config$ldir_image_width_um *
+      (2 * circle_info$radius_px) / circle_info$width
+  }
+  # Scale priority: explicit config override, else scan-diameter calibration.
+  scale <- if (!is.null(config$ldir_image_scale_um_per_px) &&
+               is.numeric(config$ldir_image_scale_um_per_px) &&
+               config$ldir_image_scale_um_per_px > 0) {
+    config$ldir_image_scale_um_per_px
+  } else {
+    (scan_diam_um / 2) / circle_info$radius_px
+  }
+  circle_info$scale_um_per_px <- scale
+
   Rc <- round(arr[, , 1] * 255)
   Gc <- if (n_ch >= 2L) round(arr[, , 2] * 255) else Rc
   Bc <- if (n_ch >= 3L) round(arr[, , 3] * 255) else Rc
@@ -909,7 +954,7 @@ extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
   if (n_fg == 0L) {
     log_message("  Processed image: no foreground pixels above brightness ",
                 min_bright, " — returning empty result", level = "WARN")
-    return(.empty_processed_image_df())
+    return(list(particles = .empty_processed_image_df(), circle_info = circle_info))
   }
 
   # --- (c) Quantize each foreground pixel to its dominant colour channel ---
@@ -922,7 +967,6 @@ extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
   dom <- matrix(dom, nrow = h, ncol = w)
 
   min_area <- config$ldir_min_blob_area_px %||% 5L
-  scale    <- config$ldir_image_scale_um_per_px %||% 1.0
 
   cx_all <- numeric(0); cy_all <- numeric(0)
   area_all <- numeric(0); feret_all <- numeric(0)
@@ -968,10 +1012,15 @@ extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
   if (n_blobs == 0L) {
     log_message("  Processed image: no blobs >= ", min_area,
                 " px — returning empty result", level = "WARN")
-    return(.empty_processed_image_df())
+    return(list(particles = .empty_processed_image_df(), circle_info = circle_info))
   }
 
-  # --- (e) Convert pixel measurements to µm ---
+  # --- (e) Map pixel centroids to circle-centred µm (y up), convert sizes ---
+  # Same frame as the optical path so the result is a drop-in for the matcher
+  # and the Shiny overlay: origin at image centre, y increasing upward.
+  x_um <- (cx_all - circle_info$cx_px) * scale
+  y_um <- (circle_info$cy_px - cy_all) * scale
+
   feret_max_um <- feret_all * scale
   # Equivalent-ellipse minor axis from area & major (feret) axis.
   minor_px     <- 4 * area_all / (pi * pmax(feret_all, 1e-6))
@@ -980,27 +1029,33 @@ extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
 
   # --- (f) Assemble output (column set consumed by join_ldir_coords) ---
   df <- data.frame(
-    particle_id  = paste0("LDIR_PROC_", seq_len(n_blobs)),
-    x_um         = cx_all * scale,
-    y_um         = cy_all * scale,
-    area_um2     = area_all * scale^2,
-    feret_max_um = feret_max_um,
-    feret_min_um = minor_um,
-    major_um     = feret_max_um,
-    minor_um     = minor_um,
-    aspect_ratio = aspect_ratio,
-    material     = NA_character_,
-    quality      = NA_real_,
-    coord_source = "processed_image",
-    source_file  = basename(img_path),
+    particle_id   = paste0("LDIR_PROC_", seq_len(n_blobs)),
+    centroid_px_x = cx_all,
+    centroid_px_y = cy_all,
+    x_um          = x_um,
+    y_um          = y_um,
+    area_um2      = area_all * scale^2,
+    feret_max_um  = feret_max_um,
+    feret_min_um  = minor_um,
+    major_um      = feret_max_um,
+    minor_um      = minor_um,
+    aspect_ratio  = aspect_ratio,
+    material      = NA_character_,
+    quality       = NA_real_,
+    coord_source  = "processed_image",
+    source_file   = basename(img_path),
     stringsAsFactors = FALSE
   )
 
+  attr(df, "scale_um_per_px")   <- scale
+  attr(df, "circle_radius_px")  <- circle_info$radius_px
+
   # --- (g) Log summary ---
   log_message("  Processed image: ", n_blobs, " blobs extracted (", n_fg,
-              " foreground px), scale = ", round(scale, 4), " µm/px")
+              " foreground px), scale = ", round(scale, 4), " µm/px",
+              " (scan diameter ", round(scan_diam_um), " µm)")
 
-  df
+  list(particles = df, circle_info = circle_info)
 }
 
 
@@ -1027,19 +1082,21 @@ extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
 #' Internal: empty processed-image data frame (matching output schema)
 .empty_processed_image_df <- function() {
   data.frame(
-    particle_id  = character(),
-    x_um         = numeric(),
-    y_um         = numeric(),
-    area_um2     = numeric(),
-    feret_max_um = numeric(),
-    feret_min_um = numeric(),
-    major_um     = numeric(),
-    minor_um     = numeric(),
-    aspect_ratio = numeric(),
-    material     = character(),
-    quality      = numeric(),
-    coord_source = character(),
-    source_file  = character(),
+    particle_id   = character(),
+    centroid_px_x = numeric(),
+    centroid_px_y = numeric(),
+    x_um          = numeric(),
+    y_um          = numeric(),
+    area_um2      = numeric(),
+    feret_max_um  = numeric(),
+    feret_min_um  = numeric(),
+    major_um      = numeric(),
+    minor_um      = numeric(),
+    aspect_ratio  = numeric(),
+    material      = character(),
+    quality       = numeric(),
+    coord_source  = character(),
+    source_file   = character(),
     stringsAsFactors = FALSE
   )
 }
