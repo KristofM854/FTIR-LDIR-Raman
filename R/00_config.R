@@ -97,6 +97,14 @@ make_config <- function(ftir_path  = NULL,
                                    # Filter interactively in the viewer instead;
                                    # alignment/agreement apply their own
                                    # anchor-quality criteria independently.
+
+    # ldir_hqi_unknown_threshold: particles whose Agilent quality (HQI) is below
+    #   this value are RELABELLED as "unknown" (never dropped), mirroring the
+    #   LDIR software's own display rule.  The raw identification is preserved in
+    #   the identification_raw column.  The relabelled material flows into the
+    #   viewer AND the cross-instrument agreement analysis.  Set to NULL/0 to
+    #   disable relabelling and keep every raw identification.
+    ldir_hqi_unknown_threshold = 0.85,
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
     ldir_flip_y_for_alignment = FALSE, # map_pixels_to_um_circle already inverts y;
                                        # Raman y is also upward — no second flip needed
@@ -225,6 +233,17 @@ make_config <- function(ftir_path  = NULL,
     #   size terms are tanh-compressed to [0,1] so rank can always compete.
     #   0 = disable.
     ldir_join_weight_rank = 2.0,
+
+    # ldir_join_weight_shape: weight for the shape-fingerprint term. When the
+    #   image blobs carry rotation/scale-invariant shape descriptors
+    #   (eccentricity, circularity, solidity) — as the processed-image extractor
+    #   produces — each is rank-matched against the same Excel column and the
+    #   normalized rank differences are averaged.  Because the processed overlay
+    #   is the machine's own segmentation, this fingerprint disambiguates
+    #   particles of near-identical size that the size/rank terms alone swap.
+    #   The term is inert when either side lacks the descriptors (e.g. the
+    #   optical-image path), so it only affects processed-image runs. 0 = disable.
+    ldir_join_weight_shape = 1.0,
 
     # ldir_join_blob_keep_factor: before matching, sort image blobs by area
     #   (descending) and keep only the top ceiling(n_excel * factor) blobs.
