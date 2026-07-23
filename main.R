@@ -793,17 +793,11 @@ if (has_ldir && !is.null(ldir_raw)) {
     if (!is.null(processed_img)) {
       log_message("Using LDIR processed image for coordinate extraction: ",
                   basename(processed_img))
-      ldir_image_particles <- extract_ldir_processed_image_coords(processed_img, config)
-      # Synthesize a circle_info so downstream alignment / manifest logic runs.
-      # The processed overlay shares the optical image's pixel dimensions & scale.
-      .proc_scale <- config$ldir_image_scale_um_per_px %||% 1.0
-      .ldir_circle_info <- list(
-        cx_px = NA_real_, cy_px = NA_real_, radius_px = NA_real_,
-        width = NA_integer_, height = NA_integer_,
-        scale_um_per_px = .proc_scale, edge_gap_px = NA_real_,
-        export_type = "processed_image", detected = TRUE,
-        method = "processed_image"
+      ldir_proc_result     <- extract_ldir_processed_image_coords(
+        processed_img, scan_bounds = ldir_scan_bounds, config = config
       )
+      ldir_image_particles <- ldir_proc_result$particles
+      .ldir_circle_info    <- ldir_proc_result$circle_info
     } else {
       # Circle-calibrated extraction — expected_count uses RAW count for best matching
       ldir_extract_result  <- extract_ldir_image_coords(
