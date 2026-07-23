@@ -780,15 +780,37 @@ if (has_ldir && !is.null(ldir_raw)) {
       y_min = 0, y_max = ldir_scan_diam
     )
 
-    # Circle-calibrated extraction — expected_count uses RAW count for best matching
-    ldir_extract_result  <- extract_ldir_image_coords(
-      ldir_img_for_extraction,
-      scan_bounds    = ldir_scan_bounds,
-      expected_count = nrow(ldir_raw),
-      config         = config
-    )
-    ldir_image_particles <- ldir_extract_result$particles
-    .ldir_circle_info    <- ldir_extract_result$circle_info
+    # Prefer the LDIR software's analyzed particle-overlay image when present.
+    # Its coloured blobs are the machine's own segmentation and carry
+    # correctly-scaled sizes (the optical image over-sizes large particles ~3x),
+    # so feeding them to join_ldir_coords fixes size-based matching for large
+    # particles.  Falls back to optical-image circle-calibrated extraction.
+    processed_img <- find_ldir_processed_image(ldir_img_for_extraction, config)
+    if (!is.null(processed_img)) {
+      log_message("Using LDIR processed image for coordinate extraction: ",
+                  basename(processed_img))
+      ldir_image_particles <- extract_ldir_processed_image_coords(processed_img, config)
+      # Synthesize a circle_info so downstream alignment / manifest logic runs.
+      # The processed overlay shares the optical image's pixel dimensions & scale.
+      .proc_scale <- config$ldir_image_scale_um_per_px %||% 1.0
+      .ldir_circle_info <- list(
+        cx_px = NA_real_, cy_px = NA_real_, radius_px = NA_real_,
+        width = NA_integer_, height = NA_integer_,
+        scale_um_per_px = .proc_scale, edge_gap_px = NA_real_,
+        export_type = "processed_image", detected = TRUE,
+        method = "processed_image"
+      )
+    } else {
+      # Circle-calibrated extraction — expected_count uses RAW count for best matching
+      ldir_extract_result  <- extract_ldir_image_coords(
+        ldir_img_for_extraction,
+        scan_bounds    = ldir_scan_bounds,
+        expected_count = nrow(ldir_raw),
+        config         = config
+      )
+      ldir_image_particles <- ldir_extract_result$particles
+      .ldir_circle_info    <- ldir_extract_result$circle_info
+    }
 
     # Persist circle calibration to manifest
     tryCatch(

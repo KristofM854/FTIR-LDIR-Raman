@@ -752,6 +752,299 @@ extract_ldir_image_coords <- function(image_path,
 }
 
 
+#' Locate the LDIR software's analyzed particle-overlay image
+#'
+#' The LDIR software can export an "analyzed" overlay image next to the optical
+#' image, showing the same particles as solid coloured blobs on a pure-black
+#' background.  This helper searches the optical image's directory for a file
+#' whose name is the optical basename (sans extension) plus
+#' \code{config$ldir_processed_image_suffix} plus any image extension.
+#'
+#' @param img_path Path to the optical LDIR image file
+#' @param config   Pipeline config (uses ldir_processed_image_suffix; NULL suffix
+#'   disables the search)
+#' @return Full path to the processed image if found, otherwise NULL
+find_ldir_processed_image <- function(img_path, config = NULL) {
+  suffix <- if (!is.null(config)) config$ldir_processed_image_suffix else "_analyzed"
+
+  # NULL suffix disables processed-image extraction entirely
+  if (is.null(suffix) || !nzchar(suffix)) {
+    log_message("  Processed-image search disabled (suffix is NULL)", level = "DEBUG")
+    return(NULL)
+  }
+
+  dir  <- dirname(img_path)
+  stem <- tools::file_path_sans_ext(basename(img_path))
+
+  # Any image extension, matched case-insensitively
+  exts <- c("png", "jpg", "jpeg", "tif", "tiff", "bmp")
+  for (ext in exts) {
+    cand <- file.path(dir, paste0(stem, suffix, ".", ext))
+    hit  <- Sys.glob(cand)  # Sys.glob is case-sensitive; also try upper-case ext
+    if (length(hit) == 0) {
+      cand_u <- file.path(dir, paste0(stem, suffix, ".", toupper(ext)))
+      hit    <- Sys.glob(cand_u)
+    }
+    if (length(hit) > 0 && file.exists(hit[[1]])) {
+      log_message("  Found LDIR processed image: ", basename(hit[[1]]))
+      return(hit[[1]])
+    }
+  }
+
+  log_message("  No LDIR processed image found for ", basename(img_path),
+              " (suffix '", suffix, "')", level = "DEBUG")
+  NULL
+}
+
+
+#' Internal: 8-connectivity connected-component labeling (pure R)
+#'
+#' Two-pass union-find labeling over a logical mask using 8-connectivity
+#' (the four already-visited neighbours in a raster scan: N, W, NW, NE).
+#' Mirrors the structure of .two_pass_ccl() (4-connectivity) in
+#' 01b_ingest_image.R but joins diagonally-touching pixels as well.
+#'
+#' @param binary Logical matrix (h x w) — TRUE = foreground
+#' @param h,w    Matrix dimensions
+#' @return list(labels = integer matrix, n_components = integer)
+.ldir_connected_components_8 <- function(binary, h, w) {
+  lab <- matrix(0L, nrow = h, ncol = w)
+  uf_parent <- integer(0)
+  next_label <- 1L
+
+  find_root <- function(x) {
+    while (uf_parent[x] != x) x <- uf_parent[x]
+    x
+  }
+
+  for (r in seq_len(h)) {
+    for (cc in seq_len(w)) {
+      if (!binary[r, cc]) next
+
+      # Already-labeled 8-neighbours from the previous row + left
+      neigh <- integer(0)
+      if (r > 1L            && binary[r - 1L, cc])      neigh <- c(neigh, lab[r - 1L, cc])
+      if (cc > 1L           && binary[r, cc - 1L])      neigh <- c(neigh, lab[r, cc - 1L])
+      if (r > 1L && cc > 1L && binary[r - 1L, cc - 1L]) neigh <- c(neigh, lab[r - 1L, cc - 1L])
+      if (r > 1L && cc < w  && binary[r - 1L, cc + 1L]) neigh <- c(neigh, lab[r - 1L, cc + 1L])
+      neigh <- neigh[neigh > 0L]
+
+      if (length(neigh) == 0L) {
+        uf_parent <- c(uf_parent, next_label)
+        lab[r, cc] <- next_label
+        next_label <- next_label + 1L
+      } else {
+        m <- min(neigh)
+        lab[r, cc] <- m
+        for (nb in neigh) {
+          if (nb != m) {
+            ra <- find_root(m); rb <- find_root(nb)
+            if (ra != rb) uf_parent[max(ra, rb)] <- min(ra, rb)
+          }
+        }
+      }
+    }
+  }
+
+  if (next_label == 1L) return(list(labels = lab, n_components = 0L))
+
+  n_prov <- next_label - 1L
+  roots  <- vapply(seq_len(n_prov), find_root, integer(1))
+  uniq   <- unique(roots)
+  remap  <- integer(n_prov)
+  remap[uniq] <- seq_along(uniq)
+
+  fg <- lab > 0L
+  lab[fg] <- remap[roots[lab[fg]]]
+  list(labels = lab, n_components = length(uniq))
+}
+
+
+#' Extract LDIR particle coordinates from the analyzed particle-overlay image
+#'
+#' The LDIR software's "analyzed" export renders each particle as a solid
+#' coloured blob (green, blue, …) on a pure-black background.  These blobs are
+#' the machine's own segmentation and their sizes match the Excel particle data,
+#' unlike the optical image which over-sizes large particles ~3x.  This function
+#' segments those blobs and returns centroids + sizes in the same column layout
+#' that join_ldir_coords() consumes from extract_ldir_image_coords().
+#'
+#' Algorithm: threshold on per-pixel RGB brightness to drop the black
+#' background, quantize each particle pixel to its dominant colour channel
+#' (so two touching same-colour particles do not merge), label connected
+#' components per channel (8-connectivity), then pool the blobs.
+#'
+#' @param img_path Path to the processed overlay image (PNG/JPEG/TIFF/BMP)
+#' @param config   Pipeline config. Uses ldir_processed_image_min_brightness,
+#'   ldir_min_blob_area_px, ldir_image_scale_um_per_px.
+#' @return Data frame with x_um, y_um, area_um2, feret_max_um, major_um,
+#'   minor_um, aspect_ratio, coord_source = "processed_image"
+extract_ldir_processed_image_coords <- function(img_path, config = NULL) {
+  log_message("Extracting LDIR coordinates from processed particle image: ",
+              basename(img_path))
+
+  # --- (a) Load image as an RGB array, scaled to 0-255 integers ---
+  arr <- .read_ldir_processed_rgb(img_path)
+  if (is.null(arr)) {
+    stop("Could not read LDIR processed image: ", img_path,
+         "\n  Ensure one of png / jpeg / tiff / magick is installed.")
+  }
+  if (length(dim(arr)) < 3L) {
+    arr <- array(arr, dim = c(nrow(arr), ncol(arr), 1L))
+  }
+  h    <- dim(arr)[1]
+  w    <- dim(arr)[2]
+  n_ch <- dim(arr)[3]
+
+  Rc <- round(arr[, , 1] * 255)
+  Gc <- if (n_ch >= 2L) round(arr[, , 2] * 255) else Rc
+  Bc <- if (n_ch >= 3L) round(arr[, , 3] * 255) else Rc
+
+  # --- (b) Background threshold on RGB brightness (R + G + B) ---
+  min_bright <- config$ldir_processed_image_min_brightness %||% 30L
+  brightness <- Rc + Gc + Bc
+  fg <- brightness >= min_bright
+
+  n_fg <- sum(fg)
+  if (n_fg == 0L) {
+    log_message("  Processed image: no foreground pixels above brightness ",
+                min_bright, " — returning empty result", level = "WARN")
+    return(.empty_processed_image_df())
+  }
+
+  # --- (c) Quantize each foreground pixel to its dominant colour channel ---
+  # max.col over the three channels gives 1=R, 2=G, 3=B per pixel. Processing
+  # each channel mask independently keeps two touching same-colour particles
+  # from merging, and keeps different-colour particles apart regardless of
+  # spatial adjacency.
+  dom <- max.col(cbind(as.vector(Rc), as.vector(Gc), as.vector(Bc)),
+                 ties.method = "first")
+  dom <- matrix(dom, nrow = h, ncol = w)
+
+  min_area <- config$ldir_min_blob_area_px %||% 5L
+  scale    <- config$ldir_image_scale_um_per_px %||% 1.0
+
+  cx_all <- numeric(0); cy_all <- numeric(0)
+  area_all <- numeric(0); feret_all <- numeric(0)
+
+  # --- (d) Per-channel connected components + blob measurements ---
+  for (ch in 1:3) {
+    mask <- fg & (dom == ch)
+    if (!any(mask)) next
+
+    cc <- .ldir_connected_components_8(mask, h, w)
+    if (cc$n_components == 0L) next
+    lab_mat <- cc$labels
+
+    fg_idx    <- which(mask, arr.ind = TRUE)   # columns: row, col
+    fg_labels <- lab_mat[mask]
+    tab       <- tabulate(fg_labels, nbins = cc$n_components)
+    keep_ids  <- which(tab >= min_area)
+    if (length(keep_ids) == 0L) next
+
+    for (id in keep_ids) {
+      sel  <- fg_labels == id
+      rows <- fg_idx[sel, 1]   # y (pixel rows)
+      cols <- fg_idx[sel, 2]   # x (pixel cols)
+      area_px <- length(rows)
+
+      # Feret max: largest pairwise distance among convex-hull vertices.
+      pts <- cbind(cols, rows)
+      hp  <- pts
+      if (nrow(pts) >= 3L) {
+        hull <- tryCatch(grDevices::chull(pts), error = function(e) NULL)
+        if (!is.null(hull) && length(hull) >= 2L) hp <- pts[hull, , drop = FALSE]
+      }
+      feret_px <- if (nrow(hp) >= 2L) max(stats::dist(hp)) else 1.0
+
+      cx_all    <- c(cx_all, mean(cols))
+      cy_all    <- c(cy_all, mean(rows))
+      area_all  <- c(area_all, area_px)
+      feret_all <- c(feret_all, feret_px)
+    }
+  }
+
+  n_blobs <- length(cx_all)
+  if (n_blobs == 0L) {
+    log_message("  Processed image: no blobs >= ", min_area,
+                " px — returning empty result", level = "WARN")
+    return(.empty_processed_image_df())
+  }
+
+  # --- (e) Convert pixel measurements to µm ---
+  feret_max_um <- feret_all * scale
+  # Equivalent-ellipse minor axis from area & major (feret) axis.
+  minor_px     <- 4 * area_all / (pi * pmax(feret_all, 1e-6))
+  minor_um     <- minor_px * scale
+  aspect_ratio <- feret_all / pmax(minor_px, 1e-6)
+
+  # --- (f) Assemble output (column set consumed by join_ldir_coords) ---
+  df <- data.frame(
+    particle_id  = paste0("LDIR_PROC_", seq_len(n_blobs)),
+    x_um         = cx_all * scale,
+    y_um         = cy_all * scale,
+    area_um2     = area_all * scale^2,
+    feret_max_um = feret_max_um,
+    feret_min_um = minor_um,
+    major_um     = feret_max_um,
+    minor_um     = minor_um,
+    aspect_ratio = aspect_ratio,
+    material     = NA_character_,
+    quality      = NA_real_,
+    coord_source = "processed_image",
+    source_file  = basename(img_path),
+    stringsAsFactors = FALSE
+  )
+
+  # --- (g) Log summary ---
+  log_message("  Processed image: ", n_blobs, " blobs extracted (", n_fg,
+              " foreground px), scale = ", round(scale, 4), " µm/px")
+
+  df
+}
+
+
+#' Internal: read a processed LDIR image into an [H, W, C] array in [0, 1]
+#'
+#' Prefers the format-specific reader (png / jpeg / tiff) implied by the file
+#' extension so extraction works even when magick is unavailable, and falls
+#' back to read_image_any() (magick) for any other format or on failure.
+.read_ldir_processed_rgb <- function(img_path) {
+  ext <- tolower(tools::file_ext(img_path))
+  arr <- NULL
+  if (ext == "png" && requireNamespace("png", quietly = TRUE)) {
+    arr <- tryCatch(png::readPNG(img_path), error = function(e) NULL)
+  } else if (ext %in% c("jpg", "jpeg") && requireNamespace("jpeg", quietly = TRUE)) {
+    arr <- tryCatch(jpeg::readJPEG(img_path), error = function(e) NULL)
+  } else if (ext %in% c("tif", "tiff") && requireNamespace("tiff", quietly = TRUE)) {
+    arr <- tryCatch(tiff::readTIFF(img_path), error = function(e) NULL)
+  }
+  if (is.null(arr)) arr <- read_image_any(img_path, verbose = FALSE)
+  arr
+}
+
+
+#' Internal: empty processed-image data frame (matching output schema)
+.empty_processed_image_df <- function() {
+  data.frame(
+    particle_id  = character(),
+    x_um         = numeric(),
+    y_um         = numeric(),
+    area_um2     = numeric(),
+    feret_max_um = numeric(),
+    feret_min_um = numeric(),
+    major_um     = numeric(),
+    minor_um     = numeric(),
+    aspect_ratio = numeric(),
+    material     = character(),
+    quality      = numeric(),
+    coord_source = character(),
+    source_file  = character(),
+    stringsAsFactors = FALSE
+  )
+}
+
+
 #' Internal: extract particle pixel centroids from LDIR image
 #'
 #' Returns particles with centroid_px_x, centroid_px_y in pixel coordinates
