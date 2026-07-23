@@ -104,11 +104,20 @@ test_that("extract_ldir_processed_image_coords segments coloured blobs into cent
     list(rows = 60:70, cols = 70:80, channel = 3L)    # blue
   ))
 
+  # scale = 1 µm/px keeps the geometry easy to reason about; coordinates are
+  # circle-centred (origin = image centre 50,50) and y increases upward.
   cfg <- list(ldir_processed_image_min_brightness = 30L,
               ldir_min_blob_area_px               = 5L,
-              ldir_image_scale_um_per_px          = NULL)   # scale = 1.0
+              ldir_image_scale_um_per_px          = 1.0)
 
-  df <- extract_ldir_processed_image_coords(path, cfg)
+  res <- extract_ldir_processed_image_coords(path, config = cfg)
+  df  <- res$particles
+
+  # Returns particles + a circle_info calibration object.
+  expect_type(res, "list")
+  expect_true(all(c("particles", "circle_info") %in% names(res)))
+  expect_true(isTRUE(res$circle_info$detected))
+  expect_equal(res$circle_info$scale_um_per_px, 1)
 
   # Required column set (superset OK) + one row per blob
   req <- c("x_um", "y_um", "area_um2", "feret_max_um", "major_um",
@@ -118,14 +127,20 @@ test_that("extract_ldir_processed_image_coords segments coloured blobs into cent
   expect_equal(nrow(df), 2L)
   expect_true(all(df$coord_source == "processed_image"))
 
-  # Centroids near the true blob centres (±2 px, scale = 1). Match by nearest.
-  green_row <- which.min((df$x_um - 25)^2 + (df$y_um - 25)^2)
-  blue_row  <- which.min((df$x_um - 75)^2 + (df$y_um - 65)^2)
+  # Circle-centred coords (image centre = 50,50; y up), scale = 1.
+  # Green centroid (col~25, row~25) -> x = 25-50 = -25, y = 50-25 = +25.
+  # Blue  centroid (col~75, row~65) -> x = 75-50 = +25, y = 50-65 = -15.
+  green_row <- which.min((df$x_um - (-25))^2 + (df$y_um - 25)^2)
+  blue_row  <- which.min((df$x_um - 25)^2   + (df$y_um - (-15))^2)
   expect_true(green_row != blue_row)
-  expect_equal(df$x_um[green_row], 25, tolerance = 2)
-  expect_equal(df$y_um[green_row], 25, tolerance = 2)
-  expect_equal(df$x_um[blue_row],  75, tolerance = 2)
-  expect_equal(df$y_um[blue_row],  65, tolerance = 2)
+  expect_equal(df$x_um[green_row], -25, tolerance = 2)
+  expect_equal(df$y_um[green_row],  25, tolerance = 2)
+  expect_equal(df$x_um[blue_row],   25, tolerance = 2)
+  expect_equal(df$y_um[blue_row],  -15, tolerance = 2)
+
+  # Pixel centroids preserved for diagnostics/overlay.
+  expect_equal(df$centroid_px_x[green_row], 25, tolerance = 2)
+  expect_equal(df$centroid_px_y[green_row], 25, tolerance = 2)
 
   # Area ~ pixel count (11 x 11 = 121 px) with unit scale.
   expect_equal(df$area_um2[green_row], 121, tolerance = 5)
@@ -147,14 +162,16 @@ test_that("extract_ldir_processed_image_coords applies the µm/px scale factor",
   ))
 
   df1 <- extract_ldir_processed_image_coords(
-    path, list(ldir_image_scale_um_per_px = 1.0))
+    path, config = list(ldir_image_scale_um_per_px = 1.0))$particles
   df2 <- extract_ldir_processed_image_coords(
-    path, list(ldir_image_scale_um_per_px = 2.0))
+    path, config = list(ldir_image_scale_um_per_px = 2.0))$particles
 
   expect_equal(nrow(df1), 1L)
   expect_equal(nrow(df2), 1L)
-  # Linear measures scale by 2, area by 4.
+  # Linear measures scale by 2, area by 4 (coords are centred, so they also
+  # scale linearly about the origin).
   expect_equal(df2$x_um,         df1$x_um * 2,         tolerance = 1e-6)
+  expect_equal(df2$y_um,         df1$y_um * 2,         tolerance = 1e-6)
   expect_equal(df2$feret_max_um, df1$feret_max_um * 2, tolerance = 1e-6)
   expect_equal(df2$area_um2,     df1$area_um2 * 4,     tolerance = 1e-6)
   # Aspect ratio is scale-invariant.
@@ -173,7 +190,7 @@ test_that("touching same-colour blobs stay separate via dominant-channel masks",
     list(rows = 40:60, cols = 51:70, channel = 3L)    # blue (adjacent)
   ))
 
-  df <- extract_ldir_processed_image_coords(path, list())
+  df <- extract_ldir_processed_image_coords(path, config = list())$particles
   expect_equal(nrow(df), 2L)
 })
 
@@ -184,8 +201,12 @@ test_that("extract_ldir_processed_image_coords returns an empty frame for a blan
   path <- file.path(d, "blank.png")
   .write_synthetic_overlay(path, 40L, 40L, list())   # all black
 
-  df <- extract_ldir_processed_image_coords(path, list())
+  res <- extract_ldir_processed_image_coords(path, config = list())
+  df  <- res$particles
   expect_s3_class(df, "data.frame")
   expect_equal(nrow(df), 0L)
   expect_true(all(c("x_um", "y_um", "coord_source") %in% names(df)))
+  # circle_info is still returned so callers never see NA/NULL placement fields.
+  expect_true(is.numeric(res$circle_info$cx_px))
+  expect_true(isTRUE(res$circle_info$scale_um_per_px > 0))
 })
