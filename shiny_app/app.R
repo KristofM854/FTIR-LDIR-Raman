@@ -1727,7 +1727,14 @@ server <- function(input, output, session) {
     # pixels to µm.  The image spans from -cx_px*scale to (w-cx_px)*scale in x
     # and from (cy_px-h)*scale to cy_px*scale in y (y upward, row 0 = ymax).
     ci <- if (!is.null(m)) m$ldir_circle else NULL
-    if (!is.null(ci) && !is.null(ci$scale_um_per_px) && ci$scale_um_per_px > 0) {
+    # Require every placement field to be a finite number: a partial/old
+    # manifest can carry JSON null (-> R NULL) for cx_px/cy_px/width/height,
+    # and `-NULL` errors ("invalid argument to unary operator"). Fall through
+    # to the symmetric scan-diameter bounds below when anything is missing.
+    .fin1 <- function(x) is.numeric(x) && length(x) == 1L && is.finite(x)
+    if (!is.null(ci) && .fin1(ci$scale_um_per_px) && ci$scale_um_per_px > 0 &&
+        .fin1(ci$cx_px) && .fin1(ci$cy_px) &&
+        .fin1(ci$image_width_px) && .fin1(ci$image_height_px)) {
       s  <- ci$scale_um_per_px
       cx <- ci$cx_px;  cy <- ci$cy_px
       w  <- ci$image_width_px;  h <- ci$image_height_px
