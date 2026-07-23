@@ -210,3 +210,143 @@ test_that("extract_ldir_processed_image_coords returns an empty frame for a blan
   expect_true(is.numeric(res$circle_info$cx_px))
   expect_true(isTRUE(res$circle_info$scale_um_per_px > 0))
 })
+
+# ---------------------------------------------------------------------------
+# Shape descriptors on processed blobs
+# ---------------------------------------------------------------------------
+
+test_that("extract_ldir_processed_image_coords reports invariant shape descriptors", {
+  skip_if_not_installed("png")
+
+  d    <- withr::local_tempdir()
+  path <- file.path(d, "shapes.png")
+  # A near-square blob (low eccentricity) and a thin bar (high eccentricity).
+  .write_synthetic_overlay(path, 100L, 120L, list(
+    list(rows = 20:40, cols = 20:40, channel = 2L),   # square
+    list(rows = 60:62, cols = 20:100, channel = 2L)   # thin horizontal bar
+  ))
+
+  df <- extract_ldir_processed_image_coords(path, config = list())$particles
+  expect_equal(nrow(df), 2L)
+  expect_true(all(c("eccentricity", "circularity", "solidity") %in% names(df)))
+
+  # Descriptors on sane scales.
+  expect_true(all(df$eccentricity >= 0 & df$eccentricity <= 1))
+  expect_true(all(df$circularity  >  0 & df$circularity  <= 1))
+  expect_true(all(df$solidity     >  0 & df$solidity     <= 1))
+
+  # Identify the bar by its larger feret; it must be far more eccentric and
+  # less circular than the square.
+  bar    <- which.max(df$feret_max_um)
+  square <- setdiff(seq_len(2), bar)
+  expect_gt(df$eccentricity[bar], df$eccentricity[square])
+  expect_gt(df$eccentricity[bar], 0.9)
+  expect_lt(df$circularity[bar],  df$circularity[square])
+  # Both blobs are convex -> high solidity.
+  expect_gt(min(df$solidity), 0.9)
+})
+
+# ---------------------------------------------------------------------------
+# relabel_ldir_low_hqi()
+# ---------------------------------------------------------------------------
+
+.ldir_ingest_like <- function() {
+  data.frame(
+    particle_id = paste0("A", 1:5),
+    material    = c("Polyethylene terephtalate (PET)", "Polyamide (PA)",
+                    "Tire", "Polyethylene terephthalate", "Polyether sulphone (PES)"),
+    quality     = c(0.97, 0.84, 0.68, 0.90, 0.647),
+    feret_max_um = c(50, 40, 30, 20, 10),
+    stringsAsFactors = FALSE
+  )
+}
+
+test_that("relabel_ldir_low_hqi relabels sub-threshold particles as unknown, keeps all rows", {
+  df  <- .ldir_ingest_like()
+  out <- relabel_ldir_low_hqi(df, list(ldir_hqi_unknown_threshold = 0.85))
+
+  expect_equal(nrow(out), 5L)                       # nothing dropped
+  # quality < 0.85 -> "unknown"; A2 (0.84), A3 (0.68), A5 (0.647).
+  expect_equal(out$material,
+               c("Polyethylene terephtalate (PET)", "unknown", "unknown",
+                 "Polyethylene terephthalate", "unknown"))
+  # Raw identification preserved.
+  expect_equal(out$identification_raw, df$material)
+})
+
+test_that("relabel_ldir_low_hqi is a no-op when the threshold is NULL or 0", {
+  df <- .ldir_ingest_like()
+  expect_equal(relabel_ldir_low_hqi(df, list(ldir_hqi_unknown_threshold = NULL))$material,
+               df$material)
+  expect_equal(relabel_ldir_low_hqi(df, list(ldir_hqi_unknown_threshold = 0))$material,
+               df$material)
+})
+
+# ---------------------------------------------------------------------------
+# join_ldir_coords() shape-fingerprint disambiguation
+# ---------------------------------------------------------------------------
+
+test_that("shape fingerprint resolves a swap that size/rank alone cannot", {
+  # Two particles with IDENTICAL size (so area/feret/rank are uninformative)
+  # but distinct shapes. The image blobs are listed in REVERSED order, so only
+  # the shape fingerprint can recover the correct assignment.
+  excel <- data.frame(
+    particle_id  = c("P1", "P2"),
+    x_um = NA_real_, y_um = NA_real_,
+    area_um2     = c(1000, 1000),
+    feret_max_um = c(50, 50),
+    major_um     = c(50, 50), minor_um = c(25, 25),
+    aspect_ratio = c(2, 2),
+    eccentricity = c(0.10, 0.90),   # P1 round-ish, P2 elongated
+    circularity  = c(0.90, 0.50),
+    solidity     = c(0.98, 0.80),
+    stringsAsFactors = FALSE
+  )
+  image <- data.frame(
+    particle_id  = c("B1", "B2"),
+    x_um = c(100, 200), y_um = c(0, 0),   # B1 has P2's shape, B2 has P1's shape
+    area_um2     = c(1000, 1000),
+    feret_max_um = c(50, 50),
+    major_um     = c(50, 50), minor_um = c(25, 25),
+    eccentricity = c(0.90, 0.10),
+    circularity  = c(0.50, 0.90),
+    solidity     = c(0.80, 0.98),
+    coord_source = "processed_image",
+    stringsAsFactors = FALSE
+  )
+
+  cfg <- make_config()
+  joined <- join_ldir_coords(excel, image, config = cfg)
+
+  # P1 (round) must take B2 (x=200); P2 (elongated) must take B1 (x=100).
+  expect_equal(joined$x_um[joined$particle_id == "P1"], 200)
+  expect_equal(joined$x_um[joined$particle_id == "P2"], 100)
+})
+
+test_that("join_ldir_coords is unaffected when image blobs lack shape descriptors", {
+  # Optical-path image_df (no eccentricity/circularity/solidity): the shape
+  # term must stay inert and matching proceeds on size/rank as before.
+  excel <- data.frame(
+    particle_id  = c("P1", "P2"),
+    x_um = NA_real_, y_um = NA_real_,
+    area_um2     = c(4000, 1000),
+    feret_max_um = c(80, 40),
+    major_um     = c(80, 40), minor_um = c(40, 20),
+    aspect_ratio = c(2, 2),
+    eccentricity = c(0.1, 0.9), circularity = c(0.9, 0.5), solidity = c(0.98, 0.8),
+    stringsAsFactors = FALSE
+  )
+  image <- data.frame(
+    particle_id  = c("B1", "B2"),
+    x_um = c(100, 200), y_um = c(0, 0),
+    area_um2     = c(4000, 1000),
+    feret_max_um = c(80, 40),
+    major_um     = c(80, 40), minor_um = c(40, 20),
+    coord_source = "circle_calibrated",
+    stringsAsFactors = FALSE
+  )
+  joined <- join_ldir_coords(excel, image, config = make_config())
+  # Larger P1 -> larger blob B1 (x=100); smaller P2 -> B2 (x=200).
+  expect_equal(joined$x_um[joined$particle_id == "P1"], 100)
+  expect_equal(joined$x_um[joined$particle_id == "P2"], 200)
+})
