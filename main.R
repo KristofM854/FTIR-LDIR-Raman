@@ -367,6 +367,9 @@ ldir_raw <- NULL
 has_ldir <- !is.null(config$ldir_path) && nzchar(config$ldir_path)
 if (has_ldir) {
   ldir_raw <- ingest_ldir(config$ldir_path)
+  # Relabel low-HQI identifications as "unknown" (kept, not dropped) to mirror
+  # the LDIR software; flows into the viewer and the agreement analysis.
+  ldir_raw <- relabel_ldir_low_hqi(ldir_raw, config)
   write.csv(ldir_raw, file.path(.out_dirs$ingested, "ldir_ingested.csv"), row.names = FALSE)
   log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
 } else {
