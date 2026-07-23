@@ -1601,20 +1601,29 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
     rank_cost <- matrix(0, nrow = n_excel, ncol = n_image)
   }
 
-  # --- Shape-fingerprint term ---
-  # For each invariant descriptor present on BOTH sides (eccentricity,
-  # circularity, solidity), rank the Excel column and the image column
+  # --- Shape-fingerprint term (size-gated tiebreaker) ---
+  # For each descriptor in ldir_join_shape_descriptors (default: eccentricity
+  # only) present on BOTH sides, rank the Excel column and the image column
   # independently and penalise the normalized rank difference — the same
-  # rank-based, monotonic-transform-invariant scheme used for size rank. This
-  # disambiguates particles of near-identical size (the processed overlay is the
-  # machine's own segmentation, so its shape fingerprint tracks the Excel one).
+  # rank-based, monotonic-transform-invariant scheme used for size rank. Because
+  # the processed overlay is the machine's own segmentation, this fingerprint
+  # disambiguates particles of near-identical size that size/rank alone swap.
+  #
+  # A size gate confines shape to genuine near-ties: for a candidate pair whose
+  # areas differ, the shape cost is blended toward a NEUTRAL MAXIMUM, so a
+  # wrong-size pairing can never be made attractive by a coincidental shape
+  # match (which otherwise flips clearly size-separated particles, e.g. A1/A2).
+  # Eccentricity survives rasterization; circularity/solidity do not match
+  # Agilent's vector definitions and are excluded by default (see 00_config.R).
+  #
   # The term is inert unless the image side carries the descriptors, so the
   # optical-image path is unaffected.
-  w_shape <- if (!is.null(config$ldir_join_weight_shape)) config$ldir_join_weight_shape else 1.0
-  shape_cost <- matrix(0, nrow = n_excel, ncol = n_image)
-  if (w_shape > 0) {
-    shape_descs <- c("eccentricity", "circularity", "solidity")
-    n_active <- 0L
+  w_shape     <- if (!is.null(config$ldir_join_weight_shape)) config$ldir_join_weight_shape else 1.0
+  shape_descs <- if (!is.null(config$ldir_join_shape_descriptors)) config$ldir_join_shape_descriptors else "eccentricity"
+  gate_scale  <- if (!is.null(config$ldir_join_shape_size_gate)) config$ldir_join_shape_size_gate else 0.15
+  shape_cost  <- matrix(0, nrow = n_excel, ncol = n_image)
+  if (w_shape > 0 && length(shape_descs) > 0) {
+    active <- character(0)
     for (d in shape_descs) {
       if (!(d %in% names(excel_df) && d %in% names(image_df))) next
       ev <- suppressWarnings(as.numeric(excel_df[[d]]))
@@ -1626,12 +1635,25 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
       re <- rank(ev, ties.method = "average") / n_excel
       ri <- rank(iv, ties.method = "average") / n_image
       shape_cost <- shape_cost + outer(re, ri, FUN = function(a, b) abs(a - b))
-      n_active <- n_active + 1L
+      active <- c(active, d)
     }
-    if (n_active > 0L) {
-      shape_cost <- shape_cost / n_active     # average -> [0, 1]
-      log_message("  Shape-fingerprint term active on ", n_active,
-                  " descriptor(s) (weight ", w_shape, ")")
+    if (length(active) > 0L) {
+      shape_cost <- shape_cost / length(active)     # average -> [0, 1)
+
+      # Size gate: gate -> 1 when areas match (full shape discrimination),
+      # gate -> 0 as |log(area ratio)| grows (shape -> neutral max = 1, so it
+      # cannot discount a wrong-size pairing).
+      if (is.finite(gate_scale) && gate_scale > 0) {
+        abs_log_area <- outer(log(pmax(excel_area, 1e-6, na.rm = FALSE)),
+                              log(pmax(image_area, 1e-6, na.rm = FALSE)),
+                              FUN = function(a, b) abs(a - b))
+        abs_log_area[is.na(abs_log_area)] <- 0
+        gate <- exp(-(abs_log_area / gate_scale)^2)
+        shape_cost <- gate * shape_cost + (1 - gate) * 1.0
+      }
+      log_message("  Shape-fingerprint term active on ", length(active),
+                  " descriptor(s): ", paste(active, collapse = ", "),
+                  " (weight ", w_shape, ", size-gate ", gate_scale, ")")
     } else {
       w_shape <- 0
     }
