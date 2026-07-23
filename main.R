@@ -785,7 +785,11 @@ if (has_ldir && !is.null(ldir_raw)) {
     # correctly-scaled sizes (the optical image over-sizes large particles ~3x),
     # so feeding them to join_ldir_coords fixes size-based matching for large
     # particles.  Falls back to optical-image circle-calibrated extraction.
-    processed_img <- find_ldir_processed_image(ldir_img_for_extraction, config)
+    #
+    # Search next to the ORIGINAL selected image (config$ldir_image), where the
+    # user's "<name>_analyzed.<ext>" export lives — not ldir_img_for_extraction,
+    # which may point at the canonicalized copy in the run's inputs/ folder.
+    processed_img <- find_ldir_processed_image(config$ldir_image, config)
     if (!is.null(processed_img)) {
       log_message("Using LDIR processed image for coordinate extraction: ",
                   basename(processed_img))
