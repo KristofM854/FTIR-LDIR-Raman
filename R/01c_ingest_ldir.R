@@ -62,6 +62,9 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
   qual_col   <- find_column(raw, c("Quality"))
   valid_col  <- find_column(raw, c("Is Valid"))
   aspect_col <- find_column(raw, c("Aspect Ratio"))
+  ecc_col    <- find_column(raw, c("Eccentricity"))
+  circ_col   <- find_column(raw, c("Circularity"))
+  solid_col  <- find_column(raw, c("Solidity"))
 
   # Particle IDs
   particle_ids <- if (!is.null(id_col)) {
@@ -105,11 +108,19 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
     feret_min_um = feret_min,
     feret_max_um = feret_max,
     material     = material,
+    # Preserve the raw Agilent identification; `material` may later be
+    # relabelled to "unknown" for low-HQI particles (relabel_ldir_low_hqi()).
+    identification_raw = material,
     quality      = quality,
     source_file  = basename(filepath),
     # Keep LDIR-specific columns
     diameter_um  = diam_um,
     aspect_ratio = safe_col_numeric(raw, aspect_col),
+    # Rotation/scale-invariant shape descriptors (used by join_ldir_coords'
+    # shape-fingerprint term when the image side also carries them).
+    eccentricity = safe_col_numeric(raw, ecc_col),
+    circularity  = safe_col_numeric(raw, circ_col),
+    solidity     = safe_col_numeric(raw, solid_col),
     stringsAsFactors = FALSE
   )
 
@@ -121,6 +132,40 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
   log_message("  Materials: ", paste(names(head(sort(table(df$material), decreasing = TRUE), 10)),
                                      collapse = ", "))
 
+  df
+}
+
+
+#' Relabel low-HQI LDIR particles as "unknown"
+#'
+#' Mirrors the LDIR software's display rule: any particle whose Agilent quality
+#' score (HQI) is below config$ldir_hqi_unknown_threshold has its reported
+#' material set to "unknown" — the particle itself is always kept.  The raw
+#' identification stays in identification_raw.  Because this rewrites the
+#' `material` column in place, the relabel flows to every downstream consumer
+#' (viewer, alignment anchors, and the cross-instrument agreement analysis).
+#'
+#' @param df     Data frame from ingest_ldir() (needs `material`, `quality`)
+#' @param config Pipeline config (uses ldir_hqi_unknown_threshold; NULL/0/absent
+#'   disables relabelling)
+#' @return df with `material` relabelled and identification_raw preserved
+relabel_ldir_low_hqi <- function(df, config = NULL) {
+  thr <- if (!is.null(config)) config$ldir_hqi_unknown_threshold else 0.85
+  if (is.null(thr) || !is.numeric(thr) || thr <= 0) return(df)
+
+  # Preserve the raw identification if ingest didn't already record it.
+  if (!"identification_raw" %in% names(df)) df$identification_raw <- df$material
+
+  q <- suppressWarnings(as.numeric(df$quality))
+  low <- !is.na(q) & q < thr
+  n_low <- sum(low)
+  if (n_low > 0) {
+    df$material[low] <- "unknown"
+    log_message("  HQI relabel (< ", thr, "): ", n_low, " of ", nrow(df),
+                " particles reported as 'unknown' (raw kept in identification_raw)")
+  } else {
+    log_message("  HQI relabel (< ", thr, "): no particles below threshold")
+  }
   df
 }
 
@@ -970,6 +1015,7 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
 
   cx_all <- numeric(0); cy_all <- numeric(0)
   area_all <- numeric(0); feret_all <- numeric(0)
+  ecc_all <- numeric(0); circ_all <- numeric(0); solid_all <- numeric(0)
 
   # --- (d) Per-channel connected components + blob measurements ---
   for (ch in 1:3) {
@@ -1001,10 +1047,15 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
       }
       feret_px <- if (nrow(hp) >= 2L) max(stats::dist(hp)) else 1.0
 
+      shp <- .ldir_blob_shape(rows, cols)
+
       cx_all    <- c(cx_all, mean(cols))
       cy_all    <- c(cy_all, mean(rows))
       area_all  <- c(area_all, area_px)
       feret_all <- c(feret_all, feret_px)
+      ecc_all   <- c(ecc_all, shp$eccentricity)
+      circ_all  <- c(circ_all, shp$circularity)
+      solid_all <- c(solid_all, shp$solidity)
     }
   }
 
@@ -1040,6 +1091,9 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
     major_um      = feret_max_um,
     minor_um      = minor_um,
     aspect_ratio  = aspect_ratio,
+    eccentricity  = ecc_all,
+    circularity   = circ_all,
+    solidity      = solid_all,
     material      = NA_character_,
     quality       = NA_real_,
     coord_source  = "processed_image",
@@ -1093,12 +1147,70 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
     major_um      = numeric(),
     minor_um      = numeric(),
     aspect_ratio  = numeric(),
+    eccentricity  = numeric(),
+    circularity   = numeric(),
+    solidity      = numeric(),
     material      = character(),
     quality       = numeric(),
     coord_source  = character(),
     source_file   = character(),
     stringsAsFactors = FALSE
   )
+}
+
+
+#' Internal: rotation/scale-invariant shape descriptors of a blob
+#'
+#' Computes eccentricity (from second central moments), circularity
+#' (4*pi*area / perimeter^2, 4-connectivity boundary) and solidity
+#' (area / convex-hull area) from a blob's pixel coordinates.  Values are on the
+#' usual (0, 1] scales; join_ldir_coords rank-matches them against the Excel
+#' columns, so exact agreement with Agilent's vector definitions is not required
+#' — only a monotonic relationship, which raster descriptors preserve.
+#'
+#' @param rows,cols Integer pixel coordinates of the blob (y, x)
+#' @return list(eccentricity, circularity, solidity, perimeter_px)
+.ldir_blob_shape <- function(rows, cols) {
+  area <- length(rows)
+
+  # Eccentricity from second central moments of the pixel cloud.
+  cx <- mean(cols); cy <- mean(rows)
+  dx <- cols - cx;  dy <- rows - cy
+  mu20 <- mean(dx * dx); mu02 <- mean(dy * dy); mu11 <- mean(dx * dy)
+  common <- sqrt(max(0, (mu20 - mu02)^2 + 4 * mu11^2))
+  l1 <- (mu20 + mu02 + common) / 2
+  l2 <- (mu20 + mu02 - common) / 2
+  ecc <- if (l1 > 1e-9) sqrt(max(0, 1 - l2 / l1)) else 0
+
+  # Solidity = area / convex-hull area (shoelace over hull vertices).
+  solidity <- 1
+  pts <- cbind(cols, rows)
+  if (area >= 3L && nrow(unique(pts)) >= 3L) {
+    hull <- tryCatch(grDevices::chull(pts), error = function(e) NULL)
+    if (!is.null(hull) && length(hull) >= 3L) {
+      hx <- pts[hull, 1]; hy <- pts[hull, 2]; k <- length(hull)
+      nx <- c(2:k, 1L)
+      harea <- abs(sum(hx * hy[nx] - hx[nx] * hy)) / 2
+      if (harea > 0) solidity <- min(1, area / harea)
+    }
+  }
+
+  # Perimeter = count of 4-connectivity boundary pixels on a padded submatrix.
+  rmin <- min(rows); cmin <- min(cols)
+  sr <- rows - rmin + 2L; sc <- cols - cmin + 2L
+  sh <- max(sr) + 1L;     sw <- max(sc) + 1L
+  M <- matrix(FALSE, sh, sw)
+  M[cbind(sr, sc)] <- TRUE
+  up    <- rbind(FALSE, M[-sh, , drop = FALSE])
+  down  <- rbind(M[-1, , drop = FALSE], FALSE)
+  left  <- cbind(FALSE, M[, -sw, drop = FALSE])
+  right <- cbind(M[, -1, drop = FALSE], FALSE)
+  boundary <- M & (!up | !down | !left | !right)
+  perim <- sum(boundary)
+  circ  <- if (perim > 0) min(1, 4 * pi * area / (perim^2)) else 0
+
+  list(eccentricity = ecc, circularity = circ, solidity = solidity,
+       perimeter_px = perim)
 }
 
 
@@ -1489,8 +1601,45 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
     rank_cost <- matrix(0, nrow = n_excel, ncol = n_image)
   }
 
+  # --- Shape-fingerprint term ---
+  # For each invariant descriptor present on BOTH sides (eccentricity,
+  # circularity, solidity), rank the Excel column and the image column
+  # independently and penalise the normalized rank difference — the same
+  # rank-based, monotonic-transform-invariant scheme used for size rank. This
+  # disambiguates particles of near-identical size (the processed overlay is the
+  # machine's own segmentation, so its shape fingerprint tracks the Excel one).
+  # The term is inert unless the image side carries the descriptors, so the
+  # optical-image path is unaffected.
+  w_shape <- if (!is.null(config$ldir_join_weight_shape)) config$ldir_join_weight_shape else 1.0
+  shape_cost <- matrix(0, nrow = n_excel, ncol = n_image)
+  if (w_shape > 0) {
+    shape_descs <- c("eccentricity", "circularity", "solidity")
+    n_active <- 0L
+    for (d in shape_descs) {
+      if (!(d %in% names(excel_df) && d %in% names(image_df))) next
+      ev <- suppressWarnings(as.numeric(excel_df[[d]]))
+      iv <- suppressWarnings(as.numeric(image_df[[d]]))
+      if (all(is.na(ev)) || all(is.na(iv))) next
+      # Impute missing values with the column median so ranks stay defined.
+      ev[is.na(ev)] <- stats::median(ev, na.rm = TRUE)
+      iv[is.na(iv)] <- stats::median(iv, na.rm = TRUE)
+      re <- rank(ev, ties.method = "average") / n_excel
+      ri <- rank(iv, ties.method = "average") / n_image
+      shape_cost <- shape_cost + outer(re, ri, FUN = function(a, b) abs(a - b))
+      n_active <- n_active + 1L
+    }
+    if (n_active > 0L) {
+      shape_cost <- shape_cost / n_active     # average -> [0, 1]
+      log_message("  Shape-fingerprint term active on ", n_active,
+                  " descriptor(s) (weight ", w_shape, ")")
+    } else {
+      w_shape <- 0
+    }
+  }
+
   # Combined base cost (same dimensions: n_excel × n_image)
-  base_cost <- log_area + 0.5 * log_feret + w_ar * ar_cost + w_rank * rank_cost
+  base_cost <- log_area + 0.5 * log_feret + w_ar * ar_cost + w_rank * rank_cost +
+               w_shape * shape_cost
 
   # --- Pass 0: rank-first mini-Hungarian for the largest particles ---
   # The LDIR instrument guarantees that Excel rows are in descending-size order,
