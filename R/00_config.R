@@ -258,6 +258,38 @@ make_config <- function(ftir_path  = NULL,
     #   NULL = disabled.
     ldir_join_merge_dist_um = NULL,
 
+    # --- LDIR processed (analyzed) particle-overlay image ---
+    # The optical (white-light) LDIR image over-sizes large particle blobs by
+    # ~3x in linear dimension (optical halo/scattering), which breaks size-based
+    # matching for large particles.  The LDIR software can additionally export an
+    # "analyzed" overlay image where the SAME particles are drawn as solid
+    # coloured blobs (green, blue, …) on a pure-black background; those blobs are
+    # the machine's own segmentation and their sizes match the Excel data.  When
+    # such an image is present alongside the optical image, the pipeline uses it
+    # (via extract_ldir_processed_image_coords) as the image_df fed to
+    # join_ldir_coords, so the matcher receives correctly-scaled blobs.
+
+    # ldir_processed_image_suffix: filename suffix to search for when
+    #   looking for the LDIR software's analyzed particle overlay image.
+    #   Set to NULL to disable processed-image extraction entirely.
+    ldir_processed_image_suffix = "_analyzed",
+
+    # ldir_processed_image_min_brightness: per-pixel RGB sum threshold
+    #   below which a pixel is treated as background (pure black = 0).
+    ldir_processed_image_min_brightness = 30L,
+
+    # ldir_min_blob_area_px: minimum connected-component area (pixels) for a
+    #   processed-image blob to be kept.  Smaller components are discarded as
+    #   noise / rendering artifacts.
+    ldir_min_blob_area_px = 5L,
+
+    # ldir_image_scale_um_per_px: µm-per-pixel scale applied to processed-image
+    #   pixel measurements.  The processed overlay shares the optical image's
+    #   pixel dimensions and scale, so this is the same µm/px as the optical
+    #   calibration.  NULL = 1.0 (measurements stay in pixel units; size-based
+    #   matching still works because only relative sizes/ranks drive the join).
+    ldir_image_scale_um_per_px = NULL,
+
     # When TRUE, every Excel particle is assigned an image coordinate regardless
     # of size-match cost — no joins are rejected. Use the coord_match_cost slider
     # in the Shiny viewer to post-hoc filter poor-quality coordinate assignments.
