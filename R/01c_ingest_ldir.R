@@ -1876,6 +1876,28 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
                 ", max: ", round(max(costs), 3))
   }
 
+  # Size-mismatch diagnostic: flag joined particles whose assigned image blob
+  # differs a lot in area from the Excel particle (a large<->small mis-assign,
+  # e.g. tiny A36 landing on a big blob). A large discrepancy points at either a
+  # mis-measured blob (extraction) or a genuinely poor match — both are visible
+  # here and filterable via coord_match_cost in the viewer.
+  if ("image_area_um2" %in% names(excel_df)) {
+    lr <- log(pmax(excel_df$area_um2, 1e-6) / pmax(excel_df$image_area_um2, 1e-6))
+    bad <- which(is.finite(lr) & abs(lr) > log(4))   # >4x area discrepancy
+    if (length(bad) > 0) {
+      ord <- bad[order(-abs(lr[bad]))]
+      log_message("  Size-mismatch: ", length(bad),
+                  " joined particle(s) whose blob differs >4x in area (check/filter these):",
+                  level = "WARN")
+      for (i in head(ord, 10L)) {
+        log_message("    ", excel_df$particle_id[i], ": Excel area ",
+                    round(excel_df$area_um2[i]), " µm² vs blob ",
+                    round(excel_df$image_area_um2[i]), " µm² (cost ",
+                    round(excel_df$coord_match_cost[i], 2), ")", level = "WARN")
+      }
+    }
+  }
+
   excel_df
 }
 

@@ -245,13 +245,17 @@ make_config <- function(ftir_path  = NULL,
 
     # ldir_join_weight_shape: weight for the shape-fingerprint term. Each
     #   descriptor in ldir_join_shape_descriptors that is present on both sides
-    #   is rank-matched against the same Excel column and the normalized rank
-    #   differences are averaged.  Because the processed overlay is the machine's
-    #   own segmentation, this fingerprint disambiguates particles of
-    #   near-identical size that the size/rank terms alone swap.  The term is
-    #   inert when either side lacks the descriptors (e.g. the optical-image
-    #   path), so it only affects processed-image runs. 0 = disable.
-    ldir_join_weight_shape = 1.0,
+    #   is rank-matched against the same Excel column, averaged, and size-gated.
+    #
+    #   DEFAULT 0 (disabled). On a real ~1000-px analyzed overlay the shape
+    #   descriptors computed from the rasterized blobs — especially eccentricity
+    #   of the small, few-pixel blobs — are too noisy and FIGHT the near-exact
+    #   size ranking, roughly halving the correct-match rate (measured 33/40 with
+    #   shape off vs 16/40 with shape on). Size + rank alone is the reliable
+    #   signal because the overlay is the machine's own segmentation. Enable this
+    #   (e.g. 0.5-1.0) only for high-resolution exports where per-blob shape is
+    #   trustworthy.
+    ldir_join_weight_shape = 0,
 
     # ldir_join_shape_descriptors: which invariant shape descriptors feed the
     #   shape-fingerprint term.  Default is eccentricity ONLY: it is a
