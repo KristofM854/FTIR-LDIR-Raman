@@ -343,6 +343,16 @@ make_config <- function(ftir_path  = NULL,
     #   touching DIFFERENT-colour particles must be kept apart.
     ldir_processed_segmentation = "brightness",
 
+    # ldir_processed_scale_from_excel: when TRUE (default), derive the
+    #   processed-image µm/px scale from the Excel total particle area (ground
+    #   truth) instead of assuming the overlay spans the full scan circle. The
+    #   overlay often covers only the deposit region, which otherwise inflates
+    #   areas ~7x and induces large<->small matching swaps. Ignored when
+    #   ldir_image_scale_um_per_px is set explicitly, or when the extracted blob
+    #   count does not match the Excel particle count. Set FALSE to always use
+    #   the scan-diameter scale.
+    ldir_processed_scale_from_excel = TRUE,
+
     # ldir_image_scale_um_per_px: µm-per-pixel scale applied to processed-image
     #   pixel measurements.  The processed overlay shares the optical image's
     #   pixel dimensions and scale, so this is the same µm/px as the optical
