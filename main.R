@@ -798,7 +798,9 @@ if (has_ldir && !is.null(ldir_raw)) {
                   basename(processed_img))
       ldir_proc_result     <- extract_ldir_processed_image_coords(
         processed_img, scan_bounds = ldir_scan_bounds,
-        expected_count = nrow(ldir_raw), config = config
+        expected_count = nrow(ldir_raw),
+        expected_total_area_um2 = sum(ldir_raw$area_um2, na.rm = TRUE),
+        config = config
       )
       ldir_image_particles <- ldir_proc_result$particles
       .ldir_circle_info    <- ldir_proc_result$circle_info
