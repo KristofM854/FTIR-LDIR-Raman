@@ -178,20 +178,52 @@ test_that("extract_ldir_processed_image_coords applies the µm/px scale factor",
   expect_equal(df2$aspect_ratio, df1$aspect_ratio, tolerance = 1e-6)
 })
 
-test_that("touching same-colour blobs stay separate via dominant-channel masks", {
+test_that("brightness segmentation keeps a white-cored blob whole (no drop/duplicate)", {
+  skip_if_not_installed("png")
+
+  d    <- withr::local_tempdir()
+  path <- file.path(d, "whitecore.png")
+  # One particle: blue body with a WHITE core. Under dominant-channel masks the
+  # white core (R-dominant) and blue body (B-dominant) split into two co-located
+  # fragments; brightness mode must keep it as a single blob.
+  arr <- array(0, dim = c(80L, 80L, 3L))
+  arr[30:50, 30:50, 3] <- 0.85          # blue body
+  arr[30:50, 30:50, 2] <- 0.55
+  arr[37:43, 37:43, 1:3] <- 1           # white core
+  png::writePNG(arr, path)
+
+  # Brightness (default): one blob.
+  res_b <- extract_ldir_processed_image_coords(path, config = list())
+  expect_equal(nrow(res_b$particles), 1L)
+  # Mean colour recorded for future material use.
+  expect_true(all(c("mean_r", "mean_g", "mean_b") %in% names(res_b$particles)))
+  expect_gt(res_b$particles$mean_b[1], res_b$particles$mean_r[1])   # bluish
+
+  # Legacy color-channel mode splits the same particle into >1 fragment.
+  res_c <- extract_ldir_processed_image_coords(
+    path, config = list(ldir_processed_segmentation = "color_channel"))
+  expect_gt(nrow(res_c$particles), 1L)
+})
+
+test_that("color_channel mode keeps touching different-colour blobs separate", {
   skip_if_not_installed("png")
 
   d    <- withr::local_tempdir()
   path <- file.path(d, "touch.png")
-  # A green and a blue square sharing an edge (cols 50/51) must remain 2 blobs
-  # because colour quantization processes each channel independently.
+  # A green and a blue square sharing an edge (cols 50/51).
   .write_synthetic_overlay(path, 100L, 100L, list(
     list(rows = 40:60, cols = 30:50, channel = 2L),   # green
     list(rows = 40:60, cols = 51:70, channel = 3L)    # blue (adjacent)
   ))
 
-  df <- extract_ldir_processed_image_coords(path, config = list())$particles
-  expect_equal(nrow(df), 2L)
+  # Legacy per-channel mode separates them by colour...
+  df_c <- extract_ldir_processed_image_coords(
+    path, config = list(ldir_processed_segmentation = "color_channel"))$particles
+  expect_equal(nrow(df_c), 2L)
+
+  # ...while brightness mode (default) merges the touching pair into one blob.
+  df_b <- extract_ldir_processed_image_coords(path, config = list())$particles
+  expect_equal(nrow(df_b), 1L)
 })
 
 test_that("extract_ldir_processed_image_coords returns an empty frame for a blank image", {
