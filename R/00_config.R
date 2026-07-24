@@ -226,6 +226,15 @@ make_config <- function(ftir_path  = NULL,
     #   0 = disable. Higher values penalise shape-order swaps more strongly.
     ldir_join_weight_ar = 0.3,
 
+    # ldir_join_rank_metric: which size measure orders particles for the
+    #   rank-consistency penalty (and the Pass-0 anchoring).  The LDIR Excel is
+    #   sorted by AREA, so both sides MUST be ranked by the same metric or
+    #   elongated particles are mis-ordered (a large-feret, small-area particle
+    #   like A2 otherwise steals a larger particle's blob).  "area" (default) is
+    #   consistent with the Excel sort and is the reliable measure on the
+    #   processed overlay; "feret" restores the historical behaviour.
+    ldir_join_rank_metric = "area",
+
     # ldir_join_weight_rank: weight for the normalized rank-consistency penalty.
     #   LDIR numbers particles largest-first; a large rank discrepancy between
     #   an Excel row and an image blob indicates a probable size-order swap.
