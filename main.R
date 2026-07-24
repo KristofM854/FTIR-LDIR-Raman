@@ -797,7 +797,8 @@ if (has_ldir && !is.null(ldir_raw)) {
       log_message("Using LDIR processed image for coordinate extraction: ",
                   basename(processed_img))
       ldir_proc_result     <- extract_ldir_processed_image_coords(
-        processed_img, scan_bounds = ldir_scan_bounds, config = config
+        processed_img, scan_bounds = ldir_scan_bounds,
+        expected_count = nrow(ldir_raw), config = config
       )
       ldir_image_particles <- ldir_proc_result$particles
       .ldir_circle_info    <- ldir_proc_result$circle_info
