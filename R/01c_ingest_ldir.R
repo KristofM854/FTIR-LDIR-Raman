@@ -1589,12 +1589,20 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   }
 
   # --- Rank-consistency penalty ---
-  # LDIR Excel rows are in descending-size order; image blobs are ranked the
-  # same way.  A normalized rank difference penalises improbable size-order
-  # swaps without hard-rejecting them.
+  # LDIR Excel rows are in descending-size order; the image blobs must be ranked
+  # by the SAME metric or the penalty mis-orders particles.  The LDIR Excel is
+  # sorted by AREA, so ranking the image by feret (the historical default)
+  # scrambles elongated particles: e.g. A2 (aspect 0.34) has a larger feret than
+  # A1 despite a smaller area, so a feret rank pulls A1's row onto A2's blob.
+  # ldir_join_rank_metric selects the ranking basis; "area" (default) keeps both
+  # sides consistent and is the reliable measure on the processed overlay.
   if (w_rank > 0) {
-    rank_excel <- seq_len(n_excel) / n_excel
-    rank_image <- rank(-ifelse(is.na(image_feret), 0, image_feret),
+    rank_metric <- if (!is.null(config$ldir_join_rank_metric)) config$ldir_join_rank_metric else "area"
+    excel_rank_vals <- if (identical(rank_metric, "feret")) excel_feret else excel_area
+    image_rank_vals <- if (identical(rank_metric, "feret")) image_feret else image_area
+    rank_excel <- rank(-ifelse(is.na(excel_rank_vals), 0, excel_rank_vals),
+                       ties.method = "average") / n_excel
+    rank_image <- rank(-ifelse(is.na(image_rank_vals), 0, image_rank_vals),
                        ties.method = "average") / n_image
     rank_cost <- outer(rank_excel, rank_image, FUN = function(a, b) abs(a - b))
   } else {
@@ -1664,21 +1672,24 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
                w_shape * shape_cost
 
   # --- Pass 0: rank-first mini-Hungarian for the largest particles ---
-  # The LDIR instrument guarantees that Excel rows are in descending-size order,
-  # and the image blobs are ranked the same way.  For the top K particles the
-  # rank signal is extremely reliable (1-to-1 correspondence expected), so we
-  # run a rank-only Hungarian sub-problem and lock those assignments before
-  # letting the size-based cost (which degrades for large, irregular particles)
-  # interfere.
+  # The LDIR Excel is in descending-area order and the top image blobs are taken
+  # by area, so the rank signal anchors the largest particles before the
+  # size-magnitude cost (which degrades for large, irregular particles) can
+  # interfere.  The shape fingerprint is ADDED to this sub-problem so genuine
+  # near-ties among the largest particles (e.g. A3/A4, ~0.6% apart in area but
+  # clearly different in eccentricity) are broken here rather than locked
+  # arbitrarily — Pass 0 locks are final, so shape must participate.
   rank_first_frac <- if (!is.null(config$ldir_join_rank_first_frac)) config$ldir_join_rank_first_frac else 0.25
   rank_first_k    <- min(ceiling(n_excel * rank_first_frac), n_image)
   locked_j        <- rep(NA_integer_, n_excel)
 
   if (rank_first_k >= 2L && w_rank > 0) {
-    top_e <- seq_len(rank_first_k)
+    top_e <- order(ifelse(is.na(excel_area), 0, excel_area),
+                   decreasing = TRUE)[seq_len(rank_first_k)]
     top_i <- order(ifelse(is.na(image_area), 0, image_area),
                    decreasing = TRUE)[seq_len(rank_first_k)]
-    k_cost <- rank_cost[top_e, top_i, drop = FALSE]
+    k_cost <- rank_cost[top_e, top_i, drop = FALSE] +
+              w_shape * shape_cost[top_e, top_i, drop = FALSE]
 
     if (requireNamespace("clue", quietly = TRUE)) {
       k_asgn <- as.integer(clue::solve_LSAP(k_cost, maximum = FALSE))
