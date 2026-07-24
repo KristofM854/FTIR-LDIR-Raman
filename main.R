@@ -828,6 +828,8 @@ if (has_ldir && !is.null(ldir_raw)) {
 
     # Join image coordinates with RAW Excel data via size-based Hungarian matching
     ldir_with_coords <- join_ldir_coords(ldir_raw, ldir_image_particles, config = config)
+    # Apply any manual coordinate-join corrections (config$ldir_coord_swaps)
+    ldir_with_coords <- apply_ldir_coord_swaps(ldir_with_coords, config)
     write.csv(ldir_with_coords, file.path(.out_dirs$joined, "ldir_joined_raw.csv"), row.names = FALSE)
 
     # Validate join quality via scan-order correlation
