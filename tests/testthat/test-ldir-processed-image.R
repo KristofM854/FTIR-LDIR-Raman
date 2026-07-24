@@ -323,6 +323,37 @@ test_that("shape fingerprint resolves a swap that size/rank alone cannot", {
   expect_equal(joined$x_um[joined$particle_id == "P2"], 100)
 })
 
+test_that("area-based rank prevents the elongated-particle swap (A1/A2 regression)", {
+  # A1: large AREA, moderate feret. A2: smaller area but LARGER feret (elongated,
+  # like the real A2 with aspect 0.34). Ranking the image by feret while the
+  # Excel is area-sorted put A1's row on A2's blob. With rank_metric="area"
+  # (default) both sides order by area, so identity is preserved.
+  excel <- data.frame(
+    particle_id  = c("A1", "A2"),
+    x_um = NA_real_, y_um = NA_real_,
+    area_um2     = c(44100, 34775),   # A1 larger area
+    feret_max_um = c(349, 428),       # ...but A2 larger feret
+    major_um     = c(349, 428), minor_um = c(217, 147),
+    eccentricity = c(0.52, 0.95),
+    stringsAsFactors = FALSE
+  )
+  image <- data.frame(
+    particle_id  = c("B_A2", "B_A1"),               # deliberately shuffled
+    x_um = c(200, 100), y_um = c(0, 0),             # B_A1 (x=100) is A1's blob
+    area_um2     = c(34775, 44100),
+    feret_max_um = c(428, 349),
+    major_um     = c(428, 349), minor_um = c(147, 217),
+    eccentricity = c(0.95, 0.52),
+    coord_source = "processed_image",
+    stringsAsFactors = FALSE
+  )
+
+  joined <- join_ldir_coords(excel, image, config = make_config())
+  # A1 must take its own blob (x=100), not A2's (x=200).
+  expect_equal(joined$x_um[joined$particle_id == "A1"], 100)
+  expect_equal(joined$x_um[joined$particle_id == "A2"], 200)
+})
+
 test_that("size gate stops shape from overriding a clear size difference", {
   # P1 (big) and P2 (small) differ ~26% in area, so size alone matches them
   # correctly. Their shapes are crossed so the shape term *wants* to swap them.
