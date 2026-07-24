@@ -330,6 +330,15 @@ make_config <- function(ftir_path  = NULL,
     #   noise / rendering artifacts.
     ldir_min_blob_area_px = 5L,
 
+    # ldir_processed_segmentation: how the processed overlay is segmented into
+    #   blobs. "brightness" (default) runs connected components over the whole
+    #   non-black foreground — every particle is found regardless of colour or
+    #   interior tone. "color_channel" is the legacy per-dominant-channel mode
+    #   that can split pastel / white-cored blobs into co-located fragments
+    #   (dropping some particles while duplicating others); use only if two
+    #   touching DIFFERENT-colour particles must be kept apart.
+    ldir_processed_segmentation = "brightness",
+
     # ldir_image_scale_um_per_px: µm-per-pixel scale applied to processed-image
     #   pixel measurements.  The processed overlay shares the optical image's
     #   pixel dimensions and scale, so this is the same µm/px as the optical
