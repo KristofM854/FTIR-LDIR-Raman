@@ -937,6 +937,7 @@ find_ldir_processed_image <- function(img_path, config = NULL) {
 #'   "processed_image"; circle_info = calibration list matching
 #'   extract_ldir_image_coords())
 extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
+                                                expected_count = NULL,
                                                 config = NULL) {
   log_message("Extracting LDIR coordinates from processed particle image: ",
               basename(img_path))
@@ -1002,24 +1003,36 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
     return(list(particles = .empty_processed_image_df(), circle_info = circle_info))
   }
 
-  # --- (c) Quantize each foreground pixel to its dominant colour channel ---
-  # max.col over the three channels gives 1=R, 2=G, 3=B per pixel. Processing
-  # each channel mask independently keeps two touching same-colour particles
-  # from merging, and keeps different-colour particles apart regardless of
-  # spatial adjacency.
-  dom <- max.col(cbind(as.vector(Rc), as.vector(Gc), as.vector(Bc)),
-                 ties.method = "first")
-  dom <- matrix(dom, nrow = h, ncol = w)
-
+  # --- (c) Choose the segmentation mask(s) ---
+  # "brightness" (default): a single connected-components pass over the whole
+  #   non-black foreground. Robust — every particle is found regardless of its
+  #   colour or interior tone (pastel blobs, white-cored blobs, anti-aliased
+  #   edges). This is the safe default: the earlier per-channel scheme could
+  #   split a blob with tonal variation into co-located fragments (creating a
+  #   duplicate at one particle and dropping another) — the "A12 missing while
+  #   A1/A36 share a blob" failure mode.
+  # "color_channel": legacy mode that quantizes each pixel to its dominant R/G/B
+  #   channel and segments each channel separately. Only keeps two TOUCHING
+  #   different-colour particles apart; rarely needed and fragile on pastels.
+  seg_mode <- config$ldir_processed_segmentation %||% "brightness"
   min_area <- config$ldir_min_blob_area_px %||% 5L
+
+  masks <- if (identical(seg_mode, "color_channel")) {
+    dom <- max.col(cbind(as.vector(Rc), as.vector(Gc), as.vector(Bc)),
+                   ties.method = "first")
+    dom <- matrix(dom, nrow = h, ncol = w)
+    list(fg & (dom == 1L), fg & (dom == 2L), fg & (dom == 3L))
+  } else {
+    list(fg)
+  }
 
   cx_all <- numeric(0); cy_all <- numeric(0)
   area_all <- numeric(0); feret_all <- numeric(0)
   ecc_all <- numeric(0); circ_all <- numeric(0); solid_all <- numeric(0)
+  mr_all <- numeric(0); mg_all <- numeric(0); mb_all <- numeric(0)
 
-  # --- (d) Per-channel connected components + blob measurements ---
-  for (ch in 1:3) {
-    mask <- fg & (dom == ch)
+  # --- (d) Connected components + per-blob measurements ---
+  for (mask in masks) {
     if (!any(mask)) next
 
     cc <- .ldir_connected_components_8(mask, h, w)
@@ -1049,6 +1062,9 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
 
       shp <- .ldir_blob_shape(rows, cols)
 
+      # Mean interior colour (0-255) — recorded for future material/colour use.
+      pix <- cbind(rows, cols)
+
       cx_all    <- c(cx_all, mean(cols))
       cy_all    <- c(cy_all, mean(rows))
       area_all  <- c(area_all, area_px)
@@ -1056,6 +1072,9 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
       ecc_all   <- c(ecc_all, shp$eccentricity)
       circ_all  <- c(circ_all, shp$circularity)
       solid_all <- c(solid_all, shp$solidity)
+      mr_all    <- c(mr_all, mean(Rc[pix]))
+      mg_all    <- c(mg_all, mean(Gc[pix]))
+      mb_all    <- c(mb_all, mean(Bc[pix]))
     }
   }
 
@@ -1094,6 +1113,9 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
     eccentricity  = ecc_all,
     circularity   = circ_all,
     solidity      = solid_all,
+    mean_r        = mr_all,
+    mean_g        = mg_all,
+    mean_b        = mb_all,
     material      = NA_character_,
     quality       = NA_real_,
     coord_source  = "processed_image",
@@ -1104,10 +1126,29 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
   attr(df, "scale_um_per_px")   <- scale
   attr(df, "circle_radius_px")  <- circle_info$radius_px
 
-  # --- (g) Log summary ---
+  # --- (g) Log summary + blob-count sanity check ---
   log_message("  Processed image: ", n_blobs, " blobs extracted (", n_fg,
-              " foreground px), scale = ", round(scale, 4), " µm/px",
-              " (scan diameter ", round(scan_diam_um), " µm)")
+              " foreground px, mode '", seg_mode, "'), scale = ",
+              round(scale, 4), " µm/px (scan diameter ", round(scan_diam_um), " µm)")
+  if (!is.null(expected_count) && is.numeric(expected_count) && expected_count > 0) {
+    if (n_blobs != expected_count) {
+      log_message("  Blob-count mismatch: extracted ", n_blobs, " but Excel has ",
+                  expected_count, " particles. ",
+                  if (n_blobs < expected_count)
+                    "Some particles were not segmented (raise resolution, lower ldir_min_blob_area_px, or check ldir_processed_image_min_brightness)."
+                  else
+                    "Extra blobs found (a particle may be fragmented, or noise exceeds ldir_min_blob_area_px).",
+                  level = "WARN")
+    } else {
+      log_message("  Blob count matches Excel particle count (", n_blobs, ")")
+    }
+    # Flag the smallest blobs near the resolution floor — these are the least
+    # reliable to measure/match.
+    tiny <- sum(area_all < 3 * min_area)
+    if (tiny > 0)
+      log_message("  ", tiny, " blob(s) below ", 3 * min_area,
+                  " px — near the resolution floor; shape/size unreliable for these")
+  }
 
   list(particles = df, circle_info = circle_info)
 }
@@ -1150,6 +1191,9 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
     eccentricity  = numeric(),
     circularity   = numeric(),
     solidity      = numeric(),
+    mean_r        = numeric(),
+    mean_g        = numeric(),
+    mean_b        = numeric(),
     material      = character(),
     quality       = numeric(),
     coord_source  = character(),
