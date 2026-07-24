@@ -938,6 +938,7 @@ find_ldir_processed_image <- function(img_path, config = NULL) {
 #'   extract_ldir_image_coords())
 extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
                                                 expected_count = NULL,
+                                                expected_total_area_um2 = NULL,
                                                 config = NULL) {
   log_message("Extracting LDIR coordinates from processed particle image: ",
               basename(img_path))
@@ -1083,6 +1084,37 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
     log_message("  Processed image: no blobs >= ", min_area,
                 " px — returning empty result", level = "WARN")
     return(list(particles = .empty_processed_image_df(), circle_info = circle_info))
+  }
+
+  # --- Self-calibrate scale from the Excel total area ---
+  # The analyzed overlay may cover only the deposit region rather than the full
+  # scan circle, so the scan-diameter scale can be badly wrong (observed ~2.7x
+  # too large -> areas ~7x). The Excel particle areas are ground truth, so when
+  # the caller supplies their total and the blob count matches, derive the scale
+  # that makes total blob pixels equal the Excel total area. This fixes absolute
+  # sizes AND coordinates, and removes residual large<->small join swaps the
+  # wrong scale induces (the log-area term otherwise favours a 7x-smaller blob).
+  # Skipped when an explicit scale is set, or when the blob count is off (a bad
+  # extraction would mis-calibrate).
+  scale_from_excel <- config$ldir_processed_scale_from_excel %||% TRUE
+  if (isTRUE(scale_from_excel) && is.null(config$ldir_image_scale_um_per_px) &&
+      !is.null(expected_total_area_um2) && is.numeric(expected_total_area_um2) &&
+      expected_total_area_um2 > 0) {
+    total_px  <- sum(area_all)
+    count_ok  <- is.null(expected_count) ||
+                 (n_blobs >= 0.85 * expected_count && n_blobs <= 1.15 * expected_count)
+    if (total_px > 0 && count_ok) {
+      scale_excel <- sqrt(expected_total_area_um2 / total_px)
+      log_message("  Scale self-calibrated from Excel area: ", round(scale, 3),
+                  " -> ", round(scale_excel, 3), " µm/px (image ~",
+                  round(w * scale_excel), " µm wide)")
+      scale <- scale_excel
+      circle_info$scale_um_per_px <- scale
+    } else if (!count_ok) {
+      log_message("  Scale self-calibration skipped: blob count ", n_blobs,
+                  " differs from Excel ", expected_count,
+                  " — keeping scan-diameter scale", level = "WARN")
+    }
   }
 
   # --- (e) Map pixel centroids to circle-centred µm (y up), convert sizes ---
@@ -1899,6 +1931,56 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   }
 
   excel_df
+}
+
+
+#' Apply manual coordinate-join swaps
+#'
+#' Corrects residual join mismatches by exchanging the image-assigned
+#' coordinate between two LDIR particle IDs (see config$ldir_coord_swaps). Only
+#' the fields that came from the matched image blob are swapped — x/y, image
+#' area/feret, coord_match_cost, coord_source — so each particle keeps its own
+#' Excel size, material and quality. Swaps are applied in listed order.
+#'
+#' @param df     Joined data frame from join_ldir_coords()
+#' @param config Pipeline config (uses ldir_coord_swaps)
+#' @return df with the requested coordinate swaps applied
+apply_ldir_coord_swaps <- function(df, config = NULL) {
+  swaps <- if (!is.null(config)) config$ldir_coord_swaps else NULL
+  if (is.null(swaps) || length(swaps) == 0) return(df)
+  if (!"particle_id" %in% names(df)) return(df)
+
+  # Only the image-assigned fields move with the swap; Excel-intrinsic columns
+  # (area, material, quality, shape, …) stay with their particle.
+  swap_cols <- intersect(
+    c("x_um", "y_um", "coord_match_cost", "coord_source",
+      "image_area_um2", "image_feret_um"),
+    names(df))
+  if (length(swap_cols) == 0) return(df)
+
+  n_applied <- 0L
+  for (pair in swaps) {
+    if (length(pair) != 2L) {
+      log_message("  Coord swap: skipping malformed entry (need exactly 2 ids): ",
+                  paste(pair, collapse = ", "), level = "WARN")
+      next
+    }
+    ia <- which(df$particle_id == pair[1])
+    ib <- which(df$particle_id == pair[2])
+    if (length(ia) != 1L || length(ib) != 1L) {
+      log_message("  Coord swap: id(s) not found or not unique — skipping ",
+                  pair[1], " <-> ", pair[2], level = "WARN")
+      next
+    }
+    tmp <- df[ia, swap_cols, drop = FALSE]
+    df[ia, swap_cols] <- df[ib, swap_cols, drop = FALSE]
+    df[ib, swap_cols] <- tmp
+    n_applied <- n_applied + 1L
+    log_message("  Coord swap applied: ", pair[1], " <-> ", pair[2])
+  }
+  if (n_applied > 0L)
+    log_message("  Applied ", n_applied, " manual coordinate swap(s) (ldir_coord_swaps)")
+  df
 }
 
 

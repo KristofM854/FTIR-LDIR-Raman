@@ -491,3 +491,64 @@ test_that("join_ldir_coords is unaffected when image blobs lack shape descriptor
   expect_equal(joined$x_um[joined$particle_id == "P1"], 100)
   expect_equal(joined$x_um[joined$particle_id == "P2"], 200)
 })
+
+# ---------------------------------------------------------------------------
+# apply_ldir_coord_swaps()
+# ---------------------------------------------------------------------------
+
+.joined_like <- function() {
+  data.frame(
+    particle_id      = c("A19", "A20", "A28", "A29"),
+    area_um2         = c(10062, 10025, 1375, 1287),   # Excel-intrinsic (must NOT move)
+    material         = c("PET", "PET", "unknown", "unknown"),
+    x_um             = c(100, 200, 300, 400),
+    y_um             = c(11, 22, 33, 44),
+    image_area_um2   = c(10000, 9900, 1300, 1250),
+    image_feret_um   = c(130, 117, 45, 44),
+    coord_match_cost = c(0.1, 0.2, 0.3, 0.4),
+    coord_source     = "processed_image",
+    stringsAsFactors = FALSE
+  )
+}
+
+test_that("apply_ldir_coord_swaps exchanges only the image-assigned fields", {
+  df  <- .joined_like()
+  out <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("A19", "A29"))))
+
+  a19 <- out[out$particle_id == "A19", ]
+  a29 <- out[out$particle_id == "A29", ]
+  # Coordinate + image fields swapped...
+  expect_equal(a19$x_um, 400); expect_equal(a19$y_um, 44)
+  expect_equal(a29$x_um, 100); expect_equal(a29$y_um, 11)
+  expect_equal(a19$image_area_um2, 1250)
+  expect_equal(a29$image_area_um2, 10000)
+  expect_equal(a19$coord_match_cost, 0.4)
+  # ...but Excel-intrinsic fields stay put.
+  expect_equal(a19$area_um2, 10062)
+  expect_equal(a29$area_um2, 1287)
+  expect_equal(a19$material, "PET")
+})
+
+test_that("apply_ldir_coord_swaps applies multiple swaps in order (handles a 3-cycle)", {
+  df  <- .joined_like()
+  # 3-cycle A19->A20->A28->A19 expressed as two swaps.
+  out <- apply_ldir_coord_swaps(
+    df, list(ldir_coord_swaps = list(c("A19", "A20"), c("A19", "A28"))))
+  # After swap1: A19 has A20's x(200), A20 has A19's x(100).
+  # After swap2: A19 has A28's x(300), A28 has (200).
+  expect_equal(out$x_um[out$particle_id == "A19"], 300)
+  expect_equal(out$x_um[out$particle_id == "A20"], 100)
+  expect_equal(out$x_um[out$particle_id == "A28"], 200)
+})
+
+test_that("apply_ldir_coord_swaps is a no-op / warns on empty or bad input", {
+  df <- .joined_like()
+  expect_identical(apply_ldir_coord_swaps(df, list(ldir_coord_swaps = NULL)), df)
+  expect_identical(apply_ldir_coord_swaps(df, list()), df)
+  # Unknown id -> skipped, data unchanged.
+  out <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("A19", "NOPE"))))
+  expect_identical(out, df)
+  # Malformed entry (not a pair) -> skipped.
+  out2 <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("A19", "A20", "A28"))))
+  expect_identical(out2, df)
+})
