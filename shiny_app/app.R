@@ -47,6 +47,9 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
                            selected = unname(match_choices), inline = TRUE),
         checkboxInput(paste0(id_prefix, "_show_all_detected"),
                       "Show all detected (ignore match status)",
+                      value = FALSE),
+        checkboxInput(paste0(id_prefix, "_show_all_labels"),
+                      "Number all particles",
                       value = FALSE)),
       # Particle highlight: selectInput for single choice, plus text pattern box
       div(id = paste0(id_prefix, "_tour_highlight"),
@@ -191,6 +194,9 @@ ui <- fluidPage(
           checkboxInput("ldir_show_all_detected",
                         "Show all detected (ignore match status)",
                         value = FALSE),
+          checkboxInput("ldir_show_all_labels",
+                        "Number all particles",
+                        value = FALSE),
           checkboxGroupInput("ldir_match_filter", "Match Status",
                              choices = c("Matched \u2194 Raman" = "matched",
                                          "Unmatched (vs Raman)" = "unmatched"),
@@ -320,6 +326,8 @@ ui <- fluidPage(
           ),
           actionLink("overlay_toggle_all", "Select / Deselect All instruments",
                      style = "font-size:11px; margin-bottom:4px; display:block;"),
+          checkboxInput("overlay_show_all_labels", "Number all particles",
+                        value = FALSE),
           hr(),
           div(class = "info-box",
               h5("Match Summary"), textOutput("overlay_summary_text")),
@@ -2342,10 +2350,34 @@ server <- function(input, output, session) {
     r
   }
 
+  # Draw the particle_id next to every point (the "Number all particles" toggle).
+  # White text with a thin black shadow so it reads over both the light panel and
+  # dark instrument images. Plain geom_text (no repel) keeps it fast for the
+  # larger instruments; it is an opt-in overlay so occasional overlap is fine.
+  add_particle_labels <- function(p, df, bounds, id_col = "particle_id") {
+    if (is.null(df) || nrow(df) == 0 || !(id_col %in% names(df))) return(p)
+    lab <- df[is.finite(df$x) & is.finite(df$y), , drop = FALSE]
+    if (nrow(lab) == 0) return(p)
+    lab$.lbl <- as.character(lab[[id_col]])
+    lab <- lab[!is.na(lab$.lbl) & nzchar(lab$.lbl), , drop = FALSE]
+    if (nrow(lab) == 0) return(p)
+    xr <- diff(bounds$x); yr <- diff(bounds$y)
+    lab$.ly  <- lab$y + yr * 0.018            # nudge above the marker
+    lab$.sx  <- lab$x + xr * 0.0016           # shadow offset
+    lab$.sy  <- lab$.ly - yr * 0.0016
+    p +
+      geom_text(data = lab, aes(x = .sx, y = .sy, label = .lbl),
+                vjust = 0, size = 2.8, colour = "black", alpha = 0.85,
+                inherit.aes = FALSE) +
+      geom_text(data = lab, aes(x = x, y = .ly, label = .lbl),
+                vjust = 0, size = 2.8, colour = "white", fontface = "bold",
+                inherit.aes = FALSE)
+  }
+
   make_scatter <- function(df, img_info, bounds, title,
                             match_colours = NULL, highlight_id = NULL,
                             full_df = NULL, match_labels = NULL,
-                            plain = FALSE) {
+                            plain = FALSE, show_labels = FALSE) {
 
     p <- ggplot(df, aes(x = x, y = y))
 
@@ -2410,6 +2442,9 @@ server <- function(input, output, session) {
                             colour = "#FFD700")
       }
     }
+
+    # Number every displayed particle (opt-in)
+    if (isTRUE(show_labels)) p <- add_particle_labels(p, df, bounds)
 
     p
   }
@@ -2746,7 +2781,8 @@ server <- function(input, output, session) {
                  match_labels  = c(matched = "matched to Raman", unmatched = "unmatched"),
                  highlight_id  = hl_ids,
                  full_df       = full_ftir,
-                 plain         = isTRUE(input$ftir_show_all_detected))
+                 plain         = isTRUE(input$ftir_show_all_detected),
+                 show_labels   = isTRUE(input$ftir_show_all_labels))
   }) |> bindCache(
     # Cache key must list EVERY input this render reads: an omission both
     # serves a stale plot and stops the render invalidating. ftir_filtered()
@@ -2755,7 +2791,7 @@ server <- function(input, output, session) {
     selected_run_dir(), is.null(uploaded_data()),
     ftir_filtered(), input$ftir_coord_mode,
     input$ftir_highlight_particle, single_highlight_ids$ftir,
-    input$ftir_show_all_detected, zoom$ftir,
+    input$ftir_show_all_detected, input$ftir_show_all_labels, zoom$ftir,
     img_key(ftir_native_image_info()), img_key(overlay_image_info())
   )
 
@@ -2856,12 +2892,13 @@ server <- function(input, output, session) {
                  match_labels = c(matched = "matched to FTIR", unmatched = "unmatched"),
                  highlight_id = hl_ids,
                  full_df = full_raman,
-                 plain = isTRUE(input$raman_show_all_detected))
+                 plain = isTRUE(input$raman_show_all_detected),
+                 show_labels = isTRUE(input$raman_show_all_labels))
   }) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
     raman_filtered(),
     input$raman_highlight_particle, single_highlight_ids$raman,
-    input$raman_show_all_detected, zoom$raman,
+    input$raman_show_all_detected, input$raman_show_all_labels, zoom$raman,
     img_key(raman_native_image_info())
   )
 
@@ -3234,6 +3271,13 @@ server <- function(input, output, session) {
       }
     }
 
+    # Number every displayed LDIR particle (opt-in)
+    if (isTRUE(input$ldir_show_all_labels) && nrow(df_disp) > 0) {
+      bnds <- if (!is.null(zoom$ldir)) zoom$ldir else
+        list(x = range(df_disp$x, na.rm = TRUE), y = range(df_disp$y, na.rm = TRUE))
+      p <- add_particle_labels(p, df_disp, bnds)
+    }
+
     p
   }) |> bindCache(
     # ldir_filtered() captures the LDIR filters; ldir_view_rot_deg() and
@@ -3243,7 +3287,8 @@ server <- function(input, output, session) {
     ldir_filtered(), ldir_extracted_pts(), ldir_view_rot_deg(),
     input$ldir_bg_image, input$ldir_coord_mode, input$ldir_hide_unmatched,
     input$ldir_overlay_mode, input$ldir_show_raman_partners,
-    input$ldir_show_all_detected, input$ldir_highlight_particle,
+    input$ldir_show_all_detected, input$ldir_show_all_labels,
+    input$ldir_highlight_particle,
     single_highlight_ids$ldir, zoom$ldir,
     img_key(ldir_native_image_info()), img_key(ldir_processed_image_info()),
     img_key(overlay_image_info())
@@ -3357,12 +3402,14 @@ server <- function(input, output, session) {
                  match_labels  = c(matched="matched to Raman", unmatched="unmatched"),
                  highlight_id  = hl_ids,
                  full_df       = full_fb,
-                 plain         = isTRUE(input$ftir_bruker_show_all_detected))
+                 plain         = isTRUE(input$ftir_bruker_show_all_detected),
+                 show_labels   = isTRUE(input$ftir_bruker_show_all_labels))
   }) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
     ftir_bruker_filtered(), input$ftir_bruker_coord_mode,
     input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
-    input$ftir_bruker_show_all_detected, zoom$ftir_bruker,
+    input$ftir_bruker_show_all_detected, input$ftir_bruker_show_all_labels,
+    zoom$ftir_bruker,
     img_key(ftir_bruker_native_image_info()), img_key(overlay_image_info())
   )
   output$ftir_bruker_summary_text <- renderText({
@@ -3741,6 +3788,7 @@ server <- function(input, output, session) {
           all_pts[[1]] <- data.frame(x=df_s$x, y=df_s$y, feret_max=df_s$feret_max,
                                      instrument=.inst_label(inst),
                                      match_status=df_s$match_status,
+                                     particle_id=as.character(df_s$particle_id),
                                      stringsAsFactors=FALSE)
       }
     } else {
@@ -3772,31 +3820,35 @@ server <- function(input, output, session) {
       }
 
       if ("matched" %in% rel) {
-        .add_matched <- function(label, x, y, feret) {
+        .add_matched <- function(label, x, y, feret, id = NULL) {
           if (length(x) == 0) return(invisible())
           all_pts[[length(all_pts)+1]] <<- data.frame(
             x=x, y=y, feret_max=feret, instrument=label,
-            match_status="matched", stringsAsFactors=FALSE)
+            match_status="matched",
+            particle_id = if (!is.null(id)) as.character(id) else NA_character_,
+            stringsAsFactors=FALSE)
         }
         if (show_pe_raman && nrow(matched) > 0) {
-          .add_matched("FTIR",  matched$ftir_x_aligned, matched$ftir_y_aligned, matched$ftir_feret_max_um)
-          .add_matched("Raman", matched$raman_x_norm,   matched$raman_y_norm,   matched$raman_feret_max_um)
+          .add_matched("FTIR",  matched$ftir_x_aligned, matched$ftir_y_aligned, matched$ftir_feret_max_um, matched$ftir_particle_id)
+          .add_matched("Raman", matched$raman_x_norm,   matched$raman_y_norm,   matched$raman_feret_max_um, matched$raman_particle_id)
         }
         if (show_bruker_raman && nrow(bruker_m) > 0) {
-          .add_matched("FTIR (Bruker)", bruker_m$ftir_x_aligned, bruker_m$ftir_y_aligned, bruker_m$ftir_feret_max_um)
-          .add_matched("Raman",         bruker_m$raman_x_norm,   bruker_m$raman_y_norm,   bruker_m$raman_feret_max_um)
+          .add_matched("FTIR (Bruker)", bruker_m$ftir_x_aligned, bruker_m$ftir_y_aligned, bruker_m$ftir_feret_max_um, bruker_m$ftir_particle_id)
+          .add_matched("Raman",         bruker_m$raman_x_norm,   bruker_m$raman_y_norm,   bruker_m$raman_feret_max_um, bruker_m$raman_particle_id)
         }
         if (show_ldir_raman && nrow(ldir_m) > 0 && "ldir_x_aligned" %in% names(ldir_m)) {
-          .add_matched("LDIR",  ldir_m$ldir_x_aligned, ldir_m$ldir_y_aligned, ldir_m$ldir_feret_max_um)
-          .add_matched("Raman", ldir_m$raman_x_norm,   ldir_m$raman_y_norm,   ldir_m$raman_feret_max_um)
+          .add_matched("LDIR",  ldir_m$ldir_x_aligned, ldir_m$ldir_y_aligned, ldir_m$ldir_feret_max_um, ldir_m$ldir_particle_id)
+          .add_matched("Raman", ldir_m$raman_x_norm,   ldir_m$raman_y_norm,   ldir_m$raman_feret_max_um, ldir_m$raman_particle_id)
         }
         # Cross-instrument pairs: draw both endpoints filled.
         for (ca in cross_active) {
           s <- ca$spec; cdf <- ca$df
           if (all(c(s$a$x, s$a$y, s$a$feret) %in% names(cdf)))
-            .add_matched(s$a$label, cdf[[s$a$x]], cdf[[s$a$y]], cdf[[s$a$feret]])
+            .add_matched(s$a$label, cdf[[s$a$x]], cdf[[s$a$y]], cdf[[s$a$feret]],
+                         if (!is.null(s$a$id) && s$a$id %in% names(cdf)) cdf[[s$a$id]] else NULL)
           if (all(c(s$b$x, s$b$y, s$b$feret) %in% names(cdf)))
-            .add_matched(s$b$label, cdf[[s$b$x]], cdf[[s$b$y]], cdf[[s$b$feret]])
+            .add_matched(s$b$label, cdf[[s$b$x]], cdf[[s$b$y]], cdf[[s$b$feret]],
+                         if (!is.null(s$b$id) && s$b$id %in% names(cdf)) cdf[[s$b$id]] else NULL)
         }
       }
 
@@ -3812,7 +3864,8 @@ server <- function(input, output, session) {
             um <- um[um$material_family %in% mat, ]
           if (nrow(um) == 0) return(NULL)
           data.frame(x=um$x, y=um$y, feret_max=um$feret_max,
-                     instrument=inst_label, match_status="unmatched", stringsAsFactors=FALSE)
+                     instrument=inst_label, match_status="unmatched",
+                     particle_id = as.character(um$particle_id), stringsAsFactors=FALSE)
         }
         all_pts <- c(all_pts, Filter(Negate(is.null), list(
           .add_unmatched(dfs$ftir,        "ftir_pe",     "FTIR",          "overlay_ftir_material",        ftir_matched_ids),
@@ -3848,6 +3901,10 @@ server <- function(input, output, session) {
             values = c(matched = 19, unmatched = 1),
             labels = c(matched = "Matched (filled)", unmatched = "Unmatched (open)")
           )
+        # Number every displayed particle (opt-in). Endpoints keep each
+        # instrument's own particle_id, so a matched pair shows both IDs.
+        if (isTRUE(input$overlay_show_all_labels))
+          p <- add_particle_labels(p, both, bounds)
       }
     }
 
@@ -3919,6 +3976,7 @@ server <- function(input, output, session) {
     input$overlay_ldir_material, input$overlay_ftir_bruker_material,
     input$overlay_ftir_particles, input$overlay_raman_particles,
     input$overlay_ldir_particles, input$overlay_ftir_bruker_particles,
+    input$overlay_show_all_labels,
     zoom$overlay, pinned_overlay(), img_key(overlay_image_info())
   )
   output$overlay_summary_text <- renderText({
