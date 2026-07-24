@@ -323,6 +323,82 @@ test_that("shape fingerprint resolves a swap that size/rank alone cannot", {
   expect_equal(joined$x_um[joined$particle_id == "P2"], 100)
 })
 
+test_that("size gate stops shape from overriding a clear size difference", {
+  # P1 (big) and P2 (small) differ ~26% in area, so size alone matches them
+  # correctly. Their shapes are crossed so the shape term *wants* to swap them.
+  # w_rank/w_ar are zeroed to isolate the size-gate vs shape interaction.
+  excel <- data.frame(
+    particle_id  = c("P1", "P2"),
+    x_um = NA_real_, y_um = NA_real_,
+    area_um2     = c(4400, 3400),
+    feret_max_um = c(55, 48),
+    major_um     = c(55, 48), minor_um = c(27, 24),
+    eccentricity = c(0.10, 0.90),
+    stringsAsFactors = FALSE
+  )
+  image <- data.frame(
+    particle_id  = c("B1", "B2"),
+    x_um = c(100, 200), y_um = c(0, 0),
+    area_um2     = c(4400, 3400),     # B1 big, B2 small (matches P1, P2 by size)
+    feret_max_um = c(55, 48),
+    major_um     = c(55, 48), minor_um = c(27, 24),
+    eccentricity = c(0.90, 0.10),     # ...but shapes are crossed
+    coord_source = "processed_image",
+    stringsAsFactors = FALSE
+  )
+
+  cfg <- make_config()
+  cfg$ldir_join_weight_rank <- 0
+  cfg$ldir_join_weight_ar   <- 0
+
+  # Gate ON (default): size wins -> P1 keeps the big blob B1 (x=100).
+  gated <- join_ldir_coords(excel, image, config = cfg)
+  expect_equal(gated$x_um[gated$particle_id == "P1"], 100)
+  expect_equal(gated$x_um[gated$particle_id == "P2"], 200)
+
+  # Gate OFF: the crossed shape overrides size and forces the wrong swap,
+  # demonstrating the gate is what prevents it.
+  cfg_nogate <- cfg
+  cfg_nogate$ldir_join_shape_size_gate <- 0
+  ungated <- join_ldir_coords(excel, image, config = cfg_nogate)
+  expect_equal(ungated$x_um[ungated$particle_id == "P1"], 200)
+})
+
+test_that("shape term uses eccentricity by default, not circularity/solidity", {
+  # Identical sizes (gate = 1) so only shape decides. Eccentricity and
+  # circularity point at OPPOSITE assignments; the default must follow
+  # eccentricity, and an explicit circularity override must follow circularity.
+  excel <- data.frame(
+    particle_id  = c("P1", "P2"),
+    x_um = NA_real_, y_um = NA_real_,
+    area_um2     = c(1000, 1000), feret_max_um = c(50, 50),
+    major_um     = c(50, 50), minor_um = c(25, 25),
+    eccentricity = c(0.10, 0.90),
+    circularity  = c(0.90, 0.10),
+    stringsAsFactors = FALSE
+  )
+  image <- data.frame(
+    particle_id  = c("B1", "B2"),
+    x_um = c(100, 200), y_um = c(0, 0),
+    area_um2     = c(1000, 1000), feret_max_um = c(50, 50),
+    major_um     = c(50, 50), minor_um = c(25, 25),
+    eccentricity = c(0.10, 0.90),   # by ecc: B1 ~ P1, B2 ~ P2 -> P1:x=100
+    circularity  = c(0.10, 0.90),   # by circ: B2 ~ P1        -> P1:x=200
+    coord_source = "processed_image",
+    stringsAsFactors = FALSE
+  )
+  cfg <- make_config(); cfg$ldir_join_weight_rank <- 0; cfg$ldir_join_weight_ar <- 0
+
+  # Default (eccentricity): P1 -> B1 (x=100).
+  d1 <- join_ldir_coords(excel, image, config = cfg)
+  expect_equal(d1$x_um[d1$particle_id == "P1"], 100)
+
+  # Force circularity: opposite assignment, P1 -> B2 (x=200).
+  cfg_circ <- cfg; cfg_circ$ldir_join_shape_descriptors <- c("circularity")
+  d2 <- join_ldir_coords(excel, image, config = cfg_circ)
+  expect_equal(d2$x_um[d2$particle_id == "P1"], 200)
+})
+
 test_that("join_ldir_coords is unaffected when image blobs lack shape descriptors", {
   # Optical-path image_df (no eccentricity/circularity/solidity): the shape
   # term must stay inert and matching proceeds on size/rank as before.
