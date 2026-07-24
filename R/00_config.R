@@ -234,16 +234,35 @@ make_config <- function(ftir_path  = NULL,
     #   0 = disable.
     ldir_join_weight_rank = 2.0,
 
-    # ldir_join_weight_shape: weight for the shape-fingerprint term. When the
-    #   image blobs carry rotation/scale-invariant shape descriptors
-    #   (eccentricity, circularity, solidity) — as the processed-image extractor
-    #   produces — each is rank-matched against the same Excel column and the
-    #   normalized rank differences are averaged.  Because the processed overlay
-    #   is the machine's own segmentation, this fingerprint disambiguates
-    #   particles of near-identical size that the size/rank terms alone swap.
-    #   The term is inert when either side lacks the descriptors (e.g. the
-    #   optical-image path), so it only affects processed-image runs. 0 = disable.
+    # ldir_join_weight_shape: weight for the shape-fingerprint term. Each
+    #   descriptor in ldir_join_shape_descriptors that is present on both sides
+    #   is rank-matched against the same Excel column and the normalized rank
+    #   differences are averaged.  Because the processed overlay is the machine's
+    #   own segmentation, this fingerprint disambiguates particles of
+    #   near-identical size that the size/rank terms alone swap.  The term is
+    #   inert when either side lacks the descriptors (e.g. the optical-image
+    #   path), so it only affects processed-image runs. 0 = disable.
     ldir_join_weight_shape = 1.0,
+
+    # ldir_join_shape_descriptors: which invariant shape descriptors feed the
+    #   shape-fingerprint term.  Default is eccentricity ONLY: it is a
+    #   moment-based measure that survives rasterization, so it transfers between
+    #   the rendered overlay blob and the Agilent Excel value.  Circularity and
+    #   solidity are deliberately excluded by default — Agilent computes them
+    #   from the fine vector boundary, which the smooth rendered overlay does not
+    #   reproduce (different scale, not reliably monotonic), so rank-matching
+    #   them injects noise and can override a correct size match.  Add
+    #   "circularity" / "solidity" here only if a dataset shows they help.
+    ldir_join_shape_descriptors = c("eccentricity"),
+
+    # ldir_join_shape_size_gate: size gate (in |log(area ratio)| units) that
+    #   confines the shape term to near-ties.  For a candidate pair whose areas
+    #   differ, the shape cost is blended toward a neutral maximum by
+    #   exp(-(|log(area_e/area_i)| / gate)^2), so shape can NOT make a
+    #   wrong-size pairing look attractive — it only arbitrates particles of
+    #   similar size.  ~0.15 keeps full shape power within ~10% size and
+    #   suppresses it beyond ~25%.  0/NULL = no gate (shape applies globally).
+    ldir_join_shape_size_gate = 0.15,
 
     # ldir_join_blob_keep_factor: before matching, sort image blobs by area
     #   (descending) and keep only the top ceiling(n_excel * factor) blobs.
