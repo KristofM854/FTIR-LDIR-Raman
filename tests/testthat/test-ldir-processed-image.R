@@ -347,7 +347,7 @@ test_that("shape fingerprint resolves a swap that size/rank alone cannot", {
     stringsAsFactors = FALSE
   )
 
-  cfg <- make_config()
+  cfg <- make_config(); cfg$ldir_join_weight_shape <- 1   # shape opt-in (default 0)
   joined <- join_ldir_coords(excel, image, config = cfg)
 
   # P1 (round) must take B2 (x=200); P2 (elongated) must take B1 (x=100).
@@ -411,6 +411,7 @@ test_that("size gate stops shape from overriding a clear size difference", {
   )
 
   cfg <- make_config()
+  cfg$ldir_join_weight_shape <- 1   # shape opt-in (default 0)
   cfg$ldir_join_weight_rank <- 0
   cfg$ldir_join_weight_ar   <- 0
 
@@ -450,9 +451,10 @@ test_that("shape term uses eccentricity by default, not circularity/solidity", {
     coord_source = "processed_image",
     stringsAsFactors = FALSE
   )
-  cfg <- make_config(); cfg$ldir_join_weight_rank <- 0; cfg$ldir_join_weight_ar <- 0
+  cfg <- make_config(); cfg$ldir_join_weight_shape <- 1
+  cfg$ldir_join_weight_rank <- 0; cfg$ldir_join_weight_ar <- 0
 
-  # Default (eccentricity): P1 -> B1 (x=100).
+  # Shape descriptor default (eccentricity): P1 -> B1 (x=100).
   d1 <- join_ldir_coords(excel, image, config = cfg)
   expect_equal(d1$x_um[d1$particle_id == "P1"], 100)
 
