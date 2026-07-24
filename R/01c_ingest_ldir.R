@@ -1934,6 +1934,56 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
 }
 
 
+#' Apply manual coordinate-join swaps
+#'
+#' Corrects residual join mismatches by exchanging the image-assigned
+#' coordinate between two LDIR particle IDs (see config$ldir_coord_swaps). Only
+#' the fields that came from the matched image blob are swapped — x/y, image
+#' area/feret, coord_match_cost, coord_source — so each particle keeps its own
+#' Excel size, material and quality. Swaps are applied in listed order.
+#'
+#' @param df     Joined data frame from join_ldir_coords()
+#' @param config Pipeline config (uses ldir_coord_swaps)
+#' @return df with the requested coordinate swaps applied
+apply_ldir_coord_swaps <- function(df, config = NULL) {
+  swaps <- if (!is.null(config)) config$ldir_coord_swaps else NULL
+  if (is.null(swaps) || length(swaps) == 0) return(df)
+  if (!"particle_id" %in% names(df)) return(df)
+
+  # Only the image-assigned fields move with the swap; Excel-intrinsic columns
+  # (area, material, quality, shape, …) stay with their particle.
+  swap_cols <- intersect(
+    c("x_um", "y_um", "coord_match_cost", "coord_source",
+      "image_area_um2", "image_feret_um"),
+    names(df))
+  if (length(swap_cols) == 0) return(df)
+
+  n_applied <- 0L
+  for (pair in swaps) {
+    if (length(pair) != 2L) {
+      log_message("  Coord swap: skipping malformed entry (need exactly 2 ids): ",
+                  paste(pair, collapse = ", "), level = "WARN")
+      next
+    }
+    ia <- which(df$particle_id == pair[1])
+    ib <- which(df$particle_id == pair[2])
+    if (length(ia) != 1L || length(ib) != 1L) {
+      log_message("  Coord swap: id(s) not found or not unique — skipping ",
+                  pair[1], " <-> ", pair[2], level = "WARN")
+      next
+    }
+    tmp <- df[ia, swap_cols, drop = FALSE]
+    df[ia, swap_cols] <- df[ib, swap_cols, drop = FALSE]
+    df[ib, swap_cols] <- tmp
+    n_applied <- n_applied + 1L
+    log_message("  Coord swap applied: ", pair[1], " <-> ", pair[2])
+  }
+  if (n_applied > 0L)
+    log_message("  Applied ", n_applied, " manual coordinate swap(s) (ldir_coord_swaps)")
+  df
+}
+
+
 #' Validate LDIR coordinate join by checking scan-order correlation
 #'
 #' If LDIR IDs follow a raster scan order, the ID sequence should correlate

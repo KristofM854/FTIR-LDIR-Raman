@@ -360,6 +360,15 @@ make_config <- function(ftir_path  = NULL,
     #   matching still works because only relative sizes/ranks drive the join).
     ldir_image_scale_um_per_px = NULL,
 
+    # ldir_coord_swaps: manual correction for residual coordinate-join swaps.
+    #   A list of length-2 character vectors, each naming two LDIR particle IDs
+    #   whose assigned image coordinates should be exchanged AFTER the automatic
+    #   join — e.g. list(c("A19", "A29"), c("A20", "A28")). Only the image-derived
+    #   fields move (x/y, image area/feret, coord_match_cost, coord_source); each
+    #   particle keeps its own Excel size/material/quality. Applied in order, so
+    #   a 3-cycle is expressed as two swaps. NULL/empty = no swaps.
+    ldir_coord_swaps = NULL,
+
     # When TRUE, every Excel particle is assigned an image coordinate regardless
     # of size-match cost — no joins are rejected. Use the coord_match_cost slider
     # in the Shiny viewer to post-hoc filter poor-quality coordinate assignments.
