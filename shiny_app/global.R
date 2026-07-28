@@ -1193,9 +1193,54 @@ rotate_raster_view <- function(r, deg) {
   }
   if (length(dim(r)) == 2) return(rot1(r))
   ch <- lapply(seq_len(dim(r)[3]), function(k) rot1(r[, , k]))
-  out <- array(0, dim = c(nrow(ch[[1]]), ncol(ch[[1]]), length(ch)))
-  for (k in seq_along(ch)) out[, , k] <- ch[[k]]
-  out
+  # unlist (not array(0, ...)) so an integer raster stays integer
+  array(unlist(ch, use.names = FALSE),
+        dim = c(nrow(ch[[1]]), ncol(ch[[1]]), length(ch)))
+}
+
+# ---------------------------------------------------------------------------
+# View mirror — reflect the scene about the X axis (y -> -y), about the origin
+# like the rotations above.  A rotation alone cannot undo a handedness
+# difference between two instrument exports, which is why a Y flip is needed
+# on top of the four rotations.
+#
+# Only ONE mirror axis is offered: an X mirror is the same scene as a Y mirror
+# followed by a 180 deg rotation, so {0,90,-90,180} x {no flip, flip Y} already
+# spans all eight orientations (the dihedral group).
+# ---------------------------------------------------------------------------
+flip_xy_view <- function(x, y, flip) {
+  if (!isTRUE(flip)) return(list(x = x, y = y))
+  list(x = x, y = -y)
+}
+
+flip_extent_view <- function(ext, flip) {
+  if (!isTRUE(flip)) return(ext[c("xmin", "xmax", "ymin", "ymax")])
+  list(xmin = ext$xmin, xmax = ext$xmax, ymin = -ext$ymax, ymax = -ext$ymin)
+}
+
+flip_raster_view <- function(r, flip) {
+  if (!isTRUE(flip) || is.null(r)) return(r)
+  # Raster row 1 is the top edge, so reversing rows mirrors vertically.
+  f1 <- function(m) m[nrow(m):1, , drop = FALSE]
+  if (length(dim(r)) == 2) return(f1(r))
+  ch <- lapply(seq_len(dim(r)[3]), function(k) f1(r[, , k]))
+  array(unlist(ch, use.names = FALSE),
+        dim = c(nrow(ch[[1]]), ncol(ch[[1]]), length(ch)))
+}
+
+# Composite view transform: MIRROR FIRST, THEN ROTATE.  All three helpers below
+# use that same order, so points, extent and raster stay consistent.
+view_transform_xy <- function(x, y, deg, flip = FALSE) {
+  f <- flip_xy_view(x, y, flip)
+  rotate_xy_view(f$x, f$y, deg)
+}
+
+view_transform_extent <- function(ext, deg, flip = FALSE) {
+  rotate_extent_view(flip_extent_view(ext, flip), deg)
+}
+
+view_transform_raster <- function(r, deg, flip = FALSE) {
+  rotate_raster_view(flip_raster_view(r, flip), deg)
 }
 
 # Auto LDIR view rotation: directly MEASURE which 90 deg rotation brings the
@@ -1209,12 +1254,26 @@ rotate_raster_view <- function(r, deg) {
 # first, so a scale mismatch (e.g. LDIR circle-calibration inflation) does
 # not affect the rotation choice.  Returns an integer in {0,90,-90,180};
 # falls back to 0 when no rotation clearly beats leaving it unrotated.
-ldir_auto_view_rotation <- function(ldir_x, ldir_y, raman_x, raman_y) {
-  fk <- is.finite(ldir_x) & is.finite(ldir_y)
-  fr <- is.finite(raman_x) & is.finite(raman_y)
-  lx <- ldir_x[fk]; ly <- ldir_y[fk]
-  rx <- raman_x[fr]; ry <- raman_y[fr]
-  if (length(lx) < 4 || length(rx) < 4) return(0L)
+#
+# .auto_view_best() is the shared engine: it scores a list of candidate view
+# transforms (each list(deg=, flip=)) and returns the winning index.  The FIRST
+# candidate must be the identity — it is the fallback whenever nothing scores
+# well enough, or when no candidate clearly beats leaving the view as-is.
+.auto_view_best <- function(src_x, src_y, ref_x, ref_y, cands) {
+  fk <- is.finite(src_x) & is.finite(src_y)
+  fr <- is.finite(ref_x) & is.finite(ref_y)
+  lx <- src_x[fk]; ly <- src_y[fk]
+  rx <- ref_x[fr]; ry <- ref_y[fr]
+  if (length(lx) < 4 || length(rx) < 4) return(1L)
+
+  # Scoring is O(n_src * n_ref) per candidate. LDIR clouds are tiny, but an
+  # FTIR run can carry thousands of particles — thin deterministically (no RNG,
+  # so the result stays reproducible and cacheable) to keep the tab responsive.
+  cap <- 400L
+  thin <- function(v, n) if (n <= cap) v else v[round(seq(1, n, length.out = cap))]
+  nl <- length(lx); nr <- length(rx)
+  lx <- thin(lx, nl); ly <- thin(ly, nl)
+  rx <- thin(rx, nr); ry <- thin(ry, nr)
 
   nrm <- function(x, y) {
     x <- x - mean(x); y <- y - mean(y)
@@ -1224,8 +1283,8 @@ ldir_auto_view_rotation <- function(ldir_x, ldir_y, raman_x, raman_y) {
   L <- nrm(lx, ly); R <- nrm(rx, ry)
   tol <- 0.10   # normalized units (~10% of cloud radius)
 
-  score <- function(deg) {
-    p <- rotate_xy_view(L$x, L$y, deg)
+  score <- function(cand) {
+    p <- view_transform_xy(L$x, L$y, cand$deg, cand$flip)
     dx <- outer(R$x, p$x, "-"); dy <- outer(R$y, p$y, "-")
     # translation voting: densest bin of pairwise offsets, then inlier count
     key <- paste(round(dx / tol), round(dy / tol))
@@ -1240,13 +1299,32 @@ ldir_auto_view_rotation <- function(ldir_x, ldir_y, raman_x, raman_y) {
     best
   }
 
-  degs <- c(0L, 90L, -90L, 180L)
-  ns   <- vapply(degs, score, integer(1))
-  bi   <- which.max(ns)
-  if (ns[bi] < 4) return(0L)
-  # only rotate when a rotation clearly beats leaving the view upright
-  if (degs[bi] != 0L && ns[bi] <= ns[1] + 1L) return(0L)
-  degs[bi]
+  ns <- vapply(cands, score, integer(1))
+  bi <- which.max(ns)
+  if (ns[bi] < 4) return(1L)
+  # only transform when the winner clearly beats leaving the view as-is
+  if (bi != 1L && ns[bi] <= ns[1] + 1L) return(1L)
+  bi
+}
+
+ldir_auto_view_rotation <- function(ldir_x, ldir_y, raman_x, raman_y) {
+  degs  <- c(0L, 90L, -90L, 180L)
+  cands <- lapply(degs, function(d) list(deg = d, flip = FALSE))
+  degs[.auto_view_best(ldir_x, ldir_y, raman_x, raman_y, cands)]
+}
+
+# Auto view transform including a possible mirror — same measurement as
+# ldir_auto_view_rotation() but over all eight orientations, so it can tell a
+# 180 deg rotation apart from a Y flip (which look identical for a symmetric
+# particle cloud but are different scenes).  Used by the FTIR tabs, where the
+# instrument export can differ from Raman in handedness, not just rotation.
+# Returns list(deg = <0|90|-90|180>, flip = <TRUE|FALSE>).
+auto_view_dihedral <- function(src_x, src_y, ref_x, ref_y) {
+  cands <- list()
+  for (fl in c(FALSE, TRUE))
+    for (d in c(0L, 90L, -90L, 180L))
+      cands[[length(cands) + 1L]] <- list(deg = d, flip = fl)
+  cands[[.auto_view_best(src_x, src_y, ref_x, ref_y, cands)]]
 }
 
 # Total LDIR -> Raman rotation for a run, snapped to the nearest 90 deg —

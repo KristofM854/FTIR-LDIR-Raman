@@ -55,6 +55,26 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
           condition = sprintf("input.%s_show_all_labels", id_prefix),
           sliderInput(paste0(id_prefix, "_label_size"), "Label size",
                       min = 2, max = 10, value = 3, step = 0.5))),
+      # View orientation (native mode only) — rotate/mirror the whole native
+      # scene into the Raman orientation, so this tab can be read side by side
+      # with the Raman tab and the overlay. Display-only; nothing stored moves.
+      if (coord_toggle) div(
+        hr(),
+        h4("View Orientation"),
+        selectInput(paste0(id_prefix, "_view_rotation"), "View rotation (native mode)",
+                    choices = c("Auto (match Raman)" = "auto",
+                                "None (0°)"     = "0",
+                                "90° counter-clockwise" = "90",
+                                "90° clockwise" = "-90",
+                                "180°"          = "180"),
+                    selected = "auto"),
+        checkboxInput(paste0(id_prefix, "_view_flip_y"), "Mirror (flip Y)",
+                      value = FALSE),
+        helpText(style = "font-size:11px;",
+                 "Auto measures the rotation/mirror that brings this instrument's ",
+                 "particles onto the Raman ones. A mirror cannot be undone by ",
+                 "rotation alone, so try it if 180° still looks wrong.")
+      ),
       # Particle highlight: selectInput for single choice, plus text pattern box
       div(id = paste0(id_prefix, "_tour_highlight"),
         selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
@@ -2586,7 +2606,11 @@ server <- function(input, output, session) {
   observeEvent(input$repro_img_rotation,   { zoom$repro <- NULL })
 
   observeEvent(input$ftir_coord_mode,        { zoom$ftir        <- NULL })
+  observeEvent(input$ftir_view_rotation,     { zoom$ftir        <- NULL })
+  observeEvent(input$ftir_view_flip_y,       { zoom$ftir        <- NULL })
   observeEvent(input$ftir_bruker_coord_mode, { zoom$ftir_bruker <- NULL })
+  observeEvent(input$ftir_bruker_view_rotation, { zoom$ftir_bruker <- NULL })
+  observeEvent(input$ftir_bruker_view_flip_y,   { zoom$ftir_bruker <- NULL })
   observeEvent(input$ldir_coord_mode,        { zoom$ldir        <- NULL })
   observeEvent(input$ldir_view_rotation,     { zoom$ldir        <- NULL })
   observeEvent(input$ldir_bg_image,          { zoom$ldir        <- NULL })
@@ -2608,7 +2632,10 @@ server <- function(input, output, session) {
   }
 
   observeEvent(input$ftir_click, {
-    pid <- .find_nearest(input$ftir_click, ftir_filtered(), zoom$ftir)
+    pid <- .find_nearest(input$ftir_click,
+                         .view_click_df(ftir_filtered(), input$ftir_coord_mode,
+                                        ftir_view_tf()),
+                         zoom$ftir)
     if (!is.null(pid)) {
       cur <- selected_ids$ftir
       selected_ids$ftir <- if (pid %in% cur) cur else c(cur, pid)
@@ -2651,7 +2678,11 @@ server <- function(input, output, session) {
   observeEvent(input$ldir_clear_selection, { selected_ids$ldir <- character(0) })
 
   observeEvent(input$ftir_bruker_click, {
-    pid <- .find_nearest(input$ftir_bruker_click, ftir_bruker_filtered(), zoom$ftir_bruker)
+    pid <- .find_nearest(input$ftir_bruker_click,
+                         .view_click_df(ftir_bruker_filtered(),
+                                        input$ftir_bruker_coord_mode,
+                                        ftir_bruker_view_tf()),
+                         zoom$ftir_bruker)
     if (!is.null(pid)) {
       cur <- selected_ids$ftir_bruker
       selected_ids$ftir_bruker <- if (pid %in% cur) cur else c(cur, pid)
@@ -2754,6 +2785,93 @@ server <- function(input, output, session) {
     )
   })
 
+  # ------------------------------------------------------------------
+  # Native-view orientation (FTIR tabs)
+  # ------------------------------------------------------------------
+  # An FTIR export can sit in a different orientation — and a different
+  # handedness — from Raman, so the native tab can look nothing like the
+  # Raman tab or the overlay. These helpers resolve a display-only
+  # rotation + mirror and apply it to the whole native scene (points AND
+  # image). "auto" measures it from the two particle clouds; the Mirror
+  # checkbox applies on top, so ticking it twice returns to the measured
+  # orientation. Aligned mode is already in Raman space and is never
+  # transformed.
+  .resolve_view_tf <- function(rot_sel, flip_sel, df_full) {
+    flip <- isTRUE(flip_sel)
+    if (!is.null(rot_sel) && rot_sel != "auto")
+      return(list(deg = as.integer(rot_sel), flip = flip))
+    rd <- raman_df_full()
+    if (is.null(df_full) || nrow(df_full) == 0 || is.null(rd) || nrow(rd) == 0)
+      return(list(deg = 0L, flip = flip))
+    auto <- auto_view_dihedral(df_full$x_orig, df_full$y_orig, rd$x_orig, rd$y_orig)
+    list(deg = auto$deg, flip = xor(isTRUE(auto$flip), flip))
+  }
+
+  ftir_view_tf <- reactive(
+    .resolve_view_tf(input$ftir_view_rotation, input$ftir_view_flip_y,
+                     ftir_df_full()))
+  ftir_bruker_view_tf <- reactive(
+    .resolve_view_tf(input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
+                     ftir_bruker_df_full()))
+
+  .tf_is_identity <- function(vt) vt$deg == 0L && !isTRUE(vt$flip)
+
+  # Transform a points df already carrying display coords in x/y.
+  .apply_view_tf <- function(df, vt) {
+    if (is.null(df) || nrow(df) == 0 || .tf_is_identity(vt)) return(df)
+    rc <- view_transform_xy(df$x, df$y, vt$deg, vt$flip)
+    df$x <- rc$x; df$y <- rc$y
+    df
+  }
+
+  .apply_view_tf_img <- function(img, vt) {
+    if (is.null(img) || .tf_is_identity(vt)) return(img)
+    ext <- view_transform_extent(img, vt$deg, vt$flip)
+    list(raster = view_transform_raster(img$raster, vt$deg, vt$flip),
+         xmin = ext$xmin, xmax = ext$xmax, ymin = ext$ymin, ymax = ext$ymax)
+  }
+
+  .view_tf_suffix <- function(vt) {
+    if (.tf_is_identity(vt)) return("")
+    bits <- c(if (vt$deg != 0L) paste0(ifelse(vt$deg > 0, "+", ""), vt$deg, "°"),
+              if (isTRUE(vt$flip)) "mirrored")
+    paste0(" — view ", paste(bits, collapse = " + "), " to match Raman")
+  }
+
+  # Nearest particle under the cursor, in the coordinates actually plotted.
+  .hover_pick <- function(hover, df, aligned, vt) {
+    if (is.null(hover) || is.null(df) || nrow(df) == 0) return(NULL)
+    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
+      hx <- df$x; hy <- df$y
+    } else {
+      hx <- df$x_orig; hy <- df$y_orig
+      if (!.tf_is_identity(vt)) {
+        rc <- view_transform_xy(hx, hy, vt$deg, vt$flip); hx <- rc$x; hy <- rc$y
+      }
+    }
+    dists <- sqrt((hx - hover$x)^2 + (hy - hover$y)^2)
+    threshold <- max(diff(range(hx, na.rm = TRUE)),
+                     diff(range(hy, na.rm = TRUE)), 500) * 0.05
+    idx <- which.min(dists)
+    if (length(idx) > 0 && dists[idx] <= threshold) df[idx, , drop = FALSE] else NULL
+  }
+
+  # .find_nearest() searches x_orig/y_orig, so restate the plotted coordinates
+  # there before a click lookup (aligned frame, or view-transformed native).
+  .view_click_df <- function(df, coord_mode, vt) {
+    if (is.null(df) || nrow(df) == 0) return(df)
+    if (!is.null(coord_mode) && coord_mode == "aligned" &&
+        "x" %in% names(df) && any(!is.na(df$x))) {
+      df$x_orig <- df$x; df$y_orig <- df$y
+      return(df)
+    }
+    if (!.tf_is_identity(vt)) {
+      rc <- view_transform_xy(df$x_orig, df$y_orig, vt$deg, vt$flip)
+      df$x_orig <- rc$x; df$y_orig <- rc$y
+    }
+    df
+  }
+
   output$ftir_plot <- renderPlot({
     coord_mode <- input$ftir_coord_mode
     aligned    <- !is.null(coord_mode) && coord_mode == "aligned"
@@ -2783,31 +2901,37 @@ server <- function(input, output, session) {
       }
     }
 
+    # Rotate/mirror the whole native scene (image + particles) into the Raman
+    # orientation. Aligned mode is already in Raman space, so nothing applies.
+    vt <- if (aligned) list(deg = 0L, flip = FALSE) else ftir_view_tf()
+    img       <- .apply_view_tf_img(img, vt)
+    df_disp   <- .apply_view_tf(df_disp, vt)
+    full_ftir <- .apply_view_tf(full_ftir, vt)
+
     bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
       ref <- if (nrow(df_disp) > 0) df_disp
              else if (!is.null(full_ftir) && nrow(full_ftir) > 0) full_ftir
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x_orig))) {
+      if (!is.null(ref) && any(is.finite(ref$x))) {
         pad <- 300
-        list(x = c(min(ref$x_orig, na.rm=TRUE) - pad, max(ref$x_orig, na.rm=TRUE) + pad),
-             y = c(min(ref$y_orig, na.rm=TRUE) - pad, max(ref$y_orig, na.rm=TRUE) + pad))
+        list(x = c(min(ref$x, na.rm=TRUE) - pad, max(ref$x, na.rm=TRUE) + pad),
+             y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
 
     if (nrow(df_disp) == 0) {
-      full_ftir <- ftir_df_full()
       if (is.null(full_ftir) || nrow(full_ftir) == 0) {
         df0 <- data.frame(x=c(0,1), y=c(0,1), match_status="none", feret_max_um=1)
         bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
         return(build_single_view_plot(df0, bg))
       }
-      df0 <- full_ftir %>% dplyr::mutate(
-        x = x_orig, y = y_orig, match_status = "none", feret_max_um = 1)
+      # full_ftir already carries the display (and view-transformed) coords.
+      df0 <- full_ftir %>% dplyr::mutate(match_status = "none", feret_max_um = 1)
       bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
       return(build_single_view_plot(df0, bg))
     }
 
-    title_suffix <- if (aligned) " (Raman-aligned frame)" else ""
+    title_suffix <- if (aligned) " (Raman-aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir))
@@ -2829,6 +2953,7 @@ server <- function(input, output, session) {
     # data (df_full, manifest) and image pixels are captured by selected_run_dir().
     selected_run_dir(), is.null(uploaded_data()),
     ftir_filtered(), input$ftir_coord_mode,
+    input$ftir_view_rotation, input$ftir_view_flip_y,
     input$ftir_highlight_particle, single_highlight_ids$ftir,
     input$ftir_show_all_detected, input$ftir_show_all_labels, input$ftir_label_size, zoom$ftir,
     img_key(ftir_native_image_info()), img_key(overlay_image_info())
@@ -2843,20 +2968,9 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$ftir_hover, {
-    hover <- input$ftir_hover
-    if (is.null(hover)) return()
-    df <- ftir_filtered()
-    if (nrow(df) == 0) return()
     aligned <- !is.null(input$ftir_coord_mode) && input$ftir_coord_mode == "aligned"
-    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
-      dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
-      threshold <- max(diff(range(df$x, na.rm=TRUE)), diff(range(df$y, na.rm=TRUE)), 500) * 0.05
-    } else {
-      dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
-      threshold <- max(diff(range(df$x_orig, na.rm=TRUE)), diff(range(df$y_orig, na.rm=TRUE)), 500) * 0.05
-    }
-    idx <- which.min(dists)
-    if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop=FALSE]
+    hit <- .hover_pick(input$ftir_hover, ftir_filtered(), aligned, ftir_view_tf())
+    if (!is.null(hit)) last_hover$ftir <- hit
   })
 
   output$ftir_hover_info <- renderUI({
@@ -3410,14 +3524,20 @@ server <- function(input, output, session) {
       }
     }
 
+    # Rotate/mirror the whole native scene into the Raman orientation.
+    vt <- if (aligned) list(deg = 0L, flip = FALSE) else ftir_bruker_view_tf()
+    img     <- .apply_view_tf_img(img, vt)
+    df_disp <- .apply_view_tf(df_disp, vt)
+    full_fb <- .apply_view_tf(full_fb, vt)
+
     bounds <- if (!is.null(zoom$ftir_bruker)) zoom$ftir_bruker else {
       ref <- if (nrow(df_disp) > 0) df_disp
              else if (!is.null(full_fb) && nrow(full_fb) > 0) full_fb
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x_orig))) {
+      if (!is.null(ref) && any(is.finite(ref$x))) {
         pad <- 300
-        list(x = c(min(ref$x_orig, na.rm=TRUE) - pad, max(ref$x_orig, na.rm=TRUE) + pad),
-             y = c(min(ref$y_orig, na.rm=TRUE) - pad, max(ref$y_orig, na.rm=TRUE) + pad))
+        list(x = c(min(ref$x, na.rm=TRUE) - pad, max(ref$x, na.rm=TRUE) + pad),
+             y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
 
@@ -3430,7 +3550,7 @@ server <- function(input, output, session) {
               panel.background=element_rect(fill="grey98", colour=NA)))
     }
 
-    title_suffix <- if (aligned) " (Raman-aligned frame)" else ""
+    title_suffix <- if (aligned) " (Raman-aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_bruker_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir_bruker))
@@ -3448,6 +3568,7 @@ server <- function(input, output, session) {
   }) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
     ftir_bruker_filtered(), input$ftir_bruker_coord_mode,
+    input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
     input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
     input$ftir_bruker_show_all_detected, input$ftir_bruker_show_all_labels, input$ftir_bruker_label_size,
     zoom$ftir_bruker,
@@ -3466,20 +3587,11 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$ftir_bruker_hover, {
-    hover <- input$ftir_bruker_hover
-    if (is.null(hover)) return()
-    df <- ftir_bruker_filtered()
-    if (nrow(df) == 0) return()
-    aligned <- !is.null(input$ftir_bruker_coord_mode) && input$ftir_bruker_coord_mode == "aligned"
-    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
-      dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
-      threshold <- max(diff(range(df$x, na.rm=TRUE)), diff(range(df$y, na.rm=TRUE)), 500) * 0.05
-    } else {
-      dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
-      threshold <- max(diff(range(df$x_orig, na.rm=TRUE)), diff(range(df$y_orig, na.rm=TRUE)), 500) * 0.05
-    }
-    idx <- which.min(dists)
-    if (dists[idx] <= threshold) last_hover$ftir_bruker <- df[idx, , drop=FALSE]
+    aligned <- !is.null(input$ftir_bruker_coord_mode) &&
+               input$ftir_bruker_coord_mode == "aligned"
+    hit <- .hover_pick(input$ftir_bruker_hover, ftir_bruker_filtered(),
+                       aligned, ftir_bruker_view_tf())
+    if (!is.null(hit)) last_hover$ftir_bruker <- hit
   })
 
   output$ftir_bruker_hover_info <- renderUI({
