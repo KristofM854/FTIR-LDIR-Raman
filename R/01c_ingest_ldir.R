@@ -2034,8 +2034,10 @@ load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
   }
 
   nm <- tolower(trimws(names(tab)))
-  ia <- which(nm %in% c("id_a", "a", "from", "id1", "particle_a"))[1]
-  ib <- which(nm %in% c("id_b", "b", "to",   "id2", "particle_b"))[1]
+  ia <- which(nm %in% c("id_a", "a", "from", "id1", "particle_a",
+                        "id_clarity", "clarity", "software", "correct", "true"))[1]
+  ib <- which(nm %in% c("id_b", "b", "to", "id2", "particle_b",
+                        "id_r", "r", "id_pipeline", "pipeline", "assigned", "current"))[1]
   if (is.na(ia) || is.na(ib)) { ia <- 1L; ib <- 2L }
 
   pairs <- Map(function(a, b) c(trimws(a), trimws(b)), tab[[ia]], tab[[ib]])
@@ -2046,6 +2048,15 @@ load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
   }
   log_message("  Loaded ", length(pairs),
               " coordinate swap(s) from sidecar: ", basename(f))
+  # Swaps are symmetric and applied in listed order. IDs appearing in more than
+  # one row form a chain/cycle whose net effect depends on order — flag them so
+  # the user re-checks those particles after the run.
+  ids  <- unlist(pairs)
+  reps <- names(which(table(ids) > 1L))
+  if (length(reps) > 0)
+    log_message("  Note: ", length(reps), " id(s) appear in multiple swaps ",
+                "(cyclic correction — verify after the run): ",
+                paste(reps, collapse = ", "), level = "WARN")
   pairs
 }
 
