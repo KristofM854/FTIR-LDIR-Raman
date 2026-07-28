@@ -632,3 +632,74 @@ test_that("load_ldir_coord_swaps falls back to the first two columns without id_
   expect_equal(pairs[[1]], c("A5", "A7"))
   expect_equal(pairs[[2]], c("A8", "A9"))
 })
+
+test_that("load_ldir_coord_swaps auto-detects ';' and tab separators", {
+  # A European-locale Excel writes ";"-delimited CSV. Read with sep="," that
+  # collapses to a single column, and the whole sidecar was silently dropped —
+  # the pipeline then ran with NO corrections at all.
+  for (sep in c(";", "\t")) {
+    d       <- withr::local_tempdir()
+    xlsx    <- file.path(d, "Sep.xlsx")
+    sidecar <- file.path(d, "Sep_coord_swaps.csv")
+    writeLines(c(paste("id_clarity", "id_R", "note", sep = sep),
+                 paste("A4", "A3", "", sep = sep),
+                 paste("A18", "A17", "", sep = sep)), sidecar)
+
+    pairs <- load_ldir_coord_swaps(xlsx, make_config())
+    expect_equal(length(pairs), 2L, info = sep)
+    expect_equal(pairs[[1]], c("A4", "A3"), info = sep)
+    expect_equal(pairs[[2]], c("A18", "A17"), info = sep)
+  }
+})
+
+test_that("load_ldir_coord_swaps strips a UTF-8 BOM from the header", {
+  d       <- withr::local_tempdir()
+  xlsx    <- file.path(d, "Bom.xlsx")
+  sidecar <- file.path(d, "Bom_coord_swaps.csv")
+  con <- file(sidecar, open = "wb")
+  writeBin(charToRaw("﻿id_clarity,id_R\nA4,A3\n"), con)
+  close(con)
+
+  pairs <- load_ldir_coord_swaps(xlsx, make_config())
+  expect_equal(length(pairs), 1L)
+  expect_equal(pairs[[1]], c("A4", "A3"))
+})
+
+test_that("the full 10-row correction table applies as one global permutation", {
+  # Regression for the reported 37/38/39 case: the table must relabel
+  # 37 -> 39, 39 -> 38, 38 -> 37 (not a 37<->38 swap leaving 39 alone).
+  ids <- paste0("A", 1:40)
+  df  <- data.frame(particle_id = ids, x_um = seq_along(ids) * 100,
+                    y_um = seq_along(ids) * 100, stringsAsFactors = FALSE)
+  swaps <- list(c("A4","A3"),  c("A39","A37"), c("A38","A39"), c("A37","A38"),
+                c("A19","A29"), c("A28","A20"), c("A18","A17"),
+                c("A10","A9"), c("A9","A8"),   c("A6","A7"))
+
+  out   <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = swaps))
+  # owner[i] = the id whose ORIGINAL coordinate now sits on row i
+  owner <- paste0("A", out$x_um / 100)
+  relabel <- stats::setNames(out$particle_id, owner)   # R_old -> R_new
+
+  expect_equal(unname(relabel[c("A37", "A39", "A38")]), c("A39", "A38", "A37"))
+  # The two independent near-tie pairs stay independent 2-swaps.
+  expect_equal(unname(relabel[c("A29", "A19")]), c("A19", "A29"))
+  expect_equal(unname(relabel[c("A20", "A28")]), c("A28", "A20"))
+  # The 8/9/10 open chain closes into a 3-cycle.
+  expect_equal(unname(relabel[c("A9", "A8", "A10")]), c("A10", "A9", "A8"))
+  # Everything not named in the table is untouched.
+  named <- paste0("A", c(3,4,6,7,8,9,10,17,18,19,20,28,29,37,38,39))
+  expect_true(all(owner[!ids %in% named] == ids[!ids %in% named]))
+  # Order-independent.
+  out2 <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = rev(swaps)))
+  expect_equal(out2$x_um, out$x_um)
+})
+
+test_that("apply_ldir_coord_swaps tolerates case / separator / bare-number ids", {
+  df  <- .joined_like()
+  out <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("a19", " A_29 "))))
+  expect_equal(out$x_um[out$particle_id == "A19"], 400)
+  expect_equal(out$x_um[out$particle_id == "A29"], 100)
+
+  out2 <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("19", "29"))))
+  expect_equal(out2$x_um[out2$particle_id == "A19"], 400)
+})
