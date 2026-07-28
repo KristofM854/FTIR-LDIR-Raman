@@ -1966,22 +1966,53 @@ apply_ldir_coord_swaps <- function(df, config = NULL) {
 
   # Parse rows -> clarity (target, receives) and rr (source R, gives).
   ids <- as.character(df$particle_id)
-  clarity <- character(0); rr <- character(0)
+
+  # Resolve a sidecar id to a real particle_id: exact first, then ignoring case
+  # and separators ("a37", " A_37" -> "A37"), then a bare number against the
+  # digits of the ids ("37" -> "A37"). Ambiguous or unknown -> NA.
+  norm     <- function(z) toupper(gsub("[^A-Za-z0-9]", "", z))
+  ids_norm <- norm(ids)
+  ids_dig  <- sub("^[^0-9]*", "", ids_norm)
+  resolve_id <- function(z) {
+    if (z %in% ids) return(z)
+    hit <- which(ids_norm == norm(z))
+    if (length(hit) == 1L) return(ids[hit])
+    if (grepl("^[0-9]+$", z)) {
+      hit <- which(ids_dig == sub("^0+", "", z) | ids_dig == z)
+      if (length(hit) == 1L) return(ids[hit])
+    }
+    NA_character_
+  }
+
+  clarity <- character(0); rr <- character(0); n_skipped <- 0L
   for (pair in swaps) {
     if (length(pair) != 2L) {
       log_message("  Coord relabel: skipping malformed entry (need 2 ids): ",
                   paste(pair, collapse = ", "), level = "WARN")
+      n_skipped <- n_skipped + 1L
       next
     }
-    a <- trimws(as.character(pair[1])); b <- trimws(as.character(pair[2]))
-    if (!(a %in% ids) || !(b %in% ids)) {
-      log_message("  Coord relabel: unknown id — skipping ", a, " / ", b, level = "WARN")
+    a <- resolve_id(trimws(as.character(pair[1])))
+    b <- resolve_id(trimws(as.character(pair[2])))
+    if (is.na(a) || is.na(b)) {
+      log_message("  Coord relabel: unknown id — skipping ", pair[1], " / ", pair[2],
+                  level = "WARN")
+      n_skipped <- n_skipped + 1L
       next
     }
     if (identical(a, b)) next   # self-map: no-op
     clarity <- c(clarity, a); rr <- c(rr, b)
   }
-  if (length(clarity) == 0L) return(df)
+  if (length(clarity) == 0L) {
+    if (n_skipped > 0L)
+      log_message("  Coord relabel: NO corrections applied — all ", n_skipped,
+                  " row(s) referenced ids absent from the data. Example data ids: ",
+                  paste(utils::head(ids, 5), collapse = ", "), level = "WARN")
+    return(df)
+  }
+  if (n_skipped > 0L)
+    log_message("  Coord relabel: ", n_skipped, " row(s) skipped, ",
+                length(clarity), " usable", level = "WARN")
 
   # A particle may appear at most once per column; otherwise the reassignment is
   # ambiguous. Abort rather than corrupt coordinates.
@@ -1999,14 +2030,16 @@ apply_ldir_coord_swaps <- function(df, config = NULL) {
   assign_map <- stats::setNames(rr, clarity)
   targets <- names(assign_map)
 
-  # Close open chains into cycles: for each head (a target that is not a source)
-  # walk to the tail (a source that is not a target) and wrap tail -> head.
+  # Close open chains into cycles: for each chain head (a target that is not a
+  # source) walk to the tail (a source that is not a target) and wrap
+  # tail -> head. Chains are disjoint because the duplicate check above makes
+  # every id appear at most once per column, so each walk stays in its own chain.
   loose_tgt <- setdiff(targets, unname(assign_map))
-  for (head in loose_tgt) {
-    cur <- head
-    while (assign_map[[cur]] %in% targets) cur <- assign_map[[cur]]
-    tail <- assign_map[[cur]]
-    assign_map[[tail]] <- head
+  for (chain_head in loose_tgt) {
+    cur <- chain_head
+    while (assign_map[[cur]] %in% names(assign_map)) cur <- assign_map[[cur]]
+    chain_tail <- assign_map[[cur]]
+    assign_map[[chain_tail]] <- chain_head
   }
 
   # Apply from a snapshot so it is order-independent.
@@ -2050,10 +2083,12 @@ find_ldir_coord_swaps_file <- function(ldir_path, config = NULL) {
 #' Load manual coordinate swaps from the CSV sidecar
 #'
 #' Reads "<excel-stem>_coord_swaps.csv" (found via find_ldir_coord_swaps_file())
-#' into the list-of-pairs form config$ldir_coord_swaps expects. The two ID
-#' columns are matched by name (id_a/id_b, case-insensitive; also a/b, from/to,
-#' id1/id2), falling back to the first two columns; any further columns (e.g.
-#' `note`) are ignored. Rows with a blank ID are dropped.
+#' into the list-of-pairs form config$ldir_coord_swaps expects. The separator is
+#' auto-detected (comma, semicolon or tab) so a sheet saved by a European-locale
+#' Excel — which writes ";" — is read the same as a plain comma CSV. The two ID
+#' columns are matched by name (id_clarity/id_R, case-insensitive; also id_a/id_b,
+#' a/b, from/to, id1/id2), falling back to the first two columns; any further
+#' columns (e.g. `note`) are ignored. Rows with a blank ID are dropped.
 #'
 #' @param ldir_path Path to the LDIR Excel file
 #' @param config    Pipeline config
@@ -2062,16 +2097,30 @@ load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
   f <- find_ldir_coord_swaps_file(ldir_path, config)
   if (is.null(f)) return(NULL)
 
-  tab <- tryCatch(
-    utils::read.csv(f, stringsAsFactors = FALSE, colClasses = "character",
-                    check.names = FALSE),
-    error = function(e) NULL)
-  if (is.null(tab) || ncol(tab) < 2 || nrow(tab) == 0) {
-    log_message("  Coord-swaps sidecar unreadable or lacks 2 columns: ",
-                basename(f), level = "WARN")
+  # Auto-detect the separator: read with each candidate and keep the one that
+  # actually splits the file into columns. Reading a ";"-delimited file with
+  # sep="," yields a single column, which silently looked like "no usable
+  # sidecar" — hence the explicit probe.
+  tab <- NULL
+  for (sep in c(",", ";", "\t")) {
+    t <- tryCatch(
+      utils::read.csv(f, sep = sep, stringsAsFactors = FALSE,
+                      colClasses = "character", check.names = FALSE),
+      error = function(e) NULL)
+    if (!is.null(t) && ncol(t) >= 2 && (is.null(tab) || ncol(t) > ncol(tab)))
+      tab <- t
+  }
+  if (is.null(tab) || nrow(tab) == 0) {
+    first_line <- tryCatch(readLines(f, n = 1L, warn = FALSE), error = function(e) "")
+    log_message("  Coord-swaps sidecar found but NOT usable — no corrections ",
+                "will be applied: ", basename(f),
+                " (need >=2 columns separated by ',', ';' or tab; first line was: ",
+                paste(first_line, collapse = ""), ")", level = "WARN")
     return(NULL)
   }
 
+  # Strip a UTF-8 BOM off the first header name so id_clarity still matches.
+  names(tab) <- sub("^﻿", "", names(tab))
   nm <- tolower(trimws(names(tab)))
   ia <- which(nm %in% c("id_a", "a", "from", "id1", "particle_a",
                         "id_clarity", "clarity", "software", "correct", "true"))[1]
