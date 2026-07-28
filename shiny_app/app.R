@@ -20,6 +20,22 @@ detail_table_ui <- function(id) {
   uiOutput(id)
 }
 
+# Per-material show/hide checkboxes. Choices are filled from the loaded run
+# (each material family actually present, "unknown" included), so the list is
+# exactly what is on the sample — see update_material_choices() server-side.
+# Scrolls rather than growing the sidebar when a run carries many families.
+material_filter_ui <- function(input_id, label = "Materials") {
+  div(class = "mat-filter",
+    tags$label(label, `for` = input_id),
+    div(class = "mat-filter-actions",
+        actionLink(paste0(input_id, "_all"),  "all"), " / ",
+        actionLink(paste0(input_id, "_none"), "none")),
+    div(class = "mat-filter-box",
+        checkboxGroupInput(input_id, NULL, choices = character(0),
+                           selected = character(0)))
+  )
+}
+
 make_detail_row <- function(label, value) {
   tags$tr(tags$td(tags$b(label)), tags$td(value))
 }
@@ -39,8 +55,7 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
         sliderInput(paste0(id_prefix, "_size_range"), "Feret Max (\u00b5m)",
                     min = 0, max = size_max, value = c(0, size_max), step = 5)),
       div(id = paste0(id_prefix, "_tour_material"),
-        selectInput(paste0(id_prefix, "_material_filter"), "Material",
-                    choices = c("All"), selected = "All", multiple = TRUE)),
+        material_filter_ui(paste0(id_prefix, "_material_filter"), "Materials")),
       div(id = paste0(id_prefix, "_tour_match"),
         checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
                            choices = match_choices,
@@ -55,6 +70,26 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
           condition = sprintf("input.%s_show_all_labels", id_prefix),
           sliderInput(paste0(id_prefix, "_label_size"), "Label size",
                       min = 2, max = 10, value = 3, step = 0.5))),
+      # View orientation (native mode only) — rotate/mirror the whole native
+      # scene into the Raman orientation, so this tab can be read side by side
+      # with the Raman tab and the overlay. Display-only; nothing stored moves.
+      if (coord_toggle) div(
+        hr(),
+        h4("View Orientation"),
+        selectInput(paste0(id_prefix, "_view_rotation"), "View rotation (native mode)",
+                    choices = c("Auto (match Raman)" = "auto",
+                                "None (0°)"     = "0",
+                                "90° counter-clockwise" = "90",
+                                "90° clockwise" = "-90",
+                                "180°"          = "180"),
+                    selected = "auto"),
+        checkboxInput(paste0(id_prefix, "_view_flip_y"), "Mirror (flip Y)",
+                      value = FALSE),
+        helpText(style = "font-size:11px;",
+                 "Auto measures the rotation/mirror that brings this instrument's ",
+                 "particles onto the Raman ones. A mirror cannot be undone by ",
+                 "rotation alone, so try it if 180° still looks wrong.")
+      ),
       # Particle highlight: selectInput for single choice, plus text pattern box
       div(id = paste0(id_prefix, "_tour_highlight"),
         selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
@@ -140,6 +175,16 @@ ui <- fluidPage(
     .hover-tbl td { padding: 4px 8px; border-bottom: 1px solid #dee2e6; }
     .placeholder-msg { text-align: center; padding: 80px 20px; color: #6c757d; }
     .placeholder-msg h3 { color: #495057; }
+    .mat-filter { margin-bottom: 12px; }
+    .mat-filter > label { margin-bottom: 2px; font-weight: 700; }
+    .mat-filter-actions { font-size: 11px; margin-bottom: 3px; color: #888; }
+    .mat-filter-box { max-height: 168px; overflow-y: auto; background: #fff;
+                      border: 1px solid #ced4da; border-radius: 4px;
+                      padding: 4px 8px; }
+    .mat-filter-box .checkbox { margin: 2px 0; }
+    .mat-filter-box .checkbox label { font-size: 13px; padding-left: 20px; }
+    .mat-filter-box .shiny-options-group { margin-top: 0; }
+    .mat-filter-empty { font-size: 12px; color: #999; padding: 2px 0; }
   "))),
 
   navbarPage(
@@ -193,8 +238,7 @@ ui <- fluidPage(
                       min = 0, max = 1, value = c(0, 1), step = 0.01),
           sliderInput("ldir_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
-          selectInput("ldir_material_filter", "Material",
-                      choices = c("All"), selected = "All", multiple = TRUE),
+          material_filter_ui("ldir_material_filter", "Materials"),
           checkboxInput("ldir_show_all_detected",
                         "Show all detected (ignore match status)",
                         value = FALSE),
@@ -368,8 +412,7 @@ ui <- fluidPage(
                       min = 0, max = 1, value = c(0, 1), step = 0.01),
           sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
                       min = 0, max = 800, value = c(0, 800), step = 5),
-          selectizeInput("overlay_ftir_material", "Material",
-                         choices = c("All"), selected = "All", multiple = TRUE),
+          material_filter_ui("overlay_ftir_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_ftir_pattern", NULL,
                                 placeholder = "Range (1-10) or pattern (MP_*)")),
@@ -388,8 +431,7 @@ ui <- fluidPage(
                       min = 0, max = 100, value = c(0, 100), step = 1),
           sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
-          selectizeInput("overlay_raman_material", "Material",
-                         choices = c("All"), selected = "All", multiple = TRUE),
+          material_filter_ui("overlay_raman_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_raman_pattern", NULL,
                                 placeholder = "Range (1-10) or pattern")),
@@ -414,8 +456,7 @@ ui <- fluidPage(
                       min = 0, max = 1, value = c(0, 1), step = 0.01),
           sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
-          selectizeInput("overlay_ldir_material", "Material",
-                         choices = c("All"), selected = "All", multiple = TRUE),
+          material_filter_ui("overlay_ldir_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_ldir_pattern", NULL,
                                 placeholder = "Range (1-10) or pattern (A*)")),
@@ -434,8 +475,7 @@ ui <- fluidPage(
                       min = 0, max = 1, value = c(0, 1), step = 0.01),
           sliderInput("overlay_ftir_bruker_size", "Feret Max (\u00b5m)",
                       min = 0, max = 800, value = c(0, 800), step = 5),
-          selectizeInput("overlay_ftir_bruker_material", "Material",
-                         choices = c("All"), selected = "All", multiple = TRUE),
+          material_filter_ui("overlay_ftir_bruker_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_ftir_bruker_pattern", NULL,
                                 placeholder = "Range (1-10) or pattern (MP_*)")),
@@ -739,7 +779,7 @@ server <- function(input, output, session) {
         list(element = "#ftir_tour_size",
              intro   = "The <strong>Feret Max slider</strong> filters by maximum particle diameter in \u00b5m \u2014 a proxy for particle size. Use it to isolate a specific size class."),
         list(element = "#ftir_tour_material",
-             intro   = "The <strong>Material filter</strong> lets you show only particles of selected polymer types. Type or pick from the dropdown; multiple selections are supported."),
+             intro   = "The <strong>Materials</strong> list has one checkbox per material family found on this sample — polymers plus <em>unknown</em>. Untick any to hide those particles; the <em>all</em> / <em>none</em> links toggle the whole list. Every viewer and the Overlay tab has its own copy."),
         list(element = "#ftir_tour_match",
              intro   = "The <strong>Match Status</strong> checkboxes toggle visibility of matched particles (spatially paired with Raman) and unmatched particles. Both are shown by default."),
         list(element = "#ftir_tour_highlight",
@@ -2019,8 +2059,7 @@ server <- function(input, output, session) {
       s_max     <- ceiling(max(ftir$feret_max, na.rm = TRUE) / 10) * 10
 
       # Individual tab
-      updateSelectInput(session, "ftir_material_filter",
-                        choices = c("All", ftir_mats), selected = "All")
+      update_material_choices("ftir_material_filter", ftir_mats)
       updateSelectInput(session, "ftir_highlight_particle",
                         choices = c("None", ftir_ids))
       updateSliderInput(session, "ftir_quality_range",
@@ -2032,8 +2071,7 @@ server <- function(input, output, session) {
                         value = c(0, s_max))
 
       # Overlay per-instrument
-      updateSelectizeInput(session, "overlay_ftir_material",
-                           choices = c("All", ftir_mats), selected = "All")
+      update_material_choices("overlay_ftir_material", ftir_mats)
       updateSelectizeInput(session, "overlay_ftir_particles",
                            choices = ftir_ids, selected = character(0))
       updateSliderInput(session, "overlay_ftir_quality",
@@ -2054,8 +2092,7 @@ server <- function(input, output, session) {
       s_max      <- ceiling(max(raman$feret_max, na.rm = TRUE) / 10) * 10
 
       # Individual tab
-      updateSelectInput(session, "raman_material_filter",
-                        choices = c("All", raman_mats), selected = "All")
+      update_material_choices("raman_material_filter", raman_mats)
       updateSelectInput(session, "raman_highlight_particle",
                         choices = c("None", raman_ids))
       updateSliderInput(session, "raman_quality_range",
@@ -2065,8 +2102,7 @@ server <- function(input, output, session) {
                         value = c(0, s_max))
 
       # Overlay per-instrument
-      updateSelectizeInput(session, "overlay_raman_material",
-                           choices = c("All", raman_mats), selected = "All")
+      update_material_choices("overlay_raman_material", raman_mats)
       updateSelectizeInput(session, "overlay_raman_particles",
                            choices = raman_ids, selected = character(0))
       updateSliderInput(session, "overlay_raman_quality",
@@ -2085,8 +2121,7 @@ server <- function(input, output, session) {
       s_max     <- ceiling(max(ldir$feret_max, na.rm = TRUE) / 10) * 10
 
       # Individual tab
-      updateSelectInput(session, "ldir_material_filter",
-                        choices = c("All", ldir_mats), selected = "All")
+      update_material_choices("ldir_material_filter", ldir_mats)
       updateSelectInput(session, "ldir_highlight_particle",
                         choices = c("None", ldir_ids))
       if (all(is.finite(q_range))) {
@@ -2116,8 +2151,7 @@ server <- function(input, output, session) {
       }
 
       # Overlay per-instrument
-      updateSelectizeInput(session, "overlay_ldir_material",
-                           choices = c("All", ldir_mats), selected = "All")
+      update_material_choices("overlay_ldir_material", ldir_mats)
       updateSelectizeInput(session, "overlay_ldir_particles",
                            choices = ldir_ids, selected = character(0))
       if (all(is.finite(q_range))) {
@@ -2140,8 +2174,7 @@ server <- function(input, output, session) {
       fb_ids   <- natural_sort_ids(unique(ftir_bruker_d$particle_id))
       q_range  <- range(ftir_bruker_d$quality, na.rm = TRUE)
       s_max    <- ceiling(max(ftir_bruker_d$feret_max, na.rm = TRUE) / 10) * 10
-      updateSelectInput(session, "ftir_bruker_material_filter",
-                        choices = c("All", fb_mats), selected = "All")
+      update_material_choices("ftir_bruker_material_filter", fb_mats)
       updateSelectInput(session, "ftir_bruker_highlight_particle",
                         choices = c("None", fb_ids))
       if (all(is.finite(q_range))) {
@@ -2157,8 +2190,7 @@ server <- function(input, output, session) {
       }
 
       # Overlay per-instrument
-      updateSelectizeInput(session, "overlay_ftir_bruker_material",
-                           choices = c("All", fb_mats), selected = "All")
+      update_material_choices("overlay_ftir_bruker_material", fb_mats)
       updateSelectizeInput(session, "overlay_ftir_bruker_particles",
                            choices = fb_ids, selected = character(0))
       if (all(is.finite(q_range))) {
@@ -2316,11 +2348,72 @@ server <- function(input, output, session) {
     df <- df[!is.na(df$feret_max) &
              df$feret_max >= size_range[1] &
              df$feret_max <= size_range[2], ]
-    if (!("All" %in% mat_filter))
+    # mat_filter: NULL = no filter, otherwise the families to keep (possibly
+    # none, when every box is unchecked). See mat_keep().
+    if (!is.null(mat_filter))
       df <- df[df$material_family %in% mat_filter, ]
     df <- df[df$match_status %in% match_filter, ]
     df
   }
+
+  # ==================================================================
+  # Per-material show/hide checkbox groups
+  # ==================================================================
+  # Every viewer and the overlay lists the material families actually present
+  # in its data, all ticked on load, so any of them can be switched off.
+  #
+  # An empty checkbox group reads back as NULL, which is ambiguous: it is
+  # either "not populated yet" (data still loading — must not filter) or "the
+  # user unticked everything" (must show nothing). mat_ready distinguishes
+  # them: it flips once the group has ever reported a selection.
+  MATERIAL_INPUTS <- c(
+    "ftir_material_filter", "ftir_bruker_material_filter",
+    "raman_material_filter", "ldir_material_filter",
+    "overlay_ftir_material", "overlay_raman_material",
+    "overlay_ldir_material", "overlay_ftir_bruker_material")
+
+  mat_ready   <- reactiveValues()
+  mat_choices <- reactiveValues()   # input_id -> families offered
+
+  # Families to keep for an input: NULL = no filtering at all.
+  mat_keep <- function(input_id) {
+    sel <- input[[input_id]]
+    if (is.null(sel)) {
+      if (!isTRUE(mat_ready[[input_id]])) return(NULL)   # not populated yet
+      return(character(0))                               # all unticked
+    }
+    sel
+  }
+
+  # Fill a group from the data, keeping the user's ticks where the family still
+  # exists; families new to this run arrive ticked, so switching runs never
+  # silently hides particles.
+  update_material_choices <- function(input_id, families) {
+    families <- sort(unique(as.character(families[!is.na(families)])))
+    prev_ch  <- mat_choices[[input_id]]
+    prev_sel <- isolate(input[[input_id]])
+    selected <- if (is.null(prev_ch)) families
+                else union(intersect(prev_sel, families), setdiff(families, prev_ch))
+    mat_choices[[input_id]] <- families
+    updateCheckboxGroupInput(session, input_id, choices = families,
+                             selected = selected)
+  }
+
+  for (.mid in MATERIAL_INPUTS) local({
+    id <- .mid
+    # Readiness: ignoreNULL so unticking everything does NOT reset the flag.
+    observeEvent(input[[id]], { mat_ready[[id]] <- TRUE }, ignoreNULL = TRUE)
+    # Re-supplying choices (rather than selected alone) makes "none" reliable.
+    observeEvent(input[[paste0(id, "_all")]], {
+      updateCheckboxGroupInput(session, id, choices = mat_choices[[id]],
+                               selected = mat_choices[[id]])
+    })
+    observeEvent(input[[paste0(id, "_none")]], {
+      mat_ready[[id]] <- TRUE
+      updateCheckboxGroupInput(session, id, choices = mat_choices[[id]],
+                               selected = character(0))
+    })
+  })
 
   # ==================================================================
   # Helper: add image background to a ggplot
@@ -2586,7 +2679,11 @@ server <- function(input, output, session) {
   observeEvent(input$repro_img_rotation,   { zoom$repro <- NULL })
 
   observeEvent(input$ftir_coord_mode,        { zoom$ftir        <- NULL })
+  observeEvent(input$ftir_view_rotation,     { zoom$ftir        <- NULL })
+  observeEvent(input$ftir_view_flip_y,       { zoom$ftir        <- NULL })
   observeEvent(input$ftir_bruker_coord_mode, { zoom$ftir_bruker <- NULL })
+  observeEvent(input$ftir_bruker_view_rotation, { zoom$ftir_bruker <- NULL })
+  observeEvent(input$ftir_bruker_view_flip_y,   { zoom$ftir_bruker <- NULL })
   observeEvent(input$ldir_coord_mode,        { zoom$ldir        <- NULL })
   observeEvent(input$ldir_view_rotation,     { zoom$ldir        <- NULL })
   observeEvent(input$ldir_bg_image,          { zoom$ldir        <- NULL })
@@ -2608,7 +2705,10 @@ server <- function(input, output, session) {
   }
 
   observeEvent(input$ftir_click, {
-    pid <- .find_nearest(input$ftir_click, ftir_filtered(), zoom$ftir)
+    pid <- .find_nearest(input$ftir_click,
+                         .view_click_df(ftir_filtered(), input$ftir_coord_mode,
+                                        ftir_view_tf()),
+                         zoom$ftir)
     if (!is.null(pid)) {
       cur <- selected_ids$ftir
       selected_ids$ftir <- if (pid %in% cur) cur else c(cur, pid)
@@ -2651,7 +2751,11 @@ server <- function(input, output, session) {
   observeEvent(input$ldir_clear_selection, { selected_ids$ldir <- character(0) })
 
   observeEvent(input$ftir_bruker_click, {
-    pid <- .find_nearest(input$ftir_bruker_click, ftir_bruker_filtered(), zoom$ftir_bruker)
+    pid <- .find_nearest(input$ftir_bruker_click,
+                         .view_click_df(ftir_bruker_filtered(),
+                                        input$ftir_bruker_coord_mode,
+                                        ftir_bruker_view_tf()),
+                         zoom$ftir_bruker)
     if (!is.null(pid)) {
       cur <- selected_ids$ftir_bruker
       selected_ids$ftir_bruker <- if (pid %in% cur) cur else c(cur, pid)
@@ -2728,7 +2832,7 @@ server <- function(input, output, session) {
     df <- ftir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, ftir_quality_range_d(), ftir_size_range_d(),
-                      input$ftir_material_filter, eff_match_filter("ftir"))
+                      mat_keep("ftir_material_filter"), eff_match_filter("ftir"))
   })
 
   ftir_points_df <- reactive({
@@ -2753,6 +2857,93 @@ server <- function(input, output, session) {
       bg_png_path = ftir_bg_path()
     )
   })
+
+  # ------------------------------------------------------------------
+  # Native-view orientation (FTIR tabs)
+  # ------------------------------------------------------------------
+  # An FTIR export can sit in a different orientation — and a different
+  # handedness — from Raman, so the native tab can look nothing like the
+  # Raman tab or the overlay. These helpers resolve a display-only
+  # rotation + mirror and apply it to the whole native scene (points AND
+  # image). "auto" measures it from the two particle clouds; the Mirror
+  # checkbox applies on top, so ticking it twice returns to the measured
+  # orientation. Aligned mode is already in Raman space and is never
+  # transformed.
+  .resolve_view_tf <- function(rot_sel, flip_sel, df_full) {
+    flip <- isTRUE(flip_sel)
+    if (!is.null(rot_sel) && rot_sel != "auto")
+      return(list(deg = as.integer(rot_sel), flip = flip))
+    rd <- raman_df_full()
+    if (is.null(df_full) || nrow(df_full) == 0 || is.null(rd) || nrow(rd) == 0)
+      return(list(deg = 0L, flip = flip))
+    auto <- auto_view_dihedral(df_full$x_orig, df_full$y_orig, rd$x_orig, rd$y_orig)
+    list(deg = auto$deg, flip = xor(isTRUE(auto$flip), flip))
+  }
+
+  ftir_view_tf <- reactive(
+    .resolve_view_tf(input$ftir_view_rotation, input$ftir_view_flip_y,
+                     ftir_df_full()))
+  ftir_bruker_view_tf <- reactive(
+    .resolve_view_tf(input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
+                     ftir_bruker_df_full()))
+
+  .tf_is_identity <- function(vt) vt$deg == 0L && !isTRUE(vt$flip)
+
+  # Transform a points df already carrying display coords in x/y.
+  .apply_view_tf <- function(df, vt) {
+    if (is.null(df) || nrow(df) == 0 || .tf_is_identity(vt)) return(df)
+    rc <- view_transform_xy(df$x, df$y, vt$deg, vt$flip)
+    df$x <- rc$x; df$y <- rc$y
+    df
+  }
+
+  .apply_view_tf_img <- function(img, vt) {
+    if (is.null(img) || .tf_is_identity(vt)) return(img)
+    ext <- view_transform_extent(img, vt$deg, vt$flip)
+    list(raster = view_transform_raster(img$raster, vt$deg, vt$flip),
+         xmin = ext$xmin, xmax = ext$xmax, ymin = ext$ymin, ymax = ext$ymax)
+  }
+
+  .view_tf_suffix <- function(vt) {
+    if (.tf_is_identity(vt)) return("")
+    bits <- c(if (vt$deg != 0L) paste0(ifelse(vt$deg > 0, "+", ""), vt$deg, "°"),
+              if (isTRUE(vt$flip)) "mirrored")
+    paste0(" — view ", paste(bits, collapse = " + "), " to match Raman")
+  }
+
+  # Nearest particle under the cursor, in the coordinates actually plotted.
+  .hover_pick <- function(hover, df, aligned, vt) {
+    if (is.null(hover) || is.null(df) || nrow(df) == 0) return(NULL)
+    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
+      hx <- df$x; hy <- df$y
+    } else {
+      hx <- df$x_orig; hy <- df$y_orig
+      if (!.tf_is_identity(vt)) {
+        rc <- view_transform_xy(hx, hy, vt$deg, vt$flip); hx <- rc$x; hy <- rc$y
+      }
+    }
+    dists <- sqrt((hx - hover$x)^2 + (hy - hover$y)^2)
+    threshold <- max(diff(range(hx, na.rm = TRUE)),
+                     diff(range(hy, na.rm = TRUE)), 500) * 0.05
+    idx <- which.min(dists)
+    if (length(idx) > 0 && dists[idx] <= threshold) df[idx, , drop = FALSE] else NULL
+  }
+
+  # .find_nearest() searches x_orig/y_orig, so restate the plotted coordinates
+  # there before a click lookup (aligned frame, or view-transformed native).
+  .view_click_df <- function(df, coord_mode, vt) {
+    if (is.null(df) || nrow(df) == 0) return(df)
+    if (!is.null(coord_mode) && coord_mode == "aligned" &&
+        "x" %in% names(df) && any(!is.na(df$x))) {
+      df$x_orig <- df$x; df$y_orig <- df$y
+      return(df)
+    }
+    if (!.tf_is_identity(vt)) {
+      rc <- view_transform_xy(df$x_orig, df$y_orig, vt$deg, vt$flip)
+      df$x_orig <- rc$x; df$y_orig <- rc$y
+    }
+    df
+  }
 
   output$ftir_plot <- renderPlot({
     coord_mode <- input$ftir_coord_mode
@@ -2783,31 +2974,37 @@ server <- function(input, output, session) {
       }
     }
 
+    # Rotate/mirror the whole native scene (image + particles) into the Raman
+    # orientation. Aligned mode is already in Raman space, so nothing applies.
+    vt <- if (aligned) list(deg = 0L, flip = FALSE) else ftir_view_tf()
+    img       <- .apply_view_tf_img(img, vt)
+    df_disp   <- .apply_view_tf(df_disp, vt)
+    full_ftir <- .apply_view_tf(full_ftir, vt)
+
     bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
       ref <- if (nrow(df_disp) > 0) df_disp
              else if (!is.null(full_ftir) && nrow(full_ftir) > 0) full_ftir
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x_orig))) {
+      if (!is.null(ref) && any(is.finite(ref$x))) {
         pad <- 300
-        list(x = c(min(ref$x_orig, na.rm=TRUE) - pad, max(ref$x_orig, na.rm=TRUE) + pad),
-             y = c(min(ref$y_orig, na.rm=TRUE) - pad, max(ref$y_orig, na.rm=TRUE) + pad))
+        list(x = c(min(ref$x, na.rm=TRUE) - pad, max(ref$x, na.rm=TRUE) + pad),
+             y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
 
     if (nrow(df_disp) == 0) {
-      full_ftir <- ftir_df_full()
       if (is.null(full_ftir) || nrow(full_ftir) == 0) {
         df0 <- data.frame(x=c(0,1), y=c(0,1), match_status="none", feret_max_um=1)
         bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
         return(build_single_view_plot(df0, bg))
       }
-      df0 <- full_ftir %>% dplyr::mutate(
-        x = x_orig, y = y_orig, match_status = "none", feret_max_um = 1)
+      # full_ftir already carries the display (and view-transformed) coords.
+      df0 <- full_ftir %>% dplyr::mutate(match_status = "none", feret_max_um = 1)
       bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
       return(build_single_view_plot(df0, bg))
     }
 
-    title_suffix <- if (aligned) " (Raman-aligned frame)" else ""
+    title_suffix <- if (aligned) " (Raman-aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir))
@@ -2829,6 +3026,7 @@ server <- function(input, output, session) {
     # data (df_full, manifest) and image pixels are captured by selected_run_dir().
     selected_run_dir(), is.null(uploaded_data()),
     ftir_filtered(), input$ftir_coord_mode,
+    input$ftir_view_rotation, input$ftir_view_flip_y,
     input$ftir_highlight_particle, single_highlight_ids$ftir,
     input$ftir_show_all_detected, input$ftir_show_all_labels, input$ftir_label_size, zoom$ftir,
     img_key(ftir_native_image_info()), img_key(overlay_image_info())
@@ -2843,20 +3041,9 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$ftir_hover, {
-    hover <- input$ftir_hover
-    if (is.null(hover)) return()
-    df <- ftir_filtered()
-    if (nrow(df) == 0) return()
     aligned <- !is.null(input$ftir_coord_mode) && input$ftir_coord_mode == "aligned"
-    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
-      dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
-      threshold <- max(diff(range(df$x, na.rm=TRUE)), diff(range(df$y, na.rm=TRUE)), 500) * 0.05
-    } else {
-      dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
-      threshold <- max(diff(range(df$x_orig, na.rm=TRUE)), diff(range(df$y_orig, na.rm=TRUE)), 500) * 0.05
-    }
-    idx <- which.min(dists)
-    if (dists[idx] <= threshold) last_hover$ftir <- df[idx, , drop=FALSE]
+    hit <- .hover_pick(input$ftir_hover, ftir_filtered(), aligned, ftir_view_tf())
+    if (!is.null(hit)) last_hover$ftir <- hit
   })
 
   output$ftir_hover_info <- renderUI({
@@ -2881,7 +3068,7 @@ server <- function(input, output, session) {
     df <- raman_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, raman_quality_range_d(), raman_size_range_d(),
-                      input$raman_material_filter, eff_match_filter("raman"))
+                      mat_keep("raman_material_filter"), eff_match_filter("raman"))
   })
 
   output$raman_plot <- renderPlot({
@@ -2985,7 +3172,7 @@ server <- function(input, output, session) {
     df <- ldir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     df <- filter_instrument(df, ldir_quality_range_d(), ldir_size_range_d(),
-                            input$ldir_material_filter, eff_match_filter("ldir"))
+                            mat_keep("ldir_material_filter"), eff_match_filter("ldir"))
     # Apply match score filter (LDIR↔Raman): keep NA (unmatched) + within range
     if ("match_score" %in% names(df) && !is.null(ldir_score_range_d())) {
       score_r <- ldir_score_range_d()
@@ -3380,7 +3567,7 @@ server <- function(input, output, session) {
     df <- ftir_bruker_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, ftir_bruker_quality_range_d(), ftir_bruker_size_range_d(),
-                      input$ftir_bruker_material_filter, eff_match_filter("ftir_bruker"))
+                      mat_keep("ftir_bruker_material_filter"), eff_match_filter("ftir_bruker"))
   })
 
   output$ftir_bruker_plot <- renderPlot({
@@ -3410,14 +3597,20 @@ server <- function(input, output, session) {
       }
     }
 
+    # Rotate/mirror the whole native scene into the Raman orientation.
+    vt <- if (aligned) list(deg = 0L, flip = FALSE) else ftir_bruker_view_tf()
+    img     <- .apply_view_tf_img(img, vt)
+    df_disp <- .apply_view_tf(df_disp, vt)
+    full_fb <- .apply_view_tf(full_fb, vt)
+
     bounds <- if (!is.null(zoom$ftir_bruker)) zoom$ftir_bruker else {
       ref <- if (nrow(df_disp) > 0) df_disp
              else if (!is.null(full_fb) && nrow(full_fb) > 0) full_fb
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x_orig))) {
+      if (!is.null(ref) && any(is.finite(ref$x))) {
         pad <- 300
-        list(x = c(min(ref$x_orig, na.rm=TRUE) - pad, max(ref$x_orig, na.rm=TRUE) + pad),
-             y = c(min(ref$y_orig, na.rm=TRUE) - pad, max(ref$y_orig, na.rm=TRUE) + pad))
+        list(x = c(min(ref$x, na.rm=TRUE) - pad, max(ref$x, na.rm=TRUE) + pad),
+             y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
 
@@ -3430,7 +3623,7 @@ server <- function(input, output, session) {
               panel.background=element_rect(fill="grey98", colour=NA)))
     }
 
-    title_suffix <- if (aligned) " (Raman-aligned frame)" else ""
+    title_suffix <- if (aligned) " (Raman-aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_bruker_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir_bruker))
@@ -3448,6 +3641,7 @@ server <- function(input, output, session) {
   }) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
     ftir_bruker_filtered(), input$ftir_bruker_coord_mode,
+    input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
     input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
     input$ftir_bruker_show_all_detected, input$ftir_bruker_show_all_labels, input$ftir_bruker_label_size,
     zoom$ftir_bruker,
@@ -3466,20 +3660,11 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$ftir_bruker_hover, {
-    hover <- input$ftir_bruker_hover
-    if (is.null(hover)) return()
-    df <- ftir_bruker_filtered()
-    if (nrow(df) == 0) return()
-    aligned <- !is.null(input$ftir_bruker_coord_mode) && input$ftir_bruker_coord_mode == "aligned"
-    if (aligned && "x" %in% names(df) && any(!is.na(df$x))) {
-      dists <- sqrt((df$x - hover$x)^2 + (df$y - hover$y)^2)
-      threshold <- max(diff(range(df$x, na.rm=TRUE)), diff(range(df$y, na.rm=TRUE)), 500) * 0.05
-    } else {
-      dists <- sqrt((df$x_orig - hover$x)^2 + (df$y_orig - hover$y)^2)
-      threshold <- max(diff(range(df$x_orig, na.rm=TRUE)), diff(range(df$y_orig, na.rm=TRUE)), 500) * 0.05
-    }
-    idx <- which.min(dists)
-    if (dists[idx] <= threshold) last_hover$ftir_bruker <- df[idx, , drop=FALSE]
+    aligned <- !is.null(input$ftir_bruker_coord_mode) &&
+               input$ftir_bruker_coord_mode == "aligned"
+    hit <- .hover_pick(input$ftir_bruker_hover, ftir_bruker_filtered(),
+                       aligned, ftir_bruker_view_tf())
+    if (!is.null(hit)) last_hover$ftir_bruker <- hit
   })
 
   output$ftir_bruker_hover_info <- renderUI({
@@ -3546,15 +3731,13 @@ server <- function(input, output, session) {
                df$match_distance <= dist_r[2], ]
     }
 
-    # Per-instrument material filters
-    ftir_mat  <- input$overlay_ftir_material
-    raman_mat <- input$overlay_raman_material
-    ftir_mat_ok  <- is.null(ftir_mat) || "All" %in% ftir_mat
-    raman_mat_ok <- is.null(raman_mat) || "All" %in% raman_mat
-    if (!ftir_mat_ok || !raman_mat_ok) {
+    # Per-instrument material filters (NULL = no filtering; see mat_keep())
+    ftir_mat  <- mat_keep("overlay_ftir_material")
+    raman_mat <- mat_keep("overlay_raman_material")
+    if (!is.null(ftir_mat) || !is.null(raman_mat)) {
       keep <- rep(TRUE, nrow(df))
-      if (!ftir_mat_ok)  keep <- keep & (df$ftir_material_family %in% ftir_mat)
-      if (!raman_mat_ok) keep <- keep & (df$raman_material_family %in% raman_mat)
+      if (!is.null(ftir_mat))  keep <- keep & (df$ftir_material_family %in% ftir_mat)
+      if (!is.null(raman_mat)) keep <- keep & (df$raman_material_family %in% raman_mat)
       df <- df[keep, ]
     }
     df
@@ -3593,9 +3776,8 @@ server <- function(input, output, session) {
     }
 
     # LDIR material filter (harmonized family names)
-    ldir_mat <- input$overlay_ldir_material
-    if (!is.null(ldir_mat) && !("All" %in% ldir_mat) &&
-        "ldir_material_family" %in% names(df)) {
+    ldir_mat <- mat_keep("overlay_ldir_material")
+    if (!is.null(ldir_mat) && "ldir_material_family" %in% names(df)) {
       df <- df[df$ldir_material_family %in% ldir_mat, ]
     }
 
@@ -3630,9 +3812,8 @@ server <- function(input, output, session) {
                df$match_distance <= dist_r[2], ]
     }
 
-    bruker_mat <- input$overlay_ftir_bruker_material
-    if (!is.null(bruker_mat) && !("All" %in% bruker_mat) &&
-        "ftir_material_family" %in% names(df)) {
+    bruker_mat <- mat_keep("overlay_ftir_bruker_material")
+    if (!is.null(bruker_mat) && "ftir_material_family" %in% names(df)) {
       df <- df[df$ftir_material_family %in% bruker_mat, ]
     }
 
@@ -3698,8 +3879,8 @@ server <- function(input, output, session) {
     df <- run_data_gated()[[spec$table]]
     if (is.null(df) || nrow(df) == 0) return(NULL)
     for (ep in list(spec$a, spec$b)) {
-      mat <- input[[ep$matinput]]
-      if (!is.null(mat) && !("All" %in% mat) && ep$fam %in% names(df))
+      mat <- mat_keep(ep$matinput)
+      if (!is.null(mat) && ep$fam %in% names(df))
         df <- df[df[[ep$fam]] %in% mat, , drop = FALSE]
     }
     if (is.null(df) || nrow(df) == 0) return(NULL)
@@ -3823,8 +4004,8 @@ server <- function(input, output, session) {
       # ignoring the matched/unmatched relationship filter.
       df_s <- .inst_df(inst)
       if (!is.null(df_s) && nrow(df_s) > 0) {
-        mat <- input[[.inst_mat(inst)]]
-        if (!is.null(mat) && !("All" %in% mat)) df_s <- df_s[df_s$material_family %in% mat, ]
+        mat <- mat_keep(.inst_mat(inst))
+        if (!is.null(mat)) df_s <- df_s[df_s$material_family %in% mat, ]
         if (nrow(df_s) > 0)
           all_pts[[1]] <- data.frame(x=df_s$x, y=df_s$y, feret_max=df_s$feret_max,
                                      instrument=.inst_label(inst),
@@ -3900,8 +4081,8 @@ server <- function(input, output, session) {
         .add_unmatched <- function(df_full, inst_key, inst_label, mat_input, matched_ids) {
           if (!(inst_key %in% inst) || is.null(df_full) || nrow(df_full) == 0) return(NULL)
           um <- df_full[!(as.character(df_full$particle_id) %in% matched_ids), ]
-          mat <- input[[mat_input]]
-          if (!is.null(mat) && !("All" %in% mat) && nrow(um) > 0)
+          mat <- mat_keep(mat_input)
+          if (!is.null(mat) && nrow(um) > 0)
             um <- um[um$material_family %in% mat, ]
           if (nrow(um) == 0) return(NULL)
           data.frame(x=um$x, y=um$y, feret_max=um$feret_max,
@@ -4008,13 +4189,15 @@ server <- function(input, output, session) {
   }) |> bindCache(
     # overlay_matched()/overlay_ldir_matched()/overlay_bruker_matched() fold in
     # every per-instrument quality/size/distance filter; the four material
-    # inputs are read dynamically via input[[.inst_mat(inst)]] in the body, so
-    # they must be listed explicitly. Highlights and the pin bust the cache.
+    # inputs are read dynamically via .inst_mat(inst) in the body, so they must
+    # be listed explicitly. Key on mat_keep(), NOT the raw input: a raw NULL
+    # means both "not populated yet" (show all) and "every box unticked" (show
+    # none), which would collide and serve the wrong cached plot.
     selected_run_dir(), is.null(uploaded_data()),
     overlay_matched(), overlay_ldir_matched(), overlay_bruker_matched(),
     overlay_triplets(), input$overlay_instruments, input$overlay_relationships,
-    input$overlay_ftir_material, input$overlay_raman_material,
-    input$overlay_ldir_material, input$overlay_ftir_bruker_material,
+    mat_keep("overlay_ftir_material"), mat_keep("overlay_raman_material"),
+    mat_keep("overlay_ldir_material"), mat_keep("overlay_ftir_bruker_material"),
     input$overlay_ftir_particles, input$overlay_raman_particles,
     input$overlay_ldir_particles, input$overlay_ftir_bruker_particles,
     input$overlay_show_all_labels, input$overlay_label_size,
@@ -4131,8 +4314,8 @@ server <- function(input, output, session) {
       df_s <- if (!is.na(one_key)) dfs[[one_key]] else NULL
       if (!is.null(df_s) && nrow(df_s) > 0) {
         # Respect the same material filter the plot applies.
-        mat <- if (!is.na(one_mat)) input[[one_mat]] else NULL
-        if (!is.null(mat) && !("All" %in% mat) && "material_family" %in% names(df_s))
+        mat <- if (!is.na(one_mat)) mat_keep(one_mat) else NULL
+        if (!is.null(mat) && "material_family" %in% names(df_s))
           df_s <- df_s[df_s$material_family %in% mat, ]
         if (nrow(df_s) > 0) {
           d_s <- sqrt((df_s$x - px)^2 + (df_s$y - py)^2); idx_s <- which.min(d_s)
