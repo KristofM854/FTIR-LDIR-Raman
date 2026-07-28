@@ -552,3 +552,53 @@ test_that("apply_ldir_coord_swaps is a no-op / warns on empty or bad input", {
   out2 <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("A19", "A20", "A28"))))
   expect_identical(out2, df)
 })
+
+# ---------------------------------------------------------------------------
+# Coord-swaps CSV sidecar (auto-discovery + loading)
+# ---------------------------------------------------------------------------
+
+test_that("load_ldir_coord_swaps reads the sidecar next to the LDIR Excel", {
+  d       <- withr::local_tempdir()
+  xlsx    <- file.path(d, "Sample.xlsx")            # need not exist for lookup
+  sidecar <- file.path(d, "Sample_coord_swaps.csv")
+  writeLines(c("id_a,id_b,note",
+               "A19,A29,near-tie",
+               "A20,A28,"), sidecar)
+
+  cfg   <- make_config()
+  pairs <- load_ldir_coord_swaps(xlsx, cfg)
+  expect_type(pairs, "list")
+  expect_equal(length(pairs), 2L)
+  expect_equal(pairs[[1]], c("A19", "A29"))   # `note` column ignored
+  expect_equal(pairs[[2]], c("A20", "A28"))
+
+  # And it round-trips through apply_ldir_coord_swaps.
+  df  <- .joined_like()
+  cfg$ldir_coord_swaps <- pairs
+  out <- apply_ldir_coord_swaps(df, cfg)
+  expect_equal(out$x_um[out$particle_id == "A19"], 400)
+})
+
+test_that("load_ldir_coord_swaps returns NULL when absent or disabled", {
+  d    <- withr::local_tempdir()
+  xlsx <- file.path(d, "NoSidecar.xlsx")
+  expect_null(load_ldir_coord_swaps(xlsx, make_config()))     # no file
+
+  # Suffix disabled.
+  sidecar <- file.path(d, "NoSidecar_coord_swaps.csv")
+  writeLines(c("id_a,id_b", "A1,A2"), sidecar)
+  cfg <- make_config(); cfg$ldir_coord_swaps_suffix <- NULL
+  expect_null(load_ldir_coord_swaps(xlsx, cfg))
+})
+
+test_that("load_ldir_coord_swaps falls back to the first two columns without id_a/id_b headers", {
+  d       <- withr::local_tempdir()
+  xlsx    <- file.path(d, "Fallback.xlsx")
+  sidecar <- file.path(d, "Fallback_coord_swaps.csv")
+  writeLines(c("from,to", "A5,A7", " , ", "A8,A9"), sidecar)   # blank row dropped
+
+  pairs <- load_ldir_coord_swaps(xlsx, make_config())
+  expect_equal(length(pairs), 2L)
+  expect_equal(pairs[[1]], c("A5", "A7"))
+  expect_equal(pairs[[2]], c("A8", "A9"))
+})
