@@ -1984,6 +1984,72 @@ apply_ldir_coord_swaps <- function(df, config = NULL) {
 }
 
 
+#' Locate the coord-swaps CSV sidecar for an LDIR dataset
+#'
+#' Searches the LDIR Excel's directory for "<excel-stem><suffix>.csv"
+#' (suffix from config$ldir_coord_swaps_suffix, default "_coord_swaps").
+#'
+#' @param ldir_path Path to the LDIR Excel file
+#' @param config    Pipeline config (uses ldir_coord_swaps_suffix; NULL suffix
+#'   disables the search)
+#' @return Full path to the sidecar CSV if found, otherwise NULL
+find_ldir_coord_swaps_file <- function(ldir_path, config = NULL) {
+  suffix <- if (!is.null(config)) config$ldir_coord_swaps_suffix else "_coord_swaps"
+  if (is.null(suffix) || !nzchar(suffix)) return(NULL)
+  if (is.null(ldir_path) || !nzchar(ldir_path)) return(NULL)
+
+  dir  <- dirname(ldir_path)
+  stem <- tools::file_path_sans_ext(basename(ldir_path))
+  for (ext in c("csv", "CSV")) {
+    hit <- Sys.glob(file.path(dir, paste0(stem, suffix, ".", ext)))
+    if (length(hit) > 0 && file.exists(hit[[1]])) return(hit[[1]])
+  }
+  NULL
+}
+
+
+#' Load manual coordinate swaps from the CSV sidecar
+#'
+#' Reads "<excel-stem>_coord_swaps.csv" (found via find_ldir_coord_swaps_file())
+#' into the list-of-pairs form config$ldir_coord_swaps expects. The two ID
+#' columns are matched by name (id_a/id_b, case-insensitive; also a/b, from/to,
+#' id1/id2), falling back to the first two columns; any further columns (e.g.
+#' `note`) are ignored. Rows with a blank ID are dropped.
+#'
+#' @param ldir_path Path to the LDIR Excel file
+#' @param config    Pipeline config
+#' @return list of length-2 character vectors, or NULL when no usable sidecar
+load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
+  f <- find_ldir_coord_swaps_file(ldir_path, config)
+  if (is.null(f)) return(NULL)
+
+  tab <- tryCatch(
+    utils::read.csv(f, stringsAsFactors = FALSE, colClasses = "character",
+                    check.names = FALSE),
+    error = function(e) NULL)
+  if (is.null(tab) || ncol(tab) < 2 || nrow(tab) == 0) {
+    log_message("  Coord-swaps sidecar unreadable or lacks 2 columns: ",
+                basename(f), level = "WARN")
+    return(NULL)
+  }
+
+  nm <- tolower(trimws(names(tab)))
+  ia <- which(nm %in% c("id_a", "a", "from", "id1", "particle_a"))[1]
+  ib <- which(nm %in% c("id_b", "b", "to",   "id2", "particle_b"))[1]
+  if (is.na(ia) || is.na(ib)) { ia <- 1L; ib <- 2L }
+
+  pairs <- Map(function(a, b) c(trimws(a), trimws(b)), tab[[ia]], tab[[ib]])
+  pairs <- unname(Filter(function(p) length(p) == 2L && all(nzchar(p)), pairs))
+  if (length(pairs) == 0) {
+    log_message("  Coord-swaps sidecar had no usable rows: ", basename(f), level = "WARN")
+    return(NULL)
+  }
+  log_message("  Loaded ", length(pairs),
+              " coordinate swap(s) from sidecar: ", basename(f))
+  pairs
+}
+
+
 #' Validate LDIR coordinate join by checking scan-order correlation
 #'
 #' If LDIR IDs follow a raster scan order, the ID sequence should correlate

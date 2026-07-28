@@ -367,7 +367,17 @@ make_config <- function(ftir_path  = NULL,
     #   fields move (x/y, image area/feret, coord_match_cost, coord_source); each
     #   particle keeps its own Excel size/material/quality. Applied in order, so
     #   a 3-cycle is expressed as two swaps. NULL/empty = no swaps.
+    #   When left NULL, the pipeline auto-loads a CSV sidecar next to the LDIR
+    #   Excel (see ldir_coord_swaps_suffix); set this explicitly to override the
+    #   sidecar for a one-off run.
     ldir_coord_swaps = NULL,
+
+    # ldir_coord_swaps_suffix: filename suffix for the coord-swaps CSV sidecar
+    #   auto-discovered next to the LDIR Excel, i.e. "<excel-stem>_coord_swaps.csv".
+    #   The CSV has an id_a,id_b header (a `note` column is allowed and ignored),
+    #   one swap pair per row. Loaded only when ldir_coord_swaps is NULL. Set this
+    #   to NULL to disable sidecar auto-loading.
+    ldir_coord_swaps_suffix = "_coord_swaps",
 
     # When TRUE, every Excel particle is assigned an image coordinate regardless
     # of size-match cost — no joins are rejected. Use the coord_match_cost slider
