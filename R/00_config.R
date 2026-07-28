@@ -360,23 +360,25 @@ make_config <- function(ftir_path  = NULL,
     #   matching still works because only relative sizes/ranks drive the join).
     ldir_image_scale_um_per_px = NULL,
 
-    # ldir_coord_swaps: manual correction for residual coordinate-join swaps.
-    #   A list of length-2 character vectors, each naming two LDIR particle IDs
-    #   whose assigned image coordinates should be exchanged AFTER the automatic
-    #   join — e.g. list(c("A19", "A29"), c("A20", "A28")). Only the image-derived
-    #   fields move (x/y, image area/feret, coord_match_cost, coord_source); each
-    #   particle keeps its own Excel size/material/quality. Applied in order, so
-    #   a 3-cycle is expressed as two swaps. NULL/empty = no swaps.
-    #   When left NULL, the pipeline auto-loads a CSV sidecar next to the LDIR
-    #   Excel (see ldir_coord_swaps_suffix); set this explicitly to override the
-    #   sidecar for a one-off run.
+    # ldir_coord_swaps: manual correction for residual coordinate-join
+    #   mismatches, applied AFTER the automatic join. A list of length-2 vectors
+    #   c(id_clarity, id_R): "the particle the R pipeline currently labels id_R is
+    #   really id_clarity", so id_clarity receives the coordinate R assigned to
+    #   id_R — e.g. list(c("A39","A37"), c("A38","A39"), c("A37","A38")) rotates
+    #   that 3-cycle. The whole table is applied globally (order-independent); a
+    #   single row for a simple pair auto-completes into a swap. Only the
+    #   image-derived fields move (x/y, image area/feret, coord_match_cost,
+    #   coord_source); each particle keeps its own Excel size/material/quality.
+    #   NULL/empty = no corrections. When left NULL the pipeline auto-loads a CSV
+    #   sidecar next to the LDIR Excel (see ldir_coord_swaps_suffix); set this
+    #   explicitly to override the sidecar for a one-off run.
     ldir_coord_swaps = NULL,
 
-    # ldir_coord_swaps_suffix: filename suffix for the coord-swaps CSV sidecar
-    #   auto-discovered next to the LDIR Excel, i.e. "<excel-stem>_coord_swaps.csv".
-    #   The CSV has an id_a,id_b header (a `note` column is allowed and ignored),
-    #   one swap pair per row. Loaded only when ldir_coord_swaps is NULL. Set this
-    #   to NULL to disable sidecar auto-loading.
+    # ldir_coord_swaps_suffix: filename suffix for the coord-corrections CSV
+    #   sidecar auto-discovered next to the LDIR Excel, i.e.
+    #   "<excel-stem>_coord_swaps.csv". The CSV has an id_clarity,id_R header
+    #   (a `note` column is allowed and ignored), one correction per row. Loaded
+    #   only when ldir_coord_swaps is NULL. Set to NULL to disable auto-loading.
     ldir_coord_swaps_suffix = "_coord_swaps",
 
     # When TRUE, every Excel particle is assigned an image coordinate regardless

@@ -529,16 +529,34 @@ test_that("apply_ldir_coord_swaps exchanges only the image-assigned fields", {
   expect_equal(a19$material, "PET")
 })
 
-test_that("apply_ldir_coord_swaps applies multiple swaps in order (handles a 3-cycle)", {
+test_that("apply_ldir_coord_swaps rotates a 3-cycle (directed, order-independent)", {
+  df  <- .joined_like()   # x_um: A19=100, A20=200, A28=300, A29=400
+  # Each row c(id_clarity, id_R): id_clarity receives id_R's coordinate.
+  cyc <- list(c("A19", "A20"), c("A20", "A28"), c("A28", "A19"))
+  out <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = cyc))
+  expect_equal(out$x_um[out$particle_id == "A19"], 200)   # <- A20
+  expect_equal(out$x_um[out$particle_id == "A20"], 300)   # <- A28
+  expect_equal(out$x_um[out$particle_id == "A28"], 100)   # <- A19
+  expect_equal(out$x_um[out$particle_id == "A29"], 400)   # untouched
+
+  # Order-independent: shuffling the rows gives the same result.
+  out2 <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = rev(cyc)))
+  expect_equal(out2$x_um, out$x_um)
+})
+
+test_that("a single row auto-completes into a swap", {
   df  <- .joined_like()
-  # 3-cycle A19->A20->A28->A19 expressed as two swaps.
+  out <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("A19", "A29"))))
+  expect_equal(out$x_um[out$particle_id == "A19"], 400)   # <- A29
+  expect_equal(out$x_um[out$particle_id == "A29"], 100)   # <- A19 (chain closed)
+})
+
+test_that("apply_ldir_coord_swaps aborts an ambiguous repeated-column instruction", {
+  df <- .joined_like()
+  # A19 named as id_clarity in two rows -> ambiguous -> abort, df unchanged.
   out <- apply_ldir_coord_swaps(
     df, list(ldir_coord_swaps = list(c("A19", "A20"), c("A19", "A28"))))
-  # After swap1: A19 has A20's x(200), A20 has A19's x(100).
-  # After swap2: A19 has A28's x(300), A28 has (200).
-  expect_equal(out$x_um[out$particle_id == "A19"], 300)
-  expect_equal(out$x_um[out$particle_id == "A20"], 100)
-  expect_equal(out$x_um[out$particle_id == "A28"], 200)
+  expect_identical(out, df)
 })
 
 test_that("apply_ldir_coord_swaps is a no-op / warns on empty or bad input", {
@@ -589,6 +607,18 @@ test_that("load_ldir_coord_swaps returns NULL when absent or disabled", {
   writeLines(c("id_a,id_b", "A1,A2"), sidecar)
   cfg <- make_config(); cfg$ldir_coord_swaps_suffix <- NULL
   expect_null(load_ldir_coord_swaps(xlsx, cfg))
+})
+
+test_that("load_ldir_coord_swaps accepts id_clarity/id_R headers", {
+  d       <- withr::local_tempdir()
+  xlsx    <- file.path(d, "Named.xlsx")
+  sidecar <- file.path(d, "Named_coord_swaps.csv")
+  writeLines(c("id_clarity,id_R,note", "A4,A3,", "A18,A17,keep"), sidecar)
+
+  pairs <- suppressWarnings(load_ldir_coord_swaps(xlsx, make_config()))
+  expect_equal(length(pairs), 2L)
+  expect_equal(pairs[[1]], c("A4", "A3"))
+  expect_equal(pairs[[2]], c("A18", "A17"))
 })
 
 test_that("load_ldir_coord_swaps falls back to the first two columns without id_a/id_b headers", {

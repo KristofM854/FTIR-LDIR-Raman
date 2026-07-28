@@ -1934,52 +1934,91 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
 }
 
 
-#' Apply manual coordinate-join swaps
+#' Apply manual coordinate-join corrections (directed relabel)
 #'
-#' Corrects residual join mismatches by exchanging the image-assigned
-#' coordinate between two LDIR particle IDs (see config$ldir_coord_swaps). Only
-#' the fields that came from the matched image blob are swapped — x/y, image
-#' area/feret, coord_match_cost, coord_source — so each particle keeps its own
-#' Excel size, material and quality. Swaps are applied in listed order.
+#' Corrects residual join mismatches from config$ldir_coord_swaps. Each entry is
+#' c(id_clarity, id_R): "the particle the R pipeline currently labels id_R is
+#' really id_clarity", so id_clarity receives the coordinate R assigned to id_R.
+#' Only the image-assigned fields move — x/y, image area/feret, coord_match_cost,
+#' coord_source — so each particle keeps its own Excel size, material and quality.
+#'
+#' The whole table is applied GLOBALLY from a snapshot (order-independent), so a
+#' 3-cycle rotates correctly. An open chain (e.g. a single row for a simple pair)
+#' is closed into a cycle, so listing one direction of a two-particle swap
+#' suffices. Aborts (leaves df untouched) if an id appears twice in either
+#' column — that is an ambiguous instruction to fix in the sidecar.
 #'
 #' @param df     Joined data frame from join_ldir_coords()
 #' @param config Pipeline config (uses ldir_coord_swaps)
-#' @return df with the requested coordinate swaps applied
+#' @return df with the requested coordinate corrections applied
 apply_ldir_coord_swaps <- function(df, config = NULL) {
   swaps <- if (!is.null(config)) config$ldir_coord_swaps else NULL
   if (is.null(swaps) || length(swaps) == 0) return(df)
   if (!"particle_id" %in% names(df)) return(df)
 
-  # Only the image-assigned fields move with the swap; Excel-intrinsic columns
+  # Only the image-assigned fields move; Excel-intrinsic columns
   # (area, material, quality, shape, …) stay with their particle.
-  swap_cols <- intersect(
+  move_cols <- intersect(
     c("x_um", "y_um", "coord_match_cost", "coord_source",
       "image_area_um2", "image_feret_um"),
     names(df))
-  if (length(swap_cols) == 0) return(df)
+  if (length(move_cols) == 0) return(df)
 
-  n_applied <- 0L
+  # Parse rows -> clarity (target, receives) and rr (source R, gives).
+  ids <- as.character(df$particle_id)
+  clarity <- character(0); rr <- character(0)
   for (pair in swaps) {
     if (length(pair) != 2L) {
-      log_message("  Coord swap: skipping malformed entry (need exactly 2 ids): ",
+      log_message("  Coord relabel: skipping malformed entry (need 2 ids): ",
                   paste(pair, collapse = ", "), level = "WARN")
       next
     }
-    ia <- which(df$particle_id == pair[1])
-    ib <- which(df$particle_id == pair[2])
-    if (length(ia) != 1L || length(ib) != 1L) {
-      log_message("  Coord swap: id(s) not found or not unique — skipping ",
-                  pair[1], " <-> ", pair[2], level = "WARN")
+    a <- trimws(as.character(pair[1])); b <- trimws(as.character(pair[2]))
+    if (!(a %in% ids) || !(b %in% ids)) {
+      log_message("  Coord relabel: unknown id — skipping ", a, " / ", b, level = "WARN")
       next
     }
-    tmp <- df[ia, swap_cols, drop = FALSE]
-    df[ia, swap_cols] <- df[ib, swap_cols, drop = FALSE]
-    df[ib, swap_cols] <- tmp
-    n_applied <- n_applied + 1L
-    log_message("  Coord swap applied: ", pair[1], " <-> ", pair[2])
+    if (identical(a, b)) next   # self-map: no-op
+    clarity <- c(clarity, a); rr <- c(rr, b)
   }
-  if (n_applied > 0L)
-    log_message("  Applied ", n_applied, " manual coordinate swap(s) (ldir_coord_swaps)")
+  if (length(clarity) == 0L) return(df)
+
+  # A particle may appear at most once per column; otherwise the reassignment is
+  # ambiguous. Abort rather than corrupt coordinates.
+  if (anyDuplicated(clarity) || anyDuplicated(rr)) {
+    dupc <- unique(clarity[duplicated(clarity)])
+    dupr <- unique(rr[duplicated(rr)])
+    log_message("  Coord relabel ABORTED — id(s) repeated in a column ",
+                "(ambiguous): id_clarity{", paste(dupc, collapse = ","),
+                "} id_R{", paste(dupr, collapse = ","),
+                "}. Each id may appear at most once per column.", level = "WARN")
+    return(df)
+  }
+
+  # assign[target] = source: target (id_clarity) receives source (id_R)'s coord.
+  assign_map <- stats::setNames(rr, clarity)
+  targets <- names(assign_map)
+
+  # Close open chains into cycles: for each head (a target that is not a source)
+  # walk to the tail (a source that is not a target) and wrap tail -> head.
+  loose_tgt <- setdiff(targets, unname(assign_map))
+  for (head in loose_tgt) {
+    cur <- head
+    while (assign_map[[cur]] %in% targets) cur <- assign_map[[cur]]
+    tail <- assign_map[[cur]]
+    assign_map[[tail]] <- head
+  }
+
+  # Apply from a snapshot so it is order-independent.
+  orig <- df
+  for (t in names(assign_map)) {
+    it <- which(df$particle_id == t)
+    is <- which(orig$particle_id == assign_map[[t]])
+    if (length(it) == 1L && length(is) == 1L)
+      df[it, move_cols] <- orig[is, move_cols, drop = FALSE]
+  }
+  log_message("  Coord relabel applied: ", length(assign_map),
+              " particle(s) reassigned (", length(clarity), " sidecar row(s))")
   df
 }
 
@@ -2034,8 +2073,10 @@ load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
   }
 
   nm <- tolower(trimws(names(tab)))
-  ia <- which(nm %in% c("id_a", "a", "from", "id1", "particle_a"))[1]
-  ib <- which(nm %in% c("id_b", "b", "to",   "id2", "particle_b"))[1]
+  ia <- which(nm %in% c("id_a", "a", "from", "id1", "particle_a",
+                        "id_clarity", "clarity", "software", "correct", "true"))[1]
+  ib <- which(nm %in% c("id_b", "b", "to", "id2", "particle_b",
+                        "id_r", "r", "id_pipeline", "pipeline", "assigned", "current"))[1]
   if (is.na(ia) || is.na(ib)) { ia <- 1L; ib <- 2L }
 
   pairs <- Map(function(a, b) c(trimws(a), trimws(b)), tab[[ia]], tab[[ib]])
@@ -2045,7 +2086,7 @@ load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
     return(NULL)
   }
   log_message("  Loaded ", length(pairs),
-              " coordinate swap(s) from sidecar: ", basename(f))
+              " coordinate correction(s) from sidecar: ", basename(f))
   pairs
 }
 
