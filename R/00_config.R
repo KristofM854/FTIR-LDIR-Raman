@@ -377,8 +377,10 @@ make_config <- function(ftir_path  = NULL,
     # ldir_coord_swaps_suffix: filename suffix for the coord-corrections CSV
     #   sidecar auto-discovered next to the LDIR Excel, i.e.
     #   "<excel-stem>_coord_swaps.csv". The CSV has an id_clarity,id_R header
-    #   (a `note` column is allowed and ignored), one correction per row. Loaded
-    #   only when ldir_coord_swaps is NULL. Set to NULL to disable auto-loading.
+    #   (a `note` column is allowed and ignored), one correction per row. The
+    #   separator may be "," ";" or tab — a sheet saved by a European-locale
+    #   Excel (";") reads the same as a plain comma CSV. Loaded only when
+    #   ldir_coord_swaps is NULL. Set to NULL to disable auto-loading.
     ldir_coord_swaps_suffix = "_coord_swaps",
 
     # When TRUE, every Excel particle is assigned an image coordinate regardless
