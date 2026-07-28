@@ -591,6 +591,18 @@ test_that("load_ldir_coord_swaps returns NULL when absent or disabled", {
   expect_null(load_ldir_coord_swaps(xlsx, cfg))
 })
 
+test_that("load_ldir_coord_swaps accepts id_clarity/id_R headers", {
+  d       <- withr::local_tempdir()
+  xlsx    <- file.path(d, "Named.xlsx")
+  sidecar <- file.path(d, "Named_coord_swaps.csv")
+  writeLines(c("id_clarity,id_R,note", "A4,A3,", "A18,A17,keep"), sidecar)
+
+  pairs <- suppressWarnings(load_ldir_coord_swaps(xlsx, make_config()))
+  expect_equal(length(pairs), 2L)
+  expect_equal(pairs[[1]], c("A4", "A3"))
+  expect_equal(pairs[[2]], c("A18", "A17"))
+})
+
 test_that("load_ldir_coord_swaps falls back to the first two columns without id_a/id_b headers", {
   d       <- withr::local_tempdir()
   xlsx    <- file.path(d, "Fallback.xlsx")
