@@ -370,6 +370,10 @@ if (has_ldir) {
   # Relabel low-HQI identifications as "unknown" (kept, not dropped) to mirror
   # the LDIR software; flows into the viewer and the agreement analysis.
   ldir_raw <- relabel_ldir_low_hqi(ldir_raw, config)
+  # Auto-load coordinate-swap corrections from the CSV sidecar next to the LDIR
+  # Excel (<stem>_coord_swaps.csv), unless swaps were set explicitly in config.
+  if (is.null(config$ldir_coord_swaps))
+    config$ldir_coord_swaps <- load_ldir_coord_swaps(config$ldir_path, config)
   write.csv(ldir_raw, file.path(.out_dirs$ingested, "ldir_ingested.csv"), row.names = FALSE)
   log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
 } else {
