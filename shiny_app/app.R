@@ -510,18 +510,27 @@ ui <- fluidPage(
           div(class = "info-box",
             fluidRow(
               column(4, h4("Material Breakdown per Instrument (Pie Charts)")),
-              column(4, radioButtons("pie_display_mode", NULL,
+              column(3, radioButtons("pie_display_mode", NULL,
                                      choices = c("Absolute counts" = "abs",
                                                  "Relative (%)"    = "rel"),
                                      selected = "abs", inline = TRUE)),
-              column(4, radioButtons("pie_category_mode", NULL,
-                                     choices = c("Synthetic only" = "synthetic",
-                                                 "Synth. + Semi-synth." = "both"),
-                                     selected = "both", inline = TRUE))
+              column(5, radioButtons("pie_materials_mode", NULL,
+                                     choices = c("Plastics only" = "plastics",
+                                                 "All particles" = "all"),
+                                     selected = "plastics", inline = TRUE))
+            ),
+            fluidRow(
+              column(12,
+                conditionalPanel(
+                  condition = "input.pie_materials_mode === 'plastics'",
+                  radioButtons("pie_category_mode", "Plastic types:",
+                               choices = c("Synthetic only" = "synthetic",
+                                           "Synth. + Semi-synth." = "both"),
+                               selected = "both", inline = TRUE)))
             ),
             p(class = "text-muted",
-              "Non-plastic materials excluded. ",
-              "Toggle above to switch display mode and material categories."),
+              "Toggle above to switch display mode, material categories, and particle scope.",
+              "When 'All particles' is selected, non-plastics and unknowns are included in the charts."),
             fluidRow(
               column(6, plotOutput("pie_ftir",        height = "300px")),
               column(6, plotOutput("pie_raman",       height = "300px"))
@@ -1003,7 +1012,7 @@ server <- function(input, output, session) {
 
   # Build a pie chart from pre-classified data (list with $fam, $cat vectors).
   # cat_mode: "both" = Synthetic + Semi-synthetic, "synthetic" = Synthetic only
-  make_instrument_pie <- function(classified, title, rel_mode, cat_mode = "both") {
+  make_instrument_pie <- function(classified, title, rel_mode, cat_mode = "both", show_all = FALSE) {
     if (is.null(classified)) {
       return(ggplot2::ggplot() +
                ggplot2::labs(title = title) +
@@ -1012,13 +1021,21 @@ server <- function(input, output, session) {
     }
     fam  <- classified$fam
     cat  <- classified$cat
-    keep_cats <- if (identical(cat_mode, "synthetic")) "Synthetic"
-                 else c("Synthetic", "Semi-synthetic")
-    keep <- cat %in% keep_cats
+
+    if (show_all) {
+      # Show all particles (keep all categories)
+      keep <- rep(TRUE, length(fam))
+    } else {
+      # Filter to plastics only
+      keep_cats <- if (identical(cat_mode, "synthetic")) "Synthetic"
+                   else c("Synthetic", "Semi-synthetic")
+      keep <- cat %in% keep_cats
+    }
     fam  <- fam[keep]
     if (length(fam) == 0) {
+      subtitle <- if (show_all) "No particles" else "No plastic particles"
       return(ggplot2::ggplot() +
-               ggplot2::labs(title = title, subtitle = "No plastic particles") +
+               ggplot2::labs(title = title, subtitle = subtitle) +
                ggplot2::theme_void(base_size = 14) +
                ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")))
     }
@@ -1076,10 +1093,11 @@ server <- function(input, output, session) {
       )
     }
 
+    subtitle_text <- if (show_all) paste0("n = ", total, " particles") else paste0("n = ", total, " plastic particles")
     p +
       ggplot2::scale_fill_manual(values = fam_colors, name = "Material") +
       ggplot2::labs(title = title,
-                    subtitle = paste0("n = ", total, " plastic particles")) +
+                    subtitle = subtitle_text) +
       ggplot2::theme_void(base_size = 14) +
       ggplot2::theme(
         plot.title    = ggplot2::element_text(hjust = 0.5, face = "bold"),
@@ -1118,29 +1136,33 @@ server <- function(input, output, session) {
     })
   })
 
-  # The four pies read exactly pie_classified() + the two display-mode inputs,
+  # The four pies read pie_classified() + the display-mode inputs,
   # so those form a complete cache key (revisiting the Summary tab or toggling
   # back to a prior mode returns the cached bitmap with no ggplot work).
   output$pie_ftir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_classified()$ftir, "FTIR (PerkinElmer)", rel, cat_mode)
-  }) |> bindCache(pie_classified()$ftir, input$pie_display_mode, input$pie_category_mode)
+    show_all <- identical(input$pie_materials_mode, "all")
+    make_instrument_pie(pie_classified()$ftir, "FTIR (PerkinElmer)", rel, cat_mode, show_all)
+  }) |> bindCache(pie_classified()$ftir, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
   output$pie_raman <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_classified()$raman, "Raman", rel, cat_mode)
-  }) |> bindCache(pie_classified()$raman, input$pie_display_mode, input$pie_category_mode)
+    show_all <- identical(input$pie_materials_mode, "all")
+    make_instrument_pie(pie_classified()$raman, "Raman", rel, cat_mode, show_all)
+  }) |> bindCache(pie_classified()$raman, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
   output$pie_ldir <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_classified()$ldir, "LDIR", rel, cat_mode)
-  }) |> bindCache(pie_classified()$ldir, input$pie_display_mode, input$pie_category_mode)
+    show_all <- identical(input$pie_materials_mode, "all")
+    make_instrument_pie(pie_classified()$ldir, "LDIR", rel, cat_mode, show_all)
+  }) |> bindCache(pie_classified()$ldir, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
   output$pie_ftir_bruker <- renderPlot({
     rel <- identical(input$pie_display_mode, "rel")
     cat_mode <- input$pie_category_mode %||% "both"
-    make_instrument_pie(pie_classified()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode)
-  }) |> bindCache(pie_classified()$ftir_bruker, input$pie_display_mode, input$pie_category_mode)
+    show_all <- identical(input$pie_materials_mode, "all")
+    make_instrument_pie(pie_classified()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode, show_all)
+  }) |> bindCache(pie_classified()$ftir_bruker, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
 
   # Helper: plot size distribution for one instrument
   plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
