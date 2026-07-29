@@ -291,6 +291,7 @@ ui <- fluidPage(
                                   "90° clockwise" = "-90",
                                   "180°"          = "180"),
                       selected = "auto"),
+          checkboxInput("ldir_view_flip_y", "Mirror (flip Y)", value = FALSE),
           hr(),
           h4("Image Overlay"),
           checkboxGroupInput("ldir_overlay_mode", "Display",
@@ -2735,6 +2736,7 @@ server <- function(input, output, session) {
   observeEvent(input$ftir_bruker_view_flip_y,   { zoom$ftir_bruker <- NULL })
   observeEvent(input$ldir_coord_mode,        { zoom$ldir        <- NULL })
   observeEvent(input$ldir_view_rotation,     { zoom$ldir        <- NULL })
+  observeEvent(input$ldir_view_flip_y,       { zoom$ldir        <- NULL })
   observeEvent(input$ldir_bg_image,          { zoom$ldir        <- NULL })
 
   # ==================================================================
@@ -2781,9 +2783,9 @@ server <- function(input, output, session) {
     df <- ldir_filtered()
     cm <- input$ldir_coord_mode
     if (!is.null(cm) && cm == "native" && !is.null(df) && nrow(df) > 0) {
-      rot <- ldir_view_rot_deg()
-      if (rot != 0L) {
-        rc <- rotate_xy_view(df$x_orig, df$y_orig, rot)
+      vt <- ldir_view_tf()
+      if (!.tf_is_identity(vt)) {
+        rc <- view_transform_xy(df$x_orig, df$y_orig, vt$deg, vt$flip)
         df$x_orig <- rc$x; df$y_orig <- rc$y
       }
     }
@@ -2918,13 +2920,29 @@ server <- function(input, output, session) {
   # checkbox applies on top, so ticking it twice returns to the measured
   # orientation. Aligned mode is already in Raman space and is never
   # transformed.
+  # Largest residual (as a fraction of cloud radius) still accepted as a real
+  # orientation fit; above this the pairing is not a rigid transform and the
+  # cloud-matching fallback is used instead.
+  .VIEW_FIT_MAX_RMSE <- 0.35
+
   .resolve_view_tf <- function(rot_sel, flip_sel, df_full) {
     flip <- isTRUE(flip_sel)
     if (!is.null(rot_sel) && rot_sel != "auto")
       return(list(deg = as.integer(rot_sel), flip = flip))
-    rd <- raman_df_full()
-    if (is.null(df_full) || nrow(df_full) == 0 || is.null(rd) || nrow(rd) == 0)
+    if (is.null(df_full) || nrow(df_full) == 0)
       return(list(deg = 0L, flip = flip))
+
+    # Preferred: measure against this instrument's own aligned coordinates,
+    # which is the transform the overlay already draws with.
+    if (all(c("x", "y", "x_orig", "y_orig") %in% names(df_full))) {
+      auto <- auto_view_from_pairs(df_full$x_orig, df_full$y_orig,
+                                   df_full$x, df_full$y)
+      if (!is.null(auto) && is.finite(auto$rmse) && auto$rmse <= .VIEW_FIT_MAX_RMSE)
+        return(list(deg = auto$deg, flip = xor(isTRUE(auto$flip), flip)))
+    }
+    # Fallback: match the two particle clouds (run never aligned to Raman).
+    rd <- raman_df_full()
+    if (is.null(rd) || nrow(rd) == 0) return(list(deg = 0L, flip = flip))
     auto <- auto_view_dihedral(df_full$x_orig, df_full$y_orig, rd$x_orig, rd$y_orig)
     list(deg = auto$deg, flip = xor(isTRUE(auto$flip), flip))
   }
@@ -2953,10 +2971,19 @@ server <- function(input, output, session) {
          xmin = ext$xmin, xmax = ext$xmax, ymin = ext$ymin, ymax = ext$ymax)
   }
 
+  # Spell the direction out rather than printing a signed angle. The sign was
+  # ambiguous: +90 is counter-clockwise by the maths convention but clockwise
+  # by the screen/image convention (y down), so the title read as inverted.
+  # These strings match the dropdown labels exactly.
   .view_tf_suffix <- function(vt) {
     if (.tf_is_identity(vt)) return("")
-    bits <- c(if (vt$deg != 0L) paste0(ifelse(vt$deg > 0, "+", ""), vt$deg, "°"),
-              if (isTRUE(vt$flip)) "mirrored")
+    rot <- switch(as.character(vt$deg),
+                  "90"  = "rotated 90° counter-clockwise",
+                  "-90" = "rotated 90° clockwise",
+                  "270" = "rotated 90° clockwise",
+                  "180" = "rotated 180°",
+                  NULL)
+    bits <- c(rot, if (isTRUE(vt$flip)) "mirrored")
     paste0(" — view ", paste(bits, collapse = " + "), " to match Raman")
   }
 
@@ -3323,16 +3350,32 @@ server <- function(input, output, session) {
     d$ldir_image_extracted
   })
 
-  # View rotation for the LDIR native display (multiple of 90 deg).
-  # "auto" measures which rotation brings the LDIR particle cloud into the
-  # Raman cloud's orientation directly from the plotted coordinates, so the
-  # LDIR tab matches the Raman tab regardless of export convention / Y-flips.
-  ldir_view_rot_deg <- reactive({
-    sel <- input$ldir_view_rotation
-    if (!is.null(sel) && sel != "auto") return(as.integer(sel))
-    ld <- ldir_df_full(); rd <- raman_df_full()
-    if (is.null(ld) || is.null(rd) || nrow(ld) == 0 || nrow(rd) == 0) return(0L)
-    ldir_auto_view_rotation(ld$x_orig, ld$y_orig, rd$x_orig, rd$y_orig)
+  # Orientation of the LDIR native display: rotation (multiple of 90 deg) plus
+  # an optional Y mirror. "auto" measures it from the per-particle pairing each
+  # row already carries — native x_orig/y_orig against aligned x/y — so it
+  # reproduces exactly the orientation that Aligned (Raman space) mode uses.
+  # Cloud matching is only the fallback, for runs whose LDIR was never aligned
+  # to Raman; on its own it could score several rotations alike and leave the
+  # view unrotated even when aligned mode was plainly correct.
+  ldir_view_tf <- reactive({
+    sel  <- input$ldir_view_rotation
+    flip <- isTRUE(input$ldir_view_flip_y)
+    if (!is.null(sel) && sel != "auto")
+      return(list(deg = as.integer(sel), flip = flip))
+
+    ld <- ldir_df_full()
+    auto <- if (!is.null(ld) && nrow(ld) > 0 &&
+                all(c("x", "y", "x_orig", "y_orig") %in% names(ld)))
+              auto_view_from_pairs(ld$x_orig, ld$y_orig, ld$x, ld$y) else NULL
+    if (!is.null(auto) && is.finite(auto$rmse) && auto$rmse <= .VIEW_FIT_MAX_RMSE)
+      return(list(deg = auto$deg, flip = xor(isTRUE(auto$flip), flip)))
+
+    rd <- raman_df_full()
+    if (!is.null(ld) && !is.null(rd) && nrow(ld) > 0 && nrow(rd) > 0) {
+      a2 <- auto_view_dihedral(ld$x_orig, ld$y_orig, rd$x_orig, rd$y_orig)
+      return(list(deg = a2$deg, flip = xor(isTRUE(a2$flip), flip)))
+    }
+    list(deg = 0L, flip = flip)
   })
 
   output$ldir_plot <- renderPlot({
@@ -3382,22 +3425,12 @@ server <- function(input, output, session) {
       else if ("raw_image" %in% overlay_mode) ldir_native_image_info()
       else NULL)
 
-    # Rotate the whole native scene (image + particles) into the Raman
+    # Rotate/mirror the whole native scene (image + particles) into the Raman
     # orientation for side-by-side comparison.  Aligned mode is already in
-    # Raman space, so no rotation applies there.  Display-only.
-    view_rot <- if (aligned) 0L else ldir_view_rot_deg()
-    if (view_rot != 0L) {
-      if (!is.null(img)) {
-        ext <- rotate_extent_view(img, view_rot)
-        img <- list(raster = rotate_raster_view(img$raster, view_rot),
-                    xmin = ext$xmin, xmax = ext$xmax,
-                    ymin = ext$ymin, ymax = ext$ymax)
-      }
-      if (nrow(df_disp) > 0) {
-        rc <- rotate_xy_view(df_disp$x, df_disp$y, view_rot)
-        df_disp$x <- rc$x; df_disp$y <- rc$y
-      }
-    }
+    # Raman space, so nothing applies there.  Display-only.
+    vt <- if (aligned) list(deg = 0L, flip = FALSE) else ldir_view_tf()
+    img     <- .apply_view_tf_img(img, vt)
+    df_disp <- .apply_view_tf(df_disp, vt)
 
     # All LDIR particles in the same display frame as df_disp — the reference
     # for the default viewport, so filtering never re-fits the axes.
@@ -3406,10 +3439,7 @@ server <- function(input, output, session) {
       if (!(aligned && "x" %in% names(ref_full) && any(!is.na(ref_full$x)))) {
         ref_full$x <- ref_full$x_orig; ref_full$y <- ref_full$y_orig
       }
-      if (view_rot != 0L) {
-        rc <- rotate_xy_view(ref_full$x, ref_full$y, view_rot)
-        ref_full$x <- rc$x; ref_full$y <- rc$y
-      }
+      ref_full <- .apply_view_tf(ref_full, vt)
     } else ref_full <- NULL
 
     # Viewport priority:
@@ -3436,10 +3466,7 @@ server <- function(input, output, session) {
     if ("extracted_pts" %in% overlay_mode && n_extracted > 0)
       title_parts <- paste0(title_parts, " + ", n_extracted, " image-extracted")
     title_parts <- paste0(title_parts, ")")
-    if (view_rot != 0L)
-      title_parts <- paste0(title_parts, " — view rotated ",
-                            ifelse(view_rot > 0, "+", ""), view_rot,
-                            "° to match Raman")
+    title_parts <- paste0(title_parts, .view_tf_suffix(vt))
 
     if (nrow(df_disp) == 0 && !("extracted_pts" %in% overlay_mode && n_extracted > 0)) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -3500,10 +3527,7 @@ server <- function(input, output, session) {
     if ("extracted_pts" %in% overlay_mode && n_extracted > 0) {
       ext_df <- data.frame(x = extracted$x_um, y = extracted$y_um,
                            feret_max = extracted$feret_max_um)
-      if (view_rot != 0L) {
-        rc <- rotate_xy_view(ext_df$x, ext_df$y, view_rot)
-        ext_df$x <- rc$x; ext_df$y <- rc$y
-      }
+      ext_df <- .apply_view_tf(ext_df, vt)
       p <- p + geom_point(data = ext_df,
                             aes(x = x, y = y, size = feret_max),
                             shape = 1, colour = "#e377c2", alpha = 0.5,
@@ -3585,11 +3609,11 @@ server <- function(input, output, session) {
 
     p
   }) |> bindCache(
-    # ldir_filtered() captures the LDIR filters; ldir_view_rot_deg() and
+    # ldir_filtered() captures the LDIR filters; ldir_view_tf() and
     # ldir_extracted_pts() are reactives whose values fold in their own inputs;
     # the three image sources are folded in cheaply via img_key().
     selected_run_dir(), is.null(uploaded_data()),
-    ldir_filtered(), ldir_extracted_pts(), ldir_view_rot_deg(),
+    ldir_filtered(), ldir_extracted_pts(), ldir_view_tf(),
     input$ldir_bg_image, input$ldir_coord_mode, input$ldir_hide_unmatched,
     input$ldir_overlay_mode, input$ldir_show_raman_partners,
     input$ldir_show_all_detected, input$ldir_show_all_labels, input$ldir_label_size,
@@ -5040,7 +5064,7 @@ server <- function(input, output, session) {
           # raster into a box sized for the unrotated image, and would
           # silently drift out of registration with the (also unrotated)
           # particle points. See the co-rotation step below, which mirrors
-          # the single LDIR tab's ldir_view_rot_deg() handling exactly.
+          # the single LDIR tab's ldir_view_tf() handling exactly.
           ox <- if (isTRUE(is.finite(input$repro_img_offset_x))) input$repro_img_offset_x else 0
           oy <- if (isTRUE(is.finite(input$repro_img_offset_y))) input$repro_img_offset_y else 0
           w_um <- input$repro_img_width_um

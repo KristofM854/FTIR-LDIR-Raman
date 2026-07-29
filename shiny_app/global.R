@@ -1327,6 +1327,60 @@ auto_view_dihedral <- function(src_x, src_y, ref_x, ref_y) {
   cands[[.auto_view_best(src_x, src_y, ref_x, ref_y, cands)]]
 }
 
+# ---------------------------------------------------------------------------
+# Auto view orientation measured from PAIRED coordinates.
+#
+# Every instrument row already carries both frames: x_orig/y_orig (native —
+# what the single-instrument tab plots) and x/y (aligned into Raman space —
+# what the overlay plots). That is a per-particle correspondence, so the
+# native -> Raman orientation can be measured exactly with a 2D Kabsch fit,
+# with no point matching at all.
+#
+# This is strictly better than cloud matching (auto_view_dihedral): it cannot
+# be defeated by the two instruments detecting different particles, by very
+# different particle counts, or by a near-symmetric layout where several
+# rotations score alike — the failure mode that left the view unrotated even
+# though aligned mode was demonstrably correct.
+#
+# The fitted angle is snapped to a multiple of 90, since that is all a view
+# rotation offers. Mirror-first ordering matches view_transform_xy().
+# Returns list(deg, flip, angle, rmse) — rmse is the residual as a fraction of
+# the cloud radius, so the caller can reject a fit that did not converge —
+# or NULL when there is too little paired data to decide.
+# ---------------------------------------------------------------------------
+auto_view_from_pairs <- function(x_native, y_native, x_aligned, y_aligned) {
+  if (is.null(x_native) || is.null(x_aligned)) return(NULL)
+  ok <- is.finite(x_native) & is.finite(y_native) &
+        is.finite(x_aligned) & is.finite(y_aligned)
+  if (sum(ok) < 3L) return(NULL)
+
+  ax <- x_native[ok];  ay <- y_native[ok]
+  bx <- x_aligned[ok]; by <- y_aligned[ok]
+  ax <- ax - mean(ax); ay <- ay - mean(ay)
+  bx <- bx - mean(bx); by <- by - mean(by)
+  sa <- sum(ax^2 + ay^2); sb <- sum(bx^2 + by^2)
+  if (!is.finite(sa) || !is.finite(sb) || sa <= 0 || sb <= 0) return(NULL)
+
+  rms_b <- sqrt(sb / length(bx))
+  # Optimal rotation for one handedness: theta = atan2(Sxy - Syx, Sxx + Syy).
+  fit <- function(px, py) {
+    th <- atan2(sum(px * by) - sum(py * bx), sum(px * bx) + sum(py * by))
+    s  <- sqrt(sb / sa)                      # isotropic scale between frames
+    qx <- s * (px * cos(th) - py * sin(th))
+    qy <- s * (px * sin(th) + py * cos(th))
+    list(theta = th, rmse = sqrt(mean((qx - bx)^2 + (qy - by)^2)) / rms_b)
+  }
+  f_plain <- fit(ax,  ay)
+  f_flip  <- fit(ax, -ay)                    # mirror first, then rotate
+  best <- if (f_flip$rmse < f_plain$rmse) list(f = f_flip, flip = TRUE)
+          else                             list(f = f_plain, flip = FALSE)
+
+  deg <- ((round(best$f$theta * 180 / pi / 90) * 90) %% 360 + 360) %% 360
+  if (deg == 270) deg <- -90
+  list(deg = as.integer(deg), flip = best$flip,
+       angle = best$f$theta * 180 / pi, rmse = best$f$rmse)
+}
+
 # Total LDIR -> Raman rotation for a run, snapped to the nearest 90 deg —
 # reconstructed from the pipeline's residual rotation
 # (04_alignment/transform_params_ldir_raman.txt) plus the pre-rotation
