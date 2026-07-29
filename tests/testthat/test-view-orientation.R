@@ -168,6 +168,91 @@ test_that("the LDIR wrapper is unchanged: rotations only, bare integer", {
   expect_identical(env$ldir_auto_view_rotation(bx, by, m$x, m$y), 0L)
 })
 
+test_that("auto_view_from_pairs recovers the orientation through scale and shift", {
+  # The aligned frame differs from native by rotation AND scale AND
+  # translation; only the orientation may be reported.
+  env <- .load_view_helpers()
+  set.seed(4)
+  n <- 40; nx <- runif(n, 0, 9000); ny <- runif(n, 0, 9000)
+  for (cd in .dihedral()) {
+    p <- env$view_transform_xy(nx, ny, cd$deg, cd$flip)
+    got <- env$auto_view_from_pairs(nx, ny, p$x * 0.83 + 1200, p$y * 0.83 - 450)
+    lbl <- paste("deg", cd$deg, "flip", cd$flip)
+    expect_equal(got$deg, cd$deg, info = lbl)
+    expect_equal(isTRUE(got$flip), cd$flip, info = lbl)
+    expect_lt(got$rmse, 1e-9)
+  }
+})
+
+test_that("auto_view_from_pairs survives per-particle jitter", {
+  env <- .load_view_helpers()
+  set.seed(9)
+  n <- 40; nx <- runif(n, 0, 9000); ny <- runif(n, 0, 9000)
+  p <- env$view_transform_xy(nx, ny, -90L, FALSE)
+  got <- env$auto_view_from_pairs(nx, ny, p$x + rnorm(n, 0, 60), p$y + rnorm(n, 0, 60))
+  expect_equal(got$deg, -90L)
+  expect_false(isTRUE(got$flip))
+  expect_lt(got$rmse, 0.1)
+})
+
+test_that("auto_view_from_pairs succeeds where cloud matching gives up", {
+  # The reported bug: aligned mode was demonstrably correct, yet the cloud
+  # matcher left the view unrotated. Pairing cannot be defeated this way —
+  # here the Raman cloud shares only a few particles with LDIR, so matching
+  # has almost nothing to lock onto, but every LDIR row still pairs with
+  # itself across the two frames.
+  env <- .load_view_helpers()
+  set.seed(21)
+  n <- 40; nx <- runif(n, 0, 9000); ny <- runif(n, 0, 9000)
+  al <- env$view_transform_xy(nx, ny, -90L, FALSE)      # native -> aligned
+
+  got <- env$auto_view_from_pairs(nx, ny, al$x, al$y)
+  expect_equal(got$deg, -90L)
+
+  # Same run, judged by cloud matching against a barely-overlapping Raman set.
+  sparse <- sample.int(n, 3)
+  cloud <- env$auto_view_dihedral(nx, ny,
+                                  c(al$x[sparse], runif(30, 0, 9000)),
+                                  c(al$y[sparse], runif(30, 0, 9000)))
+  expect_equal(cloud$deg, 0L)   # gives up — which is what the user saw
+})
+
+test_that("auto_view_from_pairs reports a large residual for a non-rigid pairing", {
+  # Callers gate on rmse and fall back to cloud matching when the pairing is
+  # not a rotation/mirror at all.
+  env <- .load_view_helpers()
+  set.seed(13)
+  n <- 40; nx <- runif(n, 0, 1000); ny <- runif(n, 0, 1000)
+  got <- env$auto_view_from_pairs(nx, ny, runif(n, 0, 1000), runif(n, 0, 1000))
+  expect_true(is.null(got) || got$rmse > 0.35)
+})
+
+test_that("auto_view_from_pairs returns NULL without usable pairs", {
+  env <- .load_view_helpers()
+  expect_null(env$auto_view_from_pairs(1:2, 1:2, 1:2, 1:2))          # too few
+  expect_null(env$auto_view_from_pairs(runif(9), runif(9),
+                                       rep(NA_real_, 9), rep(NA_real_, 9)))
+  expect_null(env$auto_view_from_pairs(rep(1, 5), rep(1, 5),         # no extent
+                                       rep(2, 5), rep(2, 5)))
+  expect_null(env$auto_view_from_pairs(NULL, NULL, NULL, NULL))
+})
+
+test_that("deg 90 really is counter-clockwise, for raster and points alike", {
+  # Pins the sign convention the title text describes in words.
+  env <- .load_view_helpers()
+  m <- matrix(".", 3, 3)
+  m[1, 1] <- "TL"; m[1, 3] <- "TR"          # row 1 is the top edge
+  r <- env$rotate_raster_view(m, 90L)
+  # Turning a picture counter-clockwise swings the top edge to the left.
+  expect_identical(which(r == "TL", arr.ind = TRUE)[1, ],
+                   c(row = 3L, col = 1L))   # top-left -> bottom-left
+  expect_identical(which(r == "TR", arr.ind = TRUE)[1, ],
+                   c(row = 1L, col = 1L))   # top-right -> top-left
+  # Points must agree: (0,100) is top-left of the data, -> bottom-left.
+  p <- env$rotate_xy_view(0, 100, 90L)
+  expect_equal(p$x, -100); expect_equal(p$y, 0)
+})
+
 test_that("auto detection stays fast on a large particle cloud", {
   # Scoring is O(n_src * n_ref) per candidate over 8 candidates; the helper
   # thins each cloud so a big FTIR run cannot stall the tab.
