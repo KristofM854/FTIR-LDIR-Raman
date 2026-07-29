@@ -746,6 +746,7 @@ ui <- fluidPage(
             column(6, numericInput("repro_img_offset_y", "Y offset (µm)",
                                    value = 0, step = 100))
           ),
+          uiOutput("repro_quality_ui"),
           uiOutput("repro_coord_cost_ui"),
           checkboxInput("repro_show_lines", "Link instances across runs", value = TRUE),
           selectizeInput("repro_material", "Material",
@@ -2753,6 +2754,7 @@ server <- function(input, output, session) {
   # Filter changes invalidate any active zoom (matches other tabs: a coord
   # or filter change can move the data outside the old zoom window).
   observeEvent(input$repro_material,       { zoom$repro <- NULL })
+  observeEvent(input$repro_quality_range,  { zoom$repro <- NULL })
   observeEvent(input$repro_only_nonrepro,  { zoom$repro <- NULL })
   observeEvent(input$repro_run_select,     { zoom$repro <- NULL })
   observeEvent(input$repro_run_visibility, { zoom$repro <- NULL })
@@ -4966,6 +4968,31 @@ server <- function(input, output, session) {
     n_runs <- if (!is.null(d$meta) && "n_runs" %in% names(d$meta)) d$meta$n_runs[1]
               else max(pts$run, na.rm = TRUE)
 
+    # Identification-quality gate. Unlike run visibility and the material
+    # filter below, this is an INCLUSION criterion rather than a display
+    # choice, so it is applied first and the per-consensus flags are
+    # recomputed from what survives. Without that recompute a particle whose
+    # partner in another run fell below the threshold would still be ringed as
+    # reproduced in every run — the rings would describe the unfiltered
+    # analysis while the plot showed the filtered one. Rows with NA quality are
+    # kept (an instrument or run that never reported one).
+    qr <- input$repro_quality_range
+    if (!is.null(qr) && length(qr) == 2 && "quality" %in% names(pts)) {
+      keep <- is.na(pts$quality) | (pts$quality >= qr[1] & pts$quality <= qr[2])
+      if (!all(keep)) {
+        pts <- pts[keep, , drop = FALSE]
+        if (nrow(pts) == 0) { attr(pts, "empty_reason") <- "quality"; return(pts) }
+        cid <- as.character(pts$consensus_id)
+        det <- tapply(pts$run, pts$consensus_id, function(r) length(unique(r)))
+        pts$n_runs_detected <- as.integer(det[cid])
+        # Same rule as the upstream consensus builder: concordant when the
+        # surviving runs agree on at most one non-missing family.
+        con <- tapply(pts$material_family, pts$consensus_id,
+                      function(f) length(unique(f[!is.na(f)])) <= 1L)
+        pts$material_concordant <- as.logical(con[cid])
+      }
+    }
+
     # Run visibility: same "empty selection -> empty result" convention as the
     # instrument tabs' match-status checkboxGroupInput (eff_match_filter());
     # NULL (widget not yet populated on initial load) is treated as "no
@@ -5049,6 +5076,8 @@ server <- function(input, output, session) {
                     col = "#2ca02c", size = 6))
       if (identical(reason, "runs"))
         return(.msg("No runs selected \u2014 check at least one run above."))
+      if (identical(reason, "quality"))
+        return(.msg("No particles pass the quality threshold \u2014 widen the slider."))
       return(.msg("No particles match the material filter."))
     }
 
@@ -5292,6 +5321,35 @@ server <- function(input, output, session) {
   # LDIR only: coord match cost slider (image↔Excel join confidence).
   # Auto-sized to the actual range in the loaded dataset; returns NULL for
   # FTIR/Raman runs where coord_match_cost is always NA.
+  # Identification-quality gate. The scale is instrument-dependent (AAU 0-1 for
+  # FTIR/LDIR, HQI 0-100 for Raman), so the range is taken from the data rather
+  # than assumed. Rendered only when the loaded run actually carries quality —
+  # reproducibility outputs written before that column existed simply do not
+  # get the slider (re-run tools/reproducibility.R to gain it).
+  output$repro_quality_ui <- renderUI({
+    d <- repro_data()
+    if (is.null(d)) return(NULL)
+    pts <- d$points
+    if (is.null(pts) || !"quality" %in% names(pts)) return(NULL)
+    q <- pts$quality[is.finite(pts$quality)]
+    if (length(q) == 0) return(NULL)
+    lo <- floor(min(q) * 100) / 100
+    hi <- ceiling(max(q) * 100) / 100
+    if (!(hi > lo)) return(NULL)
+    lbl <- switch(as.character(d$meta$instrument[1]),
+                  raman = "HQI", ldir = "Quality (AAU)",
+                  ftir_perkin = , ftir_bruker = "AAU Quality", "Quality")
+    step <- if (hi - lo > 10) 1 else 0.01
+    tagList(
+      sliderInput("repro_quality_range", paste0(lbl, " — applies to every run"),
+                  min = lo, max = hi, value = c(lo, hi), step = step),
+      helpText(style = "font-size:11px; margin-top:-8px;",
+               "One threshold for all runs — a per-run threshold would make the ",
+               "runs non-comparable. Particles dropped here stop counting as ",
+               "detected, so the rings track the filtered set.")
+    )
+  })
+
   output$repro_coord_cost_ui <- renderUI({
     d <- repro_data()
     if (is.null(d)) return(NULL)
