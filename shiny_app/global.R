@@ -1050,6 +1050,30 @@ extract_tiff_um_per_px <- function(path) {
 # min_frac       : minimum containment fraction to accept
 # Returns list(xmin, xmax, ymin, ymax, y_negated, frac_inside) or NULL.
 # ---------------------------------------------------------------------------
+# Coarse µm-per-pixel estimate from the analysed particle areas: in a
+# dark-field micrograph the bright (particle) pixels should cover the same
+# physical area the instrument reported for those particles, so
+# sqrt(sum(area) / bright_px) recovers the scale — the same self-calibration
+# the LDIR processed-image join uses.
+#
+# Accuracy is only about +/-35% (it moves with where the brightness threshold
+# falls), so this is a SANITY CHECK against a grossly misplaced image, never a
+# way to set the scale. Returns NULL when the image is not dark-field enough
+# for the pixel count to mean anything.
+image_scale_from_particle_area <- function(raster, areas_um2, thr = 0.45) {
+  if (is.null(raster) || length(dim(raster)) < 2) return(NULL)
+  a <- sum(areas_um2[is.finite(areas_um2)])
+  if (!is.finite(a) || a <= 0) return(NULL)
+  g <- if (length(dim(raster)) == 3) {
+    m <- raster[, , 1]
+    for (k in seq_len(dim(raster)[3])[-1]) m <- pmax(m, raster[, , k])
+    m
+  } else raster
+  n <- sum(g > thr, na.rm = TRUE)
+  if (n < 50 || n / length(g) > 0.20) return(NULL)
+  sqrt(a / n)
+}
+
 raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) {
   w  <- cfg$raman_image_width_um
   h  <- cfg$raman_image_height_um

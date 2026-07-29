@@ -1698,6 +1698,33 @@ server <- function(input, output, session) {
   #   1. Physical extent (WITec center + width/height in µm) — resize-invariant
   #   2. Known scale (raman_um_per_px or auto-detected from TIFF) — centroid-centred
   #   3. Fallback: aspect-ratio-preserving bounds via compute_image_bounds()
+  # Cross-check the Raman image placement against the data itself.
+  #
+  # The WITec extent in the config (raman_image_width_um / _height_um /
+  # _center_x_um / _center_y_um) is PER-DATASET. Carrying a previous scan's
+  # values into a new run draws the micrograph at the wrong size and the
+  # particles land nowhere near their blobs. raman_image_extent_from_config()
+  # only rejects an extent that fails to CONTAIN the particles, so a stale
+  # extent that is merely too large sails through and misplaces silently.
+  #
+  # The particle areas give an independent estimate of µm/px, so a gross
+  # mismatch can be reported instead of drawn without comment.
+  raman_scale_warning <- reactive({
+    info <- raman_native_image_info(); raw <- raman_image(); df <- raman_df_full()
+    if (is.null(info) || is.null(raw) || is.null(df) ||
+        !"area_um2" %in% names(df) || nrow(df) == 0) return(NULL)
+    placed <- (info$xmax - info$xmin) / ncol(raw)      # µm/px as actually drawn
+    est <- image_scale_from_particle_area(raw, df$area_um2)
+    if (is.null(est) || !is.finite(placed) || placed <= 0) return(NULL)
+    ratio <- placed / est
+    if (ratio <= 2 && ratio >= 0.5) return(NULL)
+    sprintf(paste0("⚠ Image scale looks wrong: drawn at %.2f µm/px, but the ",
+                   "particle areas imply ~%.2f µm/px (%.1f× off). ",
+                   "Check the per-dataset raman_image_* values in 00_config.R."),
+            placed, est, if (ratio > 1) ratio else 1 / ratio)
+  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()),
+                  img_key(raman_native_image_info()))
+
   raman_native_image_info <- reactive({
     raw <- raman_image()
     if (is.null(raw)) return(NULL)
@@ -2534,7 +2561,8 @@ server <- function(input, output, session) {
   make_scatter <- function(df, img_info, bounds, title,
                             match_colours = NULL, highlight_id = NULL,
                             full_df = NULL, match_labels = NULL,
-                            plain = FALSE, show_labels = FALSE, label_size = 3) {
+                            plain = FALSE, show_labels = FALSE, label_size = 3,
+                            subtitle = NULL) {
 
     p <- ggplot(df, aes(x = x, y = y))
 
@@ -2563,12 +2591,14 @@ server <- function(input, output, session) {
       scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
       scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
       coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
-      labs(title = title, x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+      labs(title = title, subtitle = subtitle,
+           x = "X (\u00b5m)", y = "Y (\u00b5m)") +
       theme_minimal(base_size = 15) +
       theme(
         plot.background  = element_rect(fill = "white", colour = NA),
         panel.background = element_rect(fill = "grey98", colour = NA),
         panel.grid       = element_line(colour = "grey90"),
+        plot.subtitle    = element_text(size = 11.5, colour = "#b02a37"),
         legend.position  = "right",
         legend.title     = element_text(size = 13),
         legend.text      = element_text(size = 11)
@@ -3206,10 +3236,11 @@ server <- function(input, output, session) {
                  full_df = full_raman,
                  plain = isTRUE(input$raman_show_all_detected),
                  show_labels = isTRUE(input$raman_show_all_labels),
-                 label_size = input$raman_label_size %||% 3)
+                 label_size = input$raman_label_size %||% 3,
+                 subtitle = raman_scale_warning())
   }) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
-    raman_filtered(),
+    raman_filtered(), raman_scale_warning(),
     input$raman_highlight_particle, single_highlight_ids$raman,
     input$raman_show_all_detected, input$raman_show_all_labels, input$raman_label_size, zoom$raman,
     img_key(raman_native_image_info())
