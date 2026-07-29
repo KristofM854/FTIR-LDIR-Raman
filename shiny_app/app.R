@@ -26,10 +26,12 @@ detail_table_ui <- function(id) {
 # Scrolls rather than growing the sidebar when a run carries many families.
 material_filter_ui <- function(input_id, label = "Materials") {
   div(class = "mat-filter",
-    tags$label(label, `for` = input_id),
-    div(class = "mat-filter-actions",
-        actionLink(paste0(input_id, "_all"),  "all"), " / ",
-        actionLink(paste0(input_id, "_none"), "none")),
+    div(class = "mat-filter-head",
+        tags$label(label, `for` = input_id),
+        span(class = "mat-filter-actions",
+             actionLink(paste0(input_id, "_all"),  "all"),
+             span(class = "mat-filter-sep", "·"),
+             actionLink(paste0(input_id, "_none"), "none"))),
     div(class = "mat-filter-box",
         checkboxGroupInput(input_id, NULL, choices = character(0),
                            selected = character(0)))
@@ -175,16 +177,33 @@ ui <- fluidPage(
     .hover-tbl td { padding: 4px 8px; border-bottom: 1px solid #dee2e6; }
     .placeholder-msg { text-align: center; padding: 80px 20px; color: #6c757d; }
     .placeholder-msg h3 { color: #495057; }
-    .mat-filter { margin-bottom: 12px; }
-    .mat-filter > label { margin-bottom: 2px; font-weight: 700; }
-    .mat-filter-actions { font-size: 11px; margin-bottom: 3px; color: #888; }
-    .mat-filter-box { max-height: 168px; overflow-y: auto; background: #fff;
+    /* Material show/hide list: header row (title + all/none) above a boxed,
+       scrollable column of checkboxes on one consistent indent. */
+    .mat-filter { margin-bottom: 14px; }
+    .mat-filter-head { display: flex; align-items: baseline;
+                       justify-content: space-between; margin-bottom: 4px;
+                       gap: 8px; }
+    .mat-filter-head > label { margin: 0; font-weight: 700; }
+    .mat-filter-actions { font-size: 11px; white-space: nowrap; }
+    .mat-filter-actions a { color: #6c757d; text-decoration: none; }
+    .mat-filter-actions a:hover,
+    .mat-filter-actions a:focus { color: #337ab7; text-decoration: underline; }
+    .mat-filter-sep { color: #ccc; margin: 0 3px; }
+    .mat-filter-box { max-height: 170px; overflow-y: auto; background: #fff;
                       border: 1px solid #ced4da; border-radius: 4px;
-                      padding: 4px 8px; }
-    .mat-filter-box .checkbox { margin: 2px 0; }
-    .mat-filter-box .checkbox label { font-size: 13px; padding-left: 20px; }
+                      padding: 5px 10px; }
+    /* Bootstrap gives .form-group a bottom margin; inside the box that is
+       just dead space under the last row. */
+    .mat-filter-box .form-group { margin-bottom: 0; }
     .mat-filter-box .shiny-options-group { margin-top: 0; }
-    .mat-filter-empty { font-size: 12px; color: #999; padding: 2px 0; }
+    .mat-filter-box .checkbox { margin: 0; }
+    .mat-filter-box .checkbox label { display: block; font-weight: 400;
+                                      font-size: 13px; line-height: 1.35;
+                                      padding: 4px 4px 4px 24px;
+                                      border-radius: 3px; cursor: pointer; }
+    .mat-filter-box .checkbox label:hover { background: #eef2f6; }
+    .mat-filter-box .checkbox input[type=\"checkbox\"] { margin-left: -24px;
+                                                       margin-top: 5px; }
   "))),
 
   navbarPage(
@@ -944,7 +963,11 @@ server <- function(input, output, session) {
     counts <- vapply(names(cts), function(dev_label) {
       tbl <- cts[[dev_label]]
       if (is.null(tbl)) return(0L)
-      as.integer(tbl[sel_fam] %||% 0L)
+      # table[missing_name] yields a named NA, which %||% does NOT catch — the
+      # bar then dropped out entirely ("Removed n rows ... geom_col") instead
+      # of being drawn as a legitimate zero.
+      v <- tbl[sel_fam]
+      if (length(v) == 0L || is.na(v)) 0L else as.integer(v)
     }, integer(1))
 
     # Only show instruments that have data
@@ -967,7 +990,9 @@ server <- function(input, output, session) {
       ggplot2::geom_col(width = 0.6) +
       ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.3, size = 5.2) +
       ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
-      ggplot2::scale_y_continuous(limits = c(0, max(counts) * 1.50)) +
+      # max(1, ...) keeps the scale non-degenerate when the family is absent
+      # everywhere; limits = c(0, 0) collapses the panel and grid aborts.
+      ggplot2::scale_y_continuous(limits = c(0, max(counts, 1L) * 1.50)) +
       ggplot2::labs(x = NULL, y = "Particle Count",
                     title = paste0(sel_fam, " across instruments",
                                    if (use_filt) " (filtered)" else "")) +
@@ -2626,39 +2651,63 @@ server <- function(input, output, session) {
   zoom <- reactiveValues(ftir = NULL, raman = NULL, ldir = NULL, overlay = NULL,
                          ftir_bruker = NULL, repro = NULL)
 
+  # Smallest viewport span we will ever draw (µm). Below this, coord_fixed()
+  # with expand = FALSE collapses the panel and grid aborts the whole plot with
+  # "non-finite location and/or size for viewport", which reads to the user as
+  # the image vanishing.
+  .MIN_SPAN <- 1e-6
+
+  # A brush that is really a click (zero/near-zero area) must not become a zoom.
+  .brush_bounds <- function(b) {
+    if (is.null(b)) return(NULL)
+    v <- c(b$xmin, b$xmax, b$ymin, b$ymax)
+    if (!all(is.finite(v))) return(NULL)
+    if ((b$xmax - b$xmin) < .MIN_SPAN || (b$ymax - b$ymin) < .MIN_SPAN) return(NULL)
+    list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+  }
+
+  # Last line of defence before coord_fixed(). Limits can still go non-finite
+  # without any brush involved — all-NA coordinates make min()/max() return
+  # +/-Inf, and unresolved image-placement metadata yields NA extents.
+  sanitize_bounds <- function(b, fallback = list(x = c(-1000, 1000),
+                                                 y = c(-1000, 1000))) {
+    ok <- function(v) is.numeric(v) && length(v) == 2L && all(is.finite(v))
+    if (is.null(b) || !ok(b$x) || !ok(b$y)) return(fallback)
+    widen <- function(v) {
+      v <- sort(v)
+      if (diff(v) > .MIN_SPAN) v else c(mean(v) - 0.5, mean(v) + 0.5)
+    }
+    list(x = widen(b$x), y = widen(b$y))
+  }
+
   observeEvent(input$ftir_brush, {
-    b <- input$ftir_brush
-    zoom$ftir <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+    nb <- .brush_bounds(input$ftir_brush); if (!is.null(nb)) zoom$ftir <- nb
   })
   observeEvent(input$ftir_dblclick, { zoom$ftir <- NULL })
 
   observeEvent(input$raman_brush, {
-    b <- input$raman_brush
-    zoom$raman <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+    nb <- .brush_bounds(input$raman_brush); if (!is.null(nb)) zoom$raman <- nb
   })
   observeEvent(input$raman_dblclick, { zoom$raman <- NULL })
 
   observeEvent(input$ldir_brush, {
-    b <- input$ldir_brush
-    zoom$ldir <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+    nb <- .brush_bounds(input$ldir_brush); if (!is.null(nb)) zoom$ldir <- nb
   })
   observeEvent(input$ldir_dblclick, { zoom$ldir <- NULL })
 
   observeEvent(input$ftir_bruker_brush, {
-    b <- input$ftir_bruker_brush
-    zoom$ftir_bruker <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+    nb <- .brush_bounds(input$ftir_bruker_brush)
+    if (!is.null(nb)) zoom$ftir_bruker <- nb
   })
   observeEvent(input$ftir_bruker_dblclick, { zoom$ftir_bruker <- NULL })
 
   observeEvent(input$overlay_brush, {
-    b <- input$overlay_brush
-    zoom$overlay <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+    nb <- .brush_bounds(input$overlay_brush); if (!is.null(nb)) zoom$overlay <- nb
   })
   observeEvent(input$overlay_dblclick, { zoom$overlay <- NULL })
 
   observeEvent(input$repro_brush, {
-    b <- input$repro_brush
-    zoom$repro <- list(x = c(b$xmin, b$xmax), y = c(b$ymin, b$ymax))
+    nb <- .brush_bounds(input$repro_brush); if (!is.null(nb)) zoom$repro <- nb
   })
   observeEvent(input$repro_dblclick, { zoom$repro <- NULL })
 
@@ -2981,9 +3030,13 @@ server <- function(input, output, session) {
     df_disp   <- .apply_view_tf(df_disp, vt)
     full_ftir <- .apply_view_tf(full_ftir, vt)
 
+    # Default viewport spans ALL this instrument's particles, never just the
+    # filtered subset — otherwise unticking a material or moving a slider
+    # silently re-fits the axes, which reads as an unrequested zoom. Zoom
+    # changes only on brush, double-click and Reset Zoom.
     bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
-      ref <- if (nrow(df_disp) > 0) df_disp
-             else if (!is.null(full_ftir) && nrow(full_ftir) > 0) full_ftir
+      ref <- if (!is.null(full_ftir) && nrow(full_ftir) > 0) full_ftir
+             else if (nrow(df_disp) > 0) df_disp
              else NULL
       if (!is.null(ref) && any(is.finite(ref$x))) {
         pad <- 300
@@ -2991,6 +3044,7 @@ server <- function(input, output, session) {
              y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
+    bounds <- sanitize_bounds(bounds, list(x = c(0, 10000), y = c(0, 10000)))
 
     if (nrow(df_disp) == 0) {
       if (is.null(full_ftir) || nrow(full_ftir) == 0) {
@@ -3080,23 +3134,28 @@ server <- function(input, output, session) {
     img <- raman_native_image_info()
 
     # Use image extent for bounds when available (consistent with overlay)
-    bounds <- if (!is.null(zoom$raman)) zoom$raman else {
-      if (!is.null(img)) {
-        pad <- 200
-        list(x = c(img$xmin - pad, img$xmax + pad),
-             y = c(img$ymin - pad, img$ymax + pad))
-      } else if (nrow(df_disp) > 0) {
-        pad <- 300
-        list(x = c(min(df_disp$x, na.rm = TRUE) - pad, max(df_disp$x, na.rm = TRUE) + pad),
-             y = c(min(df_disp$y, na.rm = TRUE) - pad, max(df_disp$y, na.rm = TRUE) + pad))
-      } else list(x = c(-1000, 1000), y = c(-1000, 1000))
-    }
-
-    # Full (unfiltered) Raman data for highlight fallback
+    # Full (unfiltered) Raman data — highlight fallback, and the reference for
+    # the default viewport.
     full_raman <- raman_df_full()
     if (!is.null(full_raman) && nrow(full_raman) > 0) {
       full_raman$x <- full_raman$x_orig; full_raman$y <- full_raman$y_orig
     }
+
+    # Viewport spans all particles, not the filtered subset — see the FTIR tab.
+    bounds <- if (!is.null(zoom$raman)) zoom$raman else {
+      ref <- if (!is.null(full_raman) && nrow(full_raman) > 0) full_raman
+             else if (nrow(df_disp) > 0) df_disp else NULL
+      if (!is.null(img)) {
+        pad <- 200
+        list(x = c(img$xmin - pad, img$xmax + pad),
+             y = c(img$ymin - pad, img$ymax + pad))
+      } else if (!is.null(ref) && any(is.finite(ref$x))) {
+        pad <- 300
+        list(x = c(min(ref$x, na.rm = TRUE) - pad, max(ref$x, na.rm = TRUE) + pad),
+             y = c(min(ref$y, na.rm = TRUE) - pad, max(ref$y, na.rm = TRUE) + pad))
+      } else list(x = c(-1000, 1000), y = c(-1000, 1000))
+    }
+    bounds <- sanitize_bounds(bounds)
 
     if (nrow(df_disp) == 0) {
       p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -3305,8 +3364,11 @@ server <- function(input, output, session) {
     bg_sel <- input$ldir_bg_image %||% "auto"
     raman_bg_native <- function() {
       raw_r <- raman_image()
-      if (is.null(raw_r) || nrow(df_disp) == 0) return(NULL)
-      b <- compute_image_bounds(raw_r, df_disp$x_orig, df_disp$y_orig, padding_um = 300)
+      # Scale to the FULL LDIR extent, not the filtered subset, so the
+      # background does not move when materials/filters are toggled.
+      ld_all <- ldir_df_full()
+      if (is.null(raw_r) || is.null(ld_all) || nrow(ld_all) == 0) return(NULL)
+      b <- compute_image_bounds(raw_r, ld_all$x_orig, ld_all$y_orig, padding_um = 300)
       list(raster = raw_r, xmin = b$xmin, xmax = b$xmax, ymin = b$ymin, ymax = b$ymax)
     }
     img <- switch(bg_sel,
@@ -3337,18 +3399,34 @@ server <- function(input, output, session) {
       }
     }
 
+    # All LDIR particles in the same display frame as df_disp — the reference
+    # for the default viewport, so filtering never re-fits the axes.
+    ref_full <- ldir_df_full()
+    if (!is.null(ref_full) && nrow(ref_full) > 0) {
+      if (!(aligned && "x" %in% names(ref_full) && any(!is.na(ref_full$x)))) {
+        ref_full$x <- ref_full$x_orig; ref_full$y <- ref_full$y_orig
+      }
+      if (view_rot != 0L) {
+        rc <- rotate_xy_view(ref_full$x, ref_full$y, view_rot)
+        ref_full$x <- rc$x; ref_full$y <- rc$y
+      }
+    } else ref_full <- NULL
+
     # Viewport priority:
     # 1. User zoom (brush) — always honoured
     # 2. Image bounds — when an image is shown, the viewport must cover the full
     #    scan circle; basing it on sparse particle coords distorts the image.
-    # 3. Particle data range — fallback when no image is loaded.
+    # 3. Full particle data range — fallback when no image is loaded. Uses every
+    #    particle, not the filtered subset, so toggling filters does not zoom.
+    ref_b <- if (!is.null(ref_full)) ref_full else df_disp
     bounds <- if (!is.null(zoom$ldir)) zoom$ldir else if (!is.null(img)) {
       list(x = c(img$xmin, img$xmax), y = c(img$ymin, img$ymax))
-    } else if (nrow(df_disp) > 0 && any(is.finite(df_disp$x))) {
+    } else if (nrow(ref_b) > 0 && any(is.finite(ref_b$x))) {
       pad <- 500
-      list(x = c(min(df_disp$x, na.rm = TRUE) - pad, max(df_disp$x, na.rm = TRUE) + pad),
-           y = c(min(df_disp$y, na.rm = TRUE) - pad, max(df_disp$y, na.rm = TRUE) + pad))
+      list(x = c(min(ref_b$x, na.rm = TRUE) - pad, max(ref_b$x, na.rm = TRUE) + pad),
+           y = c(min(ref_b$y, na.rm = TRUE) - pad, max(ref_b$y, na.rm = TRUE) + pad))
     } else list(x = c(-7000, 7000), y = c(-7000, 7000))
+    bounds <- sanitize_bounds(bounds, list(x = c(-7000, 7000), y = c(-7000, 7000)))
 
     n_extracted <- 0
     extracted <- ldir_extracted_pts()
@@ -3603,9 +3681,10 @@ server <- function(input, output, session) {
     df_disp <- .apply_view_tf(df_disp, vt)
     full_fb <- .apply_view_tf(full_fb, vt)
 
+    # Viewport spans all particles, not the filtered subset — see the FTIR tab.
     bounds <- if (!is.null(zoom$ftir_bruker)) zoom$ftir_bruker else {
-      ref <- if (nrow(df_disp) > 0) df_disp
-             else if (!is.null(full_fb) && nrow(full_fb) > 0) full_fb
+      ref <- if (!is.null(full_fb) && nrow(full_fb) > 0) full_fb
+             else if (nrow(df_disp) > 0) df_disp
              else NULL
       if (!is.null(ref) && any(is.finite(ref$x))) {
         pad <- 300
@@ -3613,6 +3692,7 @@ server <- function(input, output, session) {
              y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
       } else list(x = c(0, 10000), y = c(0, 10000))
     }
+    bounds <- sanitize_bounds(bounds, list(x = c(0, 10000), y = c(0, 10000)))
 
     if (nrow(df_disp) == 0) {
       return(ggplot() +
@@ -3932,6 +4012,7 @@ server <- function(input, output, session) {
         compute_bounds(dfs$ftir, dfs$raman)
       }
     }
+    bounds <- sanitize_bounds(bounds)
 
     p <- ggplot() +
       scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
@@ -5022,6 +5103,7 @@ server <- function(input, output, session) {
     } else {
       compute_bounds(data.frame(x = pts$x_aligned, y = pts$y_aligned))
     }
+    bounds <- sanitize_bounds(bounds)
 
     run_levels <- paste("Run", sort(unique(pts$run)))
     run_pal <- .REPRO_RUN_PALETTE[run_levels]
