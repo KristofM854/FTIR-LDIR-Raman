@@ -119,6 +119,65 @@ test_that("apply_normalization survives a degenerate scale", {
   expect_false(any(is.na(apply_normalization(a, c(0, 0), NA)$x_norm)))
 })
 
+# ---- adaptive landmark selection --------------------------------------------
+
+test_that("the absolute size rule still wins when enough particles clear it", {
+  df <- .particles(c(300, 250, 200, 150, 120, 40, 30, 20))
+  expect_equal(sum(select_landmarks(df, .cfg)), 5L)   # the five >= 100 um
+})
+
+test_that("a sample below the absolute threshold falls back to rank", {
+  # Field-sample shape: nothing near 100 um, but the largest are still landmarks
+  # relative to the rest of the sample.
+  df   <- .particles(c(90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 25, 15))
+  mask <- select_landmarks(df, .cfg)
+  expect_equal(sum(mask), 12L)                       # landmark_target_count
+  expect_true(all(df$feret_max_um[mask] >= .cfg$landmark_min_size_floor_um))
+  expect_equal(max(df$feret_max_um[!mask]), 25)      # only the two smallest drop
+})
+
+test_that("rank selection takes the largest particles, in size order", {
+  df   <- .particles(c(40, 95, 60, 85, 35, 70))
+  cfg  <- modifyList(.cfg, list(landmark_target_count = 3))
+  mask <- select_landmarks(df, cfg)
+  expect_equal(sort(df$feret_max_um[mask]), c(70, 85, 95))
+})
+
+test_that("the size floor is absolute — dust never becomes a landmark", {
+  df   <- .particles(c(20, 18, 15, 12, 10, 8))
+  mask <- select_landmarks(df, .cfg)
+  expect_equal(sum(mask), 0L)
+})
+
+test_that("rank selection needs at least landmark_min_count above the floor", {
+  df   <- .particles(c(90, 85, 10, 8))   # only 2 clear the 30 um floor
+  mask <- select_landmarks(df, .cfg)
+  expect_equal(sum(mask), 0L)
+})
+
+test_that("the adaptive fallback can be switched off", {
+  df  <- .particles(c(90, 85, 80, 75, 70, 65))
+  cfg <- modifyList(.cfg, list(landmark_adaptive_size = FALSE))
+  expect_equal(sum(select_landmarks(df, cfg)), 0L)
+})
+
+test_that("fibers are still picked up by the aspect-ratio rule", {
+  df <- .particles(c(150, 40, 30))
+  df$major_um <- c(150, 40, 30)
+  df$minor_um <- c(75, 5, 15)          # particle 2 is a 8:1 fiber, but < 100 um
+  mask <- select_landmarks(df, .cfg)
+  expect_true(mask[1])                 # large particle
+  expect_false(mask[2])                # fiber below landmark_fiber_min_size_um
+})
+
+test_that("landmark selection is deterministic under ties", {
+  df <- .particles(rep(50, 20))
+  a  <- select_landmarks(df, .cfg)
+  b  <- select_landmarks(df, .cfg)
+  expect_identical(a, b)
+  expect_equal(sum(a), .cfg$landmark_target_count)
+})
+
 # ---- Tier 2 aligner interchangeability --------------------------------------
 
 test_that("global_register_align is a drop-in for ransac_align in Tier 2", {

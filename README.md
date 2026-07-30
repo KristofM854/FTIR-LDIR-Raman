@@ -240,6 +240,12 @@ ldir_scan_diameter_um     = 13000  # Physical extent of the LDIR scan area (µm)
 # Landmark alignment
 landmark_min_size_um      = 100    # Particles >= this are landmark candidates
 landmark_fiber_aspect_ratio = 3.0  # Fibers detected by this aspect ratio threshold
+landmark_adaptive_size    = TRUE   # If < landmark_min_count particles clear the
+                                   # absolute threshold, take the largest ones
+                                   # instead — landmarks are conspicuous
+                                   # relative to the sample, not in absolute µm
+landmark_target_count     = 12     # How many to take in that fallback
+landmark_min_size_floor_um = 30    # ...but never anything below this
 
 # Matching
 match_dist_threshold_um   = 100    # Max distance for a valid spatial match (µm)
