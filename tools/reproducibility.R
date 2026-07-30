@@ -77,7 +77,18 @@ CONFIG <- list(
   raman_image_center_x_um = NULL,
   raman_image_center_y_um = NULL,
   # Fixed µm-per-pixel (Priority 2 fallback when the four fields above are NULL).
-  raman_um_per_px         = NULL
+  raman_um_per_px         = NULL,
+
+  # FTIR / Bruker background-image placement, in the native FTIR scan frame.
+  # Leave NULL and the viewer fits the image to the particle extent while
+  # preserving its aspect ratio — fine when the particles reach the edges of
+  # the scan, wrong (image too small, features offset) when they do not.
+  # Fill in the physical size of the exported image to place it exactly; the
+  # centre defaults to width/2, height/2, i.e. the scan origin at (0,0).
+  ftir_image_width_um     = NULL,
+  ftir_image_height_um    = NULL,
+  ftir_image_center_x_um  = NULL,
+  ftir_image_center_y_um  = NULL
 )
 
 # =============================================================================
@@ -402,6 +413,20 @@ if (identical(CONFIG$instrument, "raman")) {
   meta$raman_image_center_y_um <- CONFIG$raman_image_center_y_um %||% NA_real_
   meta$raman_um_per_px         <- CONFIG$raman_um_per_px         %||% NA_real_
   meta$raman_calibration_source <- raman_calibration_source
+}
+if (identical(CONFIG$instrument, "ftir_perkin") ||
+    identical(CONFIG$instrument, "ftir_bruker")) {
+  # Physical extent of run 1's image, in the native FTIR scan frame. When set,
+  # the viewer (place_image_ftir_meta) places the backdrop at exactly these
+  # bounds — resize-invariant, so re-exporting the image at a different pixel
+  # resolution does not move it. When NULL the viewer falls back to an
+  # aspect-preserving fit to the particle extent, which is only correct if the
+  # particles happen to reach the edges of the scan; they usually do not, so
+  # filling these in is what makes the micrograph land on its blobs.
+  meta$ftir_image_width_um    <- CONFIG$ftir_image_width_um    %||% NA_real_
+  meta$ftir_image_height_um   <- CONFIG$ftir_image_height_um   %||% NA_real_
+  meta$ftir_image_center_x_um <- CONFIG$ftir_image_center_x_um %||% NA_real_
+  meta$ftir_image_center_y_um <- CONFIG$ftir_image_center_y_um %||% NA_real_
 }
 if (identical(CONFIG$instrument, "ldir")) {
   # Run 1's circle calibration, flat (unchanged): this is what the viewer's
