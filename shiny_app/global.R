@@ -1118,11 +1118,41 @@ raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) 
   if (length(v) == 0 || !is.finite(v)) NA_real_ else v
 }
 
-# FTIR / Bruker: image spans the raw particle extent (ftir_native_image_info).
-place_image_particle_extent <- function(x, y) {
+# FTIR / Bruker P1: physical extent recorded by tools/reproducibility.R, in the
+# native FTIR scan frame (coordinates are µm from the scan origin, so the image
+# spans [0,w] x [0,h] unless an explicit centre is given). Resize-invariant:
+# re-exporting the image at a different pixel resolution does not move it.
+# Mirrors the Raman WITec tier. NULL when the metadata is absent.
+place_image_ftir_meta <- function(meta, x, y) {
+  w <- .repro_meta_num(meta, "ftir_image_width_um")
+  h <- .repro_meta_num(meta, "ftir_image_height_um")
+  if (!is.finite(w) || !is.finite(h) || w <= 0 || h <= 0) return(NULL)
+  cx <- .repro_meta_num(meta, "ftir_image_center_x_um")
+  cy <- .repro_meta_num(meta, "ftir_image_center_y_um")
+  if (!is.finite(cx)) cx <- w / 2      # default: scan origin at (0,0)
+  if (!is.finite(cy)) cy <- h / 2
+  list(xmin = cx - w / 2, xmax = cx + w / 2,
+       ymin = cy - h / 2, ymax = cy + h / 2)
+}
+
+# FTIR / Bruker P2: aspect-preserving fit to the particle extent.
+#
+# `raw` is REQUIRED to preserve the aspect ratio. Without it this returns the
+# bare particle bounding box, which is what the multi-run overlay used to do —
+# annotation_raster() stretches the image to whatever box it is given, so a
+# non-square particle hull sheared the micrograph and its features stopped
+# lining up with the points (a rectangular scan squeezed into a square hull
+# renders as mismatched bands). tools/reproducibility.R documents this backdrop
+# as being placed "at the point extent (aspect-preserving)"; passing `raw` is
+# what actually honours that.
+place_image_particle_extent <- function(x, y, raw = NULL) {
   x <- x[is.finite(x)]; y <- y[is.finite(y)]
   if (length(x) == 0 || length(y) == 0) return(NULL)
-  list(xmin = min(x), xmax = max(x), ymin = min(y), ymax = max(y))
+  if (is.null(raw))
+    return(list(xmin = min(x), xmax = max(x), ymin = min(y), ymax = max(y)))
+  # A single point (or perfectly coincident points) has no extent to fit to.
+  if (max(x) - min(x) <= 0 && max(y) - min(y) <= 0) return(NULL)
+  compute_image_bounds(raw, x, y, padding_um = 0)
 }
 
 # Raman P1: WITec width/height/center from meta; Y auto-detected against the
@@ -1167,7 +1197,11 @@ place_image_ldir_meta <- function(meta) {
 # Dispatch to the instrument-appropriate placement; NULL if unavailable. For
 # Raman this runs the same cascade as raman_native_image_info: WITec extent
 # (P1) then µm-per-pixel scale (P2); P3 (particle-extent fit) is left to the
-# caller's fallback. `raw`/`bg_path` are needed only for the Raman P2 tier.
+# caller's fallback. FTIR/Bruker run the analogous two tiers: recorded physical
+# extent (P1) then an aspect-preserving fit to the particle extent (P2).
+# `raw` is needed by the Raman P2 tier and by the FTIR P2 fit (which cannot
+# preserve the aspect ratio without knowing the raster's pixel dimensions);
+# `bg_path` only by Raman P2.
 place_image_multirun <- function(instrument, meta, x, y, raw = NULL, bg_path = NULL) {
   switch(as.character(instrument),
     raman = {
@@ -1175,8 +1209,16 @@ place_image_multirun <- function(instrument, meta, x, y, raw = NULL, bg_path = N
       if (is.null(ext)) ext <- place_image_raman_umpx(meta, x, y, raw, bg_path)  # P2
       ext
     },
-    ftir_perkin = place_image_particle_extent(x, y),
-    ftir_bruker = place_image_particle_extent(x, y),
+    ftir_perkin = {
+      ext <- place_image_ftir_meta(meta, x, y)                  # P1: physical
+      if (is.null(ext)) ext <- place_image_particle_extent(x, y, raw)  # P2: fit
+      ext
+    },
+    ftir_bruker = {
+      ext <- place_image_ftir_meta(meta, x, y)
+      if (is.null(ext)) ext <- place_image_particle_extent(x, y, raw)
+      ext
+    },
     ldir        = place_image_ldir_meta(meta),
     NULL)
 }

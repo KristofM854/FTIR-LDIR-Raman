@@ -5111,6 +5111,18 @@ server <- function(input, output, session) {
           oy <- if (isTRUE(is.finite(input$repro_img_offset_y))) input$repro_img_offset_y else 0
           w_um <- input$repro_img_width_um
           h_um <- input$repro_img_height_um
+          # Placement anchors: the FULL point set, never the filtered view.
+          # The backdrop is a property of the dataset, not of what is currently
+          # drawn. Anchoring it to `pts` made the image resize and shift every
+          # time the quality slider, run visibility, material filter or "only
+          # non-reproducible" changed the point cloud — with "only
+          # non-reproducible" on, a handful of surviving particles crushed the
+          # whole micrograph into their bounding box.
+          place_x <- d$points$x_aligned[is.finite(d$points$x_aligned)]
+          place_y <- d$points$y_aligned[is.finite(d$points$y_aligned)]
+          if (length(place_x) == 0 || length(place_y) == 0) {
+            place_x <- pts$x_aligned; place_y <- pts$y_aligned
+          }
           instrument <- if (!is.null(d$meta) && "instrument" %in% names(d$meta))
                           d$meta$instrument[1] else NA_character_
           base <- NULL
@@ -5120,8 +5132,8 @@ server <- function(input, output, session) {
             half_w <- w_um / 2
             half_h <- if (!is.null(h_um) && is.finite(h_um) && h_um > 0)
                         h_um / 2 else (w_um / (ncol(raw) / nrow(raw))) / 2
-            cx0 <- mean(pts$x_aligned, na.rm = TRUE)
-            cy0 <- mean(pts$y_aligned, na.rm = TRUE)
+            cx0 <- mean(place_x, na.rm = TRUE)
+            cy0 <- mean(place_y, na.rm = TRUE)
             base <- list(xmin = cx0 - half_w, xmax = cx0 + half_w,
                          ymin = cy0 - half_h, ymax = cy0 + half_h)
           } else {
@@ -5129,12 +5141,12 @@ server <- function(input, output, session) {
             # the metadata the tool recorded (Raman = WITec extent, FTIR/Bruker =
             # particle extent, LDIR = scan-circle). NULL when metadata is absent.
             base <- place_image_multirun(instrument, d$meta,
-                                         pts$x_aligned, pts$y_aligned,
+                                         place_x, place_y,
                                          raw = raw, bg_path = bg_path)
           }
           # Last resort: aspect-preserving fit to the particle extent.
           if (is.null(base))
-            base <- compute_image_bounds(raw, pts$x_aligned, pts$y_aligned,
+            base <- compute_image_bounds(raw, place_x, place_y,
                                          padding_um = 200)
           b <- list(xmin = base$xmin + ox, xmax = base$xmax + ox,
                     ymin = base$ymin + oy, ymax = base$ymax + oy)
