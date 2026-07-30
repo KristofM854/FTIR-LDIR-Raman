@@ -20,6 +20,21 @@
 normalize_coordinates <- function(ftir_df, raman_df, normalize_scale = FALSE) {
   log_message("Normalizing coordinates")
 
+  # Fail loudly on an empty cloud. mean(numeric(0)) is NaN, which silently
+  # poisons every x_norm/y_norm downstream and only surfaces much later as
+  # "NA/NaN/Inf in foreign function call" from RANN::nn2 deep inside the
+  # aligner. Name the problem here, where the cause is still visible.
+  if (nrow(ftir_df) == 0 || nrow(raman_df) == 0) {
+    stop("Cannot normalize coordinates: centroid source is empty (FTIR ",
+         nrow(ftir_df), " rows, Raman ", nrow(raman_df), " rows). ",
+         "A centroid needs at least one particle per dataset.")
+  }
+  if (all(is.na(ftir_df$x_um)) || all(is.na(ftir_df$y_um)) ||
+      all(is.na(raman_df$x_um)) || all(is.na(raman_df$y_um))) {
+    stop("Cannot normalize coordinates: a coordinate column is entirely NA. ",
+         "Check that the ingest step found the right coordinate columns.")
+  }
+
   # Centroids
   ftir_cx  <- mean(ftir_df$x_um, na.rm = TRUE)
   ftir_cy  <- mean(ftir_df$y_um, na.rm = TRUE)
@@ -65,4 +80,23 @@ normalize_coordinates <- function(ftir_df, raman_df, normalize_scale = FALSE) {
     ftir_scale     = ftir_scale,
     raman_scale    = raman_scale
   )
+}
+
+
+#' Apply an existing centroid (and scale) to another data frame
+#'
+#' Every particle set that takes part in a spatial step must be centred on the
+#' SAME centroid as the set the transform was estimated from, otherwise the
+#' transform is applied in the wrong frame. This re-applies the normalization
+#' returned by normalize_coordinates() to any other data frame.
+#'
+#' @param df Data frame with x_um, y_um
+#' @param centroid Numeric c(cx, cy) from normalize_coordinates()
+#' @param scale Scale divisor (1 when normalize_scale was FALSE)
+#' @return df with x_norm, y_norm added / overwritten
+apply_normalization <- function(df, centroid, scale = 1) {
+  if (is.null(scale) || is.na(scale) || scale == 0) scale <- 1
+  df$x_norm <- (df$x_um - centroid[1]) / scale
+  df$y_norm <- (df$y_um - centroid[2]) / scale
+  df
 }
