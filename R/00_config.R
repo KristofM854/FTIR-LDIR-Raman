@@ -85,9 +85,21 @@ make_config <- function(ftir_path  = NULL,
     normalize_scale = FALSE,  # scale both clouds to unit variance (usually not needed)
 
     # --- Material-based alignment anchors ---
+    # These narrow the anchor set to polymers both instruments should agree on,
+    # which helps on spiked lab samples. They are a HINT, not a requirement:
+    # each is honoured only while it leaves >= align_min_anchor_count particles,
+    # otherwise the full cloud is used (alignment is geometric — it does not
+    # need a specific polymer). Set either to NULL to disable material
+    # anchoring entirely, which is the sensible choice for field samples.
     align_ftir_materials = c("PET", "Polypro"),
     align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
+    align_min_anchor_count = 4,    # below this, drop the filter instead
     align_raman_min_size_um = 20,  # exclude Raman particles below FTIR detection limit
+
+    # Tier 2 global registration (rotation x scale sweep + translation voting).
+    # Runs alongside the legacy coarse RANSAC; the transform that pairs more
+    # particles wins. Set FALSE to use coarse RANSAC alone.
+    ftir_use_global_register = TRUE,
 
     # --- LDIR-specific settings ---
     align_ldir_materials = c("Polyethylene terephthalate", "Polypropylene",
@@ -426,6 +438,17 @@ make_config <- function(ftir_path  = NULL,
     landmark_fiber_aspect_ratio = 3.0,
     landmark_fiber_min_size_um  = 100,
     landmark_min_count          = 4,
+    # Adaptive fallback: when fewer than landmark_min_count particles clear the
+    # absolute landmark_min_size_um threshold, select the landmark_target_count
+    # LARGEST particles instead (never below landmark_min_size_floor_um).
+    # Landmarks work by being conspicuous relative to the rest of the sample —
+    # a rank property. Without this, a field sample whose size distribution sits
+    # below 100 um yields zero landmarks and Tier 1 silently skips.
+    # Set landmark_adaptive_size = FALSE for the old absolute-threshold-only
+    # behaviour.
+    landmark_adaptive_size      = TRUE,
+    landmark_target_count       = 12,
+    landmark_min_size_floor_um  = 30,
     landmark_confidence_min_inlier_ratio = 0.5,
     landmark_confidence_max_residual_um  = 50,
     landmark_skip_full_ransac  = TRUE,

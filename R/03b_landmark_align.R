@@ -15,10 +15,25 @@
 
 #' Select landmark particles from a data frame
 #'
+#' Two rules, in order:
+#'   1. Absolute size — anything at or above landmark_min_size_um, plus fibers
+#'      (high aspect ratio) above landmark_fiber_min_size_um.
+#'   2. Adaptive rank — if rule 1 yields fewer than landmark_min_count, take the
+#'      landmark_target_count largest particles instead, subject to an absolute
+#'      floor (landmark_min_size_floor_um).
+#'
+#' Rule 2 exists for field samples. landmark_min_size_um is a fixed physical
+#' threshold tuned on spiked lab samples; a sample whose particle size
+#' distribution sits below it produces zero landmarks and Tier 1 silently skips,
+#' even though its largest particles are perfectly good landmarks *relative to
+#' the rest of the sample*. What makes a landmark useful is being conspicuous in
+#' both instruments, which is a rank property, not an absolute one.
+#'
 #' @param df Data frame with feret_max_um, major_um, minor_um columns
 #' @param config Configuration list
+#' @param label Dataset name for log messages (optional)
 #' @return Logical vector (TRUE = landmark)
-select_landmarks <- function(df, config) {
+select_landmarks <- function(df, config, label = "") {
   n <- nrow(df)
   is_landmark <- logical(n)
 
@@ -40,6 +55,33 @@ select_landmarks <- function(df, config) {
       !is.na(size) &
       size >= config$landmark_fiber_min_size_um
     is_landmark <- is_landmark | is_fiber
+  }
+
+  # Criterion 3 (fallback): adaptive rank-based selection
+  min_count <- config$landmark_min_count %||% 4
+  if (sum(is_landmark) < min_count && !isFALSE(config$landmark_adaptive_size) &&
+      any(!is.na(size))) {
+    floor_um <- config$landmark_min_size_floor_um %||% 30
+    target   <- config$landmark_target_count      %||% 12
+
+    eligible <- which(!is.na(size) & size >= floor_um)
+    if (length(eligible) >= min_count) {
+      # Largest first; ties broken by row order so the choice is deterministic
+      ranked  <- eligible[order(-size[eligible], eligible)]
+      chosen  <- ranked[seq_len(min(target, length(ranked)))]
+      is_landmark <- logical(n)
+      is_landmark[chosen] <- TRUE
+      log_message("  ", label, " landmarks: only ",
+                  sum(!is.na(size) & size >= config$landmark_min_size_um),
+                  " particle(s) >= ", config$landmark_min_size_um,
+                  " um — falling back to the ", length(chosen),
+                  " largest (>= ", floor_um, " um, ",
+                  round(min(size[chosen])), "-", round(max(size[chosen])), " um)")
+    } else {
+      log_message("  ", label, " landmarks: only ", length(eligible),
+                  " particle(s) above the ", floor_um,
+                  " um floor — cannot select landmarks adaptively", level = "WARN")
+    }
   }
 
   is_landmark
@@ -70,8 +112,8 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR") {
   log_message("Tier 1: Landmark-based alignment (", src_label, " → Raman)")
 
   # --- Select landmarks ---
-  ftir_lm_mask  <- select_landmarks(ftir_df, config)
-  raman_lm_mask <- select_landmarks(raman_df, config)
+  ftir_lm_mask  <- select_landmarks(ftir_df, config, src_label)
+  raman_lm_mask <- select_landmarks(raman_df, config, "Raman")
 
   n_ftir_lm  <- sum(ftir_lm_mask)
   n_raman_lm <- sum(raman_lm_mask)
