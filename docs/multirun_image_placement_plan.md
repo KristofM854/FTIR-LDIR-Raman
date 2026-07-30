@@ -497,6 +497,19 @@ From `shiny_app/app.R`:
 |---|---|---|---|
 | FTIR (PerkinElmer) | `ftir_native_image_info` | image spans the **raw particle extent** `min/max(x_orig,y_orig)` + offset | none (just run-1 coords) |
 | FTIR (Bruker) | `ftir_bruker_native_image_info` | same particle-extent placement | none |
+
+> **Update (Multi-Run FTIR fix).** The Multi-Run FTIR/Bruker branch is now a
+> 2-tier cascade mirroring Raman's: **(1)** recorded physical extent
+> (`ftir_image_width_um` / `_height_um` / optional `_center_x_um` / `_center_y_um`)
+> → **(2)** `compute_image_bounds` aspect-preserving fit. Two defects were fixed:
+> the raw particle bounding box is **not** aspect-preserving (`annotation_raster`
+> shears the image into whatever box it is given), and the extent was computed
+> from the *filtered* point set, so the backdrop resized and shifted with the
+> quality slider, run visibility, material filter and "only non-reproducible".
+> The extent is now anchored to the full point set. Note tier 2 is still only
+> approximate whenever the particles do not reach the edges of the scan — on the
+> reference dataset it leaves a ~54 µm median offset versus 0 for tier 1, so
+> recording the physical extent is the accurate path.
 | Raman | `raman_native_image_info` | 3-tier: **(1) WITec extent** (center + width/height, Y auto-detect) → (2) `um_per_px` scale → (3) `compute_image_bounds` | `raman_image_width_um`, `height`, `center_x`, `center_y` |
 | LDIR | `ldir_native_image_info` | **scan-circle calibration** (`cx_px`, `cy_px`, `scale_um_per_px`, image px dims) → fallback: symmetric ±scan_diameter/2 | circle calibration (or scan diameter) |
 
