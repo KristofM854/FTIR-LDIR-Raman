@@ -122,13 +122,17 @@ shiny_app/
 
 The coordinate systems from FTIR and Raman differ in origin, rotation (often ~180°), and sometimes scale. The pipeline finds the spatial transform in three tiers:
 
-1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If enough landmarks agree (≥ 50% inliers, residual < 50 µm), RANSAC is skipped.
+Alignment is **geometric** — it uses position, size, and shape, never material identification. (Material is compared only afterwards, in agreement scoring, so the geometry never depends on the identifications it is used to validate.)
 
-2. **Tier 2 — Material-anchored RANSAC**: PET and PP particles (identified by both instruments with HQI ≥ 70 on the Raman side) serve as anchor points. A coarse rotation grid search (1° steps, including mirror check) finds the best angle, then RANSAC refines the similarity transform.
+1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 50% inliers, residual < 50 µm), Tier 2 is skipped.
+
+2. **Tier 2 — RANSAC + global registration**: Two aligners run and the one pairing more particles wins. The coarse RANSAC does a rotation grid search (1° steps, including mirror check) and refines a similarity transform. Global registration sweeps rotation × scale and recovers translation by voting over all pairwise offsets, scoring one-to-one — more robust when the two clouds overlap only partially.
 
 3. **ICP refinement**: Iterative Closest Point polishes the transform using all particles ≥ 20 µm, with reciprocal nearest-neighbour filtering and 10% trimming of worst pairs.
 
 The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**.
+
+`align_ftir_materials` / `align_raman_materials` optionally narrow the Tier 2 anchor set to polymers both instruments should agree on. This is a **hint for spiked lab samples, not a requirement**: the filter is honoured only while it leaves at least `align_min_anchor_count` particles, otherwise the full cloud is used and the log says so. Set them to `NULL` for field samples.
 
 ### LDIR coordinate extraction
 
@@ -151,7 +155,7 @@ After detection, image pixel centroids are mapped to physical µm coordinates us
 | Step | Size filter | Material filter | HQI filter |
 |------|-------------|-----------------|------------|
 | Spatial transform (landmarks, ICP) | ≥ 20 µm | none | none |
-| Material-based alignment (RANSAC) | ≥ 20 µm | PET / PP only | ≥ 70 |
+| Tier 2 alignment anchors | ≥ 20 µm | PET / PP if ≥ 4 available, else none | ≥ 70 if ≥ 4 available, else none |
 | Spatial matching | all | none | none |
 | Agreement scoring | all | none | ≥ 70 |
 
@@ -218,10 +222,15 @@ The viewer includes:
 All parameters are in `R/00_config.R`. Key settings:
 
 ```r
-# Alignment anchors
+# Alignment anchors — a HINT, not a requirement. Alignment is geometric; these
+# only narrow the anchor set when the sample happens to contain these polymers.
+# Each filter is honoured only while it leaves >= align_min_anchor_count
+# particles, otherwise the full cloud is used. Set to NULL to disable material
+# anchoring entirely (recommended for field samples).
 align_ftir_materials      = c("PET", "Polypro")
 align_raman_materials     = c("Polyethylene terephtalate", "Polypropylene")
 align_ldir_materials      = c("Polyethylene terephthalate", "Polypropylene", "Polycarbonate")
+align_min_anchor_count    = 4      # below this, the material filter is dropped
 align_raman_min_size_um   = 20     # Raman particles below this are excluded from alignment
 
 # Quality thresholds
@@ -235,6 +244,12 @@ ldir_scan_diameter_um     = 13000  # Physical extent of the LDIR scan area (µm)
 # Landmark alignment
 landmark_min_size_um      = 100    # Particles >= this are landmark candidates
 landmark_fiber_aspect_ratio = 3.0  # Fibers detected by this aspect ratio threshold
+landmark_adaptive_size    = TRUE   # If < landmark_min_count particles clear the
+                                   # absolute threshold, take the largest ones
+                                   # instead — landmarks are conspicuous
+                                   # relative to the sample, not in absolute µm
+landmark_target_count     = 12     # How many to take in that fallback
+landmark_min_size_floor_um = 30    # ...but never anything below this
 
 # Matching
 match_dist_threshold_um   = 100    # Max distance for a valid spatial match (µm)
@@ -242,6 +257,10 @@ match_dist_threshold_um   = 100    # Max distance for a valid spatial match (µm
 # RANSAC
 ransac_inlier_dist_um     = 200    # Inlier distance threshold (µm)
 ransac_allow_mirror        = TRUE  # Search reflections (needed for 180° rotations)
+ftir_use_global_register  = TRUE   # Tier 2 also runs global registration
+                                   # (rotation x scale sweep + translation
+                                   # voting); the transform pairing more
+                                   # particles wins
 ```
 
 ## Known limitations

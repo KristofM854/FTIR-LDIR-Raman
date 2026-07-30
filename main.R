@@ -436,34 +436,35 @@ write.csv(ftir_clean, file.path(.out_dirs$prefiltered, "ftir_perkin_prefiltered.
 raman_clean <- prefilter_raman(raman_raw, min_hqi = 0, min_size_um = 0)
 write.csv(raman_clean, file.path(.out_dirs$prefiltered, "raman_prefiltered.csv"), row.names = FALSE)
 
-# Extract PLASTIC particles from FTIR for alignment anchoring
-ftir_plastic_mask <- grepl(
-  paste(config$align_ftir_materials, collapse = "|"),
-  ftir_clean$material, ignore.case = TRUE
-)
-ftir_for_align <- ftir_clean[ftir_plastic_mask, ]
-log_message("FTIR plastic anchor particles: ", nrow(ftir_for_align),
-            " (materials: ", paste(unique(ftir_for_align$material), collapse = ", "), ")")
+# Extract PLASTIC particles from FTIR for alignment anchoring.
+# select_material_anchors() falls back to the full cloud when too few particles
+# carry an anchor material, so a sample dominated by an off-list polymer (or a
+# field sample with no dominant polymer at all) still aligns.
+.anchor_min <- config$align_min_anchor_count %||% 4
+ftir_for_align <- select_material_anchors(
+  ftir_clean, config$align_ftir_materials, .anchor_min, "FTIR")
 
 # Filter Raman alignment targets by material (if configured)
-if (!is.null(config$align_raman_materials)) {
-  raman_plastic_mask <- grepl(
-    paste(config$align_raman_materials, collapse = "|"),
-    raman_clean$material, ignore.case = TRUE
-  )
-  raman_for_align <- raman_clean[raman_plastic_mask, ]
-} else {
-  raman_for_align <- raman_clean
-}
+raman_for_align <- select_material_anchors(
+  raman_clean, config$align_raman_materials, .anchor_min, "Raman")
 
-# Remove Raman particles below FTIR detection limit
+# Remove Raman particles below FTIR detection limit.
+# Each successive filter is honoured only while it leaves enough anchors: three
+# filters that are individually reasonable can intersect to nothing, and an
+# empty anchor set produces a NaN centroid rather than an error.
 min_size <- config$align_raman_min_size_um
 if (!is.null(min_size) && min_size > 0 && any(!is.na(raman_for_align$feret_max_um))) {
   size_mask <- is.na(raman_for_align$feret_max_um) | raman_for_align$feret_max_um >= min_size
-  n_before <- nrow(raman_for_align)
-  raman_for_align <- raman_for_align[size_mask, ]
-  log_message("Raman alignment: removed ", n_before - nrow(raman_for_align),
-              " particles < ", min_size, " um")
+  if (sum(size_mask) >= .anchor_min) {
+    n_before <- nrow(raman_for_align)
+    raman_for_align <- raman_for_align[size_mask, ]
+    log_message("Raman alignment: removed ", n_before - nrow(raman_for_align),
+                " particles < ", min_size, " um")
+  } else {
+    log_message("Raman alignment: size filter (>= ", min_size, " um) would ",
+                "leave only ", sum(size_mask), " anchors — skipping it",
+                level = "WARN")
+  }
 }
 # Apply HQI threshold to material alignment anchors (only reliably
 # identified particles should drive material-based alignment)
@@ -471,10 +472,16 @@ if (!is.null(config$raman_hqi_threshold) && config$raman_hqi_threshold > 0 &&
     any(!is.na(raman_for_align$quality))) {
   hqi_mask <- !is.na(raman_for_align$quality) &
               raman_for_align$quality >= config$raman_hqi_threshold
-  n_before_hqi <- nrow(raman_for_align)
-  raman_for_align <- raman_for_align[hqi_mask, ]
-  log_message("Raman alignment: HQI filter (>= ", config$raman_hqi_threshold,
-              "): kept ", nrow(raman_for_align), " of ", n_before_hqi)
+  if (sum(hqi_mask) >= .anchor_min) {
+    n_before_hqi <- nrow(raman_for_align)
+    raman_for_align <- raman_for_align[hqi_mask, ]
+    log_message("Raman alignment: HQI filter (>= ", config$raman_hqi_threshold,
+                "): kept ", nrow(raman_for_align), " of ", n_before_hqi)
+  } else {
+    log_message("Raman alignment: HQI filter (>= ", config$raman_hqi_threshold,
+                ") would leave only ", sum(hqi_mask), " anchors — skipping it",
+                level = "WARN")
+  }
 }
 log_message("Raman alignment target particles: ", nrow(raman_for_align),
             " (material + >= ", min_size, " um + HQI >= ",
@@ -502,23 +509,30 @@ log_message("Raman for matching: ", nrow(raman_for_match),
 # ---------------------------------------------------------------------------
 # 4. Coordinate normalization
 #
-# Compute centroids from the PLASTIC alignment subsets so that centering
-# reflects the particle population that actually overlaps.
+# Centroids come from the FULL cleaned clouds, not the material anchor subsets.
+# A material-subset centroid centres FTIR on *FTIR's* PET particles and Raman on
+# *Raman's* PET particles; those coincide only if both instruments detected the
+# same particles. With different detection limits — the normal case, and the
+# rule on field samples — the two centroids point at different things and the
+# aligner starts from a biased translation. The full-cloud centroid is only a
+# common origin: the aligners recover the real translation themselves.
 # ---------------------------------------------------------------------------
 
 norm_result <- normalize_coordinates(
-  ftir_for_align, raman_for_align,
+  ftir_clean, raman_clean,
   normalize_scale = config$normalize_scale
 )
 
-ftir_norm_align  <- norm_result$ftir
-raman_norm_align <- norm_result$raman
+ftir_clean  <- norm_result$ftir
+raman_clean <- norm_result$raman
 
-# Also normalize ALL clean particles using the SAME centroids (for ICP & diagnostics)
-ftir_clean$x_norm  <- ftir_clean$x_um - norm_result$ftir_centroid[1]
-ftir_clean$y_norm  <- ftir_clean$y_um - norm_result$ftir_centroid[2]
-raman_clean$x_norm <- raman_clean$x_um - norm_result$raman_centroid[1]
-raman_clean$y_norm <- raman_clean$y_um - norm_result$raman_centroid[2]
+# Anchor subsets carry the SAME centroid/scale as the clouds they came from
+ftir_norm_align  <- apply_normalization(ftir_for_align,
+                                        norm_result$ftir_centroid,
+                                        norm_result$ftir_scale)
+raman_norm_align <- apply_normalization(raman_for_align,
+                                        norm_result$raman_centroid,
+                                        norm_result$raman_scale)
 
 # Build spatial transform set: all Raman >= 20 um (visible to FTIR).
 # This set is used for ALL spatial transform steps (landmarks, ICP)
@@ -540,7 +554,8 @@ log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
 #
 # Tier 1 — Landmark alignment: use large particles & fibers to quickly
 #   determine the spatial transform. If confident, skip Tier 2.
-# Tier 2 — Full RANSAC: exhaustive grid search on material-filtered anchors.
+# Tier 2 — Global registration (rotation x scale sweep, translation recovered by
+#   voting) plus the legacy coarse RANSAC; whichever pairs more particles wins.
 #   Only runs if Tier 1 was not confident enough.
 # ICP refinement always runs to polish the transform.
 # ---------------------------------------------------------------------------
@@ -556,9 +571,9 @@ if (use_landmark_transform) {
   alignment_transform <- landmark_result$transform
   alignment_method    <- "landmark"
 } else {
-  # --- Tier 2: Full material-based RANSAC ---
+  # --- Tier 2: Full alignment on the anchor sets ---
   log_message(strrep("-", 50))
-  log_message("Tier 2: Full RANSAC alignment (material-based anchors)")
+  log_message("Tier 2: Full alignment (anchor sets)")
 
   ransac_result <- ransac_align(ftir_norm_align, raman_norm_align, config)
 
@@ -569,6 +584,35 @@ if (use_landmark_transform) {
 
   alignment_transform <- ransac_result$transform
   alignment_method    <- "ransac"
+
+  # Global registration: the coarse RANSAC anchors translation on single
+  # nearest-neighbour guesses, which is fragile when the clouds overlap only
+  # partially — exactly the field-sample case. Global registration sweeps
+  # rotation x scale and recovers translation by voting over all pairwise
+  # offsets, scoring one-to-one so a degenerate collapse cannot win. Already
+  # the default on the LDIR path; run both and keep whichever pairs more.
+  # Disable with config$ftir_use_global_register = FALSE.
+  if (!isFALSE(config$ftir_use_global_register)) {
+    ftir_global <- tryCatch(
+      global_register_align(ftir_norm_align, raman_norm_align, config,
+                            allow_mirror = config$ransac_allow_mirror),
+      error = function(e) {
+        log_message("Global registration failed: ", e$message, level = "WARN")
+        NULL })
+    if (!is.null(ftir_global)) {
+      if (ftir_global$n_inliers > ransac_result$n_inliers) {
+        log_message("Tier 2: using global registration (",
+                    ftir_global$n_inliers, " inliers vs RANSAC ",
+                    ransac_result$n_inliers, ")")
+        ransac_result       <- ftir_global
+        alignment_transform <- ftir_global$transform
+        alignment_method    <- "global_register"
+      } else {
+        log_message("Tier 2: keeping RANSAC (", ransac_result$n_inliers,
+                    " inliers vs global ", ftir_global$n_inliers, ")")
+      }
+    }
+  }
 }
 
 # --- ICP refinement (always runs to polish the transform) ---
@@ -581,17 +625,19 @@ log_message("ICP refined transform: scale = ", round(icp_result$params$scale, 4)
 # ---------------------------------------------------------------------------
 # 7. Apply transform to particles for matching
 #
-# Normalize using the SAME centroids from step 4 (plastic-based),
+# Normalize using the SAME centroids from step 4 (full-cloud based),
 # then apply the ICP-refined transform.
 # ---------------------------------------------------------------------------
 
 # Normalize filtered FTIR using alignment centroids
-ftir_for_match$x_norm <- ftir_for_match$x_um - norm_result$ftir_centroid[1]
-ftir_for_match$y_norm <- ftir_for_match$y_um - norm_result$ftir_centroid[2]
+ftir_for_match <- apply_normalization(ftir_for_match,
+                                      norm_result$ftir_centroid,
+                                      norm_result$ftir_scale)
 
 # Normalize filtered Raman using alignment centroids
-raman_for_match$x_norm <- raman_for_match$x_um - norm_result$raman_centroid[1]
-raman_for_match$y_norm <- raman_for_match$y_um - norm_result$raman_centroid[2]
+raman_for_match <- apply_normalization(raman_for_match,
+                                       norm_result$raman_centroid,
+                                       norm_result$raman_scale)
 
 # Apply ICP-refined transform to filtered FTIR
 ftir_aligned <- apply_ftir_transform(ftir_for_match, icp_result$transform)
@@ -631,8 +677,9 @@ if (nrow(match_result$unmatched_ftir) > 0 && nrow(match_result$unmatched_raman) 
   # Ensure unmatched FTIR particles have aligned coordinates
   unmatched_ftir_src <- match_result$unmatched_ftir
   if (!"x_aligned" %in% names(unmatched_ftir_src)) {
-    unmatched_ftir_src$x_norm <- unmatched_ftir_src$x_um - norm_result$ftir_centroid[1]
-    unmatched_ftir_src$y_norm <- unmatched_ftir_src$y_um - norm_result$ftir_centroid[2]
+    unmatched_ftir_src <- apply_normalization(unmatched_ftir_src,
+                                              norm_result$ftir_centroid,
+                                              norm_result$ftir_scale)
     tf <- apply_transform_points(unmatched_ftir_src$x_norm,
                                  unmatched_ftir_src$y_norm,
                                  icp_result$transform)
@@ -671,13 +718,8 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
             file.path(.out_dirs$prefiltered, "ftir_bruker_prefiltered.csv"),
             row.names = FALSE)
 
-  ftir_bruker_plastic_mask <- grepl(
-    paste(config$align_ftir_materials, collapse = "|"),
-    ftir_bruker_clean$material, ignore.case = TRUE
-  )
-  ftir_bruker_for_align <- ftir_bruker_clean[ftir_bruker_plastic_mask, ]
-  log_message("FTIR (Bruker) plastic anchor particles: ", nrow(ftir_bruker_for_align),
-              " (materials: ", paste(unique(ftir_bruker_for_align$material), collapse = ", "), ")")
+  ftir_bruker_for_align <- select_material_anchors(
+    ftir_bruker_clean, config$align_ftir_materials, .anchor_min, "FTIR (Bruker)")
 
   ftir_bruker_for_match <- prefilter_ftir(
     ftir_bruker_raw,
@@ -686,22 +728,25 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
   )
 
   if (nrow(ftir_bruker_for_align) < 3) {
-    log_message("FTIR (Bruker): too few plastic anchors (", nrow(ftir_bruker_for_align),
+    log_message("FTIR (Bruker): too few anchors (", nrow(ftir_bruker_for_align),
                 ") for alignment — skipping", level = "WARN")
   } else {
 
-    # Coordinate normalization (Bruker centroid vs same Raman anchor set)
+    # Coordinate normalization. Centroids from the FULL clouds (see step 4);
+    # the anchor subsets inherit the same centroid so they stay in one frame.
     bruker_norm_result     <- normalize_coordinates(
-      ftir_bruker_for_align, raman_for_align,
+      ftir_bruker_clean, raman_clean,
       normalize_scale = config$normalize_scale
     )
-    ftir_bruker_norm_align <- bruker_norm_result$ftir
+    ftir_bruker_clean      <- bruker_norm_result$ftir
+    ftir_bruker_norm_align <- apply_normalization(ftir_bruker_for_align,
+                                                  bruker_norm_result$ftir_centroid,
+                                                  bruker_norm_result$ftir_scale)
 
-    # Apply centroid to all clean and for-match particles
-    ftir_bruker_clean$x_norm <- ftir_bruker_clean$x_um - bruker_norm_result$ftir_centroid[1]
-    ftir_bruker_clean$y_norm <- ftir_bruker_clean$y_um - bruker_norm_result$ftir_centroid[2]
-    ftir_bruker_for_match$x_norm <- ftir_bruker_for_match$x_um - bruker_norm_result$ftir_centroid[1]
-    ftir_bruker_for_match$y_norm <- ftir_bruker_for_match$y_um - bruker_norm_result$ftir_centroid[2]
+    # Apply centroid to the for-match set as well
+    ftir_bruker_for_match <- apply_normalization(ftir_bruker_for_match,
+                                                 bruker_norm_result$ftir_centroid,
+                                                 bruker_norm_result$ftir_scale)
 
     # Tiered alignment: Bruker → Raman
     log_message("Tiered alignment: FTIR (Bruker) ↔ Raman")
@@ -715,9 +760,9 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
       bruker_alignment_transform <- bruker_landmark_result$transform
       bruker_alignment_method    <- "landmark"
     } else {
-      # Tier 2: Full RANSAC
+      # Tier 2: Full alignment (same two-aligner race as the PerkinElmer path)
       log_message(strrep("-", 50))
-      log_message("  Tier 2: Full RANSAC alignment (Bruker)")
+      log_message("  Tier 2: Full alignment (Bruker)")
       bruker_ransac_result <- ransac_align(ftir_bruker_norm_align, raman_norm_align, config)
       log_message("  Bruker RANSAC: scale=", round(bruker_ransac_result$params$scale, 4),
                   ", rotation=", round(bruker_ransac_result$params$rotation_deg, 2), " deg",
@@ -725,6 +770,25 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
                   ", inliers=", bruker_ransac_result$n_inliers)
       bruker_alignment_transform <- bruker_ransac_result$transform
       bruker_alignment_method    <- "ransac"
+
+      if (!isFALSE(config$ftir_use_global_register)) {
+        bruker_global <- tryCatch(
+          global_register_align(ftir_bruker_norm_align, raman_norm_align, config,
+                                allow_mirror = config$ransac_allow_mirror),
+          error = function(e) {
+            log_message("  Bruker global registration failed: ", e$message,
+                        level = "WARN")
+            NULL })
+        if (!is.null(bruker_global) &&
+            bruker_global$n_inliers > bruker_ransac_result$n_inliers) {
+          log_message("  Bruker Tier 2: using global registration (",
+                      bruker_global$n_inliers, " inliers vs RANSAC ",
+                      bruker_ransac_result$n_inliers, ")")
+          bruker_ransac_result       <- bruker_global
+          bruker_alignment_transform <- bruker_global$transform
+          bruker_alignment_method    <- "global_register"
+        }
+      }
     }
 
     # ICP refinement
