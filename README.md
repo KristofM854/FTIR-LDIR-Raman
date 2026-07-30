@@ -218,10 +218,15 @@ The viewer includes:
 All parameters are in `R/00_config.R`. Key settings:
 
 ```r
-# Alignment anchors
+# Alignment anchors — a HINT, not a requirement. Alignment is geometric; these
+# only narrow the anchor set when the sample happens to contain these polymers.
+# Each filter is honoured only while it leaves >= align_min_anchor_count
+# particles, otherwise the full cloud is used. Set to NULL to disable material
+# anchoring entirely (recommended for field samples).
 align_ftir_materials      = c("PET", "Polypro")
 align_raman_materials     = c("Polyethylene terephtalate", "Polypropylene")
 align_ldir_materials      = c("Polyethylene terephthalate", "Polypropylene", "Polycarbonate")
+align_min_anchor_count    = 4      # below this, the material filter is dropped
 align_raman_min_size_um   = 20     # Raman particles below this are excluded from alignment
 
 # Quality thresholds
@@ -242,6 +247,10 @@ match_dist_threshold_um   = 100    # Max distance for a valid spatial match (µm
 # RANSAC
 ransac_inlier_dist_um     = 200    # Inlier distance threshold (µm)
 ransac_allow_mirror        = TRUE  # Search reflections (needed for 180° rotations)
+ftir_use_global_register  = TRUE   # Tier 2 also runs global registration
+                                   # (rotation x scale sweep + translation
+                                   # voting); the transform pairing more
+                                   # particles wins
 ```
 
 ## Known limitations

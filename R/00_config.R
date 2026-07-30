@@ -85,9 +85,21 @@ make_config <- function(ftir_path  = NULL,
     normalize_scale = FALSE,  # scale both clouds to unit variance (usually not needed)
 
     # --- Material-based alignment anchors ---
+    # These narrow the anchor set to polymers both instruments should agree on,
+    # which helps on spiked lab samples. They are a HINT, not a requirement:
+    # each is honoured only while it leaves >= align_min_anchor_count particles,
+    # otherwise the full cloud is used (alignment is geometric — it does not
+    # need a specific polymer). Set either to NULL to disable material
+    # anchoring entirely, which is the sensible choice for field samples.
     align_ftir_materials = c("PET", "Polypro"),
     align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
+    align_min_anchor_count = 4,    # below this, drop the filter instead
     align_raman_min_size_um = 20,  # exclude Raman particles below FTIR detection limit
+
+    # Tier 2 global registration (rotation x scale sweep + translation voting).
+    # Runs alongside the legacy coarse RANSAC; the transform that pairs more
+    # particles wins. Set FALSE to use coarse RANSAC alone.
+    ftir_use_global_register = TRUE,
 
     # --- LDIR-specific settings ---
     align_ldir_materials = c("Polyethylene terephthalate", "Polypropylene",
