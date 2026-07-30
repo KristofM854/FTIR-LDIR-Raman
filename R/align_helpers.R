@@ -6,8 +6,9 @@
 # rotation/scale pose transform, the one-to-one inlier count, the robust span,
 # and the translation-voting score. They now share this one implementation.
 #
-# All functions are pure (no global state, no RNG) so they are safe to reuse
-# from any context.
+# The pose/inlier primitives are pure (no global state, no RNG) so they are safe
+# to reuse from any context. select_material_anchors() is the one exception: it
+# logs, and therefore needs log_message() from utils.R.
 
 #' Robust span of a coordinate vector: 5th–95th percentile range, floored at
 #' 1e-9 to avoid divide-by-zero on degenerate (near-constant) inputs.
@@ -73,4 +74,51 @@ align_score_pose <- function(deg, s, mir, sX, sY, rX, rY, tol) {
     if (n > best$n) best <- list(n = n, tx = tx, ty = ty)
   }
   best
+}
+
+
+#' Restrict a particle set to material anchors, falling back to the full set
+#'
+#' Material-based anchoring was a lab-sample convenience: on spiked samples you
+#' know PET/PP are present in both instruments, and restricting to them raises
+#' the fraction of true correspondences. On a field sample — or any sample
+#' dominated by a polymer that is not on the list — the intersection can be
+#' small or empty, and an empty anchor set is far worse than no filter at all.
+#'
+#' This mirrors the fallback the LDIR path already uses: apply the material
+#' mask only when it leaves enough particles to actually anchor on, otherwise
+#' keep the full cloud and say so.
+#'
+#' @param df        Particle data frame with a `material` column.
+#' @param patterns  Character vector of case-insensitive regex patterns, or
+#'                  NULL / empty to skip material filtering entirely.
+#' @param min_count Minimum anchors required before the filter is honoured.
+#' @param label     Dataset name used in log messages.
+#' @return The filtered data frame, or `df` unchanged when the filter would
+#'         leave fewer than `min_count` particles.
+select_material_anchors <- function(df, patterns, min_count = 4, label = "") {
+  if (is.null(patterns) || length(patterns) == 0) {
+    log_message("  ", label, " anchors: no material filter configured — ",
+                "using all ", nrow(df), " particles")
+    return(df)
+  }
+
+  mask <- grepl(paste(patterns, collapse = "|"), df$material, ignore.case = TRUE)
+  mask[is.na(mask)] <- FALSE
+  n_match <- sum(mask)
+
+  if (n_match < min_count) {
+    log_message("  ", label, " anchors: only ", n_match, " particle(s) match ",
+                "the configured anchor materials (", paste(patterns, collapse = ", "),
+                ") — need >= ", min_count, ". Using all ", nrow(df),
+                " particles instead; alignment is geometric and does not ",
+                "require a specific polymer.", level = "WARN")
+    return(df)
+  }
+
+  out <- df[mask, ]
+  log_message("  ", label, " anchors: ", n_match, " of ", nrow(df),
+              " particles (materials: ",
+              paste(sort(unique(out$material)), collapse = ", "), ")")
+  out
 }
