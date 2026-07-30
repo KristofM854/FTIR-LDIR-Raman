@@ -135,14 +135,14 @@ make_config <- function(ftir_path  = NULL,
     # NOTE: these values are PER-DATASET — read them from WITec's Particle
     # Scout for each new Raman scan and update them here, or the viewer
     # falls back to heuristic (particle-bbox) placement for that run.
-    raman_image_width_um    = 12471.2,
-    raman_image_height_um   = 12313.0,
-    raman_image_center_x_um = 1487.6,
-    raman_image_center_y_um = -4394.0,
-    # raman_image_width_um    = NULL,
-    # raman_image_height_um   = NULL,
-    # raman_image_center_x_um = NULL,
-    # raman_image_center_y_um = NULL,
+    # raman_image_width_um    = 12471.2,
+    # raman_image_height_um   = 12313.0,
+    # raman_image_center_x_um = 1487.6,
+    # raman_image_center_y_um = -4394.0,
+    raman_image_width_um    = NULL,
+    raman_image_height_um   = NULL,
+    raman_image_center_x_um = NULL,
+    raman_image_center_y_um = NULL,
     # Fixed µm-per-pixel scale for the Raman microscope image.
     # Used only as Priority 2 fallback when the four fields above are NULL.
     # NULL = fall back to TIFF DPI auto-detection or particle-extent method.
