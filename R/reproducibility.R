@@ -319,6 +319,10 @@ repro_long_table <- function(res) {
         y_aligned           = d$y_aligned[idx],
         material            = as.character(d$material[idx]),
         material_family     = .repro_family(d$material[idx]),
+        # Carried so the Multi-Run viewer can gate on identification quality
+        # (AAU / HQI, scale depends on instrument). NA for a run whose ingester
+        # did not supply it; the viewer hides its slider in that case.
+        quality             = if ("quality" %in% names(d)) as.numeric(d$quality[idx]) else NA_real_,
         feret_max_um        = d$feret_max_um[idx],
         area_um2            = if ("area_um2"       %in% names(d)) as.numeric(d$area_um2[idx])       else NA_real_,
         major_um            = if ("major_um"       %in% names(d)) as.numeric(d$major_um[idx])       else NA_real_,

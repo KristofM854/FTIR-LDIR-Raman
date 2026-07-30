@@ -10,6 +10,7 @@
 #   → a menu asks for instrument type, then file-picker dialogs collect
 #     replicate files one at a time; Cancel / Escape ends file selection.
 #     For LDIR, each data file is immediately followed by an image prompt.
+#     Finally a second menu picks the reference polymer(s) by number.
 #
 # Usage (batch / scripted — pass files on the command line):
 #   Rscript tools/reproducibility.R <instrument> <run1> <run2> <run3> [...]
@@ -54,6 +55,9 @@ CONFIG <- list(
   # Character vector → mixed-polymer reference standard; accuracy = fraction
   #   of calls assigned to any material in the set.
   # NULL → skip accuracy (only concordance reported).
+  # Interactive mode fills this from a numbered menu (see
+  # .REFERENCE_MATERIALS) and stores polymer FAMILY codes, e.g. "PET".
+  # Setting it by hand here accepts any name classify_family() recognises.
   reference_material = NULL,
   match_gate_um  = 75,     # tight: same-instrument localization is precise
   align_gate_um  = 800,    # ICP correspondence gate (absorbs a slight re-seat)
@@ -77,6 +81,81 @@ CONFIG <- list(
 # =============================================================================
 # Interactive file collection
 # =============================================================================
+
+# Reference-standard polymers offered by select_reference_materials(), most
+# common first. The stored value is the polymer FAMILY code, which is the only
+# thing the accuracy metric consumes: CONFIG$reference_material goes straight
+# through classify_family_vec(), and every family code classifies back to
+# itself (pinned by tests). Picking from this list therefore cannot mis-spell
+# or mis-map a reference.
+#
+# These are the synthetic and semi-synthetic families from
+# R/08b_material_map.R — the complete set the accuracy metric can score. A
+# free-text option is deliberately NOT offered: any name outside this list
+# classifies as "Unknown" and would silently score nothing, which is exactly
+# the failure a typed name used to cause.
+.REFERENCE_MATERIALS <- list(
+  c("PE",        "Polyethylene (PE, HDPE, LDPE)"),
+  c("PP",        "Polypropylene (PP)"),
+  c("PET",       "Polyethylene terephthalate (PET, polyester)"),
+  c("PS",        "Polystyrene (PS)"),
+  c("PVC",       "Polyvinyl chloride (PVC)"),
+  c("PA",        "Polyamide / nylon (PA)"),
+  c("PMMA",      "Polymethyl methacrylate (PMMA, acrylic)"),
+  c("PC",        "Polycarbonate (PC)"),
+  c("PU",        "Polyurethane (PU)"),
+  c("PTFE",      "Polytetrafluoroethylene (PTFE, Teflon)"),
+  c("ABS",       "Acrylonitrile butadiene styrene (ABS)"),
+  c("Rubber",    "Rubber (SBR, NBR, EPDM, tyre wear)"),
+  c("Cellulose", "Cellulose (rayon, viscose, cellulose acetate)"),
+  c("Acrylate",  "Acrylate / polyacrylamide")
+)
+
+#' Pick the reference material(s) for the accuracy metric by number.
+#'
+#' Mirrors the instrument question: a numbered menu, no typing. Selecting an
+#' already-selected polymer removes it again, so a mis-click costs nothing, and
+#' a mixed-polymer standard is built up one number at a time.
+#'
+#' @param .menu Menu function; injectable so the flow can be unit-tested.
+#' @return Character vector of family codes, or NULL to skip accuracy.
+select_reference_materials <- function(.menu = menu) {
+  codes  <- vapply(.REFERENCE_MATERIALS, `[`, character(1), 1L)
+  labels <- vapply(.REFERENCE_MATERIALS, `[`, character(1), 2L)
+  pad    <- format(codes, width = max(nchar(codes)))
+  chosen <- character(0)
+
+  message("")
+  message("=== Reference material(s) for the accuracy metric (optional) ===")
+  message("  Monotype filter        → pick the one polymer, then Done.")
+  message("  Mixed-polymer standard → pick each polymer in turn, then Done.")
+  message("  Pick a polymer again to unselect it.")
+  message("  Choose 0 to skip accuracy and report concordance only.")
+
+  repeat {
+    opts <- paste0(pad, "  ", labels)
+    opts[codes %in% chosen] <- paste0(opts[codes %in% chosen], "   <-- selected")
+    last <- if (length(chosen))
+      paste0("DONE — use: ", paste(chosen, collapse = ", "))
+    else
+      "DONE — no reference (concordance only)"
+
+    title <- if (length(chosen))
+      paste0("Selected: ", paste(chosen, collapse = ", "),
+             ". Add another, unselect, or choose DONE.")
+    else
+      "Which polymer is the reference standard?"
+
+    sel <- .menu(c(opts, last), title = title)
+    if (sel == 0L) { chosen <- character(0); break }   # cancelled -> skip
+    if (sel == length(opts) + 1L) break                # DONE
+    code <- codes[sel]
+    chosen <- if (code %in% chosen) setdiff(chosen, code) else c(chosen, code)
+  }
+
+  if (length(chosen) == 0L) NULL else chosen
+}
+
 #' Prompt for instrument type and replicate files via file-picker dialogs.
 #' Cancel on any file dialog finishes the selection.
 #' For LDIR, each data file is immediately followed by a companion-image prompt.
@@ -141,15 +220,9 @@ collect_repro_inputs_interactive <- function() {
     stop("At least 2 runs are required (got ", length(runs),
          "). Re-run and select more files.")
 
-  # 3. Optional reference material(s) for accuracy metric.
-  message("Reference material(s) for accuracy metric (optional).")
-  message("  Monotype filter  → enter the single polymer name (e.g. Polyethylene terephthalate)")
-  message("  Mixed-polymer standard → enter names separated by commas")
-  message("  Press Enter with no input to skip accuracy and report concordance only.")
-  ref_input <- readline("  Reference material(s): ")
-  ref_material <- if (nzchar(trimws(ref_input))) {
-    trimws(strsplit(ref_input, ",")[[1]])
-  } else NULL
+  # 3. Optional reference material(s) for accuracy metric — numbered menu,
+  #    like the instrument question above, so nothing hinges on spelling.
+  ref_material <- select_reference_materials()
 
   # Echo summary before analysis starts
   message("")

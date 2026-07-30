@@ -24,6 +24,18 @@ detail_table_ui <- function(id) {
 # (each material family actually present, "unknown" included), so the list is
 # exactly what is on the sample — see update_material_choices() server-side.
 # Scrolls rather than growing the sidebar when a run carries many families.
+# Badge echoing the Summary tab's scope next to each section heading, so a
+# filtered figure can never be mistaken for a whole-run one. Pure UI — it
+# reads the radio directly in the browser.
+summary_scope_badge <- function() {
+  conditionalPanel(
+    condition = "input.summary_scope == 'filtered'",
+    style = "display:inline;",
+    tags$span(class = "label label-info",
+              style = "margin-left:8px; font-weight:600; vertical-align:middle;",
+              "following each tab's filters"))
+}
+
 material_filter_ui <- function(input_id, label = "Materials") {
   div(class = "mat-filter",
     div(class = "mat-filter-head",
@@ -543,8 +555,26 @@ ui <- fluidPage(
       div(id = "summary_panel",
       fluidRow(
         column(10, offset = 1,
+          # One scope control for the WHOLE tab, so the numbers here can never
+          # silently disagree with what the instrument tabs are showing.
           div(class = "info-box", style = "margin-top: 20px;",
-            h4("Material Comparison Across Instruments"),
+            fluidRow(
+              column(5,
+                radioButtons("summary_scope", "Particles included",
+                             choices = c("All particles in the run" = "all",
+                                         "Only those passing each tab's filters" = "filtered"),
+                             selected = "all")),
+              column(7, p(class = "text-muted", style = "margin-top: 26px;",
+                "Applies to every panel on this tab — the comparison bar chart, ",
+                "the material table, the pie charts and the size distributions. ",
+                "Pick the second option to make this tab follow the quality / ",
+                "size / material / match-status filters you set on the FTIR, ",
+                "Raman, Bruker and LDIR tabs."))
+            )
+          ),
+          hr(),
+          div(class = "info-box", style = "margin-top: 20px;",
+            h4("Material Comparison Across Instruments", summary_scope_badge()),
             p(class = "text-muted",
               "Select a material family to compare counts across all instruments."),
             fluidRow(
@@ -555,21 +585,15 @@ ui <- fluidPage(
           ),
           hr(),
           div(class = "info-box",
-            fluidRow(
-              column(8, h4("Plastics by Instrument")),
-              column(4, checkboxInput("summary_use_filters",
-                                      "Apply instrument filters",
-                                      value = FALSE))
-            ),
+            h4("Plastics by Instrument", summary_scope_badge()),
             p(class = "text-muted",
-              "Material family counts per device. Toggle to apply each instrument's",
-              "current quality / size / match-status filters."),
+              "Material family counts per device."),
             uiOutput("summary_plastics_wide")
           ),
           hr(),
           div(class = "info-box",
             fluidRow(
-              column(4, h4("Material Breakdown per Instrument (Pie Charts)")),
+              column(4, h4("Material Breakdown per Instrument", summary_scope_badge())),
               column(3, radioButtons("pie_display_mode", NULL,
                                      choices = c("Absolute counts" = "abs",
                                                  "Relative (%)"    = "rel"),
@@ -602,7 +626,7 @@ ui <- fluidPage(
           ),
           hr(),
           div(class = "info-box",
-            h4("Size Distribution by Instrument"),
+            h4("Size Distribution by Instrument", summary_scope_badge()),
             p(class = "text-muted",
               "Histogram of particle Feret Max (µm) per instrument.",
               "Solid bars: matched particles. Outline bars: unmatched."),
@@ -722,6 +746,7 @@ ui <- fluidPage(
             column(6, numericInput("repro_img_offset_y", "Y offset (µm)",
                                    value = 0, step = 100))
           ),
+          uiOutput("repro_quality_ui"),
           uiOutput("repro_coord_cost_ui"),
           checkboxInput("repro_show_lines", "Link instances across runs", value = TRUE),
           selectizeInput("repro_material", "Material",
@@ -918,38 +943,42 @@ server <- function(input, output, session) {
                       choices = all_mats, selected = sel)
   })
 
-  # Pre-compute per-instrument material family counts — full data (cached)
-  instrument_material_counts <- reactive({
-    dfs <- instrument_dfs()
-    device_keys <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
-                     "Raman" = "raman", "LDIR" = "ldir")
-    lapply(device_keys, function(key) {
-      d <- dfs[[key]]
-      if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(NULL)
-      table(classify_family_vec(d$material))
-    })
-  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
+  # ------------------------------------------------------------------
+  # Summary tab data source — ONE reactive behind every panel on the tab
+  # ------------------------------------------------------------------
+  # input$summary_scope switches the whole tab between the full run and each
+  # instrument's currently-filtered set, so a number here always matches what
+  # the corresponding tab is showing. Everything downstream reads summary_dfs()
+  # rather than reaching for *_df_full() or *_filtered() directly — that split
+  # is what let the size distributions ignore the toggle.
+  SUMMARY_DEVICES <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
+                       "Raman" = "raman", "LDIR" = "ldir")
 
-  # Filtered counts — depends on each instrument's current filter state (not cached)
-  instrument_material_counts_filtered <- reactive({
-    filtered_list <- list(
-      "FTIR (PerkinElmer)" = ftir_filtered(),
-      "FTIR (Bruker)"      = ftir_bruker_filtered(),
-      "Raman"              = raman_filtered(),
-      "LDIR"               = ldir_filtered()
-    )
-    lapply(filtered_list, function(d) {
-      if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(NULL)
-      table(classify_family_vec(d$material))
-    })
+  summary_filtered <- reactive(identical(input$summary_scope, "filtered"))
+
+  summary_dfs <- reactive({
+    if (summary_filtered())
+      list(ftir        = ftir_filtered(),
+           ftir_bruker = ftir_bruker_filtered(),
+           raman       = raman_filtered(),
+           ldir        = ldir_filtered())
+    else {
+      dfs <- instrument_dfs()
+      list(ftir        = dfs$ftir,
+           ftir_bruker = dfs$ftir_bruker,
+           raman       = dfs$raman,
+           ldir        = dfs$ldir)
+    }
   })
 
-  # Resolve which counts to use based on toggle
+  # Per-instrument material family counts, named by device label.
   active_material_counts <- reactive({
-    if (isTRUE(input$summary_use_filters))
-      instrument_material_counts_filtered()
-    else
-      instrument_material_counts()
+    d <- summary_dfs()
+    lapply(SUMMARY_DEVICES, function(key) {
+      x <- d[[key]]
+      if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x)) return(NULL)
+      table(classify_family_vec(x$material))
+    })
   })
 
   # Interactive barplot: count of selected material family across instruments
@@ -981,7 +1010,7 @@ server <- function(input, output, session) {
       return(NULL)
     }
 
-    use_filt <- isTRUE(input$summary_use_filters)
+    use_filt <- summary_filtered()
     bar_df <- data.frame(
       instrument = factor(names(counts), levels = names(counts)),
       count = as.integer(counts),
@@ -1008,22 +1037,8 @@ server <- function(input, output, session) {
   })
 
   output$summary_plastics_wide <- renderUI({
-    if (isTRUE(input$summary_use_filters)) {
-      devices <- list(
-        "FTIR (PerkinElmer)" = ftir_filtered(),
-        "FTIR (Bruker)"      = ftir_bruker_filtered(),
-        Raman                = raman_filtered(),
-        LDIR                 = ldir_filtered()
-      )
-    } else {
-      dfs <- instrument_dfs()
-      devices <- list(
-        "FTIR (PerkinElmer)" = dfs$ftir,
-        "FTIR (Bruker)"      = dfs$ftir_bruker,
-        Raman                = dfs$raman,
-        LDIR                 = dfs$ldir
-      )
-    }
+    d <- summary_dfs()
+    devices <- lapply(SUMMARY_DEVICES, function(key) d[[key]])
     # Remove devices with no data
     devices <- Filter(function(d) !is.null(d) && nrow(d) > 0, devices)
     if (length(devices) == 0)
@@ -1175,20 +1190,7 @@ server <- function(input, output, session) {
   }
 
   # Helper reactive: resolve per-instrument data (filtered or unfiltered)
-  pie_data <- reactive({
-    if (isTRUE(input$summary_use_filters)) {
-      list(ftir        = ftir_filtered(),
-           raman       = raman_filtered(),
-           ldir        = ldir_filtered(),
-           ftir_bruker = ftir_bruker_filtered())
-    } else {
-      dfs <- instrument_dfs()
-      list(ftir        = dfs$ftir,
-           raman       = dfs$raman,
-           ldir        = dfs$ldir,
-           ftir_bruker = dfs$ftir_bruker)
-    }
-  })
+  pie_data <- reactive(summary_dfs())
 
   # Pre-classify materials once per data change — avoids re-running
   # classify_family_vec / classify_category_vec on every toggle.
@@ -1248,7 +1250,7 @@ server <- function(input, output, session) {
   }
 
   output$size_hist_ftir <- renderPlot({
-    df <- ftir_df_full()
+    df <- summary_dfs()$ftir
     if (is.null(df) || nrow(df) == 0) {
       return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No FTIR data"),
                                    size = 4, colour = "grey50") + theme_void())
@@ -1257,7 +1259,7 @@ server <- function(input, output, session) {
   })
 
   output$size_hist_raman <- renderPlot({
-    df <- raman_df_full()
+    df <- summary_dfs()$raman
     if (is.null(df) || nrow(df) == 0) {
       return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No Raman data"),
                                    size = 4, colour = "grey50") + theme_void())
@@ -1266,7 +1268,7 @@ server <- function(input, output, session) {
   })
 
   output$size_hist_ldir <- renderPlot({
-    df <- ldir_df_full()
+    df <- summary_dfs()$ldir
     if (is.null(df) || nrow(df) == 0) {
       return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No LDIR data"),
                                    size = 4, colour = "grey50") + theme_void())
@@ -1276,11 +1278,10 @@ server <- function(input, output, session) {
 
   # Size statistics table
   output$size_stats_table <- renderUI({
+    d <- summary_dfs()
     stats_list <- list()
     for (inst_name in c("FTIR", "Raman", "LDIR")) {
-      df <- if (inst_name == "FTIR") ftir_df_full()
-            else if (inst_name == "Raman") raman_df_full()
-            else ldir_df_full()
+      df <- switch(inst_name, FTIR = d$ftir, Raman = d$raman, LDIR = d$ldir)
       if (is.null(df) || nrow(df) == 0) next
 
       n_total <- nrow(df)
@@ -2753,6 +2754,7 @@ server <- function(input, output, session) {
   # Filter changes invalidate any active zoom (matches other tabs: a coord
   # or filter change can move the data outside the old zoom window).
   observeEvent(input$repro_material,       { zoom$repro <- NULL })
+  observeEvent(input$repro_quality_range,  { zoom$repro <- NULL })
   observeEvent(input$repro_only_nonrepro,  { zoom$repro <- NULL })
   observeEvent(input$repro_run_select,     { zoom$repro <- NULL })
   observeEvent(input$repro_run_visibility, { zoom$repro <- NULL })
@@ -2914,29 +2916,6 @@ server <- function(input, output, session) {
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, ftir_quality_range_d(), ftir_size_range_d(),
                       mat_keep("ftir_material_filter"), eff_match_filter("ftir"))
-  })
-
-  ftir_points_df <- reactive({
-    df <- ftir_df_full()
-    if (is.null(df) || nrow(df) == 0) return(data.frame())
-    df %>%
-      dplyr::mutate(
-        x = x_orig,
-        y = y_orig
-      )
-  })
-  
-  ftir_bg_path <- reactive({
-    req(selected_run_manifest())
-    manifest_image_path(selected_run_manifest(), "ftir_image", preferred = "canonical")
-  })
-  
-  output$ftir_single_plot <- renderPlot({
-    req(ftir_points_df())
-    build_single_view_plot(
-      points_df = ftir_points_df(),
-      bg_png_path = ftir_bg_path()
-    )
   })
 
   # ------------------------------------------------------------------
@@ -3104,15 +3083,20 @@ server <- function(input, output, session) {
     bounds <- sanitize_bounds(bounds, list(x = c(0, 10000), y = c(0, 10000)))
 
     if (nrow(df_disp) == 0) {
-      if (is.null(full_ftir) || nrow(full_ftir) == 0) {
-        df0 <- data.frame(x=c(0,1), y=c(0,1), match_status="none", feret_max_um=1)
-        bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
-        return(build_single_view_plot(df0, bg))
-      }
-      # full_ftir already carries the display (and view-transformed) coords.
-      df0 <- full_ftir %>% dplyr::mutate(match_status = "none", feret_max_um = 1)
-      bg <- manifest_image_path(selected_run_manifest(), "ftir_image", preferred="canonical")
-      return(build_single_view_plot(df0, bg))
+      # Keep the panel, image and viewport exactly as when particles are shown,
+      # so filtering down to nothing does not make the view jump. Mirrors the
+      # Raman and Bruker tabs.
+      empty_title <- if (is.null(full_ftir) || nrow(full_ftir) == 0)
+        "FTIR — no data loaded"
+      else
+        paste0("FTIR — no particles match the current filters (of ",
+               nrow(full_ftir), ")")
+      p <- ggplot() + coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+        labs(title = empty_title, x = "X (µm)", y = "Y (µm)") +
+        theme_minimal(base_size = 15) +
+        theme(plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "grey98", colour = NA))
+      return(add_image_bg(p, img))
     }
 
     title_suffix <- if (aligned) " (Raman-aligned frame)" else .view_tf_suffix(vt)
@@ -4984,6 +4968,31 @@ server <- function(input, output, session) {
     n_runs <- if (!is.null(d$meta) && "n_runs" %in% names(d$meta)) d$meta$n_runs[1]
               else max(pts$run, na.rm = TRUE)
 
+    # Identification-quality gate. Unlike run visibility and the material
+    # filter below, this is an INCLUSION criterion rather than a display
+    # choice, so it is applied first and the per-consensus flags are
+    # recomputed from what survives. Without that recompute a particle whose
+    # partner in another run fell below the threshold would still be ringed as
+    # reproduced in every run — the rings would describe the unfiltered
+    # analysis while the plot showed the filtered one. Rows with NA quality are
+    # kept (an instrument or run that never reported one).
+    qr <- input$repro_quality_range
+    if (!is.null(qr) && length(qr) == 2 && "quality" %in% names(pts)) {
+      keep <- is.na(pts$quality) | (pts$quality >= qr[1] & pts$quality <= qr[2])
+      if (!all(keep)) {
+        pts <- pts[keep, , drop = FALSE]
+        if (nrow(pts) == 0) { attr(pts, "empty_reason") <- "quality"; return(pts) }
+        cid <- as.character(pts$consensus_id)
+        det <- tapply(pts$run, pts$consensus_id, function(r) length(unique(r)))
+        pts$n_runs_detected <- as.integer(det[cid])
+        # Same rule as the upstream consensus builder: concordant when the
+        # surviving runs agree on at most one non-missing family.
+        con <- tapply(pts$material_family, pts$consensus_id,
+                      function(f) length(unique(f[!is.na(f)])) <= 1L)
+        pts$material_concordant <- as.logical(con[cid])
+      }
+    }
+
     # Run visibility: same "empty selection -> empty result" convention as the
     # instrument tabs' match-status checkboxGroupInput (eff_match_filter());
     # NULL (widget not yet populated on initial load) is treated as "no
@@ -5067,6 +5076,8 @@ server <- function(input, output, session) {
                     col = "#2ca02c", size = 6))
       if (identical(reason, "runs"))
         return(.msg("No runs selected \u2014 check at least one run above."))
+      if (identical(reason, "quality"))
+        return(.msg("No particles pass the quality threshold \u2014 widen the slider."))
       return(.msg("No particles match the material filter."))
     }
 
@@ -5310,6 +5321,35 @@ server <- function(input, output, session) {
   # LDIR only: coord match cost slider (image↔Excel join confidence).
   # Auto-sized to the actual range in the loaded dataset; returns NULL for
   # FTIR/Raman runs where coord_match_cost is always NA.
+  # Identification-quality gate. The scale is instrument-dependent (AAU 0-1 for
+  # FTIR/LDIR, HQI 0-100 for Raman), so the range is taken from the data rather
+  # than assumed. Rendered only when the loaded run actually carries quality —
+  # reproducibility outputs written before that column existed simply do not
+  # get the slider (re-run tools/reproducibility.R to gain it).
+  output$repro_quality_ui <- renderUI({
+    d <- repro_data()
+    if (is.null(d)) return(NULL)
+    pts <- d$points
+    if (is.null(pts) || !"quality" %in% names(pts)) return(NULL)
+    q <- pts$quality[is.finite(pts$quality)]
+    if (length(q) == 0) return(NULL)
+    lo <- floor(min(q) * 100) / 100
+    hi <- ceiling(max(q) * 100) / 100
+    if (!(hi > lo)) return(NULL)
+    lbl <- switch(as.character(d$meta$instrument[1]),
+                  raman = "HQI", ldir = "Quality (AAU)",
+                  ftir_perkin = , ftir_bruker = "AAU Quality", "Quality")
+    step <- if (hi - lo > 10) 1 else 0.01
+    tagList(
+      sliderInput("repro_quality_range", paste0(lbl, " — applies to every run"),
+                  min = lo, max = hi, value = c(lo, hi), step = step),
+      helpText(style = "font-size:11px; margin-top:-8px;",
+               "One threshold for all runs — a per-run threshold would make the ",
+               "runs non-comparable. Particles dropped here stop counting as ",
+               "detected, so the rings track the filtered set.")
+    )
+  })
+
   output$repro_coord_cost_ui <- renderUI({
     d <- repro_data()
     if (is.null(d)) return(NULL)
