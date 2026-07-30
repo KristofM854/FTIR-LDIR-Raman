@@ -122,13 +122,17 @@ shiny_app/
 
 The coordinate systems from FTIR and Raman differ in origin, rotation (often ~180°), and sometimes scale. The pipeline finds the spatial transform in three tiers:
 
-1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If enough landmarks agree (≥ 50% inliers, residual < 50 µm), RANSAC is skipped.
+Alignment is **geometric** — it uses position, size, and shape, never material identification. (Material is compared only afterwards, in agreement scoring, so the geometry never depends on the identifications it is used to validate.)
 
-2. **Tier 2 — Material-anchored RANSAC**: PET and PP particles (identified by both instruments with HQI ≥ 70 on the Raman side) serve as anchor points. A coarse rotation grid search (1° steps, including mirror check) finds the best angle, then RANSAC refines the similarity transform.
+1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 50% inliers, residual < 50 µm), Tier 2 is skipped.
+
+2. **Tier 2 — RANSAC + global registration**: Two aligners run and the one pairing more particles wins. The coarse RANSAC does a rotation grid search (1° steps, including mirror check) and refines a similarity transform. Global registration sweeps rotation × scale and recovers translation by voting over all pairwise offsets, scoring one-to-one — more robust when the two clouds overlap only partially.
 
 3. **ICP refinement**: Iterative Closest Point polishes the transform using all particles ≥ 20 µm, with reciprocal nearest-neighbour filtering and 10% trimming of worst pairs.
 
 The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**.
+
+`align_ftir_materials` / `align_raman_materials` optionally narrow the Tier 2 anchor set to polymers both instruments should agree on. This is a **hint for spiked lab samples, not a requirement**: the filter is honoured only while it leaves at least `align_min_anchor_count` particles, otherwise the full cloud is used and the log says so. Set them to `NULL` for field samples.
 
 ### LDIR coordinate extraction
 
@@ -151,7 +155,7 @@ After detection, image pixel centroids are mapped to physical µm coordinates us
 | Step | Size filter | Material filter | HQI filter |
 |------|-------------|-----------------|------------|
 | Spatial transform (landmarks, ICP) | ≥ 20 µm | none | none |
-| Material-based alignment (RANSAC) | ≥ 20 µm | PET / PP only | ≥ 70 |
+| Tier 2 alignment anchors | ≥ 20 µm | PET / PP if ≥ 4 available, else none | ≥ 70 if ≥ 4 available, else none |
 | Spatial matching | all | none | none |
 | Agreement scoring | all | none | ≥ 70 |
 
