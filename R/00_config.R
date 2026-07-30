@@ -438,6 +438,17 @@ make_config <- function(ftir_path  = NULL,
     landmark_fiber_aspect_ratio = 3.0,
     landmark_fiber_min_size_um  = 100,
     landmark_min_count          = 4,
+    # Adaptive fallback: when fewer than landmark_min_count particles clear the
+    # absolute landmark_min_size_um threshold, select the landmark_target_count
+    # LARGEST particles instead (never below landmark_min_size_floor_um).
+    # Landmarks work by being conspicuous relative to the rest of the sample —
+    # a rank property. Without this, a field sample whose size distribution sits
+    # below 100 um yields zero landmarks and Tier 1 silently skips.
+    # Set landmark_adaptive_size = FALSE for the old absolute-threshold-only
+    # behaviour.
+    landmark_adaptive_size      = TRUE,
+    landmark_target_count       = 12,
+    landmark_min_size_floor_um  = 30,
     landmark_confidence_min_inlier_ratio = 0.5,
     landmark_confidence_max_residual_um  = 50,
     landmark_skip_full_ransac  = TRUE,
