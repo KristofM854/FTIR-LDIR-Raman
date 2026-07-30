@@ -56,7 +56,7 @@ CONFIG <- list(
   # NULL → skip accuracy (only concordance reported).
   reference_material = NULL,
   match_gate_um  = 75,     # tight: same-instrument localization is precise
-  align_gate_um  = 300,    # ICP correspondence gate (absorbs a slight re-seat)
+  align_gate_um  = 800,    # ICP correspondence gate (absorbs a slight re-seat)
 
   # --- Output ---
   output_dir = "output/reproducibility",
