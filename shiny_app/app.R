@@ -2290,10 +2290,8 @@ server <- function(input, output, session) {
       updateSelectInput(session, "ftir_highlight_particle",
                         choices = c("None", ftir_ids))
       updateSliderInput(session, "ftir_quality_range",
-                        min = floor(q_range[1] * 100) / 100,
-                        max = ceiling(q_range[2] * 100) / 100,
-                        value = c(floor(q_range[1] * 100) / 100,
-                                  ceiling(q_range[2] * 100) / 100))
+                        min = 0, max = 1,
+                        value = c(0, 0.7))
       updateSliderInput(session, "ftir_size_range", min = 0, max = s_max,
                         value = c(0, s_max))
 
@@ -2323,8 +2321,8 @@ server <- function(input, output, session) {
       updateSelectInput(session, "raman_highlight_particle",
                         choices = c("None", raman_ids))
       updateSliderInput(session, "raman_quality_range",
-                        min = floor(q_range[1]), max = ceiling(q_range[2]),
-                        value = c(floor(q_range[1]), ceiling(q_range[2])))
+                        min = 0, max = 100,
+                        value = c(0, 70))
       updateSliderInput(session, "raman_size_range", min = 0, max = s_max,
                         value = c(0, s_max))
 
@@ -2353,10 +2351,8 @@ server <- function(input, output, session) {
                         choices = c("None", ldir_ids))
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ldir_quality_range",
-                          min = floor(q_range[1] * 100) / 100,
-                          max = ceiling(q_range[2] * 100) / 100,
-                          value = c(floor(q_range[1] * 100) / 100,
-                                    ceiling(q_range[2] * 100) / 100))
+                          min = 0, max = 1,
+                          value = c(0, 0.8))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
@@ -2406,10 +2402,8 @@ server <- function(input, output, session) {
                         choices = c("None", fb_ids))
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ftir_bruker_quality_range",
-                          min = floor(q_range[1] * 100) / 100,
-                          max = ceiling(q_range[2] * 100) / 100,
-                          value = c(floor(q_range[1] * 100) / 100,
-                                    ceiling(q_range[2] * 100) / 100))
+                          min = 0, max = 1,
+                          value = c(0, 0.7))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "ftir_bruker_size_range", min = 0, max = s_max,
