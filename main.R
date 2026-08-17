@@ -1844,3 +1844,68 @@ if (has_ldir && !is.null(ldir_results)) {
   }
 }
 log_message("  Results in: ", config$output_dir)
+
+# ---------------------------------------------------------------------------
+# 16. Generate PDF Report
+# ---------------------------------------------------------------------------
+
+tryCatch({
+  log_message("Generating PDF report...")
+
+  # Source report helpers from Shiny app
+  source("shiny_app/global.R", local = FALSE)
+
+  # Prepare data for report
+  report_devices <- list()
+
+  if (!is.null(ftir_clean) && nrow(ftir_clean) > 0) {
+    report_devices[["FTIR (PerkinElmer)"]] <- ftir_clean
+  }
+  if (!is.null(ftir_bruker_clean) && nrow(ftir_bruker_clean) > 0) {
+    report_devices[["FTIR (Bruker)"]] <- ftir_bruker_clean
+  }
+  if (!is.null(raman_clean) && nrow(raman_clean) > 0) {
+    report_devices[["Raman"]] <- raman_clean
+  }
+  if (has_ldir && !is.null(ldir_results$ldir_clean) && nrow(ldir_results$ldir_clean) > 0) {
+    report_devices[["LDIR"]] <- ldir_results$ldir_clean
+  }
+
+  # Generate report PDF
+  report_file <- file.path(config$output_dir, "particle_report.pdf")
+
+  # Build report pages
+  report_pages <- list()
+
+  # Title page
+  title_text <- paste0(
+    "Particle Analysis Report\n",
+    "Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n",
+    "Run: ", basename(config$output_dir)
+  )
+  report_pages[[1]] <- report_text_page("Report", title_text, "")
+
+  # Summary tables
+  if (length(report_devices) > 0) {
+    plastics_tbl <- report_plastics_table(report_devices)
+    if (nrow(plastics_tbl) > 0) {
+      report_pages[[length(report_pages) + 1]] <-
+        report_table_page(plastics_tbl, "Plastic Families",
+                          "Family counts per instrument (all particles)")
+    }
+
+    size_tbl <- report_size_stats_table(report_devices)
+    if (nrow(size_tbl) > 0) {
+      report_pages[[length(report_pages) + 1]] <-
+        report_table_page(size_tbl, "Size Statistics",
+                          "Feret Max statistics per instrument")
+    }
+  }
+
+  # Write report
+  n_pages <- write_report_pdf(report_pages, report_file)
+  log_message("  Report written: ", report_file, " (", n_pages, " pages)")
+
+}, error = function(e) {
+  log_message("  WARNING: Report generation failed: ", e$message)
+})

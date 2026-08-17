@@ -570,7 +570,7 @@ ui <- fluidPage(
                 radioButtons("summary_scope", "Particles included",
                              choices = c("All particles in the run" = "all",
                                          "Only those passing each tab's filters" = "filtered"),
-                             selected = "all")),
+                             selected = "filtered")),
               column(7, p(class = "text-muted", style = "margin-top: 26px;",
                 "Applies to every panel on this tab — the comparison bar chart, ",
                 "the material table, the pie charts and the size distributions. ",
@@ -1254,14 +1254,12 @@ server <- function(input, output, session) {
                                    size = 5, colour = "grey50") +
              theme_void())
     }
-    ggplot(df, aes(x = feret_max, fill = match_status, colour = match_status)) +
-      geom_histogram(alpha = 0.7, bins = 20, position = "identity") +
-      scale_fill_manual(values = c(matched = color_matched, unmatched = color_unmatched),
-                        labels = c(matched = "Matched", unmatched = "Unmatched")) +
-      scale_colour_manual(values = c(matched = color_matched, unmatched = color_unmatched),
-                          guide = "none") +
-      labs(title = inst_name, x = "Feret Max (µm)", y = "Count", fill = "Match Status") +
-      theme_minimal() + theme(legend.position = "top", plot.title = element_text(size = 11, face = "bold"))
+    # Show all particles in one histogram with smoothed density overlay
+    ggplot(df, aes(x = feret_max)) +
+      geom_histogram(alpha = 0.6, bins = 20, fill = "#4472C4", color = "white") +
+      geom_density(aes(y = after_stat(count)), alpha = 0.3, fill = "#70AD47", color = "#70AD47", linewidth = 1.2) +
+      labs(title = inst_name, x = "Feret Max (µm)", y = "Count") +
+      theme_minimal() + theme(plot.title = element_text(size = 11, face = "bold"))
   }
 
   output$size_hist_ftir <- renderPlot({
