@@ -239,6 +239,19 @@ each instrument tab, the pie display modes and the view rotations. Every figure
 carries a caption recording the filters behind it, so a page lifted out of the
 PDF still says what it is showing. Instruments with no data loaded are skipped.
 
+Defaults are deliberately **inclusive**, so an untouched viewer reports the
+whole population:
+
+| Control | Default | Effect |
+|---|---|---|
+| Summary → *Particles included* | All particles in the run | Summary panels ignore the per-tab filters |
+| Each instrument tab → *Show all detected (ignore match status)* | **on** | Every detected particle is shown, matched or not, drawn in one colour |
+| Summary → material breakdown scope | **All particles** | Pies include non-plastics and unknowns, so the per-pie *n* equals the instrument's particle count |
+
+Untick *Show all detected* on a tab to colour its points by match status and
+honour that tab's Match Status boxes; switch the breakdown to *Plastics only* to
+restrict the pies to synthetic (± semi-synthetic) families.
+
 Figures are the same ggplot objects the app renders and the tables come from the
 same builders as the on-screen HTML (`report_plastics_table()` /
 `report_size_stats_table()` in `shiny_app/global.R`), so the report cannot drift
