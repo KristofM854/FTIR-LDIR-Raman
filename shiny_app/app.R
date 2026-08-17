@@ -57,14 +57,16 @@ make_detail_row <- function(label, value) {
 instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_max,
                                 quality_step, size_max = 1200,
                                 match_choices = c("matched", "unmatched"),
-                                coord_toggle = FALSE) {
+                                coord_toggle = FALSE, quality_default = NULL) {
+  if (is.null(quality_default)) quality_default <- c(quality_min, quality_max)
+
   sidebarLayout(
     sidebarPanel(width = 3,
       h4(paste0(toupper(id_prefix), " Filters")),
       div(id = paste0(id_prefix, "_tour_quality"),
         sliderInput(paste0(id_prefix, "_quality_range"), quality_label,
                     min = quality_min, max = quality_max,
-                    value = c(quality_min, quality_max), step = quality_step)),
+                    value = quality_default, step = quality_step)),
       div(id = paste0(id_prefix, "_tour_size"),
         sliderInput(paste0(id_prefix, "_size_range"), "Feret Max (\u00b5m)",
                     min = 0, max = size_max, value = c(0, size_max), step = 5)),
@@ -242,7 +244,7 @@ ui <- fluidPage(
         instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE))
+          coord_toggle = TRUE, quality_default = c(0, 0.7)))
     ),
 
     # Tab 2: FTIR (Bruker) — shown only when data present
@@ -251,7 +253,7 @@ ui <- fluidPage(
         instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE))
+          coord_toggle = TRUE, quality_default = c(0, 0.7)))
     ),
 
     # Tab 3: Raman
@@ -259,7 +261,8 @@ ui <- fluidPage(
       div(id = "raman_viewer",
         instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200,
           match_choices = c("Matched \u2194 FTIR" = "matched",
-                            "Unmatched (vs FTIR)" = "unmatched")))
+                            "Unmatched (vs FTIR)" = "unmatched"),
+          quality_default = c(0, 70)))
     ),
 
     # Tab 3: LDIR
@@ -269,7 +272,7 @@ ui <- fluidPage(
         sidebarPanel(width = 3,
           h4("LDIR Filters"),
           sliderInput("ldir_quality_range", "Quality",
-                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+                      min = 0, max = 1, value = c(0, 0.8), step = 0.01),
           sliderInput("ldir_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
           material_filter_ui("ldir_material_filter", "Materials"),
