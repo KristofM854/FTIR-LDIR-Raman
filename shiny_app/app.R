@@ -244,8 +244,7 @@ ui <- fluidPage(
         instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE, quality_default = c(0, 0.7))
-      )
+          coord_toggle = TRUE, quality_default = c(0, 0.7)))
     ),
 
     # Tab 2: FTIR (Bruker) — shown only when data present
@@ -254,7 +253,7 @@ ui <- fluidPage(
         instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE, quality_default = c(0, 0.7))
+          coord_toggle = TRUE, quality_default = c(0, 0.7)))
     ),
 
     # Tab 3: Raman
