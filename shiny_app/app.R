@@ -74,9 +74,12 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
         checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
                            choices = match_choices,
                            selected = unname(match_choices), inline = TRUE),
+        # ON by default: a viewer should open showing every particle the
+        # instrument detected. Tick it off to colour the points by match status
+        # and honour the Match Status boxes above.
         checkboxInput(paste0(id_prefix, "_show_all_detected"),
                       "Show all detected (ignore match status)",
-                      value = FALSE),
+                      value = TRUE),
         checkboxInput(paste0(id_prefix, "_show_all_labels"),
                       "Number all particles",
                       value = FALSE),
@@ -270,9 +273,10 @@ ui <- fluidPage(
           sliderInput("ldir_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
           material_filter_ui("ldir_material_filter", "Materials"),
+          # ON by default, same as the other instrument tabs.
           checkboxInput("ldir_show_all_detected",
                         "Show all detected (ignore match status)",
-                        value = FALSE),
+                        value = TRUE),
           checkboxInput("ldir_show_all_labels",
                         "Number all particles",
                         value = FALSE),
@@ -612,10 +616,13 @@ ui <- fluidPage(
                                      choices = c("Absolute counts" = "abs",
                                                  "Relative (%)"    = "rel"),
                                      selected = "abs", inline = TRUE)),
+              # "All particles" by default: the breakdown opens showing the
+              # whole population, non-plastics and unknowns included, rather
+              # than silently dropping part of it.
               column(5, radioButtons("pie_materials_mode", NULL,
                                      choices = c("Plastics only" = "plastics",
                                                  "All particles" = "all"),
-                                     selected = "plastics", inline = TRUE))
+                                     selected = "all", inline = TRUE))
             ),
             fluidRow(
               column(12,
@@ -1315,6 +1322,15 @@ server <- function(input, output, session) {
   # saying nothing was selected.
   .or_none <- function(x) if (length(x) == 0) "none" else paste(x, collapse = ", ")
 
+  # How the view treated match status. Worth stating explicitly: the viewers
+  # default to "show all detected", so a report page shows every particle the
+  # instrument found, not only those matched to another instrument.
+  .report_match_desc <- function(prefix) {
+    if (isTRUE(input[[paste0(prefix, "_show_all_detected")]]))
+      return("all detected (match status ignored)")
+    paste0("match status: ", .or_none(input[[paste0(prefix, "_match_filter")]]))
+  }
+
   .fmt_range <- function(rng, unit = "", digits = 2) {
     if (is.null(rng) || length(rng) != 2 || any(!is.finite(rng))) return(NA_character_)
     paste0(round(rng[1], digits), "-", round(rng[2], digits), unit)
@@ -1425,7 +1441,8 @@ server <- function(input, output, session) {
         ftir_plot_obj(), "FTIR (PerkinElmer) \u2014 particles over instrument image",
         .report_inst_caption(coord_lbl("ftir_coord_mode"),
                              input$ftir_quality_range, input$ftir_size_range,
-                             input$ftir_material_filter))))
+                             input$ftir_material_filter,
+                             extra = .report_match_desc("ftir")))))
 
     if (!is.null(ftir_bruker_df_full()) && nrow(ftir_bruker_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1433,14 +1450,16 @@ server <- function(input, output, session) {
         .report_inst_caption(coord_lbl("ftir_bruker_coord_mode"),
                              input$ftir_bruker_quality_range,
                              input$ftir_bruker_size_range,
-                             input$ftir_bruker_material_filter))))
+                             input$ftir_bruker_material_filter,
+                             extra = .report_match_desc("ftir_bruker")))))
 
     if (!is.null(raman_df_full()) && nrow(raman_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
         raman_plot_obj(), "Raman \u2014 particles over instrument image",
         .report_inst_caption("native frame",
                              input$raman_quality_range, input$raman_size_range,
-                             input$raman_material_filter))))
+                             input$raman_material_filter,
+                             extra = .report_match_desc("raman")))))
 
     if (!is.null(ldir_df_full()) && nrow(ldir_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1448,8 +1467,9 @@ server <- function(input, output, session) {
         .report_inst_caption("native frame",
                              input$ldir_quality_range, input$ldir_size_range,
                              input$ldir_material_filter,
-                             extra = paste0("background: ",
-                                            input$ldir_bg_image %||% "auto")))))
+                             extra = c(.report_match_desc("ldir"),
+                                       paste0("background: ",
+                                              input$ldir_bg_image %||% "auto"))))))
 
     # --- 4. Overlay -------------------------------------------------------
     pages <- c(pages, list(report_figure_page(

@@ -1764,7 +1764,7 @@ report_table_page <- function(df, title, caption = NULL) {
 report_figure_page <- function(plot, title, caption = NULL) {
   if (is.null(plot)) return(NULL)
   cap <- if (!is.null(caption) && length(caption) && any(nzchar(caption)))
-    paste(.report_wrap(caption, 110), collapse = "\n") else NULL
+    paste(.report_wrap(caption, 140), collapse = "\n") else NULL
   # Demote the plot's OWN title to a subtitle rather than discarding it: the
   # viewer puts the particle count and the coordinate frame there, and on an
   # empty view it carries the "no particles match the current filters" message.
@@ -1790,7 +1790,7 @@ report_grid_page <- function(plots, title, caption = NULL, ncol = 2) {
   top <- grid::textGrob(title, x = 0.02, hjust = 0,
                         gp = grid::gpar(fontsize = 15, fontface = "bold"))
   bottom <- if (!is.null(caption) && any(nzchar(caption)))
-    grid::textGrob(paste(.report_wrap(caption, 110), collapse = "\n"),
+    grid::textGrob(paste(.report_wrap(caption, 140), collapse = "\n"),
                    x = 0.02, hjust = 0,
                    gp = grid::gpar(fontsize = 8.5, col = "grey35")) else NULL
   gridExtra::arrangeGrob(
