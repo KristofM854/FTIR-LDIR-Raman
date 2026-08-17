@@ -1573,3 +1573,270 @@ parse_particle_selection <- function(text, all_ids) {
   character(0)
 }
 
+
+# ===========================================================================
+# PDF report content layer
+# ===========================================================================
+# Pure builders shared by the Summary tab's HTML tables and the PDF report, so
+# the two can never drift apart. Nothing here touches Shiny reactives or
+# devices: each function takes plain data and returns a data frame or a grob.
+#
+# The report is assembled with grDevices::pdf(), matching the pipeline's own
+# plots/all_diagnostics.pdf. That keeps it dependency-free — no pandoc, no
+# LaTeX — so it works wherever the app runs.
+
+# Family x device count table behind "Plastics by Instrument".
+#
+# `devices` is a named list of particle data frames (name = device label);
+# entries that are NULL or empty are dropped. Rows are ordered by material
+# category then family name, and a Total row is appended. Returns a zero-row
+# data frame when nothing is classifiable, so callers can test nrow() alone.
+report_plastics_table <- function(devices) {
+  devices <- Filter(function(d) !is.null(d) && nrow(d) > 0, devices)
+  empty <- data.frame(Family = character(0), Category = character(0),
+                      stringsAsFactors = FALSE)
+  if (length(devices) == 0) return(empty)
+
+  per_dev  <- lapply(devices, summarise_plastics)
+  all_fams <- unique(unlist(lapply(per_dev, `[[`, "family")))
+  if (length(all_fams) == 0) return(empty)
+
+  fam_cats  <- classify_category_vec(all_fams)
+  cat_order <- c("Synthetic", "Semi-synthetic", "Natural/Organic", "Unknown")
+  fam_ord   <- order(match(fam_cats, cat_order, nomatch = 99), all_fams)
+  all_fams  <- all_fams[fam_ord]
+  fam_cats  <- fam_cats[fam_ord]
+
+  out <- data.frame(Family = all_fams, Category = fam_cats,
+                    stringsAsFactors = FALSE)
+  for (dev in names(per_dev)) {
+    dt <- per_dev[[dev]]
+    idx <- match(all_fams, dt$family)
+    out[[dev]] <- ifelse(is.na(idx), 0L, dt$n[idx])
+  }
+  # Total row: per-device sum over the families shown (same as the HTML footer).
+  totals <- data.frame(Family = "Total", Category = "", stringsAsFactors = FALSE)
+  for (dev in names(per_dev)) totals[[dev]] <- sum(per_dev[[dev]]$n)
+  rbind(out, totals)
+}
+
+
+# Per-instrument size statistics behind "Size Statistics".
+#
+# `dfs` is a named list with $ftir / $raman / $ldir (as summary_dfs() returns).
+# Numbers are pre-formatted for display, matching the HTML table's rounding.
+report_size_stats_table <- function(dfs) {
+  labels <- c(FTIR = "ftir", Raman = "raman", LDIR = "ldir")
+  rows <- list()
+  for (nm in names(labels)) {
+    df <- dfs[[labels[[nm]]]]
+    if (is.null(df) || nrow(df) == 0) next
+    fm <- df$feret_max
+    rows[[nm]] <- data.frame(
+      Instrument = nm,
+      Total      = nrow(df),
+      Matched    = sum(df$match_status == "matched",   na.rm = TRUE),
+      Unmatched  = sum(df$match_status == "unmatched", na.rm = TRUE),
+      Mean       = paste0(round(mean(fm,   na.rm = TRUE), 1), " \u00b5m"),
+      Median     = paste0(round(stats::median(fm, na.rm = TRUE), 1), " \u00b5m"),
+      `Std Dev`  = paste0(round(stats::sd(fm, na.rm = TRUE), 1), " \u00b5m"),
+      Range      = paste0(round(min(fm, na.rm = TRUE), 1), "\u2013",
+                          round(max(fm, na.rm = TRUE), 1), " \u00b5m"),
+      check.names = FALSE, stringsAsFactors = FALSE)
+  }
+  if (length(rows) == 0)
+    return(data.frame(Instrument = character(0), stringsAsFactors = FALSE))
+  do.call(rbind, c(rows, list(make.row.names = FALSE)))
+}
+
+
+# --- PDF page primitives ---------------------------------------------------
+# Each returns a ggplot/grob that can be printed to one page of the report.
+
+# Wrap long text so it fits the page width instead of running off it.
+# Lines already within `width` are passed through VERBATIM: strwrap() collapses
+# runs of spaces, which would destroy the column alignment of the monospaced
+# "label : value" blocks on the title page.
+.report_wrap <- function(txt, width = 100) {
+  if (length(txt) == 0) return(character(0))
+  unlist(lapply(txt, function(s) {
+    if (is.na(s) || !nzchar(s)) return("")
+    if (nchar(s) <= width) return(s)
+    strwrap(s, width = width)
+  }), use.names = FALSE)
+}
+
+# A text-only page: bold title, then left-aligned body lines.
+report_text_page <- function(title, lines = character(0), subtitle = NULL) {
+  lines <- .report_wrap(lines)
+  body  <- if (length(lines)) paste(lines, collapse = "\n") else ""
+  ggplot2::ggplot() +
+    ggplot2::annotate("text", x = 0, y = 1, label = title, hjust = 0, vjust = 1,
+                      size = 7, fontface = "bold") +
+    { if (!is.null(subtitle))
+        ggplot2::annotate("text", x = 0, y = 0.93,
+                          label = paste(.report_wrap(subtitle), collapse = "\n"),
+                          hjust = 0, vjust = 1, size = 4.2, colour = "grey35")
+      else NULL } +
+    ggplot2::annotate("text", x = 0, y = 0.86, label = body, hjust = 0, vjust = 1,
+                      size = 4, family = "mono") +
+    ggplot2::scale_x_continuous(limits = c(0, 1)) +
+    ggplot2::scale_y_continuous(limits = c(0, 1)) +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(24, 24, 24, 24),
+                   plot.background = ggplot2::element_rect(fill = "white", colour = NA))
+}
+
+# A data frame rendered as a table page, anchored top-left under the title.
+# Falls back to a text page when gridExtra is unavailable, so the report
+# degrades rather than failing.
+report_table_page <- function(df, title, caption = NULL) {
+  if (is.null(df) || nrow(df) == 0)
+    return(report_text_page(title, "No data available.", caption))
+  if (!requireNamespace("gridExtra", quietly = TRUE)) {
+    txt <- utils::capture.output(print(df, row.names = FALSE))
+    return(report_text_page(title, txt, caption))
+  }
+  chr <- as.data.frame(lapply(df, as.character), stringsAsFactors = FALSE,
+                       check.names = FALSE)
+  nr <- nrow(chr); nc <- ncol(chr)
+  # Shrink the font as the table grows so wide/long tables stay on one page.
+  fs <- if (nr > 24 || nc > 9) 7 else if (nr > 14) 8.5 else 10
+
+  # Bold a trailing "Total" row, mirroring the HTML table's bold footer.
+  total_row <- if (nr > 0 && identical(as.character(chr[[1]][nr]), "Total")) nr else NA_integer_
+  faces <- matrix(1L, nrow = nr, ncol = nc)
+  if (!is.na(total_row)) faces[total_row, ] <- 2L
+
+  tg <- gridExtra::tableGrob(
+    chr, rows = NULL,
+    theme = gridExtra::ttheme_minimal(
+      base_size = fs,
+      core    = list(fg_params = list(hjust = 0, x = 0.03,
+                                      fontface = as.vector(faces))),
+      colhead = list(fg_params = list(fontface = "bold", hjust = 0, x = 0.03))))
+
+  # Rule above the Total row (the HTML uses a 2px top border).
+  if (!is.na(total_row) && requireNamespace("gtable", quietly = TRUE)) {
+    tg <- gtable::gtable_add_grob(
+      tg, grid::segmentsGrob(x0 = 0, x1 = 1, y0 = 1, y1 = 1,
+                             gp = grid::gpar(lwd = 1.6, col = "grey35")),
+      t = total_row + 1L, b = total_row + 1L, l = 1L, r = nc, name = "total-rule")
+  }
+  # Rule under the header, so the column names read as a header.
+  if (requireNamespace("gtable", quietly = TRUE)) {
+    tg <- gtable::gtable_add_grob(
+      tg, grid::segmentsGrob(x0 = 0, x1 = 1, y0 = 0, y1 = 0,
+                             gp = grid::gpar(lwd = 1, col = "grey60")),
+      t = 1L, b = 1L, l = 1L, r = nc, name = "head-rule")
+  }
+
+  # Pin the table to the top-left: pad to the right and below with null space
+  # instead of letting arrangeGrob centre it in the page. The caption sits
+  # directly under the table, where it still reads as belonging to it.
+  row <- gridExtra::arrangeGrob(
+    tg, grid::nullGrob(), ncol = 2,
+    widths = grid::unit.c(sum(tg$widths), grid::unit(1, "null")))
+  cap_g <- if (!is.null(caption) && any(nzchar(caption)))
+    grid::textGrob(paste(.report_wrap(caption, 120), collapse = "\n"),
+                   x = 0, hjust = 0, vjust = 1,
+                   gp = grid::gpar(fontsize = 9, col = "grey35")) else NULL
+  parts   <- list(row)
+  heights <- list(sum(tg$heights))
+  if (!is.null(cap_g)) {
+    parts   <- c(parts, list(cap_g))
+    heights <- c(heights, list(grid::unit(2.2, "lines")))
+  }
+  parts   <- c(parts, list(grid::nullGrob()))
+  heights <- c(heights, list(grid::unit(1, "null")))
+  gridExtra::arrangeGrob(
+    grobs = parts, ncol = 1,
+    heights = do.call(grid::unit.c, heights),
+    top = grid::textGrob(title, x = 0, hjust = 0,
+                         gp = grid::gpar(fontsize = 16, fontface = "bold")),
+    # Page margins — without these the title sits flush against the paper edge.
+    vp = grid::viewport(width  = grid::unit(1, "npc") - grid::unit(1, "cm"),
+                        height = grid::unit(1, "npc") - grid::unit(1, "cm")))
+}
+
+# A figure page: an existing ggplot plus a caption recording the filters that
+# produced it, so a page lifted out of the PDF still says what it is showing.
+report_figure_page <- function(plot, title, caption = NULL) {
+  if (is.null(plot)) return(NULL)
+  cap <- if (!is.null(caption) && length(caption) && any(nzchar(caption)))
+    paste(.report_wrap(caption, 110), collapse = "\n") else NULL
+  # Demote the plot's OWN title to a subtitle rather than discarding it: the
+  # viewer puts the particle count and the coordinate frame there, and on an
+  # empty view it carries the "no particles match the current filters" message.
+  # Overwriting it left an unexplained blank figure in the report.
+  own <- plot$labels$title
+  sub <- if (!is.null(own) && length(own) == 1L && !is.na(own) && nzchar(own) &&
+             !identical(own, title)) own else NULL
+  plot +
+    ggplot2::labs(title = title, subtitle = sub, caption = cap) +
+    ggplot2::theme(
+      plot.title    = ggplot2::element_text(size = 15, face = "bold"),
+      plot.subtitle = ggplot2::element_text(size = 10.5, colour = "grey25"),
+      plot.caption  = ggplot2::element_text(size = 8.5, colour = "grey35",
+                                            hjust = 0),
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA))
+}
+
+# Arrange several plots on one page (used for the pies and size histograms).
+report_grid_page <- function(plots, title, caption = NULL, ncol = 2) {
+  plots <- Filter(Negate(is.null), plots)
+  if (length(plots) == 0) return(NULL)
+  if (!requireNamespace("gridExtra", quietly = TRUE)) return(plots[[1]])
+  top <- grid::textGrob(title, x = 0.02, hjust = 0,
+                        gp = grid::gpar(fontsize = 15, fontface = "bold"))
+  bottom <- if (!is.null(caption) && any(nzchar(caption)))
+    grid::textGrob(paste(.report_wrap(caption, 110), collapse = "\n"),
+                   x = 0.02, hjust = 0,
+                   gp = grid::gpar(fontsize = 8.5, col = "grey35")) else NULL
+  gridExtra::arrangeGrob(
+    grobs = plots, ncol = min(ncol, length(plots)),
+    top = top, bottom = bottom,
+    # Page margins, so the title is not flush against the paper edge.
+    vp = grid::viewport(width  = grid::unit(1, "npc") - grid::unit(1, "cm"),
+                        height = grid::unit(1, "npc") - grid::unit(1, "cm")))
+}
+
+
+# --- Report assembly ------------------------------------------------------
+
+# Write `pages` (ggplots / grobs, NULLs skipped) to a multi-page PDF at `path`.
+# Returns the number of pages written. A page that fails to draw is replaced by
+# an error page rather than aborting the whole report — a single bad figure
+# should not cost the user the other twenty.
+write_report_pdf <- function(pages, path, width = 11, height = 8.5) {
+  pages <- Filter(Negate(is.null), pages)
+  if (length(pages) == 0) pages <- list(report_text_page(
+    "Report", "Nothing to report \u2014 no data is loaded in the viewer."))
+
+  # cairo_pdf handles UTF-8 text properly regardless of the R session's locale.
+  # The report is full of \u00b5m and en-dashes, and the base pdf() device encodes
+  # text using the locale's charset — under a C locale that mangles them (µm
+  # became garbage, en-dashes became "..."). Fall back to pdf() with a Latin-1
+  # encoding, which still covers µ, if cairo is not compiled in.
+  if (isTRUE(unname(capabilities("cairo")))) {
+    grDevices::cairo_pdf(path, width = width, height = height, onefile = TRUE)
+  } else {
+    grDevices::pdf(path, width = width, height = height, onefile = TRUE,
+                   encoding = "ISOLatin1.enc")
+  }
+  on.exit(grDevices::dev.off(), add = TRUE)
+  n <- 0L
+  for (pg in pages) {
+    ok <- tryCatch({
+      if (inherits(pg, "ggplot")) print(pg) else { grid::grid.newpage(); grid::grid.draw(pg) }
+      TRUE
+    }, error = function(e) { message("[report] page failed: ", conditionMessage(e)); FALSE })
+    if (!ok) {
+      tryCatch(print(report_text_page("Figure unavailable",
+        "This page could not be rendered. The rest of the report is unaffected.")),
+        error = function(e) NULL)
+    }
+    n <- n + 1L
+  }
+  n
+}

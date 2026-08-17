@@ -217,6 +217,34 @@ The viewer includes:
 - **LDIR tab**: Native coordinate view with raw / processed / extracted-points image layers
 - **Overlay tab**: All instruments in the shared Raman coordinate frame, with layers for individual instruments, matched pairs, and triple matches (gold rings)
 
+### PDF report
+
+The **Summary** tab has a **Download PDF report** button that writes one
+multi-page PDF containing:
+
+| Page | Content |
+|---|---|
+| 1 | Title page — run ID, generation timestamp, particle scope, per-instrument counts |
+| 2 | Material comparison bar chart for the selected family |
+| 3 | Plastics by Instrument (family × device counts, with totals) |
+| 4 | Material breakdown pie charts, 2×2 |
+| 5 | Size distributions per instrument |
+| 6 | Size statistics table |
+| 7+ | Each instrument view — image with its particles overlaid (FTIR PerkinElmer, FTIR Bruker, Raman, LDIR) |
+| last | Overlay — all instruments in the shared Raman frame |
+
+The report is a **snapshot of what the viewer is currently showing**: the
+Summary tab's scope toggle, the quality / size / material / match filters set on
+each instrument tab, the pie display modes and the view rotations. Every figure
+carries a caption recording the filters behind it, so a page lifted out of the
+PDF still says what it is showing. Instruments with no data loaded are skipped.
+
+Figures are the same ggplot objects the app renders and the tables come from the
+same builders as the on-screen HTML (`report_plastics_table()` /
+`report_size_stats_table()` in `shiny_app/global.R`), so the report cannot drift
+from the viewer. Output is written with `grDevices::cairo_pdf()` — no pandoc or
+LaTeX needed.
+
 ## Configuration
 
 All parameters are in `R/00_config.R`. Key settings:

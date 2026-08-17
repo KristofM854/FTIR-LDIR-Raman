@@ -572,6 +572,20 @@ ui <- fluidPage(
                 "Raman, Bruker and LDIR tabs."))
             )
           ),
+          div(class = "info-box", style = "margin-top: 12px;",
+            fluidRow(
+              column(5,
+                h4("Report", style = "margin-top: 0;"),
+                downloadButton("download_report", "Download PDF report",
+                               class = "btn-primary")),
+              column(7, p(class = "text-muted", style = "margin-top: 26px;",
+                "One multi-page PDF containing everything on this tab plus each ",
+                "instrument view with its image and points, and the Overlay. ",
+                "The report is a snapshot of what the viewer is showing right ",
+                "now — the scope above, and the filters set on each instrument ",
+                "tab — and every figure caption records the filters behind it."))
+            )
+          ),
           hr(),
           div(class = "info-box", style = "margin-top: 20px;",
             h4("Material Comparison Across Instruments", summary_scope_badge()),
@@ -982,7 +996,7 @@ server <- function(input, output, session) {
   })
 
   # Interactive barplot: count of selected material family across instruments
-  output$summary_material_barplot <- renderPlot({
+  summary_material_barplot_obj <- reactive({
     sel_fam <- input$summary_material_select
     if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
 
@@ -1036,44 +1050,35 @@ server <- function(input, output, session) {
       )
   })
 
-  output$summary_plastics_wide <- renderUI({
-    d <- summary_dfs()
-    devices <- lapply(SUMMARY_DEVICES, function(key) d[[key]])
-    # Remove devices with no data
-    devices <- Filter(function(d) !is.null(d) && nrow(d) > 0, devices)
-    if (length(devices) == 0)
-      return(tags$p(class = "text-muted", "No data loaded."))
+  output$summary_material_barplot <- renderPlot(summary_material_barplot_obj())
 
-    per_dev  <- lapply(devices, summarise_plastics)
-    all_fams <- unique(unlist(lapply(per_dev, `[[`, "family")))
-    if (length(all_fams) == 0)
+  # Family x device counts. The numbers come from report_plastics_table() in
+  # global.R, which the PDF report also uses — the HTML below is presentation
+  # only, so the tab and the report can never disagree.
+  summary_plastics_df <- reactive({
+    d <- summary_dfs()
+    report_plastics_table(lapply(SUMMARY_DEVICES, function(key) d[[key]]))
+  })
+
+  output$summary_plastics_wide <- renderUI({
+    tbl <- summary_plastics_df()
+    if (nrow(tbl) == 0)
       return(tags$p(class = "text-muted", "No classified materials found."))
 
-    # Order by category then alphabetically
-    fam_cats <- classify_category_vec(all_fams)
-    cat_order <- c("Synthetic", "Semi-synthetic", "Natural/Organic", "Unknown")
-    fam_ord <- order(match(fam_cats, cat_order, nomatch = 99), all_fams)
-    all_fams <- all_fams[fam_ord]
-    fam_cats <- fam_cats[fam_ord]
-
-    dev_names <- names(devices)
+    dev_names <- setdiff(names(tbl), c("Family", "Category"))
     header <- tags$tr(tags$th("Family"), tags$th("Category"),
                       lapply(dev_names, tags$th))
-    cur_cat <- ""
-    body_rows <- lapply(seq_along(all_fams), function(i) {
-      fam <- all_fams[i]
-      cat <- fam_cats[i]
-      cells <- lapply(per_dev, function(dt) {
-        idx <- match(fam, dt$family)
-        tags$td(if (is.na(idx)) "0" else as.character(dt$n[idx]))
-      })
-      tags$tr(tags$td(tags$b(fam)), tags$td(cat), cells)
+    is_total  <- tbl$Family == "Total"
+    body_rows <- lapply(which(!is_total), function(i) {
+      tags$tr(tags$td(tags$b(tbl$Family[i])), tags$td(tbl$Category[i]),
+              lapply(dev_names, function(dv) tags$td(as.character(tbl[[dv]][i]))))
     })
-    # Totals footer: sum of each device column across all families shown.
-    total_cells <- lapply(per_dev, function(dt) tags$td(tags$b(as.character(sum(dt$n)))))
-    total_row <- tags$tr(
-      style = "border-top: 2px solid #888;",
-      tags$td(tags$b("Total")), tags$td(""), total_cells)
+    total_row <- if (any(is_total)) {
+      i <- which(is_total)[1]
+      tags$tr(style = "border-top: 2px solid #888;",
+              tags$td(tags$b("Total")), tags$td(""),
+              lapply(dev_names, function(dv) tags$td(tags$b(as.character(tbl[[dv]][i])))))
+    } else NULL
     tags$table(class = "hover-tbl", header, body_rows, total_row)
   })
 
@@ -1277,63 +1282,208 @@ server <- function(input, output, session) {
   })
 
   # Size statistics table
+  # Per-instrument size statistics. Values come from report_size_stats_table()
+  # in global.R, shared with the PDF report.
+  summary_size_stats_df <- reactive(report_size_stats_table(summary_dfs()))
+
   output$size_stats_table <- renderUI({
-    d <- summary_dfs()
-    stats_list <- list()
-    for (inst_name in c("FTIR", "Raman", "LDIR")) {
-      df <- switch(inst_name, FTIR = d$ftir, Raman = d$raman, LDIR = d$ldir)
-      if (is.null(df) || nrow(df) == 0) next
-
-      n_total <- nrow(df)
-      n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
-      n_unmatched <- sum(df$match_status == "unmatched", na.rm = TRUE)
-      mn <- mean(df$feret_max, na.rm = TRUE)
-      med <- median(df$feret_max, na.rm = TRUE)
-      sd_val <- sd(df$feret_max, na.rm = TRUE)
-      mn_range <- min(df$feret_max, na.rm = TRUE)
-      mx_range <- max(df$feret_max, na.rm = TRUE)
-
-      stats_list[[inst_name]] <- list(
-        n_total = n_total, n_matched = n_matched, n_unmatched = n_unmatched,
-        mean = mn, median = med, sd = sd_val, min = mn_range, max = mx_range
-      )
-    }
-
-    if (length(stats_list) == 0) {
+    tbl <- summary_size_stats_df()
+    if (nrow(tbl) == 0)
       return(tags$p(class = "text-muted", "No instrument data available"))
-    }
-
-    # Build table rows
-    rows <- lapply(names(stats_list), function(inst) {
-      s <- stats_list[[inst]]
-      tags$tr(
-        tags$td(tags$b(inst)),
-        tags$td(s$n_total),
-        tags$td(s$n_matched),
-        tags$td(s$n_unmatched),
-        tags$td(paste0(round(s$mean, 1), " µm")),
-        tags$td(paste0(round(s$median, 1), " µm")),
-        tags$td(paste0(round(s$sd, 1), " µm")),
-        tags$td(paste0(round(s$min, 1), "–", round(s$max, 1), " µm"))
-      )
-    })
-
+    cols <- names(tbl)
+    rows <- lapply(seq_len(nrow(tbl)), function(i)
+      tags$tr(lapply(seq_along(cols), function(j) {
+        v <- as.character(tbl[[j]][i])
+        if (j == 1L) tags$td(tags$b(v)) else tags$td(v)
+      })))
     tags$table(class = "table table-condensed",
-      tags$thead(
-        tags$tr(
-          tags$th("Instrument"),
-          tags$th("Total"),
-          tags$th("Matched"),
-          tags$th("Unmatched"),
-          tags$th("Mean"),
-          tags$th("Median"),
-          tags$th("Std Dev"),
-          tags$th("Range")
-        )
-      ),
-      tags$tbody(rows)
-    )
+      tags$thead(tags$tr(lapply(cols, tags$th))),
+      tags$tbody(rows))
   })
+
+  # ==================================================================
+  # PDF REPORT
+  # ==================================================================
+  # Snapshots the Summary tab and every available instrument view into one
+  # multi-page PDF. Every figure is the SAME ggplot object the app is showing
+  # (the *_plot_obj() reactives), and every table comes from the same builder
+  # as the on-screen HTML, so the report cannot drift from the viewer.
+
+  # Human-readable description of a filter state, for the figure captions.
+  # An empty checkbox group reads back as character(0), which %||% does NOT
+  # catch (it only tests is.null) — the caption then read "shown: ." instead of
+  # saying nothing was selected.
+  .or_none <- function(x) if (length(x) == 0) "none" else paste(x, collapse = ", ")
+
+  .fmt_range <- function(rng, unit = "", digits = 2) {
+    if (is.null(rng) || length(rng) != 2 || any(!is.finite(rng))) return(NA_character_)
+    paste0(round(rng[1], digits), "-", round(rng[2], digits), unit)
+  }
+
+  .report_inst_caption <- function(prefix, quality_rng, size_rng, mats,
+                                   extra = character(0)) {
+    bits <- c(
+      if (!is.na(.fmt_range(quality_rng))) paste0("quality ", .fmt_range(quality_rng)),
+      if (!is.na(.fmt_range(size_rng, " \u00b5m", 0)))
+        paste0("size ", .fmt_range(size_rng, " \u00b5m", 0)),
+      if (length(mats) && !("All" %in% mats))
+        paste0("materials: ", .or_none(mats)) else "materials: all",
+      extra)
+    paste0(prefix, if (length(bits)) paste0(" | ", paste(bits, collapse = " | ")) else "")
+  }
+
+  # The pages, in order. Built inside the download handler's reactive context.
+  report_pages <- function() {
+    m       <- active_manifest()
+    scope   <- if (summary_filtered()) "each tab's active filters"
+               else "all particles in the run"
+    run_lbl <- if (!is.null(uploaded_data())) "uploaded data"
+               else basename(selected_run_dir() %||% "unknown")
+    dfs     <- summary_dfs()
+    n_of    <- function(k) { d <- dfs[[k]]; if (is.null(d)) 0L else nrow(d) }
+
+    pages <- list()
+
+    # --- 1. Title / provenance -------------------------------------------
+    pages <- c(pages, list(report_text_page(
+      "Multi-Instrument Particle Matching \u2014 Report",
+      c(paste0("Run                 : ", run_lbl),
+        paste0("Run ID              : ", m$run_id %||% "unknown"),
+        paste0("Generated           : ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+        "",
+        paste0("Particle scope      : ", scope),
+        "",
+        "Particles included in this report:",
+        paste0("  FTIR (PerkinElmer): ", n_of("ftir")),
+        paste0("  FTIR (Bruker)     : ", n_of("ftir_bruker")),
+        paste0("  Raman             : ", n_of("raman")),
+        paste0("  LDIR              : ", n_of("ldir")),
+        "",
+        "Every figure reproduces the corresponding viewer tab exactly as it was",
+        "displayed when this report was generated. Each figure caption records",
+        "the filters that produced it."),
+      subtitle = "Generated from the Shiny viewer's Summary tab and instrument views")))
+
+    # --- 2. Summary tab content ------------------------------------------
+    pages <- c(pages, list(report_figure_page(
+      summary_material_barplot_obj(),
+      paste0("Material Comparison Across Instruments \u2014 ",
+             input$summary_material_select %||% ""),
+      paste0("Scope: ", scope, "."))))
+
+    pages <- c(pages, list(report_table_page(
+      summary_plastics_df(), "Plastics by Instrument",
+      paste0("Material family counts per device. Scope: ", scope,
+             ". 'Unknown' families are excluded; the Total row sums the ",
+             "families shown."))))
+
+    # Pies: same helper and same display modes as the tab.
+    rel      <- identical(input$pie_display_mode, "rel")
+    cat_mode <- input$pie_category_mode %||% "both"
+    show_all <- identical(input$pie_materials_mode, "all")
+    pc       <- pie_classified()
+    pie_cap  <- paste0(
+      "Scope: ", scope, ". Display: ",
+      if (rel) "relative (%)" else "absolute counts", ". Materials: ",
+      if (show_all) "all particles (incl. non-plastics and unknowns)"
+      else if (identical(cat_mode, "synthetic")) "synthetic plastics only"
+      else "synthetic + semi-synthetic plastics", ".")
+    pages <- c(pages, list(report_grid_page(
+      list(make_instrument_pie(pc$ftir,        "FTIR (PerkinElmer)", rel, cat_mode, show_all),
+           make_instrument_pie(pc$raman,       "Raman",              rel, cat_mode, show_all),
+           make_instrument_pie(pc$ldir,        "LDIR",               rel, cat_mode, show_all),
+           make_instrument_pie(pc$ftir_bruker, "FTIR (Bruker)",      rel, cat_mode, show_all)),
+      "Material Breakdown per Instrument", pie_cap, ncol = 2)))
+
+    size_plots <- list()
+    if (n_of("ftir") > 0)
+      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
+    if (n_of("raman") > 0)
+      size_plots <- c(size_plots, list(plot_size_distribution(dfs$raman, "Raman",
+                                                             color_matched = "#1f77b4")))
+    if (n_of("ldir") > 0)
+      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ldir, "LDIR",
+                                                             color_matched = "#ff7f0e")))
+    pages <- c(pages, list(report_grid_page(
+      size_plots, "Size Distribution by Instrument",
+      paste0("Feret Max (um) per instrument. Solid bars: matched. Outline bars: ",
+             "unmatched. Scope: ", scope, "."),
+      ncol = min(3, max(1, length(size_plots))))))
+
+    pages <- c(pages, list(report_table_page(
+      summary_size_stats_df(), "Size Statistics",
+      paste0("Feret Max summary statistics per instrument. Scope: ", scope, "."))))
+
+    # --- 3. Instrument views ---------------------------------------------
+    # Only instruments that actually have data get a page; the plot reactives
+    # are the very objects the tabs render.
+    coord_lbl <- function(id) if (identical(input[[id]], "aligned"))
+      "Raman-aligned frame" else "native frame"
+
+    if (!is.null(ftir_df_full()) && nrow(ftir_df_full()) > 0)
+      pages <- c(pages, list(report_figure_page(
+        ftir_plot_obj(), "FTIR (PerkinElmer) \u2014 particles over instrument image",
+        .report_inst_caption(coord_lbl("ftir_coord_mode"),
+                             input$ftir_quality_range, input$ftir_size_range,
+                             input$ftir_material_filter))))
+
+    if (!is.null(ftir_bruker_df_full()) && nrow(ftir_bruker_df_full()) > 0)
+      pages <- c(pages, list(report_figure_page(
+        ftir_bruker_plot_obj(), "FTIR (Bruker) \u2014 particles over instrument image",
+        .report_inst_caption(coord_lbl("ftir_bruker_coord_mode"),
+                             input$ftir_bruker_quality_range,
+                             input$ftir_bruker_size_range,
+                             input$ftir_bruker_material_filter))))
+
+    if (!is.null(raman_df_full()) && nrow(raman_df_full()) > 0)
+      pages <- c(pages, list(report_figure_page(
+        raman_plot_obj(), "Raman \u2014 particles over instrument image",
+        .report_inst_caption("native frame",
+                             input$raman_quality_range, input$raman_size_range,
+                             input$raman_material_filter))))
+
+    if (!is.null(ldir_df_full()) && nrow(ldir_df_full()) > 0)
+      pages <- c(pages, list(report_figure_page(
+        ldir_plot_obj(), "LDIR \u2014 particles over instrument image",
+        .report_inst_caption("native frame",
+                             input$ldir_quality_range, input$ldir_size_range,
+                             input$ldir_material_filter,
+                             extra = paste0("background: ",
+                                            input$ldir_bg_image %||% "auto")))))
+
+    # --- 4. Overlay -------------------------------------------------------
+    pages <- c(pages, list(report_figure_page(
+      overlay_plot_obj(), "Overlay \u2014 all instruments in the shared Raman frame",
+      paste0("Instruments shown: ", .or_none(input$overlay_instruments),
+             ". Relationships: ", .or_none(input$overlay_relationships), "."))))
+
+    Filter(Negate(is.null), pages)
+  }
+
+  output$download_report <- downloadHandler(
+    filename = function() {
+      run <- if (!is.null(uploaded_data())) "uploaded"
+             else basename(selected_run_dir() %||% "run")
+      paste0("particle_report_", run, "_",
+             format(Sys.time(), "%Y%m%d_%H%M%S"), ".pdf")
+    },
+    contentType = "application/pdf",
+    content = function(file) {
+      # A report is worth a progress bar: the instrument pages re-render their
+      # ggplots, which on a large run takes a few seconds.
+      withProgress(message = "Building PDF report", value = 0, {
+        incProgress(0.15, detail = "Collecting figures and tables")
+        pages <- tryCatch(report_pages(), error = function(e) {
+          list(report_text_page("Report failed",
+               c("The report could not be assembled.", "",
+                 paste0("Error: ", conditionMessage(e)))))
+        })
+        incProgress(0.55, detail = paste0("Writing ", length(pages), " pages"))
+        write_report_pdf(pages, file)
+        incProgress(0.30, detail = "Done")
+      })
+    }
+  )
 
   # Provenance panel UI
   output$run_provenance_ui <- renderUI({
@@ -3030,7 +3180,7 @@ server <- function(input, output, session) {
     df
   }
 
-  output$ftir_plot <- renderPlot({
+  ftir_plot_obj <- reactive({
     coord_mode <- input$ftir_coord_mode
     aligned    <- !is.null(coord_mode) && coord_mode == "aligned"
 
@@ -3114,7 +3264,9 @@ server <- function(input, output, session) {
                  plain         = isTRUE(input$ftir_show_all_detected),
                  show_labels   = isTRUE(input$ftir_show_all_labels),
                  label_size    = input$ftir_label_size %||% 3)
-  }) |> bindCache(
+  })
+
+  output$ftir_plot <- renderPlot(ftir_plot_obj()) |> bindCache(
     # Cache key must list EVERY input this render reads: an omission both
     # serves a stale plot and stops the render invalidating. ftir_filtered()
     # transitively captures the FTIR quality/size/material filters; run-scoped
@@ -3166,7 +3318,7 @@ server <- function(input, output, session) {
                       mat_keep("raman_material_filter"), eff_match_filter("raman"))
   })
 
-  output$raman_plot <- renderPlot({
+  raman_plot_obj <- reactive({
     df <- raman_filtered()
     # Display in native Raman instrument frame (x_orig, y_orig)
     df_disp <- df
@@ -3222,7 +3374,9 @@ server <- function(input, output, session) {
                  show_labels = isTRUE(input$raman_show_all_labels),
                  label_size = input$raman_label_size %||% 3,
                  subtitle = raman_scale_warning())
-  }) |> bindCache(
+  })
+
+  output$raman_plot <- renderPlot(raman_plot_obj()) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
     raman_filtered(), raman_scale_warning(),
     input$raman_highlight_particle, single_highlight_ids$raman,
@@ -3393,7 +3547,7 @@ server <- function(input, output, session) {
     list(deg = 0L, flip = flip)
   })
 
-  output$ldir_plot <- renderPlot({
+  ldir_plot_obj <- reactive({
     df <- ldir_filtered()
     overlay_mode <- input$ldir_overlay_mode
 
@@ -3623,7 +3777,9 @@ server <- function(input, output, session) {
     }
 
     p
-  }) |> bindCache(
+  })
+
+  output$ldir_plot <- renderPlot(ldir_plot_obj()) |> bindCache(
     # ldir_filtered() captures the LDIR filters; ldir_view_tf() and
     # ldir_extracted_pts() are reactives whose values fold in their own inputs;
     # the three image sources are folded in cheaply via img_key().
@@ -3687,7 +3843,7 @@ server <- function(input, output, session) {
                       mat_keep("ftir_bruker_material_filter"), eff_match_filter("ftir_bruker"))
   })
 
-  output$ftir_bruker_plot <- renderPlot({
+  ftir_bruker_plot_obj <- reactive({
     coord_mode <- input$ftir_bruker_coord_mode
     aligned    <- !is.null(coord_mode) && coord_mode == "aligned"
 
@@ -3757,7 +3913,9 @@ server <- function(input, output, session) {
                  plain         = isTRUE(input$ftir_bruker_show_all_detected),
                  show_labels   = isTRUE(input$ftir_bruker_show_all_labels),
                  label_size    = input$ftir_bruker_label_size %||% 3)
-  }) |> bindCache(
+  })
+
+  output$ftir_bruker_plot <- renderPlot(ftir_bruker_plot_obj()) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
     ftir_bruker_filtered(), input$ftir_bruker_coord_mode,
     input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
@@ -4015,7 +4173,7 @@ server <- function(input, output, session) {
     }))
   }
 
-  output$overlay_plot <- renderPlot({
+  overlay_plot_obj <- reactive({
     # Gate the heaviest render on data being present. run_data() is an empty
     # list() (falsy) only when no run is loaded at all — it stays populated when
     # filters yield zero particles — so this suppresses the pre-data render
@@ -4306,7 +4464,9 @@ server <- function(input, output, session) {
     }
 
     p
-  }) |> bindCache(
+  })
+
+  output$overlay_plot <- renderPlot(overlay_plot_obj()) |> bindCache(
     # overlay_matched()/overlay_ldir_matched()/overlay_bruker_matched() fold in
     # every per-instrument quality/size/distance filter; the four material
     # inputs are read dynamically via .inst_mat(inst) in the body, so they must
