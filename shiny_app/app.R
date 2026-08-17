@@ -244,7 +244,7 @@ ui <- fluidPage(
         instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE, quality_default = c(0, 0.7)))
+          coord_toggle = TRUE, quality_default = c(0.7, 1)))
     ),
 
     # Tab 2: FTIR (Bruker) — shown only when data present
@@ -253,7 +253,7 @@ ui <- fluidPage(
         instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE, quality_default = c(0, 0.7)))
+          coord_toggle = TRUE, quality_default = c(0.7, 1)))
     ),
 
     # Tab 3: Raman
@@ -262,7 +262,7 @@ ui <- fluidPage(
         instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200,
           match_choices = c("Matched \u2194 FTIR" = "matched",
                             "Unmatched (vs FTIR)" = "unmatched"),
-          quality_default = c(0, 70)))
+          quality_default = c(70, 100)))
     ),
 
     # Tab 3: LDIR
@@ -272,7 +272,7 @@ ui <- fluidPage(
         sidebarPanel(width = 3,
           h4("LDIR Filters"),
           sliderInput("ldir_quality_range", "Quality",
-                      min = 0, max = 1, value = c(0, 0.8), step = 0.01),
+                      min = 0, max = 1, value = c(0.8, 1), step = 0.01),
           sliderInput("ldir_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
           material_filter_ui("ldir_material_filter", "Materials"),
@@ -2291,7 +2291,7 @@ server <- function(input, output, session) {
                         choices = c("None", ftir_ids))
       updateSliderInput(session, "ftir_quality_range",
                         min = 0, max = 1,
-                        value = c(0, 0.7))
+                        value = c(0.7, 1))
       updateSliderInput(session, "ftir_size_range", min = 0, max = s_max,
                         value = c(0, s_max))
 
@@ -2322,7 +2322,7 @@ server <- function(input, output, session) {
                         choices = c("None", raman_ids))
       updateSliderInput(session, "raman_quality_range",
                         min = 0, max = 100,
-                        value = c(0, 70))
+                        value = c(70, 100))
       updateSliderInput(session, "raman_size_range", min = 0, max = s_max,
                         value = c(0, s_max))
 
@@ -2352,7 +2352,7 @@ server <- function(input, output, session) {
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ldir_quality_range",
                           min = 0, max = 1,
-                          value = c(0, 0.8))
+                          value = c(0.8, 1))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
@@ -2403,7 +2403,7 @@ server <- function(input, output, session) {
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ftir_bruker_quality_range",
                           min = 0, max = 1,
-                          value = c(0, 0.7))
+                          value = c(0.7, 1))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "ftir_bruker_size_range", min = 0, max = s_max,
