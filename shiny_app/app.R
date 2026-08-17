@@ -1254,11 +1254,11 @@ server <- function(input, output, session) {
                                    size = 5, colour = "grey50") +
              theme_void())
     }
-    # Show all particles in one histogram with smoothed density overlay
+    # Show all particles in one histogram with smoothed density overlay (normalized to %)
     ggplot(df, aes(x = feret_max)) +
-      geom_histogram(alpha = 0.6, bins = 20, fill = "#4472C4", color = "white") +
-      geom_density(aes(y = after_stat(count)), alpha = 0.3, fill = "#70AD47", color = "#70AD47", linewidth = 1.2) +
-      labs(title = inst_name, x = "Feret Max (µm)", y = "Count") +
+      geom_histogram(aes(y = after_stat(density) * 100), alpha = 0.6, bins = 20, fill = "#4472C4", color = "white") +
+      geom_density(aes(y = after_stat(density) * 100), alpha = 0.5, fill = "#70AD47", color = "#70AD47", linewidth = 1.2) +
+      labs(title = inst_name, x = "Feret Max (µm)", y = "Relative Frequency (%)") +
       theme_minimal() + theme(plot.title = element_text(size = 11, face = "bold"))
   }
 
