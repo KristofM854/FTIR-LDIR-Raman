@@ -5,6 +5,9 @@
 .DS_Store
 *.Rhistory
 .Rproj.user/
+# Default graphics-device dump: any ggplot printed outside an explicit device
+# (e.g. while running the test suite) leaves one of these behind.
+Rplots.pdf
 
 # Python cache
 __pycache__/
