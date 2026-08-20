@@ -580,12 +580,15 @@ ui <- fluidPage(
             )
           ),
           div(class = "info-box", style = "margin-top: 12px;",
+            h4("Report", style = "margin-top: 0;"),
             fluidRow(
-              column(5,
-                h4("Report", style = "margin-top: 0;"),
+              column(4,
+                textInput("report_analyst_name", "Analyst name (optional)",
+                          placeholder = "e.g. J. Smith")),
+              column(3, style = "padding-top: 25px;",
                 downloadButton("download_report", "Download PDF report",
                                class = "btn-primary")),
-              column(7, p(class = "text-muted", style = "margin-top: 26px;",
+              column(5, p(class = "text-muted", style = "margin-top: 26px;",
                 "One multi-page PDF containing everything on this tab plus each ",
                 "instrument view with its image and points, and the Overlay. ",
                 "The report is a snapshot of what the viewer is showing right ",
@@ -1345,11 +1348,16 @@ server <- function(input, output, session) {
 
   # The pages, in order. Built inside the download handler's reactive context.
   report_pages <- function() {
-    m       <- active_manifest()
-    scope   <- if (summary_filtered()) "each tab's active filters"
-               else "all particles in the run"
-    run_lbl <- if (!is.null(uploaded_data())) "uploaded data"
-               else basename(selected_run_dir() %||% "unknown")
+    m        <- active_manifest()
+    scope    <- if (summary_filtered()) "each tab's active filters"
+                else "all particles in the run"
+    run_lbl  <- if (!is.null(uploaded_data())) "uploaded data"
+                else basename(selected_run_dir() %||% "unknown")
+    analyst  <- trimws(input$report_analyst_name %||% "")
+    run_id   <- m$run_id %||% "unknown"
+    run_id_line <- if (nzchar(analyst))
+      paste0(run_id, "  \u2014  Analyst: ", analyst)
+    else run_id
     dfs     <- summary_dfs()
     n_of    <- function(k) { d <- dfs[[k]]; if (is.null(d)) 0L else nrow(d) }
 
@@ -1359,7 +1367,7 @@ server <- function(input, output, session) {
     pages <- c(pages, list(report_text_page(
       "Multi-Instrument Particle Matching \u2014 Report",
       c(paste0("Run                 : ", run_lbl),
-        paste0("Run ID              : ", m$run_id %||% "unknown"),
+        paste0("Run ID              : ", run_id_line),
         paste0("Generated           : ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
         "",
         paste0("Particle scope      : ", scope),
@@ -1376,12 +1384,19 @@ server <- function(input, output, session) {
       subtitle = "Generated from the Shiny viewer's Summary tab and instrument views")))
 
     # --- 2. Summary tab content ------------------------------------------
-    pages <- c(pages, list(report_figure_page(
-      summary_material_barplot_gg(),
-      paste0("Material Comparison Across Instruments \u2014 ",
-             if (identical(input$summary_material_select, "__all_plastics__"))
-               "All Plastics (stacked)" else (input$summary_material_select %||% "")),
-      paste0("Scope: ", scope, "."))))
+    bar_title <- paste0("Material Comparison Across Instruments \u2014 ",
+                        if (identical(input$summary_material_select, "__all_plastics__"))
+                          "All Plastics (stacked)" else (input$summary_material_select %||% ""))
+    bar_cap   <- paste0(
+      "Scope: ", scope, ". Display: ",
+      if (identical(input$summary_bar_display_mode, "rel")) "relative (%)" else "absolute counts",
+      ". Materials: ",
+      if (identical(input$summary_bar_materials_mode, "all")) "all particles"
+      else if (identical(input$summary_bar_category_mode %||% "both", "synthetic"))
+        "synthetic plastics only"
+      else "synthetic + semi-synthetic plastics", ".")
+    pages <- c(pages, list(report_full_figure_page(
+      summary_material_barplot_gg(), bar_title, bar_cap)))
 
     pages <- c(pages, list(report_table_page(
       summary_plastics_df(), "Plastics by Instrument",
