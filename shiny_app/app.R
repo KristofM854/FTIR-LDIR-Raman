@@ -595,9 +595,17 @@ ui <- fluidPage(
           ),
           hr(),
           div(class = "info-box", style = "margin-top: 20px;",
-            h4("Material Comparison Across Instruments", summary_scope_badge()),
-            p(class = "text-muted",
-              "Select a material family to compare counts across all instruments."),
+            fluidRow(
+              column(6, h4("Material Comparison Across Instruments", summary_scope_badge())),
+              column(3, radioButtons("summary_bar_display_mode", NULL,
+                                     choices = c("Absolute counts" = "abs",
+                                                 "Relative (%)"    = "rel"),
+                                     selected = "abs", inline = TRUE)),
+              column(3, radioButtons("summary_bar_materials_mode", NULL,
+                                     choices = c("Plastics only" = "plastics",
+                                                 "All particles" = "all"),
+                                     selected = "plastics", inline = TRUE))
+            ),
             fluidRow(
               column(4, selectInput("summary_material_select", "Material Family",
                                     choices = list(
@@ -606,8 +614,18 @@ ui <- fluidPage(
                                       "Non-Plastics" = character(0)
                                     ),
                                     selected = "__all_plastics__")),
-              column(8, plotOutput("summary_material_barplot", height = "350px"))
-            )
+              column(8,
+                conditionalPanel(
+                  condition = "input.summary_material_select === '__all_plastics__'",
+                  radioButtons("summary_bar_category_mode", "Plastic types:",
+                               choices = c("Synthetic only" = "synthetic",
+                                           "Synth. + Semi-synth." = "both"),
+                               selected = "both", inline = TRUE)))
+            ),
+            p(class = "text-muted",
+              "Hover over bars for exact counts. Click legend entries to show/hide families.",
+              "Select a specific family from the dropdown to compare it across instruments."),
+            plotly::plotlyOutput("summary_material_barplot", height = "500px")
           ),
           hr(),
           div(class = "info-box",
@@ -615,43 +633,6 @@ ui <- fluidPage(
             p(class = "text-muted",
               "Material family counts per device."),
             uiOutput("summary_plastics_wide")
-          ),
-          hr(),
-          div(class = "info-box",
-            fluidRow(
-              column(4, h4("Material Breakdown per Instrument", summary_scope_badge())),
-              column(3, radioButtons("pie_display_mode", NULL,
-                                     choices = c("Absolute counts" = "abs",
-                                                 "Relative (%)"    = "rel"),
-                                     selected = "abs", inline = TRUE)),
-              # "All particles" by default: the breakdown opens showing the
-              # whole population, non-plastics and unknowns included, rather
-              # than silently dropping part of it.
-              column(5, radioButtons("pie_materials_mode", NULL,
-                                     choices = c("Plastics only" = "plastics",
-                                                 "All particles" = "all"),
-                                     selected = "all", inline = TRUE))
-            ),
-            fluidRow(
-              column(12,
-                conditionalPanel(
-                  condition = "input.pie_materials_mode === 'plastics'",
-                  radioButtons("pie_category_mode", "Plastic types:",
-                               choices = c("Synthetic only" = "synthetic",
-                                           "Synth. + Semi-synth." = "both"),
-                               selected = "both", inline = TRUE)))
-            ),
-            p(class = "text-muted",
-              "Toggle above to switch display mode, material categories, and particle scope.",
-              "When 'All particles' is selected, non-plastics and unknowns are included in the charts."),
-            fluidRow(
-              column(6, plotOutput("pie_ftir",        height = "300px")),
-              column(6, plotOutput("pie_raman",       height = "300px"))
-            ),
-            fluidRow(
-              column(6, plotOutput("pie_ldir",        height = "300px")),
-              column(6, plotOutput("pie_ftir_bruker", height = "300px"))
-            )
           ),
           hr(),
           div(class = "info-box",
@@ -1019,105 +1000,202 @@ server <- function(input, output, session) {
     })
   })
 
-  # Interactive barplot: count of selected material family across instruments
+  # Interactive plotly barplot: material families across instruments
   summary_material_barplot_obj <- reactive({
-    sel_fam <- input$summary_material_select
+    sel_fam   <- input$summary_material_select
+    rel_mode  <- identical(input$summary_bar_display_mode, "rel")
+    show_all  <- identical(input$summary_bar_materials_mode, "all")
+    cat_mode  <- input$summary_bar_category_mode %||% "both"
     if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
 
-    device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c",
-                       "FTIR (Bruker)" = "#9467bd",
+    device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
                        "Raman" = "#1f77b4", "LDIR" = "#d62728")
-    cts <- active_material_counts()
+    cts      <- active_material_counts()
     use_filt <- summary_filtered()
-
-    # Only show instruments that have data
-    has_data <- !vapply(names(cts), function(dev_label) is.null(cts[[dev_label]]),
-                        logical(1))
+    has_data <- !vapply(names(cts), function(l) is.null(cts[[l]]), logical(1))
     cts_present <- cts[has_data]
+    inst_levels <- names(cts_present)
 
-    if (length(cts_present) == 0) {
-      plot.new()
-      text(0.5, 0.5, "No data available", cex = 1.2, col = "#6c757d")
-      return(NULL)
-    }
+    if (length(cts_present) == 0)
+      return(plotly::plot_ly() |>
+               plotly::layout(title = "No data available",
+                              xaxis = list(visible = FALSE),
+                              yaxis = list(visible = FALSE)))
 
+    # Determine which families to include
+    plastic_fams <- c(synthetic_families, semi_synthetic_families)
     if (sel_fam == "__all_plastics__") {
-      # Stacked barplot: all plastic families across instruments
-      plastic_fams <- c(synthetic_families, semi_synthetic_families)
-      rows <- do.call(rbind, lapply(names(cts_present), function(dev_label) {
-        tbl <- cts_present[[dev_label]]
-        fams_here <- names(tbl)[names(tbl) %in% plastic_fams]
-        if (length(fams_here) == 0) return(NULL)
-        data.frame(
-          instrument = dev_label,
-          family     = fams_here,
-          count      = as.integer(tbl[fams_here]),
-          stringsAsFactors = FALSE
-        )
-      }))
-      if (is.null(rows) || nrow(rows) == 0) {
-        plot.new()
-        text(0.5, 0.5, "No plastic data available", cex = 1.2, col = "#6c757d")
-        return(NULL)
-      }
-      # Ordered families for consistent legend
-      fam_order <- intersect(plastic_fams, unique(rows$family))
-      rows$instrument <- factor(rows$instrument, levels = names(cts_present))
-      rows$family     <- factor(rows$family, levels = fam_order)
-
-      ggplot2::ggplot(rows, ggplot2::aes(x = instrument, y = count, fill = family)) +
-        ggplot2::geom_col(width = 0.6) +
-        ggplot2::labs(x = NULL, y = "Particle Count", fill = "Family",
-                      title = paste0("All Plastics across instruments",
-                                     if (use_filt) " (filtered)" else "")) +
-        ggplot2::theme_minimal(base_size = 16) +
-        ggplot2::theme(
-          plot.title    = ggplot2::element_text(hjust = 0.5, face = "bold",
-                                                margin = ggplot2::margin(b = 14)),
-          plot.margin   = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
-          axis.text.x   = ggplot2::element_text(size = 14),
-          panel.grid.major.x = ggplot2::element_blank()
-        )
+      keep_fams <- if (show_all) NULL   # NULL = all families
+                   else if (identical(cat_mode, "synthetic")) synthetic_families
+                   else plastic_fams
     } else {
-      counts <- vapply(names(cts), function(dev_label) {
-        tbl <- cts[[dev_label]]
-        if (is.null(tbl)) return(0L)
-        # table[missing_name] yields a named NA, which %||% does NOT catch — the
-        # bar then dropped out entirely ("Removed n rows ... geom_col") instead
-        # of being drawn as a legitimate zero.
-        v <- tbl[sel_fam]
-        if (length(v) == 0L || is.na(v)) 0L else as.integer(v)
-      }, integer(1))
-      counts <- counts[has_data]
-
-      bar_df <- data.frame(
-        instrument = factor(names(counts), levels = names(counts)),
-        count = as.integer(counts),
-        stringsAsFactors = FALSE
-      )
-      ggplot2::ggplot(bar_df, ggplot2::aes(x = instrument, y = count, fill = instrument)) +
-        ggplot2::geom_col(width = 0.6) +
-        ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.3, size = 5.2) +
-        ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
-        # max(1, ...) keeps the scale non-degenerate when the family is absent
-        # everywhere; limits = c(0, 0) collapses the panel and grid aborts.
-        ggplot2::scale_y_continuous(limits = c(0, max(counts, 1L) * 1.50)) +
-        ggplot2::labs(x = NULL, y = "Particle Count",
-                      title = paste0(sel_fam, " across instruments",
-                                     if (use_filt) " (filtered)" else "")) +
-        ggplot2::theme_minimal(base_size = 16) +
-        ggplot2::theme(
-          plot.title = ggplot2::element_text(hjust = 0.5, face = "bold",
-                                             margin = ggplot2::margin(b = 14)),
-          plot.margin = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
-          axis.text.x = ggplot2::element_text(size = 14),
-          panel.grid.major.x = ggplot2::element_blank()
-        )
+      keep_fams <- sel_fam
     }
+
+    # Build long data frame
+    rows <- do.call(rbind, lapply(inst_levels, function(dev_label) {
+      tbl <- cts_present[[dev_label]]
+      fams_here <- names(tbl)
+      if (!is.null(keep_fams)) fams_here <- fams_here[fams_here %in% keep_fams]
+      if (length(fams_here) == 0) return(NULL)
+      data.frame(instrument = dev_label, family = fams_here,
+                 count = as.integer(tbl[fams_here]), stringsAsFactors = FALSE)
+    }))
+
+    if (is.null(rows) || nrow(rows) == 0)
+      return(plotly::plot_ly() |>
+               plotly::layout(title = "No matching data",
+                              xaxis = list(visible = FALSE),
+                              yaxis = list(visible = FALSE)))
+
+    # Compute totals per instrument for relative mode
+    inst_totals <- tapply(rows$count, rows$instrument, sum)
+    rows$value  <- if (rel_mode)
+      round(rows$count / inst_totals[rows$instrument] * 100, 1)
+    else
+      rows$count
+    rows$tooltip <- if (rel_mode)
+      paste0(rows$family, ": ", rows$value, "% (n=", rows$count, ")")
+    else
+      paste0(rows$family, ": ", rows$value)
+
+    y_label <- if (rel_mode) "Share (%)" else "Particle Count"
+    title_str <- paste0(
+      if (sel_fam == "__all_plastics__") "All Plastics" else sel_fam,
+      " across instruments", if (use_filt) " (filtered)" else "")
+
+    # Consistent family order for stacking
+    fam_order <- if (sel_fam == "__all_plastics__") {
+      all_fams <- if (!is.null(keep_fams)) keep_fams else sort(unique(rows$family))
+      intersect(all_fams, unique(rows$family))
+    } else {
+      sel_fam
+    }
+
+    # Colour palette: use device colours for single-family, family palette for stacked
+    .fam_palette <- c(
+      PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
+      PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
+      PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
+      Cellulose = "#bcbd22", Acrylate = "#17becf", Other = "#e5c494"
+    )
+
+    p <- plotly::plot_ly()
+    for (fam in fam_order) {
+      sub <- rows[rows$family == fam, ]
+      # Align to all instruments so bars are always in the same position
+      sub_aligned <- data.frame(instrument = inst_levels, stringsAsFactors = FALSE)
+      sub_aligned <- merge(sub_aligned, sub, by = "instrument", all.x = TRUE)
+      sub_aligned$value[is.na(sub_aligned$value)] <- 0
+      sub_aligned$tooltip[is.na(sub_aligned$tooltip)] <- paste0(fam, ": 0")
+      bar_color <- if (sel_fam == "__all_plastics__")
+        .fam_palette[fam] %||% "#cccccc"
+      else
+        device_colors[sub_aligned$instrument]
+
+      p <- plotly::add_trace(p,
+        x = sub_aligned$instrument,
+        y = sub_aligned$value,
+        type  = "bar",
+        name  = fam,
+        text  = sub_aligned$tooltip,
+        hoverinfo = "text",
+        marker = list(color = if (sel_fam == "__all_plastics__") (.fam_palette[fam] %||% "#cccccc")
+                               else unname(device_colors[sub_aligned$instrument]))
+      )
+    }
+
+    plotly::layout(p,
+      barmode = if (sel_fam == "__all_plastics__") "stack" else "group",
+      title   = list(text = title_str, x = 0.5, xanchor = "center",
+                     font = list(size = 16)),
+      xaxis   = list(title = "", tickfont = list(size = 13)),
+      yaxis   = list(title = y_label, tickfont = list(size = 12)),
+      legend  = list(title = list(text = "Family")),
+      margin  = list(t = 60, r = 20, b = 40, l = 60)
+    )
   })
 
-  output$summary_material_barplot <- renderPlot(summary_material_barplot_obj()) |>
-    bindCache(active_material_counts(), input$summary_material_select)
+  output$summary_material_barplot <- plotly::renderPlotly(summary_material_barplot_obj()) |>
+    bindCache(active_material_counts(), input$summary_material_select,
+              input$summary_bar_display_mode, input$summary_bar_materials_mode,
+              input$summary_bar_category_mode)
+
+  # Static ggplot version of the barplot used exclusively by the PDF report
+  # (report_figure_page expects a ggplot, not a plotly widget).
+  summary_material_barplot_gg <- reactive({
+    sel_fam  <- input$summary_material_select
+    rel_mode <- identical(input$summary_bar_display_mode, "rel")
+    show_all <- identical(input$summary_bar_materials_mode, "all")
+    cat_mode <- input$summary_bar_category_mode %||% "both"
+    if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
+
+    .fam_palette <- c(
+      PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
+      PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
+      PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
+      Cellulose = "#bcbd22", Acrylate = "#17becf", Other = "#e5c494"
+    )
+    device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
+                       "Raman" = "#1f77b4", "LDIR" = "#d62728")
+    cts      <- active_material_counts()
+    use_filt <- summary_filtered()
+    has_data <- !vapply(names(cts), function(l) is.null(cts[[l]]), logical(1))
+    cts_present <- cts[has_data]
+    inst_levels <- names(cts_present)
+    if (length(cts_present) == 0) return(NULL)
+
+    plastic_fams <- c(synthetic_families, semi_synthetic_families)
+    keep_fams <- if (sel_fam == "__all_plastics__") {
+      if (show_all) NULL
+      else if (identical(cat_mode, "synthetic")) synthetic_families
+      else plastic_fams
+    } else sel_fam
+
+    rows <- do.call(rbind, lapply(inst_levels, function(dev_label) {
+      tbl <- cts_present[[dev_label]]
+      fams_here <- names(tbl)
+      if (!is.null(keep_fams)) fams_here <- fams_here[fams_here %in% keep_fams]
+      if (length(fams_here) == 0) return(NULL)
+      data.frame(instrument = dev_label, family = fams_here,
+                 count = as.integer(tbl[fams_here]), stringsAsFactors = FALSE)
+    }))
+    if (is.null(rows) || nrow(rows) == 0) return(NULL)
+
+    inst_totals <- tapply(rows$count, rows$instrument, sum)
+    rows$value  <- if (rel_mode) round(rows$count / inst_totals[rows$instrument] * 100, 1)
+                   else rows$count
+    fam_order <- if (sel_fam == "__all_plastics__")
+      intersect(if (!is.null(keep_fams)) keep_fams else sort(unique(rows$family)), unique(rows$family))
+    else sel_fam
+    rows$instrument <- factor(rows$instrument, levels = inst_levels)
+    rows$family     <- factor(rows$family, levels = fam_order)
+
+    y_label   <- if (rel_mode) "Share (%)" else "Particle Count"
+    title_str <- paste0(if (sel_fam == "__all_plastics__") "All Plastics" else sel_fam,
+                        " across instruments", if (use_filt) " (filtered)" else "")
+
+    if (sel_fam == "__all_plastics__") {
+      fam_colors <- .fam_palette[levels(rows$family)]
+      fam_colors[is.na(fam_colors)] <- "#cccccc"
+      names(fam_colors) <- levels(rows$family)
+      ggplot2::ggplot(rows, ggplot2::aes(x = instrument, y = value, fill = family)) +
+        ggplot2::geom_col(width = 0.6) +
+        ggplot2::scale_fill_manual(values = fam_colors, name = "Family") +
+        ggplot2::labs(x = NULL, y = y_label, title = title_str) +
+        ggplot2::theme_minimal(base_size = 14) +
+        ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"))
+    } else {
+      ggplot2::ggplot(rows, ggplot2::aes(x = instrument, y = value, fill = instrument)) +
+        ggplot2::geom_col(width = 0.6) +
+        ggplot2::geom_text(ggplot2::aes(label = value), vjust = -0.3, size = 4.5) +
+        ggplot2::scale_fill_manual(values = device_colors[levels(rows$instrument)], guide = "none") +
+        ggplot2::scale_y_continuous(limits = c(0, max(rows$value, 1) * 1.5)) +
+        ggplot2::labs(x = NULL, y = y_label, title = title_str) +
+        ggplot2::theme_minimal(base_size = 14) +
+        ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"))
+    }
+  })
 
   # Family x device counts. The numbers come from report_plastics_table() in
   # global.R, which the PDF report also uses — the HTML below is presentation
@@ -1148,161 +1226,6 @@ server <- function(input, output, session) {
     } else NULL
     tags$table(class = "hover-tbl", header, body_rows, total_row)
   }) |> bindCache(summary_plastics_df())
-
-  # ------------------------------------------------------------------
-  # Per-instrument pie charts (Summary tab)
-  # ------------------------------------------------------------------
-
-  # Colour palette for material families (consistent across charts)
-  .pie_palette <- c(
-    PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
-    PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
-    PMMA = "#66c2a5", PTFE = "#fc8d62", PES = "#8da0cb",
-    Cellulose = "#bcbd22", Acrylate = "#17becf",
-    ABS = "#e78ac3", Rubber = "#7570b3",
-    Other = "#e5c494"
-  )
-
-  # Build a pie chart from pre-classified data (list with $fam, $cat vectors).
-  # cat_mode: "both" = Synthetic + Semi-synthetic, "synthetic" = Synthetic only
-  make_instrument_pie <- function(classified, title, rel_mode, cat_mode = "both", show_all = FALSE) {
-    if (is.null(classified)) {
-      return(ggplot2::ggplot() +
-               ggplot2::labs(title = title) +
-               ggplot2::theme_void(base_size = 14) +
-               ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")))
-    }
-    fam  <- classified$fam
-    cat  <- classified$cat
-
-    if (show_all) {
-      # Show all particles (keep all categories)
-      keep <- rep(TRUE, length(fam))
-    } else {
-      # Filter to plastics only
-      keep_cats <- if (identical(cat_mode, "synthetic")) "Synthetic"
-                   else c("Synthetic", "Semi-synthetic")
-      keep <- cat %in% keep_cats
-    }
-    fam  <- fam[keep]
-    if (length(fam) == 0) {
-      subtitle <- if (show_all) "No particles" else "No plastic particles"
-      return(ggplot2::ggplot() +
-               ggplot2::labs(title = title, subtitle = subtitle) +
-               ggplot2::theme_void(base_size = 14) +
-               ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")))
-    }
-    tbl <- sort(table(fam), decreasing = TRUE)
-    pie_df <- data.frame(material = names(tbl), count = as.integer(tbl),
-                          stringsAsFactors = FALSE)
-    total  <- sum(pie_df$count)
-    pie_df$pct   <- pie_df$count / total * 100
-    pie_df$label <- if (rel_mode)
-      paste0(round(pie_df$pct, 1), "%")
-    else
-      as.character(pie_df$count)
-
-    # Assign colours; grey for unmapped families
-    fam_colors <- .pie_palette[pie_df$material]
-    fam_colors[is.na(fam_colors)] <- "#cccccc"
-    names(fam_colors) <- pie_df$material
-    pie_df$material <- factor(pie_df$material, levels = pie_df$material)
-
-    # Split into large (label inside) and small (label outside with arrow)
-    # Pre-compute cumulative midpoint for ggrepel (needs explicit y, not position_stack)
-    pie_df$ypos <- cumsum(pie_df$count) - pie_df$count / 2
-    pie_df$is_small <- pie_df$pct < 5
-
-    p <- ggplot2::ggplot(pie_df, ggplot2::aes(x = "", y = count, fill = material)) +
-      ggplot2::geom_col(width = 1, colour = "white", linewidth = 0.4) +
-      ggplot2::coord_polar(theta = "y")
-
-    # Large slices: white centred text inside
-    large_df <- pie_df[!pie_df$is_small, ]
-    if (nrow(large_df) > 0) {
-      p <- p + ggplot2::geom_text(
-        data = large_df,
-        ggplot2::aes(label = label),
-        position = ggplot2::position_stack(vjust = 0.5),
-        size = 4, colour = "white", fontface = "bold",
-        show.legend = FALSE
-      )
-    }
-
-    # Small slices: labels outside with leader lines (ggrepel)
-    # Use pre-computed ypos + nudge_x (cannot combine position + nudge in ggrepel)
-    small_df <- pie_df[pie_df$is_small, ]
-    if (nrow(small_df) > 0) {
-      small_df$outer_label <- paste0(small_df$material, "\n", small_df$label)
-      p <- p + ggrepel::geom_label_repel(
-        data = small_df,
-        ggplot2::aes(x = 1, y = ypos, label = outer_label),
-        nudge_x = 0.5,
-        size = 3, fontface = "bold",
-        segment.color = "grey40", segment.size = 0.4,
-        fill = "white", colour = "grey20",
-        show.legend = FALSE,
-        max.overlaps = 20
-      )
-    }
-
-    subtitle_text <- if (show_all) paste0("n = ", total, " particles") else paste0("n = ", total, " plastic particles")
-    p +
-      ggplot2::scale_fill_manual(values = fam_colors, name = "Material") +
-      ggplot2::labs(title = title,
-                    subtitle = subtitle_text) +
-      ggplot2::theme_void(base_size = 14) +
-      ggplot2::theme(
-        plot.title    = ggplot2::element_text(hjust = 0.5, face = "bold"),
-        plot.subtitle = ggplot2::element_text(hjust = 0.5, colour = "#555555"),
-        legend.position = "right",
-        legend.text     = ggplot2::element_text(size = 10),
-        legend.title    = ggplot2::element_text(size = 11, face = "bold")
-      )
-  }
-
-  # Helper reactive: resolve per-instrument data (filtered or unfiltered)
-  pie_data <- reactive(summary_dfs())
-
-  # Pre-classify materials once per data change — avoids re-running
-  # classify_family_vec / classify_category_vec on every toggle.
-  pie_classified <- reactive({
-    pd <- pie_data()
-    lapply(pd, function(df) {
-      if (is.null(df) || nrow(df) == 0) return(NULL)
-      fam <- classify_family_vec(df$material)
-      cat <- classify_category_vec(fam)
-      list(fam = fam, cat = cat)
-    })
-  })
-
-  # The four pies read pie_classified() + the display-mode inputs,
-  # so those form a complete cache key (revisiting the Summary tab or toggling
-  # back to a prior mode returns the cached bitmap with no ggplot work).
-  output$pie_ftir <- renderPlot({
-    rel <- identical(input$pie_display_mode, "rel")
-    cat_mode <- input$pie_category_mode %||% "both"
-    show_all <- identical(input$pie_materials_mode, "all")
-    make_instrument_pie(pie_classified()$ftir, "FTIR (PerkinElmer)", rel, cat_mode, show_all)
-  }) |> bindCache(pie_classified()$ftir, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
-  output$pie_raman <- renderPlot({
-    rel <- identical(input$pie_display_mode, "rel")
-    cat_mode <- input$pie_category_mode %||% "both"
-    show_all <- identical(input$pie_materials_mode, "all")
-    make_instrument_pie(pie_classified()$raman, "Raman", rel, cat_mode, show_all)
-  }) |> bindCache(pie_classified()$raman, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
-  output$pie_ldir <- renderPlot({
-    rel <- identical(input$pie_display_mode, "rel")
-    cat_mode <- input$pie_category_mode %||% "both"
-    show_all <- identical(input$pie_materials_mode, "all")
-    make_instrument_pie(pie_classified()$ldir, "LDIR", rel, cat_mode, show_all)
-  }) |> bindCache(pie_classified()$ldir, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
-  output$pie_ftir_bruker <- renderPlot({
-    rel <- identical(input$pie_display_mode, "rel")
-    cat_mode <- input$pie_category_mode %||% "both"
-    show_all <- identical(input$pie_materials_mode, "all")
-    make_instrument_pie(pie_classified()$ftir_bruker, "FTIR (Bruker)", rel, cat_mode, show_all)
-  }) |> bindCache(pie_classified()$ftir_bruker, input$pie_display_mode, input$pie_category_mode, input$pie_materials_mode)
 
   # Helper: plot size distribution for one instrument
   plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
@@ -1440,7 +1363,7 @@ server <- function(input, output, session) {
 
     # --- 2. Summary tab content ------------------------------------------
     pages <- c(pages, list(report_figure_page(
-      summary_material_barplot_obj(),
+      summary_material_barplot_gg(),
       paste0("Material Comparison Across Instruments \u2014 ",
              if (identical(input$summary_material_select, "__all_plastics__"))
                "All Plastics (stacked)" else (input$summary_material_select %||% "")),
@@ -1451,24 +1374,6 @@ server <- function(input, output, session) {
       paste0("Material family counts per device. Scope: ", scope,
              ". 'Unknown' families are excluded; the Total row sums the ",
              "families shown."))))
-
-    # Pies: same helper and same display modes as the tab.
-    rel      <- identical(input$pie_display_mode, "rel")
-    cat_mode <- input$pie_category_mode %||% "both"
-    show_all <- identical(input$pie_materials_mode, "all")
-    pc       <- pie_classified()
-    pie_cap  <- paste0(
-      "Scope: ", scope, ". Display: ",
-      if (rel) "relative (%)" else "absolute counts", ". Materials: ",
-      if (show_all) "all particles (incl. non-plastics and unknowns)"
-      else if (identical(cat_mode, "synthetic")) "synthetic plastics only"
-      else "synthetic + semi-synthetic plastics", ".")
-    pages <- c(pages, list(report_grid_page(
-      list(make_instrument_pie(pc$ftir,        "FTIR (PerkinElmer)", rel, cat_mode, show_all),
-           make_instrument_pie(pc$raman,       "Raman",              rel, cat_mode, show_all),
-           make_instrument_pie(pc$ldir,        "LDIR",               rel, cat_mode, show_all),
-           make_instrument_pie(pc$ftir_bruker, "FTIR (Bruker)",      rel, cat_mode, show_all)),
-      "Material Breakdown per Instrument", pie_cap, ncol = 2)))
 
     size_plots <- list()
     if (n_of("ftir") > 0)
