@@ -600,7 +600,12 @@ ui <- fluidPage(
               "Select a material family to compare counts across all instruments."),
             fluidRow(
               column(4, selectInput("summary_material_select", "Material Family",
-                                    choices = c("PE"), selected = "PE")),
+                                    choices = list(
+                                      "Overview" = c("All Plastics (stacked)" = "__all_plastics__"),
+                                      "Plastics" = c("PE"),
+                                      "Non-Plastics" = character(0)
+                                    ),
+                                    selected = "__all_plastics__")),
               column(8, plotOutput("summary_material_barplot", height = "350px"))
             )
           ),
@@ -962,9 +967,18 @@ server <- function(input, output, session) {
     }
     all_mats <- sort(unique(all_mats[!is.na(all_mats) & all_mats != "Other"]))
     if (length(all_mats) == 0) all_mats <- "PE"
-    sel <- if ("PE" %in% all_mats) "PE" else all_mats[1]
+    plastic_fams     <- c(synthetic_families, semi_synthetic_families)
+    plastics_present <- all_mats[all_mats %in% plastic_fams]
+    nonplastics_present <- all_mats[!all_mats %in% plastic_fams]
+    grouped_choices <- list(
+      "Overview"     = c("All Plastics (stacked)" = "__all_plastics__"),
+      "Plastics"     = plastics_present,
+      "Non-Plastics" = nonplastics_present
+    )
+    # Remove empty groups
+    grouped_choices <- grouped_choices[vapply(grouped_choices, length, integer(1)) > 0]
     updateSelectInput(session, "summary_material_select",
-                      choices = all_mats, selected = sel)
+                      choices = grouped_choices, selected = "__all_plastics__")
   })
 
   # ------------------------------------------------------------------
@@ -1014,50 +1028,92 @@ server <- function(input, output, session) {
                        "FTIR (Bruker)" = "#9467bd",
                        "Raman" = "#1f77b4", "LDIR" = "#d62728")
     cts <- active_material_counts()
-    counts <- vapply(names(cts), function(dev_label) {
-      tbl <- cts[[dev_label]]
-      if (is.null(tbl)) return(0L)
-      # table[missing_name] yields a named NA, which %||% does NOT catch — the
-      # bar then dropped out entirely ("Removed n rows ... geom_col") instead
-      # of being drawn as a legitimate zero.
-      v <- tbl[sel_fam]
-      if (length(v) == 0L || is.na(v)) 0L else as.integer(v)
-    }, integer(1))
+    use_filt <- summary_filtered()
 
     # Only show instruments that have data
     has_data <- !vapply(names(cts), function(dev_label) is.null(cts[[dev_label]]),
                         logical(1))
-    counts <- counts[has_data]
-    if (length(counts) == 0) {
+    cts_present <- cts[has_data]
+
+    if (length(cts_present) == 0) {
       plot.new()
       text(0.5, 0.5, "No data available", cex = 1.2, col = "#6c757d")
       return(NULL)
     }
 
-    use_filt <- summary_filtered()
-    bar_df <- data.frame(
-      instrument = factor(names(counts), levels = names(counts)),
-      count = as.integer(counts),
-      stringsAsFactors = FALSE
-    )
-    ggplot2::ggplot(bar_df, ggplot2::aes(x = instrument, y = count, fill = instrument)) +
-      ggplot2::geom_col(width = 0.6) +
-      ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.3, size = 5.2) +
-      ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
-      # max(1, ...) keeps the scale non-degenerate when the family is absent
-      # everywhere; limits = c(0, 0) collapses the panel and grid aborts.
-      ggplot2::scale_y_continuous(limits = c(0, max(counts, 1L) * 1.50)) +
-      ggplot2::labs(x = NULL, y = "Particle Count",
-                    title = paste0(sel_fam, " across instruments",
-                                   if (use_filt) " (filtered)" else "")) +
-      ggplot2::theme_minimal(base_size = 16) +
-      ggplot2::theme(
-        plot.title = ggplot2::element_text(hjust = 0.5, face = "bold",
-                                           margin = ggplot2::margin(b = 14)),
-        plot.margin = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
-        axis.text.x = ggplot2::element_text(size = 14),
-        panel.grid.major.x = ggplot2::element_blank()
+    if (sel_fam == "__all_plastics__") {
+      # Stacked barplot: all plastic families across instruments
+      plastic_fams <- c(synthetic_families, semi_synthetic_families)
+      rows <- do.call(rbind, lapply(names(cts_present), function(dev_label) {
+        tbl <- cts_present[[dev_label]]
+        fams_here <- names(tbl)[names(tbl) %in% plastic_fams]
+        if (length(fams_here) == 0) return(NULL)
+        data.frame(
+          instrument = dev_label,
+          family     = fams_here,
+          count      = as.integer(tbl[fams_here]),
+          stringsAsFactors = FALSE
+        )
+      }))
+      if (is.null(rows) || nrow(rows) == 0) {
+        plot.new()
+        text(0.5, 0.5, "No plastic data available", cex = 1.2, col = "#6c757d")
+        return(NULL)
+      }
+      # Ordered families for consistent legend
+      fam_order <- intersect(plastic_fams, unique(rows$family))
+      rows$instrument <- factor(rows$instrument, levels = names(cts_present))
+      rows$family     <- factor(rows$family, levels = fam_order)
+
+      ggplot2::ggplot(rows, ggplot2::aes(x = instrument, y = count, fill = family)) +
+        ggplot2::geom_col(width = 0.6) +
+        ggplot2::labs(x = NULL, y = "Particle Count", fill = "Family",
+                      title = paste0("All Plastics across instruments",
+                                     if (use_filt) " (filtered)" else "")) +
+        ggplot2::theme_minimal(base_size = 16) +
+        ggplot2::theme(
+          plot.title    = ggplot2::element_text(hjust = 0.5, face = "bold",
+                                                margin = ggplot2::margin(b = 14)),
+          plot.margin   = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
+          axis.text.x   = ggplot2::element_text(size = 14),
+          panel.grid.major.x = ggplot2::element_blank()
+        )
+    } else {
+      counts <- vapply(names(cts), function(dev_label) {
+        tbl <- cts[[dev_label]]
+        if (is.null(tbl)) return(0L)
+        # table[missing_name] yields a named NA, which %||% does NOT catch — the
+        # bar then dropped out entirely ("Removed n rows ... geom_col") instead
+        # of being drawn as a legitimate zero.
+        v <- tbl[sel_fam]
+        if (length(v) == 0L || is.na(v)) 0L else as.integer(v)
+      }, integer(1))
+      counts <- counts[has_data]
+
+      bar_df <- data.frame(
+        instrument = factor(names(counts), levels = names(counts)),
+        count = as.integer(counts),
+        stringsAsFactors = FALSE
       )
+      ggplot2::ggplot(bar_df, ggplot2::aes(x = instrument, y = count, fill = instrument)) +
+        ggplot2::geom_col(width = 0.6) +
+        ggplot2::geom_text(ggplot2::aes(label = count), vjust = -0.3, size = 5.2) +
+        ggplot2::scale_fill_manual(values = device_colors[names(counts)], guide = "none") +
+        # max(1, ...) keeps the scale non-degenerate when the family is absent
+        # everywhere; limits = c(0, 0) collapses the panel and grid aborts.
+        ggplot2::scale_y_continuous(limits = c(0, max(counts, 1L) * 1.50)) +
+        ggplot2::labs(x = NULL, y = "Particle Count",
+                      title = paste0(sel_fam, " across instruments",
+                                     if (use_filt) " (filtered)" else "")) +
+        ggplot2::theme_minimal(base_size = 16) +
+        ggplot2::theme(
+          plot.title = ggplot2::element_text(hjust = 0.5, face = "bold",
+                                             margin = ggplot2::margin(b = 14)),
+          plot.margin = ggplot2::margin(t = 20, r = 10, b = 10, l = 10),
+          axis.text.x = ggplot2::element_text(size = 14),
+          panel.grid.major.x = ggplot2::element_blank()
+        )
+    }
   })
 
   output$summary_material_barplot <- renderPlot(summary_material_barplot_obj())
@@ -1385,7 +1441,8 @@ server <- function(input, output, session) {
     pages <- c(pages, list(report_figure_page(
       summary_material_barplot_obj(),
       paste0("Material Comparison Across Instruments \u2014 ",
-             input$summary_material_select %||% ""),
+             if (identical(input$summary_material_select, "__all_plastics__"))
+               "All Plastics (stacked)" else (input$summary_material_select %||% "")),
       paste0("Scope: ", scope, "."))))
 
     pages <- c(pages, list(report_table_page(
