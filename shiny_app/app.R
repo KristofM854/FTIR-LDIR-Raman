@@ -595,32 +595,35 @@ ui <- fluidPage(
           ),
           hr(),
           div(class = "info-box", style = "margin-top: 20px;",
+            h4("Material Comparison Across Instruments", summary_scope_badge()),
             fluidRow(
-              column(6, h4("Material Comparison Across Instruments", summary_scope_badge())),
-              column(3, radioButtons("summary_bar_display_mode", NULL,
-                                     choices = c("Absolute counts" = "abs",
-                                                 "Relative (%)"    = "rel"),
-                                     selected = "abs", inline = TRUE)),
-              column(3, radioButtons("summary_bar_materials_mode", NULL,
-                                     choices = c("Plastics only" = "plastics",
-                                                 "All particles" = "all"),
-                                     selected = "plastics", inline = TRUE))
-            ),
-            fluidRow(
-              column(4, selectInput("summary_material_select", "Material Family",
-                                    choices = list(
-                                      "Overview" = c("All Plastics (stacked)" = "__all_plastics__"),
-                                      "Plastics" = c("PE"),
-                                      "Non-Plastics" = character(0)
-                                    ),
-                                    selected = "__all_plastics__")),
+              # Dropdown left; toggles stacked in order on the right
+              column(4,
+                selectInput("summary_material_select", "Material Family",
+                            choices = list(
+                              "Overview"     = c("All Plastics (stacked)" = "__all_plastics__"),
+                              "Plastics"     = c("PE"),
+                              "Non-Plastics" = character(0)
+                            ),
+                            selected = "__all_plastics__")),
               column(8,
-                conditionalPanel(
-                  condition = "input.summary_material_select === '__all_plastics__'",
-                  radioButtons("summary_bar_category_mode", "Plastic types:",
-                               choices = c("Synthetic only" = "synthetic",
-                                           "Synth. + Semi-synth." = "both"),
-                               selected = "both", inline = TRUE)))
+                tags$div(style = "font-size: 15px;",
+                  radioButtons("summary_bar_materials_mode", NULL,
+                               choices = c("Plastics only" = "plastics",
+                                           "All particles" = "all"),
+                               selected = "plastics", inline = TRUE),
+                  conditionalPanel(
+                    condition = "input.summary_material_select === '__all_plastics__' && input.summary_bar_materials_mode === 'plastics'",
+                    radioButtons("summary_bar_category_mode", NULL,
+                                 choices = c("Synthetic only"       = "synthetic",
+                                             "Synth. + Semi-synth." = "both"),
+                                 selected = "both", inline = TRUE)),
+                  radioButtons("summary_bar_display_mode", NULL,
+                               choices = c("Absolute counts" = "abs",
+                                           "Relative (%)"    = "rel"),
+                               selected = "abs", inline = TRUE)
+                )
+              )
             ),
             p(class = "text-muted",
               "Hover over bars for exact counts. Click legend entries to show/hide families.",
@@ -1064,15 +1067,20 @@ server <- function(input, output, session) {
       if (sel_fam == "__all_plastics__") "All Plastics" else sel_fam,
       " across instruments", if (use_filt) " (filtered)" else "")
 
-    # Consistent family order for stacking
-    fam_order <- if (sel_fam == "__all_plastics__") {
-      all_fams <- if (!is.null(keep_fams)) keep_fams else sort(unique(rows$family))
-      intersect(all_fams, unique(rows$family))
+    # Family stacking order: largest total first (bottom of stack), smallest last (top).
+    # Computed from the current value column so it respects abs/rel mode.
+    fam_totals <- if (sel_fam == "__all_plastics__") {
+      fams_present <- unique(rows$family)
+      totals <- vapply(fams_present, function(f) sum(rows$value[rows$family == f]), numeric(1))
+      names(totals) <- fams_present
+      # largest at bottom = drawn first in plotly stack
+      sort(totals, decreasing = TRUE)
     } else {
-      sel_fam
+      setNames(sum(rows$value), sel_fam)
     }
+    fam_order <- names(fam_totals)
 
-    # Colour palette: use device colours for single-family, family palette for stacked
+    # Colour palette: family colours for stacked, device colours for single-family
     .fam_palette <- c(
       PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
       PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
@@ -1083,36 +1091,42 @@ server <- function(input, output, session) {
     p <- plotly::plot_ly()
     for (fam in fam_order) {
       sub <- rows[rows$family == fam, ]
-      # Align to all instruments so bars are always in the same position
+      # Align to all instruments so every trace spans the same x positions
       sub_aligned <- data.frame(instrument = inst_levels, stringsAsFactors = FALSE)
       sub_aligned <- merge(sub_aligned, sub, by = "instrument", all.x = TRUE)
-      sub_aligned$value[is.na(sub_aligned$value)] <- 0
+      sub_aligned$value[is.na(sub_aligned$value)]     <- 0
       sub_aligned$tooltip[is.na(sub_aligned$tooltip)] <- paste0(fam, ": 0")
-      bar_color <- if (sel_fam == "__all_plastics__")
-        .fam_palette[fam] %||% "#cccccc"
-      else
-        device_colors[sub_aligned$instrument]
+      # Show label only when segment is large enough to be readable
+      bar_label <- ifelse(sub_aligned$value > 0, as.character(sub_aligned$value), "")
 
       p <- plotly::add_trace(p,
-        x = sub_aligned$instrument,
-        y = sub_aligned$value,
-        type  = "bar",
-        name  = fam,
-        text  = sub_aligned$tooltip,
-        hoverinfo = "text",
-        marker = list(color = if (sel_fam == "__all_plastics__") (.fam_palette[fam] %||% "#cccccc")
-                               else unname(device_colors[sub_aligned$instrument]))
+        x             = sub_aligned$instrument,
+        y             = sub_aligned$value,
+        type          = "bar",
+        name          = fam,
+        text          = bar_label,
+        textposition  = "inside",
+        insidetextanchor = "middle",
+        textfont      = list(size = 13, color = "white"),
+        hovertext     = sub_aligned$tooltip,
+        hoverinfo     = "text",
+        marker        = list(color = if (sel_fam == "__all_plastics__")
+                               (.fam_palette[fam] %||% "#cccccc")
+                             else unname(device_colors[sub_aligned$instrument]))
       )
     }
 
     plotly::layout(p,
       barmode = if (sel_fam == "__all_plastics__") "stack" else "group",
       title   = list(text = title_str, x = 0.5, xanchor = "center",
-                     font = list(size = 16)),
-      xaxis   = list(title = "", tickfont = list(size = 13)),
-      yaxis   = list(title = y_label, tickfont = list(size = 12)),
-      legend  = list(title = list(text = "Family")),
-      margin  = list(t = 60, r = 20, b = 40, l = 60)
+                     font = list(size = 17)),
+      xaxis   = list(title = "", tickfont = list(size = 14)),
+      yaxis   = list(title = y_label,
+                     titlefont = list(size = 14), tickfont = list(size = 13)),
+      legend  = list(title  = list(text = "<b>Family</b>", font = list(size = 14)),
+                     font   = list(size = 13)),
+      margin  = list(t = 65, r = 20, b = 50, l = 65),
+      uniformtext = list(minsize = 10, mode = "hide")
     )
   })
 
