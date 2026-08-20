@@ -1782,6 +1782,36 @@ report_figure_page <- function(plot, title, caption = NULL) {
       plot.background = ggplot2::element_rect(fill = "white", colour = NA))
 }
 
+# A full-bleed figure page: title and optional caption are grobs outside the
+# plot area so the ggplot fills the remaining space without title/margin waste.
+# Use this for the barplot and any chart that is clipped by report_figure_page.
+report_full_figure_page <- function(plot, title, caption = NULL) {
+  if (is.null(plot)) return(NULL)
+  # Strip the plot's own title so we don't double-render it
+  plot <- plot + ggplot2::labs(title = NULL, subtitle = NULL) +
+    ggplot2::theme(plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+                   plot.margin = ggplot2::margin(4, 6, 4, 6))
+
+  title_g <- grid::textGrob(title, x = 0, hjust = 0,
+                             gp = grid::gpar(fontsize = 15, fontface = "bold"))
+  cap_g   <- if (!is.null(caption) && any(nzchar(caption)))
+    grid::textGrob(paste(.report_wrap(caption, 140), collapse = "\n"),
+                   x = 0, hjust = 0,
+                   gp = grid::gpar(fontsize = 8.5, col = "grey35")) else NULL
+
+  parts   <- list(title_g, plot)
+  heights <- list(grid::unit(1.6, "lines"), grid::unit(1, "null"))
+  if (!is.null(cap_g)) {
+    parts   <- c(parts, list(cap_g))
+    heights <- c(heights, list(grid::unit(1.8, "lines")))
+  }
+  gridExtra::arrangeGrob(
+    grobs = parts, ncol = 1,
+    heights = do.call(grid::unit.c, heights),
+    vp = grid::viewport(width  = grid::unit(1, "npc") - grid::unit(1.2, "cm"),
+                        height = grid::unit(1, "npc") - grid::unit(1.2, "cm")))
+}
+
 # Arrange several plots on one page (used for the pies and size histograms).
 report_grid_page <- function(plots, title, caption = NULL, ncol = 2) {
   plots <- Filter(Negate(is.null), plots)
