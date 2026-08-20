@@ -1116,7 +1116,8 @@ server <- function(input, output, session) {
     }
   })
 
-  output$summary_material_barplot <- renderPlot(summary_material_barplot_obj())
+  output$summary_material_barplot <- renderPlot(summary_material_barplot_obj()) |>
+    bindCache(active_material_counts(), input$summary_material_select)
 
   # Family x device counts. The numbers come from report_plastics_table() in
   # global.R, which the PDF report also uses — the HTML below is presentation
@@ -1146,7 +1147,7 @@ server <- function(input, output, session) {
               lapply(dev_names, function(dv) tags$td(tags$b(as.character(tbl[[dv]][i])))))
     } else NULL
     tags$table(class = "hover-tbl", header, body_rows, total_row)
-  })
+  }) |> bindCache(summary_plastics_df())
 
   # ------------------------------------------------------------------
   # Per-instrument pie charts (Summary tab)
@@ -1325,7 +1326,7 @@ server <- function(input, output, session) {
                                    size = 4, colour = "grey50") + theme_void())
     }
     plot_size_distribution(df, "FTIR (PerkinElmer)")
-  })
+  }) |> bindCache(summary_dfs()$ftir)
 
   output$size_hist_raman <- renderPlot({
     df <- summary_dfs()$raman
@@ -1334,7 +1335,7 @@ server <- function(input, output, session) {
                                    size = 4, colour = "grey50") + theme_void())
     }
     plot_size_distribution(df, "Raman", color_matched = "#1f77b4")
-  })
+  }) |> bindCache(summary_dfs()$raman)
 
   output$size_hist_ldir <- renderPlot({
     df <- summary_dfs()$ldir
@@ -1343,7 +1344,7 @@ server <- function(input, output, session) {
                                    size = 4, colour = "grey50") + theme_void())
     }
     plot_size_distribution(df, "LDIR", color_matched = "#ff7f0e")
-  })
+  }) |> bindCache(summary_dfs()$ldir)
 
   # Size statistics table
   # Per-instrument size statistics. Values come from report_size_stats_table()
@@ -1363,7 +1364,7 @@ server <- function(input, output, session) {
     tags$table(class = "table table-condensed",
       tags$thead(tags$tr(lapply(cols, tags$th))),
       tags$tbody(rows))
-  })
+  }) |> bindCache(summary_size_stats_df())
 
   # ==================================================================
   # PDF REPORT
