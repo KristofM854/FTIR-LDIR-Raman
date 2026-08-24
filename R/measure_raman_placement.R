@@ -30,7 +30,11 @@
 #'
 #' @param lum    Numeric matrix [H, W] of image luminance in [0,1]
 #' @param x,y    Particle stage coordinates (µm); non-finite entries ignored
-#' @param W,H    WITec panel Width/Height (µm) — the scale-search seed
+#' @param W,H    WITec panel Width/Height (µm) — the scale-search seed ONLY.
+#'   Optional: pass NULL (the default) and the seed is derived from the
+#'   particle bounding box and the image's own aspect ratio. These are
+#'   per-dataset operator-entered values, so requiring them meant the
+#'   auto-calibration did not run on precisely the runs that needed it.
 #' @param min_frac Absolute bright-fraction floor. Kept for callers that want
 #'   to disable gating entirely (pass a negative value); the real acceptance
 #'   test is \code{min_lift} below, because the raw fraction is not comparable
@@ -57,14 +61,26 @@
 #' particles do not span the whole micrograph.  The fix: refine on a moderate
 #' mask and accept on lift over that mask's own baseline, which is stable
 #' across images with different blob densities.
-measure_raman_placement_core <- function(lum, x, y, W, H,
+measure_raman_placement_core <- function(lum, x, y, W = NULL, H = NULL,
                                          min_frac = -1, min_lift = 0.35) {
   ok <- is.finite(x) & is.finite(y)
   x <- x[ok]; y <- y[ok]
   n_total <- length(x)
-  if (n_total < 4 || is.null(dim(lum)) || W <= 0 || H <= 0) return(NULL)
+  if (n_total < 4 || is.null(dim(lum))) return(NULL)
 
   Hpx <- nrow(lum); Wpx <- ncol(lum)
+
+  # Seed the scale search. W/H only set the *starting* footprint — the search
+  # spans 0.3-2.4x it — so when the operator has not entered the WITec panel
+  # values we can derive an equally good seed from the data: a box that just
+  # covers the particles, shaped to the image's own pixel aspect ratio.
+  .aspect <- Wpx / Hpx
+  if (is.null(W) || is.null(H) || !is.finite(W) || !is.finite(H) ||
+      W <= 0 || H <= 0) {
+    .sx <- diff(range(x)); .sy <- diff(range(y))
+    W <- max(.sx, .sy * .aspect, 1)
+    H <- W / .aspect
+  }
   r_coarse   <- max(4L, as.integer(ceiling(min(Hpx, Wpx) / 60)))
   lum_coarse <- .mrp_dilate(lum, r_coarse)
   # Refinement mask: tight enough to localise (a big radius flattens the score
@@ -187,14 +203,16 @@ read_image_luminance <- function(path) {
 #'
 #' @param image_path Path to the Raman micrograph (canonical PNG preferred)
 #' @param x,y Raman particle stage coordinates (µm)
-#' @param W,H WITec panel Width/Height (µm)
+#' @param W,H WITec panel Width/Height (µm); NULL to seed from the particles
 #' @param min_frac Absolute bright-fraction floor (negative = disabled)
 #' @param min_lift Minimum lift over the scoring mask's random baseline
 #' @return same as measure_raman_placement_core(), or NULL
-measure_raman_image_placement <- function(image_path, x, y, W, H,
+measure_raman_image_placement <- function(image_path, x, y, W = NULL, H = NULL,
                                           min_frac = -1, min_lift = 0.35) {
-  if (is.null(W) || is.null(H) || !is.numeric(W) || !is.numeric(H) ||
-      W <= 0 || H <= 0) return(NULL)
+  # A missing or nonsensical W/H is not fatal any more — the core derives a
+  # seed from the particle bounding box instead of refusing to measure.
+  if (!is.null(W) && (!is.numeric(W) || !is.finite(W) || W <= 0)) W <- NULL
+  if (!is.null(H) && (!is.numeric(H) || !is.finite(H) || H <= 0)) H <- NULL
   lum <- read_image_luminance(image_path)
   if (is.null(lum)) return(NULL)
   measure_raman_placement_core(lum, x, y, W, H,

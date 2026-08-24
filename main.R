@@ -328,9 +328,14 @@ write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.na
 # the run manifest's config_snapshot so the viewer places the image exactly —
 # no per-run tools/diagnose_raman_placement.R --apply needed.  The config
 # values stay as the scale-search seed; a weak fit leaves them untouched.
-if (!is.null(.raman_image_info) &&
-    !is.null(config$raman_image_width_um) &&
-    !is.null(config$raman_image_height_um)) {
+# NOTE: this deliberately does NOT require config$raman_image_width_um /
+# _height_um. Those are per-dataset values the operator copies out of WITec,
+# and they are only the scale-search SEED — the search spans 0.3-2.4x it and
+# derives its own seed from the particle bbox when they are absent. Gating on
+# them meant the auto-calibration skipped exactly the runs that needed it:
+# a new dataset with no WITec values entered fell straight through to
+# particle-bbox placement, which is visibly offset on sparse scans.
+if (!is.null(.raman_image_info)) {
   .raman_cal_img <- if (!is.null(.raman_image_info$canonical_path) &&
                         file.exists(.raman_image_info$canonical_path))
     .raman_image_info$canonical_path else config$raman_image
