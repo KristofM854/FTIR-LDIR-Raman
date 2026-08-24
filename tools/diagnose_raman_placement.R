@@ -172,10 +172,12 @@ analyze_image <- function(img_path, which_img) {
 
   # --- Free registration: coarse-to-fine scale + translation search ---
   # Delegates to the shared core (R/measure_raman_placement.R) so the tool
-  # and the pipeline's auto-calibration measure identically.  min_frac=-1
-  # forces a result even for weak fits so the tool can report them.
+  # and the pipeline's auto-calibration measure identically.  Both gates are
+  # disabled here so the tool reports weak fits instead of returning NULL —
+  # seeing the weak numbers is the point of running the diagnostic.
   cat("\n=== Free scale + translation search ===\n")
-  core <- measure_raman_placement_core(lum, x, y, W, H, min_frac = -1)
+  core <- measure_raman_placement_core(lum, x, y, W, H,
+                                       min_frac = -1, min_lift = -1)
   best <- list(frac_bright = core$frac_bright, flip_h = core$flip_h,
                flip_v = core$flip_v, scale = core$scale,
                cx = core$center_x_um, cy = core$center_y_um)
