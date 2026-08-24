@@ -587,7 +587,10 @@ ui <- fluidPage(
                           placeholder = "e.g. J. Smith")),
               column(3, style = "padding-top: 25px;",
                 downloadButton("download_report", "Download PDF report",
-                               class = "btn-primary")),
+                               class = "btn-primary"),
+                tags$span(style = "display:inline-block;width:8px;"),
+                downloadButton("download_report_html", "Download HTML report",
+                               class = "btn-default")),
               column(5, p(class = "text-muted", style = "margin-top: 26px;",
                 "One multi-page PDF containing everything on this tab plus each ",
                 "instrument view with its image and points, and the Overlay. ",
@@ -1473,6 +1476,25 @@ server <- function(input, output, session) {
     Filter(Negate(is.null), pages)
   }
 
+  # Helper: derive the reports/ save folder (project root next to shiny_app/).
+  .reports_dir <- function() {
+    root <- tryCatch(normalizePath(file.path(dirname(getwd()), "reports")),
+                     error = function(e) file.path(getwd(), "reports"))
+    # If the app is launched from the project root, getwd() already is the root.
+    # Fall back: look for shiny_app/ as a sibling of the working directory.
+    if (!dir.exists(dirname(root)))
+      root <- file.path(getwd(), "reports")
+    root
+  }
+
+  .save_to_reports <- function(src, filename) {
+    rdir <- .reports_dir()
+    dir.create(rdir, showWarnings = FALSE, recursive = TRUE)
+    dest <- file.path(rdir, filename)
+    tryCatch(file.copy(src, dest, overwrite = TRUE),
+             error = function(e) message("[report] auto-save failed: ", e$message))
+  }
+
   output$download_report <- downloadHandler(
     filename = function() {
       run <- if (!is.null(uploaded_data())) "uploaded"
@@ -1482,8 +1504,12 @@ server <- function(input, output, session) {
     },
     contentType = "application/pdf",
     content = function(file) {
-      # A report is worth a progress bar: the instrument pages re-render their
-      # ggplots, which on a large run takes a few seconds.
+      fn <- isolate({
+        run <- if (!is.null(uploaded_data())) "uploaded"
+               else basename(selected_run_dir() %||% "run")
+        paste0("particle_report_", run, "_",
+               format(Sys.time(), "%Y%m%d_%H%M%S"), ".pdf")
+      })
       withProgress(message = "Building PDF report", value = 0, {
         incProgress(0.15, detail = "Collecting figures and tables")
         pages <- tryCatch(report_pages(), error = function(e) {
@@ -1495,6 +1521,54 @@ server <- function(input, output, session) {
         write_report_pdf(pages, file)
         incProgress(0.30, detail = "Done")
       })
+      .save_to_reports(file, fn)
+    }
+  )
+
+  output$download_report_html <- downloadHandler(
+    filename = function() {
+      run <- if (!is.null(uploaded_data())) "uploaded"
+             else basename(selected_run_dir() %||% "run")
+      paste0("particle_report_", run, "_",
+             format(Sys.time(), "%Y%m%d_%H%M%S"), ".html")
+    },
+    contentType = "text/html",
+    content = function(file) {
+      fn <- isolate({
+        run <- if (!is.null(uploaded_data())) "uploaded"
+               else basename(selected_run_dir() %||% "run")
+        paste0("particle_report_", run, "_",
+               format(Sys.time(), "%Y%m%d_%H%M%S"), ".html")
+      })
+      withProgress(message = "Building HTML report", value = 0, {
+        incProgress(0.10, detail = "Collecting figures and tables")
+        pages <- tryCatch(report_pages(), error = function(e) {
+          list(report_text_page("Report failed",
+               c("The report could not be assembled.", "",
+                 paste0("Error: ", conditionMessage(e)))))
+        })
+        incProgress(0.35, detail = "Building interactive chart")
+        # Build device_counts for the standalone plotly builder
+        d      <- summary_dfs()
+        dcounts <- lapply(
+          setNames(nm = names(SUMMARY_DEVICES)),
+          function(lbl) {
+            x <- d[[SUMMARY_DEVICES[[lbl]]]]
+            if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x))
+              return(NULL)
+            table(classify_family_vec(x$material))
+          }
+        )
+        plotly_fig <- tryCatch(
+          build_plotly_barplot(dcounts),
+          error = function(e) { message("[report] plotly build failed: ", e$message); NULL }
+        )
+        incProgress(0.40, detail = paste0("Rendering ", length(pages), " pages"))
+        write_report_html(pages, file, plotly_fig = plotly_fig,
+                          plotly_insert_after = 2L)
+        incProgress(0.15, detail = "Done")
+      })
+      .save_to_reports(file, fn)
     }
   )
 
