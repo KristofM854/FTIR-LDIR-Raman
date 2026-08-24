@@ -448,7 +448,7 @@ ui <- fluidPage(
           # --- FT-IR SECTION ---
           h4("FT-IR", style = "color: #2ca02c; margin-bottom: 4px;"),
           sliderInput("overlay_ftir_quality", "AAU Quality",
-                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+                      min = 0, max = 1, value = c(0.7, 1), step = 0.01),
           sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
                       min = 0, max = 800, value = c(0, 800), step = 5),
           material_filter_ui("overlay_ftir_material", "Materials"),
@@ -467,7 +467,7 @@ ui <- fluidPage(
           # --- RAMAN SECTION ---
           h4("Raman", style = "color: #1f77b4; margin-bottom: 4px;"),
           sliderInput("overlay_raman_quality", "HQI",
-                      min = 0, max = 100, value = c(0, 100), step = 1),
+                      min = 0, max = 100, value = c(70, 100), step = 1),
           sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
           material_filter_ui("overlay_raman_material", "Materials"),
@@ -492,7 +492,7 @@ ui <- fluidPage(
           sliderInput("overlay_ldir_dist_gate", "Match Gate (µm, LDIR↔Raman)",
                       min = 0, max = 500, value = 250, step = 5),
           sliderInput("overlay_ldir_quality", "Quality",
-                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+                      min = 0, max = 1, value = c(0.8, 1), step = 0.01),
           sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
                       min = 0, max = 1200, value = c(0, 1200), step = 5),
           material_filter_ui("overlay_ldir_material", "Materials"),
@@ -511,7 +511,7 @@ ui <- fluidPage(
           # --- FTIR BRUKER SECTION ---
           h4("FT-IR (Bruker)", style = "color: #9467bd; margin-bottom: 4px;"),
           sliderInput("overlay_ftir_bruker_quality", "AAU Quality",
-                      min = 0, max = 1, value = c(0, 1), step = 0.01),
+                      min = 0, max = 1, value = c(0.7, 1), step = 0.01),
           sliderInput("overlay_ftir_bruker_size", "Feret Max (\u00b5m)",
                       min = 0, max = 800, value = c(0, 800), step = 5),
           material_filter_ui("overlay_ftir_bruker_material", "Materials"),
