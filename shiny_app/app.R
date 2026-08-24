@@ -586,17 +586,13 @@ ui <- fluidPage(
                 textInput("report_analyst_name", "Analyst name (optional)",
                           placeholder = "e.g. J. Smith")),
               column(3, style = "padding-top: 25px;",
-                downloadButton("download_report", "Download PDF report",
-                               class = "btn-primary"),
-                tags$span(style = "display:inline-block;width:8px;"),
-                downloadButton("download_report_html", "Download HTML report",
-                               class = "btn-default")),
+                downloadButton("download_report", "Download report",
+                               class = "btn-primary")),
               column(5, p(class = "text-muted", style = "margin-top: 26px;",
-                "One multi-page PDF containing everything on this tab plus each ",
-                "instrument view with its image and points, and the Overlay. ",
-                "The report is a snapshot of what the viewer is showing right ",
-                "now — the scope above, and the filters set on each instrument ",
-                "tab — and every figure caption records the filters behind it."))
+                "Downloads a ZIP containing a PDF and an interactive HTML report. ",
+                "Both reproduce the viewer exactly as it is right now — the scope ",
+                "above and the filters on each tab. The HTML includes the interactive ",
+                "material bar chart; the PDF is suitable for printing and archiving."))
             )
           ),
           hr(),
@@ -1500,62 +1496,32 @@ server <- function(input, output, session) {
       run <- if (!is.null(uploaded_data())) "uploaded"
              else basename(selected_run_dir() %||% "run")
       paste0("particle_report_", run, "_",
-             format(Sys.time(), "%Y%m%d_%H%M%S"), ".pdf")
+             format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip")
     },
-    contentType = "application/pdf",
+    contentType = "application/zip",
     content = function(file) {
-      fn <- isolate({
+      stem <- isolate({
         run <- if (!is.null(uploaded_data())) "uploaded"
                else basename(selected_run_dir() %||% "run")
         paste0("particle_report_", run, "_",
-               format(Sys.time(), "%Y%m%d_%H%M%S"), ".pdf")
+               format(Sys.time(), "%Y%m%d_%H%M%S"))
       })
-      withProgress(message = "Building PDF report", value = 0, {
-        incProgress(0.15, detail = "Collecting figures and tables")
-        pages <- tryCatch(report_pages(), error = function(e) {
-          list(report_text_page("Report failed",
-               c("The report could not be assembled.", "",
-                 paste0("Error: ", conditionMessage(e)))))
-        })
-        incProgress(0.55, detail = paste0("Writing ", length(pages), " pages"))
-        write_report_pdf(pages, file)
-        incProgress(0.30, detail = "Done")
-      })
-      .save_to_reports(file, fn)
-    }
-  )
 
-  output$download_report_html <- downloadHandler(
-    filename = function() {
-      run <- if (!is.null(uploaded_data())) "uploaded"
-             else basename(selected_run_dir() %||% "run")
-      paste0("particle_report_", run, "_",
-             format(Sys.time(), "%Y%m%d_%H%M%S"), ".html")
-    },
-    contentType = "text/html",
-    content = function(file) {
-      fn <- isolate({
-        run <- if (!is.null(uploaded_data())) "uploaded"
-               else basename(selected_run_dir() %||% "run")
-        paste0("particle_report_", run, "_",
-               format(Sys.time(), "%Y%m%d_%H%M%S"), ".html")
-      })
-      withProgress(message = "Building HTML report", value = 0, {
+      withProgress(message = "Building report", value = 0, {
         incProgress(0.10, detail = "Collecting figures and tables")
         pages <- tryCatch(report_pages(), error = function(e) {
           list(report_text_page("Report failed",
                c("The report could not be assembled.", "",
                  paste0("Error: ", conditionMessage(e)))))
         })
-        incProgress(0.35, detail = "Building interactive chart")
-        # Build device_counts for the standalone plotly builder
-        d      <- summary_dfs()
+
+        incProgress(0.10, detail = "Building interactive chart")
+        d       <- summary_dfs()
         dcounts <- lapply(
           setNames(nm = names(SUMMARY_DEVICES)),
           function(lbl) {
             x <- d[[SUMMARY_DEVICES[[lbl]]]]
-            if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x))
-              return(NULL)
+            if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x)) return(NULL)
             table(classify_family_vec(x$material))
           }
         )
@@ -1563,12 +1529,28 @@ server <- function(input, output, session) {
           build_plotly_barplot(dcounts),
           error = function(e) { message("[report] plotly build failed: ", e$message); NULL }
         )
-        incProgress(0.40, detail = paste0("Rendering ", length(pages), " pages"))
-        write_report_html(pages, file, plotly_fig = plotly_fig,
+
+        tmp_dir  <- tempfile()
+        dir.create(tmp_dir)
+        pdf_name <- paste0(stem, ".pdf")
+        html_name <- paste0(stem, ".html")
+        pdf_path  <- file.path(tmp_dir, pdf_name)
+        html_path <- file.path(tmp_dir, html_name)
+
+        incProgress(0.35, detail = paste0("Writing PDF (", length(pages), " pages)"))
+        write_report_pdf(pages, pdf_path)
+
+        incProgress(0.35, detail = "Rendering HTML")
+        write_report_html(pages, html_path, plotly_fig = plotly_fig,
                           plotly_insert_after = 2L)
-        incProgress(0.15, detail = "Done")
+
+        incProgress(0.05, detail = "Packaging ZIP")
+        zip(file, files = c(pdf_path, html_path), flags = "-j")
+
+        .save_to_reports(pdf_path,  pdf_name)
+        .save_to_reports(html_path, html_name)
+        incProgress(0.05, detail = "Done")
       })
-      .save_to_reports(file, fn)
     }
   )
 
