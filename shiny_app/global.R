@@ -32,13 +32,27 @@ options(shiny.maxRequestSize = 50 * 1024^2)   # 50 MB
 # membrane/micrograph while keeping annotation_raster() rendering fast.
 BG_IMAGE_MAX_DIM <- 2000L
 
+# Locate the pipeline's R/ directory. global.R is sourced from two very
+# different working directories: the Shiny app runs with getwd() == shiny_app/
+# (so R/ is at ../R), while main.R sources this file from the project root
+# (so R/ is at ./R). Hard-coding "../R" broke report generation in the
+# pipeline with "cannot open the connection". Resolve it instead of assuming.
+.pipeline_r_dir <- local({
+  cands <- c(file.path("..", "R"), "R",
+             file.path("..", "..", "R"))
+  hit <- Filter(function(d) file.exists(file.path(d, "08b_material_map.R")), cands)
+  if (length(hit) == 0)
+    stop("global.R: cannot locate the pipeline R/ directory from ", getwd())
+  hit[[1]]
+})
+
 # Source canonical material classification from pipeline
 # (classify_family_vec, classify_category, classify_category_vec, etc.)
-source(file.path("..", "R", "08b_material_map.R"), local = TRUE)
+source(file.path(.pipeline_r_dir, "08b_material_map.R"), local = TRUE)
 
 # Dependency-free BMP reader (read_bmp_raster) — lets load_image_raster()
 # handle instrument BMP exports even when magick is not installed.
-source(file.path("..", "R", "read_bmp.R"), local = TRUE)
+source(file.path(.pipeline_r_dir, "read_bmp.R"), local = TRUE)
 
 # ---------------------------------------------------------------------------
 # List ALL available runs in the output directory (newest first).
