@@ -1870,3 +1870,256 @@ write_report_pdf <- function(pages, path, width = 11, height = 8.5) {
   }
   n
 }
+
+# ---------------------------------------------------------------------------
+# Standalone plotly barplot builder (non-reactive; used by write_report_html
+# and by main.R so the interactive chart is reproducible outside Shiny).
+#
+# device_counts : named list, device_label -> named integer table of families
+#                 (NULL entries are skipped). Mirrors active_material_counts().
+# sel_fam       : "__all_plastics__" or a single family name.
+# rel_mode      : if TRUE, show share (%) instead of counts.
+# show_all      : if TRUE, include non-plastic families; otherwise only plastics.
+# cat_mode      : "synthetic", "semi", or "both" (only used when !show_all).
+# ---------------------------------------------------------------------------
+build_plotly_barplot <- function(device_counts,
+                                 sel_fam  = "__all_plastics__",
+                                 rel_mode = FALSE,
+                                 show_all = TRUE,
+                                 cat_mode = "both") {
+  if (!requireNamespace("plotly", quietly = TRUE))
+    stop("plotly is required for build_plotly_barplot()")
+
+  device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
+                     "Raman" = "#1f77b4", "LDIR" = "#d62728")
+  .fam_palette  <- c(
+    PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
+    PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
+    PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
+    Cellulose = "#bcbd22", Acrylate = "#17becf", Other = "#e5c494"
+  )
+
+  cts <- device_counts
+  has_data    <- vapply(names(cts), function(l) !is.null(cts[[l]]), logical(1))
+  cts_present <- cts[has_data]
+  inst_levels <- names(cts_present)
+
+  if (length(cts_present) == 0)
+    return(plotly::plot_ly() |>
+             plotly::layout(title = "No data available",
+                            xaxis = list(visible = FALSE),
+                            yaxis = list(visible = FALSE)))
+
+  plastic_fams       <- c(synthetic_families, semi_synthetic_families)
+  if (sel_fam == "__all_plastics__") {
+    keep_fams <- if (show_all) NULL
+                 else if (identical(cat_mode, "synthetic")) synthetic_families
+                 else plastic_fams
+  } else {
+    keep_fams <- sel_fam
+  }
+
+  rows <- do.call(rbind, lapply(inst_levels, function(dev_label) {
+    tbl       <- cts_present[[dev_label]]
+    fams_here <- names(tbl)
+    if (!is.null(keep_fams)) fams_here <- fams_here[fams_here %in% keep_fams]
+    if (length(fams_here) == 0) return(NULL)
+    data.frame(instrument = dev_label, family = fams_here,
+               count = as.integer(tbl[fams_here]), stringsAsFactors = FALSE)
+  }))
+
+  if (is.null(rows) || nrow(rows) == 0)
+    return(plotly::plot_ly() |>
+             plotly::layout(title = "No matching data",
+                            xaxis = list(visible = FALSE),
+                            yaxis = list(visible = FALSE)))
+
+  inst_totals  <- tapply(rows$count, rows$instrument, sum)
+  rows$value   <- if (rel_mode)
+    round(rows$count / inst_totals[rows$instrument] * 100, 1)
+  else
+    rows$count
+  rows$tooltip <- if (rel_mode)
+    paste0(rows$family, ": ", rows$value, "% (n=", rows$count, ")")
+  else
+    paste0(rows$family, ": ", rows$value)
+
+  y_label    <- if (rel_mode) "Share (%)" else "Particle Count"
+  title_str  <- paste0(if (sel_fam == "__all_plastics__") "All Plastics" else sel_fam,
+                       " across instruments")
+
+  fam_totals <- if (sel_fam == "__all_plastics__") {
+    fams_present <- unique(rows$family)
+    totals       <- vapply(fams_present, function(f) sum(rows$value[rows$family == f]), numeric(1))
+    names(totals) <- fams_present
+    sort(totals, decreasing = TRUE)
+  } else {
+    setNames(sum(rows$value), sel_fam)
+  }
+  fam_order <- names(fam_totals)
+
+  p <- plotly::plot_ly()
+  for (fam in fam_order) {
+    sub         <- rows[rows$family == fam, ]
+    sub_aligned <- data.frame(instrument = inst_levels, stringsAsFactors = FALSE)
+    sub_aligned <- merge(sub_aligned, sub, by = "instrument", all.x = TRUE)
+    sub_aligned$value[is.na(sub_aligned$value)]     <- 0
+    sub_aligned$tooltip[is.na(sub_aligned$tooltip)] <- paste0(fam, ": 0")
+    bar_label <- ifelse(sub_aligned$value > 0, as.character(sub_aligned$value), "")
+
+    p <- plotly::add_trace(p,
+      x                = sub_aligned$instrument,
+      y                = sub_aligned$value,
+      type             = "bar",
+      name             = fam,
+      text             = bar_label,
+      textposition     = "inside",
+      insidetextanchor = "middle",
+      textfont         = list(size = 13, color = "white"),
+      hovertext        = sub_aligned$tooltip,
+      hoverinfo        = "text",
+      marker           = list(color = if (sel_fam == "__all_plastics__")
+                                (.fam_palette[fam] %||% "#cccccc")
+                              else unname(device_colors[sub_aligned$instrument]))
+    )
+  }
+
+  plotly::layout(p,
+    barmode = if (sel_fam == "__all_plastics__") "stack" else "group",
+    title   = list(text = title_str, x = 0.5, xanchor = "center",
+                   font = list(size = 17)),
+    xaxis   = list(title = "", tickfont = list(size = 14)),
+    yaxis   = list(title = y_label,
+                   titlefont = list(size = 14), tickfont = list(size = 13)),
+    legend  = list(title = list(text = "<b>Family</b>", font = list(size = 14)),
+                   font  = list(size = 13)),
+    margin      = list(t = 65, r = 20, b = 50, l = 65),
+    uniformtext = list(minsize = 10, mode = "hide")
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Write a self-contained HTML report from the same `pages` list used by
+# write_report_pdf().  Each page is rendered to a PNG and embedded as a
+# base64 data URI so the file has no external dependencies except for the
+# plotly.js CDN link used by the optional interactive chart.
+#
+# pages              : list of ggplot / grob objects (NULLs are skipped).
+# path               : destination .html file path.
+# plotly_fig         : optional plotly object inserted after page
+#                      `plotly_insert_after`.
+# plotly_insert_after: page index after which to inject the plotly widget
+#                      (default 2 = after the static barplot page).
+# width / height     : PNG dimensions in inches (matches PDF defaults).
+# ---------------------------------------------------------------------------
+write_report_html <- function(pages, path,
+                              plotly_fig         = NULL,
+                              plotly_insert_after = 2L,
+                              width = 11, height = 8.5) {
+
+  pages <- Filter(Negate(is.null), pages)
+  if (length(pages) == 0)
+    pages <- list(report_text_page("Report",
+      "Nothing to report — no data is loaded in the viewer."))
+
+  # --- Render each page to a base64-encoded PNG ----------------------------
+  encode_page <- function(pg, w = width, h = height) {
+    tmp <- tempfile(fileext = ".png")
+    on.exit(unlink(tmp), add = TRUE)
+    grDevices::png(tmp, width = w, height = h, units = "in", res = 144)
+    ok <- tryCatch({
+      if (inherits(pg, "ggplot")) print(pg)
+      else { grid::grid.newpage(); grid::grid.draw(pg) }
+      TRUE
+    }, error = function(e) FALSE)
+    grDevices::dev.off()
+    if (!ok) return(NULL)
+    paste0("data:image/png;base64,", base64enc::base64encode(tmp))
+  }
+
+  page_uris <- lapply(pages, encode_page)
+
+  # --- Build plotly HTML snippet -------------------------------------------
+  plotly_html <- ""
+  if (!is.null(plotly_fig) &&
+      requireNamespace("plotly",   quietly = TRUE) &&
+      requireNamespace("jsonlite", quietly = TRUE)) {
+    built    <- plotly::plotly_build(plotly_fig)
+    spec     <- built$x[c("data", "layout")]
+    fig_json <- jsonlite::toJSON(spec, auto_unbox = TRUE, null = "null",
+                                 na = "null", digits = 6)
+    uid      <- paste0("plotly-", format(Sys.time(), "%Y%m%d%H%M%S"))
+    plotly_html <- paste0(
+      '<div class="report-section plotly-section">',
+      '<h2>Material Comparison — Interactive Chart</h2>',
+      '<p class="caption">Hover over bars for exact counts. ',
+      'Use the legend to show/hide families.</p>',
+      '<div id="', uid, '" style="width:100%;height:520px;"></div>',
+      '<script>',
+      '(function(){',
+      'var spec=', fig_json, ';',
+      'Plotly.newPlot("', uid, '",spec.data,spec.layout,',
+      '{responsive:true,displayModeBar:true});',
+      '})();',
+      '</script>',
+      '</div>'
+    )
+  }
+
+  # --- Assemble HTML -------------------------------------------------------
+  css <- paste0(
+    'body{font-family:Arial,sans-serif;background:#f0f2f5;margin:0;padding:20px;}',
+    '.report-header{max-width:1200px;margin:0 auto 24px;padding:16px 24px;',
+    'background:#1a3a5c;color:#fff;border-radius:6px;}',
+    '.report-header h1{margin:0;font-size:1.5em;font-weight:600;}',
+    '.report-header p{margin:4px 0 0;opacity:.8;font-size:.9em;}',
+    '.report-section{max-width:1200px;margin:0 auto 20px;background:#fff;',
+    'border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);overflow:hidden;}',
+    '.report-section img{width:100%;height:auto;display:block;}',
+    '.plotly-section{padding:20px;}',
+    '.plotly-section h2{margin:0 0 8px;font-size:1.15em;color:#1a3a5c;}',
+    '.caption{font-size:.8em;color:#666;margin:0 0 12px;}'
+  )
+
+  ts  <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  hdr <- paste0(
+    '<div class="report-header">',
+    '<h1>Multi-Instrument Particle Matching — Report</h1>',
+    '<p>Generated: ', ts, '</p>',
+    '</div>'
+  )
+
+  body_parts <- character(0)
+  for (i in seq_along(page_uris)) {
+    uri <- page_uris[[i]]
+    if (!is.null(uri))
+      body_parts <- c(body_parts, paste0(
+        '<div class="report-section">',
+        '<img src="', uri, '" alt="Report page ', i, '">',
+        '</div>'
+      ))
+    if (i == plotly_insert_after && nzchar(plotly_html))
+      body_parts <- c(body_parts, plotly_html)
+  }
+  # If plotly_insert_after was beyond the last page, append at the end
+  if (plotly_insert_after > length(page_uris) && nzchar(plotly_html))
+    body_parts <- c(body_parts, plotly_html)
+
+  html <- paste0(
+    '<!DOCTYPE html>\n<html lang="en">\n<head>\n',
+    '<meta charset="UTF-8">\n',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">\n',
+    '<title>Particle Analysis Report</title>\n',
+    if (!is.null(plotly_fig) && requireNamespace("plotly", quietly = TRUE))
+      '<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>\n'
+    else "",
+    '<style>', css, '</style>\n',
+    '</head>\n<body>\n',
+    hdr, '\n',
+    paste(body_parts, collapse = "\n"),
+    '\n</body>\n</html>\n'
+  )
+
+  writeLines(html, path, useBytes = FALSE)
+  invisible(length(pages))
+}

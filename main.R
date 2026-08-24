@@ -1902,9 +1902,31 @@ tryCatch({
     }
   }
 
-  # Write report
+  # Write PDF
   n_pages <- write_report_pdf(report_pages, report_file)
   log_message("  Report written: ", report_file, " (", n_pages, " pages)")
+
+  # Write HTML (same content + interactive plotly barplot)
+  html_file <- file.path(config$output_dir, "particle_report.html")
+  tryCatch({
+    device_counts <- lapply(
+      setNames(nm = names(report_devices)),
+      function(lbl) {
+        x <- report_devices[[lbl]]
+        if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x)) return(NULL)
+        table(classify_family_vec(x$material))
+      }
+    )
+    plotly_fig <- tryCatch(
+      build_plotly_barplot(device_counts),
+      error = function(e) { log_message("  WARNING: plotly build failed: ", e$message); NULL }
+    )
+    write_report_html(report_pages, html_file, plotly_fig = plotly_fig,
+                      plotly_insert_after = 2L)
+    log_message("  HTML report written: ", html_file)
+  }, error = function(e) {
+    log_message("  WARNING: HTML report generation failed: ", e$message)
+  })
 
 }, error = function(e) {
   log_message("  WARNING: Report generation failed: ", e$message)
