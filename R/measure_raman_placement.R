@@ -31,19 +31,49 @@
 #' @param lum    Numeric matrix [H, W] of image luminance in [0,1]
 #' @param x,y    Particle stage coordinates (µm); non-finite entries ignored
 #' @param W,H    WITec panel Width/Height (µm) — the scale-search seed
-#' @param min_frac Minimum bright-fraction to accept the fit
+#' @param min_frac Absolute bright-fraction floor. Kept for callers that want
+#'   to disable gating entirely (pass a negative value); the real acceptance
+#'   test is \code{min_lift} below, because the raw fraction is not comparable
+#'   across images.
+#' @param min_lift Minimum bright-fraction LIFT over the mask's own random
+#'   baseline, i.e. \code{(frac - baseline) / (1 - baseline)}. See the note
+#'   below on why an absolute threshold cannot work here.
 #' @return list(width_um, height_um, center_x_um, center_y_um, scale,
-#'   frac_bright, mirrored) or NULL when no confident, non-mirrored fit found.
-measure_raman_placement_core <- function(lum, x, y, W, H, min_frac = 0.6) {
+#'   frac_bright, baseline, lift, mirrored) or NULL when no confident,
+#'   non-mirrored fit found.
+#'
+#' NOTE on scoring (this was a real bug — see below).  The coarse search and
+#' the fine refinement must be scored on the SAME mask, and the acceptance
+#' threshold must be expressed on that mask's scale.  Previously the coarse
+#' stage scored against a heavily dilated mask (radius ~ min(H,W)/60, e.g. 15
+#' px) while the fine stage and the accept/reject gate used a radius-2 mask.
+#' Those two live on completely different scales: on real run data the r=15
+#' mask marks 55% of pixels bright (so a random placement already scores
+#' ~0.55 and a correct one ~0.95), while the r=2 mask marks under 5% and a
+#' *correct* placement tops out near 0.18.  Gating that r=2 score at
+#' min_frac = 0.6 could therefore never pass, so this function always returned
+#' NULL, the pipeline never patched the manifest, and the viewer silently fell
+#' back to particle-bbox placement — which is visibly offset whenever the
+#' particles do not span the whole micrograph.  The fix: refine on a moderate
+#' mask and accept on lift over that mask's own baseline, which is stable
+#' across images with different blob densities.
+measure_raman_placement_core <- function(lum, x, y, W, H,
+                                         min_frac = -1, min_lift = 0.35) {
   ok <- is.finite(x) & is.finite(y)
   x <- x[ok]; y <- y[ok]
   n_total <- length(x)
   if (n_total < 4 || is.null(dim(lum)) || W <= 0 || H <= 0) return(NULL)
 
   Hpx <- nrow(lum); Wpx <- ncol(lum)
-  lum_max    <- .mrp_dilate(lum, 2)
   r_coarse   <- max(4L, as.integer(ceiling(min(Hpx, Wpx) / 60)))
   lum_coarse <- .mrp_dilate(lum, r_coarse)
+  # Refinement mask: tight enough to localise (a big radius flattens the score
+  # landscape), wide enough that the score still separates from its baseline.
+  r_fine     <- max(2L, r_coarse %/% 3L)
+  lum_max    <- .mrp_dilate(lum, r_fine)
+  # Random-placement baseline for the refinement mask — the yardstick the
+  # accepted fit has to beat.
+  baseline   <- mean(lum_max > 0.5)
 
   extent_center <- function(cx, cy, w, h)
     list(xmin = cx - w/2, xmax = cx + w/2, ymin = cy - h/2, ymax = cy + h/2)
@@ -118,13 +148,20 @@ measure_raman_placement_core <- function(lum, x, y, W, H, min_frac = 0.6) {
       }
     }
 
+  # Accept on lift over the refinement mask's own baseline, not on a raw
+  # fraction: how bright a "correct" placement scores depends entirely on how
+  # much of the image is blob, which varies per micrograph.
+  lift <- if (baseline < 1) (best$frac - baseline) / (1 - baseline) else 0
   if (best$frac < min_frac) return(NULL)
+  if (lift < min_lift) return(NULL)
   list(width_um    = W * best$scale,
        height_um   = H * best$scale,
        center_x_um = best$cx,
        center_y_um = best$cy,
        scale       = best$scale,
        frac_bright = best$frac,
+       baseline    = baseline,
+       lift        = lift,
        mirrored    = isTRUE(best$flip_h) || isTRUE(best$flip_v),
        flip_h      = isTRUE(best$flip_h),
        flip_v      = isTRUE(best$flip_v))
@@ -151,15 +188,17 @@ read_image_luminance <- function(path) {
 #' @param image_path Path to the Raman micrograph (canonical PNG preferred)
 #' @param x,y Raman particle stage coordinates (µm)
 #' @param W,H WITec panel Width/Height (µm)
-#' @param min_frac Minimum bright-fraction to accept
+#' @param min_frac Absolute bright-fraction floor (negative = disabled)
+#' @param min_lift Minimum lift over the scoring mask's random baseline
 #' @return same as measure_raman_placement_core(), or NULL
 measure_raman_image_placement <- function(image_path, x, y, W, H,
-                                          min_frac = 0.6) {
+                                          min_frac = -1, min_lift = 0.35) {
   if (is.null(W) || is.null(H) || !is.numeric(W) || !is.numeric(H) ||
       W <= 0 || H <= 0) return(NULL)
   lum <- read_image_luminance(image_path)
   if (is.null(lum)) return(NULL)
-  measure_raman_placement_core(lum, x, y, W, H, min_frac = min_frac)
+  measure_raman_placement_core(lum, x, y, W, H,
+                               min_frac = min_frac, min_lift = min_lift)
 }
 
 #' Merge key/value pairs into a run manifest's config_snapshot in place

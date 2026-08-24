@@ -343,10 +343,12 @@ if (!is.null(.raman_image_info) &&
   if (!is.null(.raman_fit) && !isTRUE(.raman_fit$mirrored)) {
     log_message(sprintf(paste0(
       "Raman image auto-calibration: extent %.0f x %.0f um at center (%.0f, %.0f), ",
-      "scale %.2f x WITec, %.0f%% of particles on image."),
+      "scale %.2f x WITec, %.0f%% of particles on image ",
+      "(random baseline %.0f%%, lift %.2f)."),
       .raman_fit$width_um, .raman_fit$height_um,
       .raman_fit$center_x_um, .raman_fit$center_y_um,
-      .raman_fit$scale, 100 * .raman_fit$frac_bright))
+      .raman_fit$scale, 100 * .raman_fit$frac_bright,
+      100 * (.raman_fit$baseline %||% NA_real_), .raman_fit$lift %||% NA_real_))
     config$raman_image_width_um    <- .raman_fit$width_um
     config$raman_image_height_um   <- .raman_fit$height_um
     config$raman_image_center_x_um <- .raman_fit$center_x_um
@@ -357,8 +359,15 @@ if (!is.null(.raman_image_info) &&
       raman_image_center_x_um = .raman_fit$center_x_um,
       raman_image_center_y_um = .raman_fit$center_y_um))
   } else {
+    # Worth a WARN, not an INFO: the configured raman_image_* values are
+    # PER-DATASET. If they were left over from another scan the viewer either
+    # rejects them (containment check) and falls back to particle-bbox
+    # placement, or — worse — accepts them and draws the image in the wrong
+    # place. Either way the user needs to know the measurement did not land.
     log_message("Raman image auto-calibration: no confident non-mirrored fit; ",
-                "keeping configured raman_image_* values.")
+                "keeping configured raman_image_* values. If the Raman tab ",
+                "shows the image offset from the particles, re-measure with ",
+                "tools/diagnose_raman_placement.R --apply.", level = "WARN")
   }
 }
 
