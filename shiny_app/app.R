@@ -590,7 +590,7 @@ ui <- fluidPage(
                                class = "btn-primary")),
               column(5, p(class = "text-muted", style = "margin-top: 26px;",
                 "Downloads a ZIP containing a PDF and an interactive HTML report. ",
-                "Both reproduce the viewer exactly as it is right now — the scope ",
+                "Both reproduce the viewer exactly as it is right now \u2014 the scope ",
                 "above and the filters on each tab. The HTML includes the interactive ",
                 "material bar chart; the PDF is suitable for printing and archiving."))
             )
