@@ -1,5 +1,5 @@
 # =============================================================================
-# main.R — Multi-instrument particle matching pipeline
+# main.R -- Multi-instrument particle matching pipeline
 # =============================================================================
 #
 # Orchestrates the full pipeline for aligning and matching particles
@@ -73,13 +73,13 @@ if (input_mode == "explicit") {
   # ------ Explicit per-slot file picker dialogs ------
   # Each call opens a single-file picker with a descriptive caption.
   # Optional slots (images, LDIR, Bruker) return NULL when the user
-  # presses Cancel — the pipeline skips those instruments/images.
+  # presses Cancel -- the pipeline skips those instruments/images.
   # Mandatory slots (Raman) re-prompt until a file is chosen.
 
   .is_windows <- tolower(.Platform$OS.type) == "windows"
 
   # Remembers the folder of the most recently selected file, across every
-  # dialog in this run (data files and images alike) — including slots the
+  # dialog in this run (data files and images alike) -- including slots the
   # user cancels, since the folder is captured before the next dialog opens.
   # Without this, choose.files() re-opens in the R working directory every
   # time, forcing a re-navigate for each of the up to 8 per-instrument
@@ -272,7 +272,7 @@ if (isTRUE(config$debug)) {
   run_id <- format(Sys.time(), "%Y-%m-%d_%H%M%S")
   config$run_id <- run_id
 
-  # Build absolute path — avoids any working-directory ambiguity
+  # Build absolute path -- avoids any working-directory ambiguity
   debug_dir_abs <- normalizePath(
     file.path(config$output_dir, "debug"),
     winslash = "/", mustWork = FALSE
@@ -282,7 +282,7 @@ if (isTRUE(config$debug)) {
     stop("DEBUG: failed to create debug directory: ", debug_dir_abs)
   }
 
-  # Heartbeat file — if this is absent the whole debug run failed
+  # Heartbeat file -- if this is absent the whole debug run failed
   heartbeat <- file.path(debug_dir_abs, "DEBUG_ALIVE.txt")
   writeLines(c(paste0("run_id: ", run_id),
                paste0("created: ", Sys.time()),
@@ -325,12 +325,12 @@ write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.na
 # Measure where the exported Raman micrograph actually sits under the
 # particles (the export may be a cropped/zoomed view whose footprint differs
 # from the WITec panel Width/Height).  On a confident, non-mirrored fit, patch
-# the run manifest's config_snapshot so the viewer places the image exactly —
+# the run manifest's config_snapshot so the viewer places the image exactly --
 # no per-run tools/diagnose_raman_placement.R --apply needed.  The config
 # values stay as the scale-search seed; a weak fit leaves them untouched.
 # NOTE: this deliberately does NOT require config$raman_image_width_um /
 # _height_um. Those are per-dataset values the operator copies out of WITec,
-# and they are only the scale-search SEED — the search spans 0.3-2.4x it and
+# and they are only the scale-search SEED -- the search spans 0.3-2.4x it and
 # derives its own seed from the particle bbox when they are absent. Gating on
 # them meant the auto-calibration skipped exactly the runs that needed it:
 # a new dataset with no WITec values entered fell straight through to
@@ -367,7 +367,7 @@ if (!is.null(.raman_image_info)) {
     # Worth a WARN, not an INFO: the configured raman_image_* values are
     # PER-DATASET. If they were left over from another scan the viewer either
     # rejects them (containment check) and falls back to particle-bbox
-    # placement, or — worse — accepts them and draws the image in the wrong
+    # placement, or -- worse -- accepts them and draws the image in the wrong
     # place. Either way the user needs to know the measurement did not land.
     log_message("Raman image auto-calibration: no confident non-mirrored fit; ",
                 "keeping configured raman_image_* values. If the Raman tab ",
@@ -406,7 +406,7 @@ if (has_ftir_bruker) {
 }
 
 # --- FTIR image scan bounds (for background display only) ---
-# FTIR particle µm coordinates come directly from the Excel data file.
+# FTIR particle um coordinates come directly from the Excel data file.
 # The FTIR image is ONLY used as a background in the single FTIR viewer.
 # No particle extraction is performed on the FTIR image.
 ftir_scan_bounds <- NULL
@@ -414,8 +414,8 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
   log_message(strrep("-", 50))
   log_message("FTIR image: computing scan bounds for viewer background")
 
-  # Estimate scan bounds from image dimensions and 25 µm grid step.
-  # The PerkinElmer Spotlight renders ~6 image pixels per 25 µm grid cell.
+  # Estimate scan bounds from image dimensions and 25 um grid step.
+  # The PerkinElmer Spotlight renders ~6 image pixels per 25 um grid cell.
   ftir_img_raw <- read_image_any(config$ftir_image, verbose = TRUE)
   if (is.null(ftir_img_raw)) {
     log_message("  WARNING: could not read FTIR image — scan bounds unavailable",
@@ -526,8 +526,8 @@ log_message("Raman for matching: ", nrow(raman_for_match),
 # Centroids come from the FULL cleaned clouds, not the material anchor subsets.
 # A material-subset centroid centres FTIR on *FTIR's* PET particles and Raman on
 # *Raman's* PET particles; those coincide only if both instruments detected the
-# same particles. With different detection limits — the normal case, and the
-# rule on field samples — the two centroids point at different things and the
+# same particles. With different detection limits -- the normal case, and the
+# rule on field samples -- the two centroids point at different things and the
 # aligner starts from a biased translation. The full-cloud centroid is only a
 # common origin: the aligners recover the real translation themselves.
 # ---------------------------------------------------------------------------
@@ -550,7 +550,7 @@ raman_norm_align <- apply_normalization(raman_for_align,
 
 # Build spatial transform set: all Raman >= 20 um (visible to FTIR).
 # This set is used for ALL spatial transform steps (landmarks, ICP)
-# regardless of material or HQI — only size matters for geometry.
+# regardless of material or HQI -- only size matters for geometry.
 min_size_spatial <- config$align_raman_min_size_um
 raman_for_transform <- raman_clean
 if (!is.null(min_size_spatial) && min_size_spatial > 0 &&
@@ -566,16 +566,16 @@ log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
 # ---------------------------------------------------------------------------
 # 5. Tiered alignment (FTIR ↔ Raman)
 #
-# Tier 1 — Landmark alignment: use large particles & fibers to quickly
+# Tier 1 -- Landmark alignment: use large particles & fibers to quickly
 #   determine the spatial transform. If confident, skip Tier 2.
-# Tier 2 — Global registration (rotation x scale sweep, translation recovered by
+# Tier 2 -- Global registration (rotation x scale sweep, translation recovered by
 #   voting) plus the legacy coarse RANSAC; whichever pairs more particles wins.
 #   Only runs if Tier 1 was not confident enough.
 # ICP refinement always runs to polish the transform.
 # ---------------------------------------------------------------------------
 
 # --- Tier 1: Landmark alignment ---
-# Use size-filtered Raman (>= 20 um) — landmarks are selected by size inside
+# Use size-filtered Raman (>= 20 um) -- landmarks are selected by size inside
 landmark_result <- landmark_align(ftir_clean, raman_for_transform, config)
 
 use_landmark_transform <- landmark_result$confident && config$landmark_skip_full_ransac
@@ -601,7 +601,7 @@ if (use_landmark_transform) {
 
   # Global registration: the coarse RANSAC anchors translation on single
   # nearest-neighbour guesses, which is fragile when the clouds overlap only
-  # partially — exactly the field-sample case. Global registration sweeps
+  # partially -- exactly the field-sample case. Global registration sweeps
   # rotation x scale and recovers translation by voting over all pairwise
   # offsets, scoring one-to-one so a degenerate collapse cannot win. Already
   # the default on the LDIR path; run both and keep whichever pairs more.
@@ -872,7 +872,7 @@ if (has_ldir && !is.null(ldir_raw)) {
     # particles.  Falls back to optical-image circle-calibrated extraction.
     #
     # Search next to the ORIGINAL selected image (config$ldir_image), where the
-    # user's "<name>_analyzed.<ext>" export lives — not ldir_img_for_extraction,
+    # user's "<name>_analyzed.<ext>" export lives -- not ldir_img_for_extraction,
     # which may point at the canonicalized copy in the run's inputs/ folder.
     processed_img <- find_ldir_processed_image(config$ldir_image, config)
     if (!is.null(processed_img)) {
@@ -887,7 +887,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       ldir_image_particles <- ldir_proc_result$particles
       .ldir_circle_info    <- ldir_proc_result$circle_info
     } else {
-      # Circle-calibrated extraction — expected_count uses RAW count for best matching
+      # Circle-calibrated extraction -- expected_count uses RAW count for best matching
       ldir_extract_result  <- extract_ldir_image_coords(
         ldir_img_for_extraction,
         scan_bounds    = ldir_scan_bounds,
@@ -997,7 +997,7 @@ if (has_ldir && !is.null(ldir_raw)) {
 
     # 12d. Tiered LDIR→Raman alignment
     #
-    # Tier 0 (Step 3): Explicit Procrustes — if config$ldir_landmark_map is set,
+    # Tier 0 (Step 3): Explicit Procrustes -- if config$ldir_landmark_map is set,
     #   use named LDIR↔Raman correspondences to fit via SVD. This guarantees
     #   A3 (and other named landmarks) have minimal residuals by construction.
     #   When ldir_procrustes_lock=TRUE (default), this is the FINAL transform.
@@ -1157,7 +1157,7 @@ if (has_ldir && !is.null(ldir_raw)) {
         }
       }
     } else {
-      # Procrustes locked — still set ldir_ransac from Procrustes for logging
+      # Procrustes locked -- still set ldir_ransac from Procrustes for logging
       ldir_ransac <- list(
         transform = ldir_procrustes$matrix,
         params    = ldir_procrustes$params,
@@ -1403,7 +1403,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       # non-rigid distortion, leaving peripheral particles unmatched despite
       # clearly corresponding. Fit a regularized thin-plate spline to the
       # residual displacement at the confident matches, warp all LDIR
-      # coordinates locally, and re-match — adopting the result only if it
+      # coordinates locally, and re-match -- adopting the result only if it
       # increases matches. Displacement is capped so non-overlapping debris
       # cannot be flung onto spurious partners. (No-op under force-complete
       # matching, which already matches everything.)
@@ -1571,7 +1571,7 @@ if (has_ldir && !is.null(ldir_raw)) {
 # aligned coordinates, so any pair can be matched directly. We reuse the
 # x_norm <- x_aligned trick (as in the LDIR<->FTIR match above) to drop the
 # "reference" instrument into that shared frame. match_particles picks the
-# acceptance gate automatically from the instrument labels — a pair that
+# acceptance gate automatically from the instrument labels -- a pair that
 # involves LDIR uses the looser LDIR gate, an FTIR<->FTIR pair the fine gate.
 bruker_perkin_match <- NULL   # FTIR (Bruker) <-> FTIR (PerkinElmer)
 bruker_ldir_match   <- NULL   # FTIR (Bruker) <-> LDIR
