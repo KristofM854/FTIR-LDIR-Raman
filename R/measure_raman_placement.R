@@ -1,5 +1,5 @@
 # =============================================================================
-# measure_raman_placement.R — measure the Raman image's physical extent
+# measure_raman_placement.R -- measure the Raman image's physical extent
 # =============================================================================
 # Shared core used by BOTH the pipeline (main.R, automatic calibration) and
 # the CLI diagnostic (tools/diagnose_raman_placement.R) so the two can never
@@ -29,8 +29,8 @@
 #' Measure the best-fit physical extent of a Raman image under its particles
 #'
 #' @param lum    Numeric matrix [H, W] of image luminance in [0,1]
-#' @param x,y    Particle stage coordinates (µm); non-finite entries ignored
-#' @param W,H    WITec panel Width/Height (µm) — the scale-search seed ONLY.
+#' @param x,y    Particle stage coordinates (um); non-finite entries ignored
+#' @param W,H    WITec panel Width/Height (um) -- the scale-search seed ONLY.
 #'   Optional: pass NULL (the default) and the seed is derived from the
 #'   particle bounding box and the image's own aspect ratio. These are
 #'   per-dataset operator-entered values, so requiring them meant the
@@ -46,7 +46,7 @@
 #'   frac_bright, baseline, lift, mirrored) or NULL when no confident,
 #'   non-mirrored fit found.
 #'
-#' NOTE on scoring (this was a real bug — see below).  The coarse search and
+#' NOTE on scoring (this was a real bug -- see below).  The coarse search and
 #' the fine refinement must be scored on the SAME mask, and the acceptance
 #' threshold must be expressed on that mask's scale.  Previously the coarse
 #' stage scored against a heavily dilated mask (radius ~ min(H,W)/60, e.g. 15
@@ -57,7 +57,7 @@
 #' *correct* placement tops out near 0.18.  Gating that r=2 score at
 #' min_frac = 0.6 could therefore never pass, so this function always returned
 #' NULL, the pipeline never patched the manifest, and the viewer silently fell
-#' back to particle-bbox placement — which is visibly offset whenever the
+#' back to particle-bbox placement -- which is visibly offset whenever the
 #' particles do not span the whole micrograph.  The fix: refine on a moderate
 #' mask and accept on lift over that mask's own baseline, which is stable
 #' across images with different blob densities.
@@ -70,8 +70,8 @@ measure_raman_placement_core <- function(lum, x, y, W = NULL, H = NULL,
 
   Hpx <- nrow(lum); Wpx <- ncol(lum)
 
-  # Seed the scale search. W/H only set the *starting* footprint — the search
-  # spans 0.3-2.4x it — so when the operator has not entered the WITec panel
+  # Seed the scale search. W/H only set the *starting* footprint -- the search
+  # spans 0.3-2.4x it -- so when the operator has not entered the WITec panel
   # values we can derive an equally good seed from the data: a box that just
   # covers the particles, shaped to the image's own pixel aspect ratio.
   .aspect <- Wpx / Hpx
@@ -87,7 +87,7 @@ measure_raman_placement_core <- function(lum, x, y, W = NULL, H = NULL,
   # landscape), wide enough that the score still separates from its baseline.
   r_fine     <- max(2L, r_coarse %/% 3L)
   lum_max    <- .mrp_dilate(lum, r_fine)
-  # Random-placement baseline for the refinement mask — the yardstick the
+  # Random-placement baseline for the refinement mask -- the yardstick the
   # accepted fit has to beat.
   baseline   <- mean(lum_max > 0.5)
 
@@ -202,14 +202,14 @@ read_image_luminance <- function(path) {
 #' Measure Raman image placement from a file path (pipeline entry point)
 #'
 #' @param image_path Path to the Raman micrograph (canonical PNG preferred)
-#' @param x,y Raman particle stage coordinates (µm)
-#' @param W,H WITec panel Width/Height (µm); NULL to seed from the particles
+#' @param x,y Raman particle stage coordinates (um)
+#' @param W,H WITec panel Width/Height (um); NULL to seed from the particles
 #' @param min_frac Absolute bright-fraction floor (negative = disabled)
 #' @param min_lift Minimum lift over the scoring mask's random baseline
 #' @return same as measure_raman_placement_core(), or NULL
 measure_raman_image_placement <- function(image_path, x, y, W = NULL, H = NULL,
                                           min_frac = -1, min_lift = 0.35) {
-  # A missing or nonsensical W/H is not fatal any more — the core derives a
+  # A missing or nonsensical W/H is not fatal any more -- the core derives a
   # seed from the particle bounding box instead of refusing to measure.
   if (!is.null(W) && (!is.numeric(W) || !is.finite(W) || W <= 0)) W <- NULL
   if (!is.null(H) && (!is.numeric(H) || !is.finite(H) || H <= 0)) H <- NULL
