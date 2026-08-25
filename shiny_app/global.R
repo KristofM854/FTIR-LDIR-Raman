@@ -2034,7 +2034,7 @@ write_report_html <- function(pages, path,
   pages <- Filter(Negate(is.null), pages)
   if (length(pages) == 0)
     pages <- list(report_text_page("Report",
-      "Nothing to report — no data is loaded in the viewer."))
+      "Nothing to report \u2014 no data is loaded in the viewer."))
 
   # --- Render each page to a base64-encoded PNG ----------------------------
   encode_page <- function(pg, w = width, h = height) {
@@ -2065,7 +2065,7 @@ write_report_html <- function(pages, path,
     uid      <- paste0("plotly-", format(Sys.time(), "%Y%m%d%H%M%S"))
     plotly_html <- paste0(
       '<div class="report-section plotly-section">',
-      '<h2>Material Comparison — Interactive Chart</h2>',
+      '<h2>Material Comparison \u2014 Interactive Chart</h2>',
       '<p class="caption">Hover over bars for exact counts. ',
       'Use the legend to show/hide families.</p>',
       '<div id="', uid, '" style="width:100%;height:520px;"></div>',
@@ -2098,7 +2098,7 @@ write_report_html <- function(pages, path,
   ts  <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
   hdr <- paste0(
     '<div class="report-header">',
-    '<h1>Multi-Instrument Particle Matching — Report</h1>',
+    '<h1>Multi-Instrument Particle Matching \u2014 Report</h1>',
     '<p>Generated: ', ts, '</p>',
     '</div>'
   )

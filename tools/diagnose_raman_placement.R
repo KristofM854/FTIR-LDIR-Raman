@@ -1,15 +1,15 @@
 # =============================================================================
-# diagnose_raman_placement.R — measure, don't guess, the Raman image placement
+# diagnose_raman_placement.R -- measure, don't guess, the Raman image placement
 # =============================================================================
 # Scores candidate mappings between Raman particle stage coordinates and the
 # background image by sampling image brightness at each particle position.
 # Particles are bright blobs on a dark membrane, so the correct mapping
 # maximizes the fraction of ALL particles landing on bright pixels (particles
-# outside the image count as misses — this keeps the registration search from
+# outside the image count as misses -- this keeps the registration search from
 # collapsing onto a tiny image that covers two lucky particles).
 #
-# Analyzes EVERY Raman image present in <run_dir>/inputs — the viewer-uploaded
-# image (which overrides everything in the app) and the pipeline canonical —
+# Analyzes EVERY Raman image present in <run_dir>/inputs -- the viewer-uploaded
+# image (which overrides everything in the app) and the pipeline canonical --
 # because they may be different files with different footprints.
 #
 # Tested candidates per image:
@@ -173,7 +173,7 @@ analyze_image <- function(img_path, which_img) {
   # --- Free registration: coarse-to-fine scale + translation search ---
   # Delegates to the shared core (R/measure_raman_placement.R) so the tool
   # and the pipeline's auto-calibration measure identically.  Both gates are
-  # disabled here so the tool reports weak fits instead of returning NULL —
+  # disabled here so the tool reports weak fits instead of returning NULL --
   # seeing the weak numbers is the point of running the diagnostic.
   cat("\n=== Free scale + translation search ===\n")
   core <- measure_raman_placement_core(lum, x, y, W, H,
