@@ -122,3 +122,32 @@ select_material_anchors <- function(df, patterns, min_count = 4, label = "") {
               paste(sort(unique(out$material)), collapse = ", "), ")")
   out
 }
+
+#' Count one-to-one inliers for a candidate transform
+#'
+#' Applies `M` to the source cloud and counts how many source particles pair
+#' uniquely with a reference particle within `tol`. This is the acceptance
+#' criterion that survives a collapse, unlike RMS.
+#'
+#' RMS actively REWARDS collapse: shrinking the source cloud packs points into
+#' dense regions of the reference, so mean nearest-neighbour distance falls as
+#' the fit gets more wrong. On a real LDIR<->Raman run the correct pose scored
+#' RMS 301 um and 31 inliers, while a collapsed one scored RMS 67 um and 18
+#' inliers. Selecting on RMS picks the wrong transform; selecting on inliers
+#' picks the right one.
+#'
+#' @param M 3x3 transform matrix applied to the source cloud
+#' @param src_x,src_y Source coordinates
+#' @param ref_x,ref_y Reference coordinates
+#' @param tol Pairing tolerance in the coordinate unit (um)
+#' @return Integer inlier count, or NA when the inputs are unusable
+align_transform_inliers <- function(M, src_x, src_y, ref_x, ref_y, tol) {
+  if (is.null(M) || !is.matrix(M) || length(src_x) == 0 || length(ref_x) == 0)
+    return(NA_integer_)
+  p <- tryCatch(apply_transform_points(src_x, src_y, M), error = function(e) NULL)
+  if (is.null(p)) return(NA_integer_)
+  ok <- is.finite(p$x_transformed) & is.finite(p$y_transformed)
+  if (!any(ok)) return(NA_integer_)
+  align_one_to_one(p$x_transformed[ok], p$y_transformed[ok],
+                   ref_x, ref_y, tol)
+}
