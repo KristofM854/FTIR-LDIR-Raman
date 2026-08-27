@@ -106,7 +106,7 @@ if (input_mode == "explicit") {
       # Normalize to NULL when nothing was selected
       if (is.null(path) || length(path) == 0 || !nzchar(path)) {
         if (required) {
-          message("  This file is required — please select it.")
+          message("  This file is required \u2014 please select it.")
           next
         }
         return(NULL)
@@ -122,24 +122,24 @@ if (input_mode == "explicit") {
   message("=== File Input: one dialog per instrument slot ===")
   message("Press Cancel on any optional slot to skip it.\n")
 
-  ftir_file         <- .pick_file("FTIR (PerkinElmer) — data file (.csv/.xlsx)",
+  ftir_file         <- .pick_file("FTIR (PerkinElmer) \u2014 data file (.csv/.xlsx)",
                                    required = FALSE, filter = DATA_FILTER)
-  ftir_image        <- .pick_file("FTIR (PerkinElmer) — microscope image (optional)",
+  ftir_image        <- .pick_file("FTIR (PerkinElmer) \u2014 microscope image (optional)",
                                    required = FALSE, filter = IMAGE_FILTER)
 
-  ftir_bruker_file  <- .pick_file("FTIR Bruker (Lumos) — data file (.csv/.xlsx) (optional)",
+  ftir_bruker_file  <- .pick_file("FTIR Bruker (Lumos) \u2014 data file (.csv/.xlsx) (optional)",
                                    required = FALSE, filter = DATA_FILTER)
-  ftir_bruker_image <- .pick_file("FTIR Bruker (Lumos) — microscope image (optional)",
+  ftir_bruker_image <- .pick_file("FTIR Bruker (Lumos) \u2014 microscope image (optional)",
                                    required = FALSE, filter = IMAGE_FILTER)
 
-  raman_file        <- .pick_file("Raman — data file (.csv/.xlsx) [REQUIRED]",
+  raman_file        <- .pick_file("Raman \u2014 data file (.csv/.xlsx) [REQUIRED]",
                                    required = TRUE, filter = DATA_FILTER)
-  raman_image       <- .pick_file("Raman — microscope image (optional)",
+  raman_image       <- .pick_file("Raman \u2014 microscope image (optional)",
                                    required = FALSE, filter = IMAGE_FILTER)
 
-  ldir_file         <- .pick_file("LDIR — data file (.csv/.xlsx) (optional)",
+  ldir_file         <- .pick_file("LDIR \u2014 data file (.csv/.xlsx) (optional)",
                                    required = FALSE, filter = DATA_FILTER)
-  ldir_image        <- .pick_file("LDIR — companion image (optional)",
+  ldir_image        <- .pick_file("LDIR \u2014 companion image (optional)",
                                    required = FALSE, filter = IMAGE_FILTER)
 
   message("\n=== Selected files ===")
@@ -289,12 +289,12 @@ if (isTRUE(config$debug)) {
                paste0("debug_dir: ", debug_dir_abs)),
              heartbeat)
   if (!file.exists(heartbeat)) {
-    stop("DEBUG: heartbeat write failed — check permissions for ", debug_dir_abs)
+    stop("DEBUG: heartbeat write failed \u2014 check permissions for ", debug_dir_abs)
   }
 
   config$debug_dir <- debug_dir_abs
   message("DEBUG DIR: ", debug_dir_abs)
-  log_message("Debug mode ON — artifacts in: ", debug_dir_abs)
+  log_message("Debug mode ON \u2014 artifacts in: ", debug_dir_abs)
 }
 
 # Override any defaults as needed:
@@ -391,7 +391,7 @@ if (has_ldir) {
   write.csv(ldir_raw, file.path(.out_dirs$ingested, "ldir_ingested.csv"), row.names = FALSE)
   log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
 } else {
-  log_message("LDIR: not provided — skipping LDIR analysis")
+  log_message("LDIR: not provided \u2014 skipping LDIR analysis")
 }
 
 # --- FTIR Bruker (optional) ---
@@ -402,7 +402,7 @@ if (has_ftir_bruker) {
   write.csv(ftir_bruker_raw, file.path(.out_dirs$ingested, "ftir_bruker_ingested.csv"), row.names = FALSE)
   log_message("FTIR (Bruker) data loaded: ", nrow(ftir_bruker_raw), " particles")
 } else {
-  log_message("FTIR (Bruker): not provided — skipping")
+  log_message("FTIR (Bruker): not provided \u2014 skipping")
 }
 
 # --- FTIR image scan bounds (for background display only) ---
@@ -418,7 +418,7 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
   # The PerkinElmer Spotlight renders ~6 image pixels per 25 um grid cell.
   ftir_img_raw <- read_image_any(config$ftir_image, verbose = TRUE)
   if (is.null(ftir_img_raw)) {
-    log_message("  WARNING: could not read FTIR image — scan bounds unavailable",
+    log_message("  WARNING: could not read FTIR image \u2014 scan bounds unavailable",
                 level = "WARN")
   } else {
     ftir_grid_nx <- round((ncol(ftir_img_raw) + 1) / 6)
@@ -431,7 +431,7 @@ if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
     )
     rm(ftir_img_raw)
     log_message("  Scan bounds: [0, ", ftir_scan_bounds$x_max, "] x [0, ",
-                ftir_scan_bounds$y_max, "] µm")
+                ftir_scan_bounds$y_max, "] \u00b5m")
   }
 }
 
@@ -476,7 +476,7 @@ if (!is.null(min_size) && min_size > 0 && any(!is.na(raman_for_align$feret_max_u
                 " particles < ", min_size, " um")
   } else {
     log_message("Raman alignment: size filter (>= ", min_size, " um) would ",
-                "leave only ", sum(size_mask), " anchors — skipping it",
+                "leave only ", sum(size_mask), " anchors \u2014 skipping it",
                 level = "WARN")
   }
 }
@@ -493,7 +493,7 @@ if (!is.null(config$raman_hqi_threshold) && config$raman_hqi_threshold > 0 &&
                 "): kept ", nrow(raman_for_align), " of ", n_before_hqi)
   } else {
     log_message("Raman alignment: HQI filter (>= ", config$raman_hqi_threshold,
-                ") would leave only ", sum(hqi_mask), " anchors — skipping it",
+                ") would leave only ", sum(hqi_mask), " anchors \u2014 skipping it",
                 level = "WARN")
   }
 }
@@ -564,7 +564,7 @@ log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
             ", Raman ", nrow(raman_for_transform))
 
 # ---------------------------------------------------------------------------
-# 5. Tiered alignment (FTIR ↔ Raman)
+# 5. Tiered alignment (FTIR <-> Raman)
 #
 # Tier 1 -- Landmark alignment: use large particles & fibers to quickly
 #   determine the spatial transform. If confident, skip Tier 2.
@@ -581,7 +581,7 @@ landmark_result <- landmark_align(ftir_clean, raman_for_transform, config)
 use_landmark_transform <- landmark_result$confident && config$landmark_skip_full_ransac
 
 if (use_landmark_transform) {
-  log_message("Using landmark transform (Tier 1) — skipping full RANSAC")
+  log_message("Using landmark transform (Tier 1) \u2014 skipping full RANSAC")
   alignment_transform <- landmark_result$transform
   alignment_method    <- "landmark"
 } else {
@@ -660,13 +660,13 @@ ftir_aligned <- apply_ftir_transform(ftir_for_match, icp_result$transform)
 ftir_aligned_all <- apply_ftir_transform(ftir_clean, icp_result$transform)
 
 # ---------------------------------------------------------------------------
-# 8. Particle matching (FTIR ↔ Raman, spatial)
+# 8. Particle matching (FTIR <-> Raman, spatial)
 # ---------------------------------------------------------------------------
 
 match_result <- match_particles(ftir_aligned, raman_for_match, config)
 
 # ---------------------------------------------------------------------------
-# 9. Agreement analysis (FTIR ↔ Raman)
+# 9. Agreement analysis (FTIR <-> Raman)
 # ---------------------------------------------------------------------------
 
 agreement <- analyze_agreement(match_result, config)
@@ -712,7 +712,7 @@ if (nrow(match_result$unmatched_ftir) > 0 && nrow(match_result$unmatched_raman) 
 }
 
 # ---------------------------------------------------------------------------
-# 5b. FTIR Bruker spatial pipeline (alignment → matching → agreement)
+# 5b. FTIR Bruker spatial pipeline (alignment -> matching -> agreement)
 # ---------------------------------------------------------------------------
 
 bruker_match_result     <- NULL
@@ -743,7 +743,7 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
 
   if (nrow(ftir_bruker_for_align) < 3) {
     log_message("FTIR (Bruker): too few anchors (", nrow(ftir_bruker_for_align),
-                ") for alignment — skipping", level = "WARN")
+                ") for alignment \u2014 skipping", level = "WARN")
   } else {
 
     # Coordinate normalization. Centroids from the FULL clouds (see step 4);
@@ -762,7 +762,7 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
                                                  bruker_norm_result$ftir_centroid,
                                                  bruker_norm_result$ftir_scale)
 
-    # Tiered alignment: Bruker → Raman
+    # Tiered alignment: Bruker -> Raman
     log_message("Tiered alignment: FTIR (Bruker) ↔ Raman")
 
     # Tier 1: Landmark
@@ -770,7 +770,7 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
     use_bruker_landmark    <- bruker_landmark_result$confident && config$landmark_skip_full_ransac
 
     if (use_bruker_landmark) {
-      log_message("  Using Bruker landmark transform (Tier 1) — skipping full RANSAC")
+      log_message("  Using Bruker landmark transform (Tier 1) \u2014 skipping full RANSAC")
       bruker_alignment_transform <- bruker_landmark_result$transform
       bruker_alignment_method    <- "landmark"
     } else {
@@ -817,7 +817,7 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
     bruker_aligned     <- apply_ftir_transform(ftir_bruker_for_match, bruker_icp_result$transform)
     bruker_aligned_all <- apply_ftir_transform(ftir_bruker_clean,     bruker_icp_result$transform)
 
-    # Particle matching: Bruker ↔ Raman
+    # Particle matching: Bruker <-> Raman
     bruker_match_result <- match_particles(bruker_aligned, raman_for_match, config)
     bms <- bruker_match_result$match_stats
     log_message("FTIR (Bruker) ↔ Raman: ",
@@ -831,7 +831,7 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
 }
 
 # ---------------------------------------------------------------------------
-# 12. LDIR spatial pipeline (image → coordinates → alignment → matching)
+# 12. LDIR spatial pipeline (image -> coordinates -> alignment -> matching)
 # ---------------------------------------------------------------------------
 
 ldir_results <- NULL
@@ -932,7 +932,7 @@ if (has_ldir && !is.null(ldir_raw)) {
 
     # Guard: skip alignment if the circle was not reliably detected
     if (has_ldir_coords && !isTRUE(.ldir_circle_info$detected)) {
-      log_message("  LDIR circle not reliably detected — skipping LDIR alignment",
+      log_message("  LDIR circle not reliably detected \u2014 skipping LDIR alignment",
                   level = "WARN")
       has_ldir_coords <- FALSE
     }
@@ -952,7 +952,7 @@ if (has_ldir && !is.null(ldir_raw)) {
   # Update ldir_with_coords to the filtered version for downstream use
   ldir_with_coords <- ldir_clean
 
-  # 12c–j. Spatial alignment & matching (only if coordinates available)
+  # 12c-j. Spatial alignment & matching (only if coordinates available)
   ldir_raman_match     <- NULL
   ldir_ftir_match      <- NULL
   ldir_raman_agreement <- NULL
@@ -995,10 +995,10 @@ if (has_ldir && !is.null(ldir_raw)) {
       dump_particle(ldir_with_coords, trace_ids, "after_coords_join", config$debug_dir)
     }
 
-    # 12d. Tiered LDIR→Raman alignment
+    # 12d. Tiered LDIR->Raman alignment
     #
     # Tier 0 (Step 3): Explicit Procrustes -- if config$ldir_landmark_map is set,
-    #   use named LDIR↔Raman correspondences to fit via SVD. This guarantees
+    #   use named LDIR<->Raman correspondences to fit via SVD. This guarantees
     #   A3 (and other named landmarks) have minimal residuals by construction.
     #   When ldir_procrustes_lock=TRUE (default), this is the FINAL transform.
     #   ICP still runs but only for diagnostics (its output is not used).
@@ -1042,7 +1042,7 @@ if (has_ldir && !is.null(ldir_raw)) {
         use_procrustes_final <- isTRUE(config$ldir_procrustes_lock)
       } else {
         log_message("  Procrustes failed (", ldir_procrustes$message,
-                    ") — falling through to RANSAC", level = "WARN")
+                    ") \u2014 falling through to RANSAC", level = "WARN")
       }
     }
 
@@ -1059,7 +1059,7 @@ if (has_ldir && !is.null(ldir_raw)) {
                          config$landmark_skip_full_ransac
 
     if (use_ldir_landmark) {
-      log_message("  Using LDIR landmark transform (Tier 1) — skipping material RANSAC")
+      log_message("  Using LDIR landmark transform (Tier 1) \u2014 skipping material RANSAC")
       ldir_ransac <- list(
         transform = ldir_landmark_result$transform,
         params    = ldir_landmark_result$params,
@@ -1087,7 +1087,7 @@ if (has_ldir && !is.null(ldir_raw)) {
         })
 
         if (is.null(ldir_ransac)) {
-          log_message("  Descriptor RANSAC returned NULL — falling back to material RANSAC",
+          log_message("  Descriptor RANSAC returned NULL \u2014 falling back to material RANSAC",
                       level = "WARN")
           config$ldir_use_descriptor_ransac <- FALSE  # force fallback in logging
         }
@@ -1106,7 +1106,7 @@ if (has_ldir && !is.null(ldir_raw)) {
           } else {
             log_message("  Insufficient LDIR anchor materials (",
                         sum(ldir_mat_mask),
-                        ") — using all LDIR particles for alignment")
+                        ") \u2014 using all LDIR particles for alignment")
           }
         }
         log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
@@ -1209,7 +1209,7 @@ if (has_ldir && !is.null(ldir_raw)) {
                    anchor_pairs = icp_anchor)
       }, error = function(e) {
         log_message("  LDIR ICP failed: ", e$message,
-                    " — using initial transform", level = "WARN")
+                    " \u2014 using initial transform", level = "WARN")
         list(
           transform    = icp_initial_transform,
           params       = extract_transform_params(icp_initial_transform),
@@ -1226,7 +1226,7 @@ if (has_ldir && !is.null(ldir_raw)) {
 
       # When Procrustes is locked, discard ICP transform and keep Procrustes
       if (use_procrustes_final) {
-        log_message("  Procrustes lock active — retaining Procrustes transform ",
+        log_message("  Procrustes lock active \u2014 retaining Procrustes transform ",
                     "(ICP ran for diagnostics only)")
         ldir_icp$transform <- ldir_procrustes$matrix
         ldir_icp$params    <- ldir_procrustes$params
@@ -1286,15 +1286,15 @@ if (has_ldir && !is.null(ldir_raw)) {
           log_message("  ALIGNMENT GUARDRAIL: scale=", round(.tf_sc, 3),
                       " outside [", config$icp_min_scale %||% 0.5, ", ",
                       config$icp_max_scale %||% 2.0,
-                      "] — transform may be unreliable", level = "WARN")
+                      "] \u2014 transform may be unreliable", level = "WARN")
         if (abs(.tf_rot) > (config$icp_max_rotation_deg %||% 90))
           log_message("  ALIGNMENT GUARDRAIL: rotation=", round(.tf_rot, 1),
                       "\u00b0 > ", config$icp_max_rotation_deg %||% 90,
-                      "\u00b0 — likely spurious rotation", level = "WARN")
+                      "\u00b0 \u2014 likely spurious rotation", level = "WARN")
         if (sqrt(.tf_tx^2 + .tf_ty^2) > .fov_um)
           log_message("  ALIGNMENT GUARDRAIL: translation=",
                       round(sqrt(.tf_tx^2 + .tf_ty^2)), " \u00b5m > FOV (",
-                      .fov_um, " \u00b5m) — possible offset error", level = "WARN")
+                      .fov_um, " \u00b5m) \u2014 possible offset error", level = "WARN")
       }, error = function(e)
         log_message("  Guardrail check failed: ", e$message, level = "WARN"))
 
@@ -1392,7 +1392,7 @@ if (has_ldir && !is.null(ldir_raw)) {
         trace_particle_snapshot(ldir_aligned, "after_alignment", config)
       }
 
-      # 12g. LDIR↔Raman matching
+      # 12g. LDIR<->Raman matching
       ldir_raman_match <- match_particles(
         ldir_aligned, raman_for_match, config,
         src_label = "ldir", ref_label = "raman"
@@ -1435,18 +1435,18 @@ if (has_ldir && !is.null(ldir_raw)) {
             ldir_raman_match <- match2
           } else {
             log_message("  LDIR TPS refinement: no gain (", n0, " vs ",
-                        max(n1, 0L), ") — keeping global alignment")
+                        max(n1, 0L), ") \u2014 keeping global alignment")
           }
         }
       }
 
-      # 12h. LDIR↔Raman agreement analysis
+      # 12h. LDIR<->Raman agreement analysis
       ldir_raman_agreement <- analyze_agreement(
         ldir_raman_match, config,
         instrument_a = "LDIR", instrument_b = "Raman"
       )
 
-      # 12i. LDIR↔FTIR matching (both already in Raman coordinate frame)
+      # 12i. LDIR<->FTIR matching (both already in Raman coordinate frame)
       # Set up aligned FTIR as reference: matcher expects ref with x_norm/y_norm
       ftir_as_ref <- ftir_aligned
       ftir_as_ref$x_norm <- ftir_as_ref$x_aligned
@@ -1458,7 +1458,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       log_message("  LDIR-FTIR direct matching: ",
                   ldir_ftir_match$match_stats$n_matched, " pairs")
 
-      # 12j. Three-way triplets (FTIR↔Raman ∩ LDIR↔Raman via Raman ID)
+      # 12j. Three-way triplets (FTIR<->Raman ? LDIR<->Raman via Raman ID)
       if (nrow(match_result$matched) > 0 &&
           nrow(ldir_raman_match$matched) > 0) {
         ftir_raman_pairs <- data.frame(
@@ -1484,7 +1484,7 @@ if (has_ldir && !is.null(ldir_raw)) {
                                raman_for_match$particle_id)
         triplets$raman_material <- raman_for_match$material[raman_mat_idx]
 
-        # Compute per-triplet material agreement quality (0–3 instruments agreeing)
+        # Compute per-triplet material agreement quality (0-3 instruments agreeing)
         # Uses polymer family classification so minor name differences still score
         if (nrow(triplets) > 0) {
           ftir_fam  <- classify_family_vec(triplets$ftir_material)
@@ -1497,7 +1497,7 @@ if (has_ldir && !is.null(ldir_raw)) {
           fl_agree   <- ftir_fam == ldir_fam  & ftir_fam != "Unknown"
           n_agree    <- as.integer(fr_agree) + as.integer(lr_agree) +
                         as.integer(fl_agree)
-          # n_agree ranges 0–3 (3 = all three pairwise family comparisons agree)
+          # n_agree ranges 0-3 (3 = all three pairwise family comparisons agree)
           triplets$n_instrument_agreement <- n_agree
           triplets$ftir_family  <- ftir_fam
           triplets$raman_family <- raman_fam
@@ -1523,12 +1523,12 @@ if (has_ldir && !is.null(ldir_raw)) {
       }
 
     } else {
-      log_message("  LDIR spatial alignment failed — ",
+      log_message("  LDIR spatial alignment failed \u2014 ",
                   "material comparison only", level = "WARN")
     }
 
   } else {
-    log_message("  LDIR: no spatial coordinates — material comparison only")
+    log_message("  LDIR: no spatial coordinates \u2014 material comparison only")
   }
 
   # Non-spatial material distribution (always available)
@@ -1803,7 +1803,7 @@ log_message(strrep("=", 60))
 log_message("  Alignment method:  ", alignment_method,
             if (alignment_method == "landmark")
               paste0(" (", landmark_result$n_inliers, " landmark inliers, ",
-                     round(landmark_result$mean_residual, 1), " µm mean residual)")
+                     round(landmark_result$mean_residual, 1), " \u00b5m mean residual)")
             else "")
 log_message("  FTIR landmarks:    ", landmark_result$n_ftir_landmarks,
             " (confident: ", landmark_result$confident, ")")
@@ -1860,132 +1860,104 @@ if (has_ldir && !is.null(ldir_results)) {
 log_message("  Results in: ", config$output_dir)
 
 # ---------------------------------------------------------------------------
-# 16. Generate PDF Report
+# 16. Generate Report (PDF + interactive HTML)
 # ---------------------------------------------------------------------------
+# Harmonised with the Shiny viewer's "Download report" output: same page set,
+# same renderers. The data is loaded back through the viewer's own loaders
+# (load_run_data + build_instrument_dfs) rather than reusing the pipeline's
+# in-memory frames, so the report sees exactly the columns and match_status
+# values the viewer sees. That also fixes the size-statistics page, which
+# silently produced nothing because the pipeline frames carry feret_max_um
+# while report_size_stats_table() reads feret_max.
 
 tryCatch({
-  log_message("Generating PDF report...")
+  log_message("Generating report...")
 
-  # Source report helpers from Shiny app
+  # Source report helpers from Shiny app (renderers shared with the viewer)
   source("shiny_app/global.R", local = FALSE)
 
   # --- Report-only quality gate --------------------------------------------
   # Everything above this point (ingest, image recognition, alignment, ICP,
-  # matching, agreement) deliberately runs on the FULL particle set — narrowing
+  # matching, agreement) deliberately runs on the FULL particle set -- narrowing
   # it there would change which pairs the registration can find. Only the
-  # report is filtered, and it uses the same per-instrument defaults as the
-  # Shiny viewer's quality sliders so the two agree on what a reported
-  # particle is.
+  # report is filtered, using the same per-instrument defaults as the viewer's
+  # quality sliders.
   #
   # The scales differ per instrument and are NOT interchangeable: FTIR
-  # (PerkinElmer and Bruker) and LDIR carry quality on 0-1, while Raman
-  # carries HQI on 0-100. Confirmed against the ingested CSVs.
+  # (PerkinElmer and Bruker) and LDIR carry quality on 0-1, Raman carries HQI
+  # on 0-100. Confirmed against the ingested CSVs.
   REPORT_QUALITY_RANGE <- list(
-    "FTIR (PerkinElmer)" = c(0.70, 1),
-    "FTIR (Bruker)"      = c(0.70, 1),
-    "Raman"              = c(70,   100),   # HQI scale
-    "LDIR"               = c(0.80, 1)
+    ftir        = c(0.70, 1),
+    ftir_bruker = c(0.70, 1),
+    raman       = c(70,   100),   # HQI scale
+    ldir        = c(0.80, 1)
   )
+  .rq_label <- c(ftir = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)",
+                 raman = "Raman", ldir = "LDIR")
+
+  # Load the run back through the viewer's loaders so the report and the
+  # viewer agree on every column, not just the numbers.
+  .run_info <- list(dir = config$output_dir, format = "subdir")
+  .rdata <- load_run_data(.run_info)
+  .dfs   <- build_instrument_dfs(.rdata)
 
   # Mirrors filter_instrument() in the viewer, including dropping NA quality.
-  .report_quality_filter <- function(df, label) {
-    rng <- REPORT_QUALITY_RANGE[[label]]
-    if (is.null(df) || is.null(rng) || !("quality" %in% names(df))) return(df)
-    q <- suppressWarnings(as.numeric(df$quality))
-    df[!is.na(q) & q >= rng[1] & q <= rng[2], , drop = FALSE]
+  for (k in names(REPORT_QUALITY_RANGE)) {
+    d <- .dfs[[k]]
+    if (is.null(d) || nrow(d) == 0) next
+    rng <- REPORT_QUALITY_RANGE[[k]]
+    n0  <- nrow(d)
+    if ("quality" %in% names(d)) {
+      q <- suppressWarnings(as.numeric(d$quality))
+      d <- d[!is.na(q) & q >= rng[1] & q <= rng[2], , drop = FALSE]
+    }
+    .dfs[[k]] <- d
+    log_message(sprintf("  Report filter %-19s quality %s-%s: %d of %d kept",
+                        .rq_label[[k]], format(rng[1]), format(rng[2]),
+                        nrow(d), n0))
   }
 
-  # Prepare data for report
-  report_devices <- list()
-
-  .add_report_device <- function(devices, label, df) {
-    if (is.null(df) || nrow(df) == 0) return(devices)
-    n_before <- nrow(df)
-    df <- .report_quality_filter(df, label)
-    rng <- REPORT_QUALITY_RANGE[[label]]
-    log_message(sprintf(
-      "  Report filter %-19s quality %s-%s: %d of %d particles kept",
-      label, format(rng[1]), format(rng[2]), nrow(df), n_before))
-    if (nrow(df) == 0) return(devices)
-    devices[[label]] <- df
-    devices
-  }
-
-  report_devices <- .add_report_device(report_devices, "FTIR (PerkinElmer)",
-                                       ftir_clean)
-  report_devices <- .add_report_device(report_devices, "FTIR (Bruker)",
-                                       ftir_bruker_clean)
-  report_devices <- .add_report_device(report_devices, "Raman", raman_clean)
-  if (has_ldir)
-    report_devices <- .add_report_device(report_devices, "LDIR",
-                                         ldir_results$ldir_clean)
-
-  # Generate report PDF
-  report_file <- file.path(config$output_dir, "particle_report.pdf")
-
-  # Build report pages
-  report_pages <- list()
-
-  # Title page. The quality gate is stated explicitly: these counts are a
-  # filtered subset, while the alignment and matching upstream used every
-  # particle, so a reader comparing the two needs to know why they differ.
-  title_text <- paste0(
-    "Particle Analysis Report\n",
-    "Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n",
-    "Run: ", basename(config$output_dir), "\n",
-    "\n",
-    "Quality filter applied to this report:\n",
-    paste(vapply(names(REPORT_QUALITY_RANGE), function(k) {
+  .quality_note <- c(
+    "Quality filter applied to this report:",
+    vapply(names(REPORT_QUALITY_RANGE), function(k) {
       r <- REPORT_QUALITY_RANGE[[k]]
-      sprintf("  %-19s %s - %s%s", k, format(r[1]), format(r[2]),
-              if (identical(k, "Raman")) "  (HQI)" else "")
-    }, character(1)), collapse = "\n"), "\n",
-    "\n",
-    "Alignment and matching upstream used ALL particles; the filter\n",
-    "affects only the figures and tables below."
-  )
-  report_pages[[1]] <- report_text_page("Report", title_text, "")
+      sprintf("  %-19s %s - %s%s", .rq_label[[k]], format(r[1]), format(r[2]),
+              if (identical(k, "raman")) "  (HQI)" else "")
+    }, character(1)),
+    "",
+    "Alignment and matching upstream used ALL particles; the filter",
+    "affects only the figures and tables below.")
 
-  # Summary tables
-  if (length(report_devices) > 0) {
-    plastics_tbl <- report_plastics_table(report_devices)
-    if (nrow(plastics_tbl) > 0) {
-      report_pages[[length(report_pages) + 1]] <-
-        report_table_page(plastics_tbl, "Plastic Families",
-                          paste0("Family counts per instrument, quality-filtered ",
-                                 "(see the title page for the per-instrument ",
-                                 "ranges)."))
-    }
+  # Background images, resolved the same way the viewer resolves them.
+  .man       <- tryCatch(load_run_manifest(config$output_dir),
+                         error = function(e) list())
+  .meta      <- .man$config_snapshot %||% list()
+  .img_paths <- tryCatch(get_run_image_paths(.man, config$output_dir),
+                         error = function(e) list())
 
-    size_tbl <- report_size_stats_table(report_devices)
-    if (nrow(size_tbl) > 0) {
-      report_pages[[length(report_pages) + 1]] <-
-        report_table_page(size_tbl, "Size Statistics",
-                          paste0("Feret Max statistics per instrument, ",
-                                 "quality-filtered (see the title page for ",
-                                 "the per-instrument ranges)."))
-    }
-  }
+  report_pages <- build_report_pages(
+    .dfs, meta = .meta, img_paths = .img_paths,
+    run_label = basename(config$output_dir),
+    run_id    = .man$run_id %||% basename(config$output_dir),
+    quality_note = .quality_note)
 
-  # Write PDF
+  report_file <- file.path(config$output_dir, "particle_report.pdf")
   n_pages <- write_report_pdf(report_pages, report_file)
   log_message("  Report written: ", report_file, " (", n_pages, " pages)")
 
-  # Write HTML (same content + interactive plotly barplot)
+  # Interactive HTML: same pages, plus the plotly barplot after the static one.
   html_file <- file.path(config$output_dir, "particle_report.html")
   tryCatch({
-    device_counts <- lapply(
-      setNames(nm = names(report_devices)),
-      function(lbl) {
-        x <- report_devices[[lbl]]
-        if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x)) return(NULL)
-        table(classify_family_vec(x$material))
-      }
-    )
-    plotly_fig <- tryCatch(
-      build_plotly_barplot(device_counts),
-      error = function(e) { log_message("  WARNING: plotly build failed: ", e$message); NULL }
-    )
+    .DEV <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
+              "Raman" = "raman", "LDIR" = "ldir")
+    device_counts <- lapply(setNames(nm = names(.DEV)), function(lbl) {
+      x <- .dfs[[.DEV[[lbl]]]]
+      if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x)) return(NULL)
+      table(classify_family_vec(x$material))
+    })
+    plotly_fig <- tryCatch(build_plotly_barplot(device_counts),
+      error = function(e) {
+        log_message("  WARNING: plotly build failed: ", e$message); NULL })
     write_report_html(report_pages, html_file, plotly_fig = plotly_fig,
                       plotly_insert_after = 2L)
     log_message("  HTML report written: ", html_file)
