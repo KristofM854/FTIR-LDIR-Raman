@@ -1954,7 +1954,8 @@ tryCatch({
     .dfs, meta = .meta, img_paths = .img_paths,
     run_label = basename(config$output_dir),
     run_id    = .man$run_id %||% basename(config$output_dir),
-    quality_note = .quality_note)
+    quality_note = .quality_note,
+    manifest  = .man)
 
   report_file <- file.path(config$output_dir, "particle_report.pdf")
   n_pages <- write_report_pdf(report_pages, report_file)
