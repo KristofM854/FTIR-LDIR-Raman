@@ -572,9 +572,24 @@ global_register_align <- function(src_df, ref_df, config,
 
   span_ratio <- (align_rspan(rxc) + align_rspan(ryc)) /
                 (align_rspan(sxc) + align_rspan(syc))
-  scales <- sort(unique(round(c(1, seq(0.2, 1.3, 0.05),
+
+  # Scale candidates. Both clouds are in physical micrometres, so the true
+  # scale is near 1 and near span_ratio (the two clouds cover the same field).
+  # The old sweep ran seq(0.2, 1.3, 0.05), which offered the search a range of
+  # collapsed poses that shrink the source into a dense part of the target:
+  # those score well on nearest-neighbour distance and then hand ICP a wrong
+  # starting pose. Keep the same band ransac_align() enforces, widened only as
+  # far as span_ratio actually implies. Override with config$align_scale_min /
+  # _max for data where the two frames genuinely differ in scale.
+  s_min <- if (!is.null(config$align_scale_min)) config$align_scale_min else 0.8
+  s_max <- if (!is.null(config$align_scale_max)) config$align_scale_max else 1.25
+  if (is.finite(span_ratio) && span_ratio > 0) {
+    s_min <- min(s_min, span_ratio * 0.75)
+    s_max <- max(s_max, span_ratio * 1.25)
+  }
+  scales <- sort(unique(round(c(1, seq(s_min, s_max, by = 0.05),
                                 span_ratio * seq(0.75, 1.25, 0.05)), 3)))
-  scales <- scales[scales > 0.02]
+  scales <- scales[scales >= s_min & scales <= s_max & scales > 0.02]
   mirrors <- if (allow_mirror) c(FALSE, TRUE) else FALSE
 
   # Subsample for the O(n_src*n_ref) search; re-score winner on full clouds.

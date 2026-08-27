@@ -38,9 +38,17 @@ test_that("global_register_align reproduces the pre-refactor baseline", {
   g <- global_register_align(src, ref, cfg)
   expect_equal(g$n_inliers, 20)
 
-  # Captured from the implementation before the align_helpers extraction.
-  baseline <- matrix(c(0.8581005,   0.49542455, 0,
-                      -0.49542455,  0.8581005,  0,
-                       152.05444536, 55.65984358, 1), nrow = 3)
+  # Re-pinned when the scale sweep was narrowed to the plausible band (the old
+  # seq(0.2, 1.3, 0.05) offered the search collapsed poses, which is how a real
+  # run ended up at scale 0.2336). The grid points moved slightly, so this
+  # baseline moved with them.
+  #
+  # The new values are NEARER ground truth on every parameter -- the synthetic
+  # case is scale 1.0, 30 deg, tx 150, ty 50:
+  #   scale 0.9908 -> 0.9930 ; tx 152.05 -> 151.57 ; ty 55.66 -> 54.32
+  # so this is an accuracy improvement, not a drift to be tolerated.
+  baseline <- matrix(c(0.85997694,   0.49650792, 0,
+                      -0.49650792,   0.85997694, 0,
+                       151.56799790, 54.31971715, 1), nrow = 3)
   expect_equal(unname(g$transform), baseline, tolerance = 1e-6)
 })
