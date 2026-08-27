@@ -1,5 +1,5 @@
 # =============================================================================
-# global.R — Load pipeline output and prepare data for Shiny
+# global.R -- Load pipeline output and prepare data for Shiny
 # =============================================================================
 
 library(shiny)
@@ -22,7 +22,7 @@ if (!exists("%||%")) {
 # Allow large instrument images (TIFF micrographs are commonly 10-40 MB;
 # Shiny's default cap is only 5 MB).  NOTE: this limit is enforced by Shiny
 # at the HTTP layer BEFORE any server code runs, so an oversized upload can
-# never be rescued server-side — it is rejected outright.  Uploads that pass
+# never be rescued server-side -- it is rejected outright.  Uploads that pass
 # this ceiling are immediately downsized in memory for display (see
 # downsample_raster() below), so storage and rendering stay small.
 options(shiny.maxRequestSize = 50 * 1024^2)   # 50 MB
@@ -50,7 +50,7 @@ BG_IMAGE_MAX_DIM <- 2000L
 # (classify_family_vec, classify_category, classify_category_vec, etc.)
 source(file.path(.pipeline_r_dir, "08b_material_map.R"), local = TRUE)
 
-# Dependency-free BMP reader (read_bmp_raster) — lets load_image_raster()
+# Dependency-free BMP reader (read_bmp_raster) -- lets load_image_raster()
 # handle instrument BMP exports even when magick is not installed.
 source(file.path(.pipeline_r_dir, "read_bmp.R"), local = TRUE)
 
@@ -159,7 +159,7 @@ load_png_raster <- function(path) {
   png::readPNG(path)
 }
 
-# points_df must have numeric columns x and y (in µm)
+# points_df must have numeric columns x and y (in um)
 # If your columns are named differently, rename before calling.
 build_single_view_plot <- function(points_df, bg_png_path = NULL) {
   stopifnot(is.data.frame(points_df))
@@ -209,7 +209,7 @@ get_run_image_paths <- function(manifest, run_dir) {
   }
   if (is.null(manifest) || isTRUE(manifest$is_missing)) return(out)
 
-  # Then manifest$image_assets.  NB: assign only non-NULL results — writing
+  # Then manifest$image_assets.  NB: assign only non-NULL results -- writing
   # NULL into a list DROPS the element, after which out$ftir would partial-
   # match out$ftir_bruker and cross-wire the two instruments' images.
   for (nm in c("ftir", "raman", "ldir")) {
@@ -230,7 +230,7 @@ get_run_image_paths <- function(manifest, run_dir) {
   # Last resort: the original source file the user selected at run time
   # (manifest$inputs$<instr>_image$path).  Runs processed without magick have
   # no canonical/preview PNGs in inputs/, but the source image is usually
-  # still on disk on the same machine — and load_image_raster() can read it
+  # still on disk on the same machine -- and load_image_raster() can read it
   # directly (PNG/JPEG natively, BMP via read_bmp_raster, TIFF via magick).
   for (nm in c("ftir", "raman", "ldir", "ftir_bruker")) {
     if (is.null(out[[nm]])) {
@@ -298,7 +298,7 @@ load_run_data <- function(run_info) {
       NULL
     }
 
-    # Core match files (staged names ← Part D pairwise naming)
+    # Core match files (staged names <- Part D pairwise naming)
     file_map <- list(
       matched               = c("05_matches/matched_ftir_perkin_raman.csv",
                                  "matched_particles.csv"),
@@ -391,14 +391,14 @@ load_run_data <- function(run_info) {
 # ---------------------------------------------------------------------------
 # ldir_force_complete_match = TRUE makes the pipeline pair EVERY LDIR particle
 # with a Raman particle regardless of distance, so "matched" in the raw CSV is
-# vacuous — every LDIR is always paired. The per-pair `match_distance` (aligned
+# vacuous -- every LDIR is always paired. The per-pair `match_distance` (aligned
 # coordinate Euclidean distance, recomputed after any TPS refinement) is the
 # real signal: a pair is a genuine match only when it falls within the LDIR
 # acceptance gate. Classifying here, once, keeps the summary, the overlay plot,
-# and the hover/tables perfectly consistent — the image agrees with the table.
+# and the hover/tables perfectly consistent -- the image agrees with the table.
 
-# Return the LDIR<->Raman acceptance gate (µm) for a run. Read from the run
-# manifest's config snapshot; falls back to the pipeline default (250 µm) for
+# Return the LDIR<->Raman acceptance gate (um) for a run. Read from the run
+# manifest's config snapshot; falls back to the pipeline default (250 um) for
 # runs whose manifest predates the gate being recorded.
 ldir_acceptance_gate <- function(run_dir) {
   default_gate <- 250
@@ -434,7 +434,7 @@ annotate_ldir_gate <- function(data, run_dir) {
   data
 }
 
-# Recompute the within_gate classification against an explicit gate (µm). Used
+# Recompute the within_gate classification against an explicit gate (um). Used
 # by the viewer's live gate slider so the user can retune the acceptance
 # distance in real time; annotate_ldir_gate() seeds the default from the
 # manifest, this overrides it with the slider value.
@@ -464,7 +464,7 @@ isTRUE_vec <- function(x) !is.na(x) & x
 
 # Helper: add <prefix>_material_family columns for every <prefix>_material
 # column in the named match tables, so the overlay can filter any instrument
-# side on harmonized family names — including the cross-instrument pair tables.
+# side on harmonized family names -- including the cross-instrument pair tables.
 enrich_material_family <- function(data) {
   match_tables <- c("matched", "matched_ftir_bruker", "ldir_raman_matched",
                     "matched_bruker_perkin", "matched_bruker_ldir",
@@ -533,7 +533,7 @@ parse_transform_params <- function(filepath) {
     M <- rbind(r1, r2, r3)
   }
 
-  # FTIR scan bounds (optional — present in newer pipeline output)
+  # FTIR scan bounds (optional -- present in newer pipeline output)
   scan_xmin <- get_num("ftir_scan_xmin")
   scan_xmax <- get_num("ftir_scan_xmax")
   scan_ymin <- get_num("ftir_scan_ymin")
@@ -583,9 +583,9 @@ transform_points <- function(x, y, M_full) {
 # ---------------------------------------------------------------------------
 # Estimate FTIR scan bounds from image dimensions and particle coordinates.
 #
-# The PerkinElmer Spotlight exports images at ~6 rendering pixels per 25µm
-# grid cell.  From a 2993×2993 image: (2993+1)/6 ≈ 499 grid positions,
-# giving a 499 * 25 = 12475 µm scan extent.  This function computes the
+# The PerkinElmer Spotlight exports images at ~6 rendering pixels per 25um
+# grid cell.  From a 2993x2993 image: (2993+1)/6 ~ 499 grid positions,
+# giving a 499 * 25 = 12475 um scan extent.  This function computes the
 # bounds robustly from the image dimensions and grid step.
 # ---------------------------------------------------------------------------
 estimate_ftir_scan_bounds <- function(img_raster, particle_x_um = NULL,
@@ -712,8 +712,8 @@ build_instrument_dfs <- function(data) {
   if (!is.null(result$raman))
     result$raman$material_family <- classify_family_vec(result$raman$material)
 
-  # Add LDIR→Raman match flag if LDIR-Raman match data available. Only
-  # genuine (within-gate) pairs count as matched — an over-gate forced pairing
+  # Add LDIR->Raman match flag if LDIR-Raman match data available. Only
+  # genuine (within-gate) pairs count as matched -- an over-gate forced pairing
   # leaves the Raman particle effectively unmatched to LDIR.
   if (!is.null(result$raman) && nrow(result$raman) > 0 &&
       !is.null(data$ldir_raman_matched) && nrow(data$ldir_raman_matched) > 0) {
@@ -919,7 +919,7 @@ load_image_raster <- function(path) {
 
   typ <- sniff_image_type(path)
 
-  # PNG: always use png::readPNG — avoids magick's image_data() producing
+  # PNG: always use png::readPNG -- avoids magick's image_data() producing
   # tiled/colour-distorted arrays for RGBA PNGs (e.g. FTIR false-colour images).
   if (typ == "PNG") {
     return(tryCatch(png::readPNG(path), error = function(e) NULL))
@@ -968,11 +968,11 @@ load_image_raster <- function(path) {
 
 # ---------------------------------------------------------------------------
 # Downsample a raster array so its longest edge is <= max_dim pixels.
-# Uses block-average (box filter) pooling — antialiased and dependency-free —
+# Uses block-average (box filter) pooling -- antialiased and dependency-free --
 # with stride subsampling as a fallback for degenerate aspect ratios.
 # Accepts 2D (grayscale) or 3D (H x W x channels) arrays; returns same form.
 # The original pixel dimensions are recorded as attributes so callers that
-# convert pixels to µm (e.g. TIFF DPI metadata, which refers to the ORIGINAL
+# convert pixels to um (e.g. TIFF DPI metadata, which refers to the ORIGINAL
 # file) can correct their scale for the reduced raster.
 # ---------------------------------------------------------------------------
 downsample_raster <- function(raw, max_dim = BG_IMAGE_MAX_DIM) {
@@ -1007,7 +1007,7 @@ downsample_raster <- function(raw, max_dim = BG_IMAGE_MAX_DIM) {
 }
 
 # ---------------------------------------------------------------------------
-# Auto-detect µm-per-pixel scale from TIFF resolution metadata.
+# Auto-detect um-per-pixel scale from TIFF resolution metadata.
 # Returns NULL silently when: not a TIFF, magick unavailable, metadata absent,
 # or the value looks like a screen-default (72/96/150 DPI) rather than a real
 # instrument-calibrated resolution.
@@ -1027,19 +1027,19 @@ extract_tiff_um_per_px <- function(path) {
     if (is.character(dens)) dens <- as.numeric(strsplit(dens, "x")[[1]][1])
     if (is.na(dens) || dens <= 0) return(NULL)
 
-    # Convert to µm/pixel
+    # Convert to um/pixel
     if (units == "PixelsPerCentimeter") {
-      um_per_px <- 10000 / dens   # 1 cm = 10 000 µm
+      um_per_px <- 10000 / dens   # 1 cm = 10 000 \u00b5m
     } else {
-      um_per_px <- 25400 / dens   # 1 inch = 25 400 µm
+      um_per_px <- 25400 / dens   # 1 inch = 25 400 \u00b5m
     }
 
-    # Reject common screen defaults — these are never real instrument values
+    # Reject common screen defaults -- these are never real instrument values
     screen_dpis <- c(72, 96, 150, 300)
     effective_dpi <- if (units == "PixelsPerCentimeter") dens * 2.54 else dens
     if (round(effective_dpi) %in% screen_dpis) return(NULL)
 
-    # Sanity: instrument images typically 0.5–50 µm/px
+    # Sanity: instrument images typically 0.5-50 um/px
     if (um_per_px > 0 && um_per_px < 200) um_per_px else NULL
   }, error = function(e) NULL)
 }
@@ -1051,7 +1051,7 @@ extract_tiff_um_per_px <- function(path) {
 #
 # WITec's panel reports the image center in its video/image frame, whose Y
 # axis points DOWN, while the particle export ("Visual Center Point Y") is
-# in stage coordinates with Y UP — the stage-frame center is (cx, -cy).
+# in stage coordinates with Y UP -- the stage-frame center is (cx, -cy).
 # Verified on real data (PET A, 2026-07: particles Y [-68, 4877], panel
 # Center Y = -4394): with Y negated 100% of particles fall inside the image;
 # taken as-reported only 30% do.  Because the convention may vary across
@@ -1060,14 +1060,14 @@ extract_tiff_um_per_px <- function(path) {
 # function returns NULL and the caller falls back to heuristic placement.
 #
 # cfg            : config_snapshot list from the run manifest
-# x_orig, y_orig : particle stage coordinates (µm) used to score candidates
+# x_orig, y_orig : particle stage coordinates (um) used to score candidates
 # min_frac       : minimum containment fraction to accept
 # Returns list(xmin, xmax, ymin, ymax, y_negated, frac_inside) or NULL.
 # ---------------------------------------------------------------------------
-# Coarse µm-per-pixel estimate from the analysed particle areas: in a
+# Coarse um-per-pixel estimate from the analysed particle areas: in a
 # dark-field micrograph the bright (particle) pixels should cover the same
 # physical area the instrument reported for those particles, so
-# sqrt(sum(area) / bright_px) recovers the scale — the same self-calibration
+# sqrt(sum(area) / bright_px) recovers the scale -- the same self-calibration
 # the LDIR processed-image join uses.
 #
 # Accuracy is only about +/-35% (it moves with where the brightness threshold
@@ -1119,7 +1119,7 @@ raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) 
 }
 
 # ---------------------------------------------------------------------------
-# Multi-Run image placement — mirror each single-instrument tab so the
+# Multi-Run image placement -- mirror each single-instrument tab so the
 # reproducibility overlay reproduces the exact image<->coordinate relationship.
 # Each returns a bare extent list(xmin,xmax,ymin,ymax) in the run-1 (raw) frame,
 # or NULL when the required metadata is absent.
@@ -1133,7 +1133,7 @@ raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) 
 }
 
 # FTIR / Bruker P1: physical extent recorded by tools/reproducibility.R, in the
-# native FTIR scan frame (coordinates are µm from the scan origin, so the image
+# native FTIR scan frame (coordinates are um from the scan origin, so the image
 # spans [0,w] x [0,h] unless an explicit centre is given). Resize-invariant:
 # re-exporting the image at a different pixel resolution does not move it.
 # Mirrors the Raman WITec tier. NULL when the metadata is absent.
@@ -1152,7 +1152,7 @@ place_image_ftir_meta <- function(meta, x, y) {
 # FTIR / Bruker P2: aspect-preserving fit to the particle extent.
 #
 # `raw` is REQUIRED to preserve the aspect ratio. Without it this returns the
-# bare particle bounding box, which is what the multi-run overlay used to do —
+# bare particle bounding box, which is what the multi-run overlay used to do --
 # annotation_raster() stretches the image to whatever box it is given, so a
 # non-square particle hull sheared the micrograph and its features stopped
 # lining up with the points (a rectangular scan squeezed into a square hull
@@ -1182,8 +1182,8 @@ place_image_raman_meta <- function(meta, x, y) {
   list(xmin = ext$xmin, xmax = ext$xmax, ymin = ext$ymin, ymax = ext$ymax)
 }
 
-# Raman P2: known µm-per-pixel scale (from meta, or read from a TIFF backdrop),
-# centred on the particle mean — mirrors raman_native_image_info Priority 2. This
+# Raman P2: known um-per-pixel scale (from meta, or read from a TIFF backdrop),
+# centred on the particle mean -- mirrors raman_native_image_info Priority 2. This
 # is the tier the Raman tab uses when no WITec metadata is present.
 place_image_raman_umpx <- function(meta, x, y, raw, bg_path = NULL) {
   if (is.null(raw)) return(NULL)
@@ -1210,7 +1210,7 @@ place_image_ldir_meta <- function(meta) {
 
 # Dispatch to the instrument-appropriate placement; NULL if unavailable. For
 # Raman this runs the same cascade as raman_native_image_info: WITec extent
-# (P1) then µm-per-pixel scale (P2); P3 (particle-extent fit) is left to the
+# (P1) then um-per-pixel scale (P2); P3 (particle-extent fit) is left to the
 # caller's fallback. FTIR/Bruker run the analogous two tiers: recorded physical
 # extent (P1) then an aspect-preserving fit to the particle extent (P2).
 # `raw` is needed by the Raman P2 tier and by the FTIR P2 fit (which cannot
@@ -1238,7 +1238,7 @@ place_image_multirun <- function(instrument, meta, x, y, raw = NULL, bg_path = N
 }
 
 # ---------------------------------------------------------------------------
-# LDIR view rotation — rotate the whole native LDIR scene (image raster,
+# LDIR view rotation -- rotate the whole native LDIR scene (image raster,
 # extent, particle coordinates) by a multiple of 90 deg about the origin so
 # the LDIR tab can be displayed in the Raman orientation for side-by-side
 # comparison.  Display-only: no stored coordinate is modified.
@@ -1279,7 +1279,7 @@ rotate_raster_view <- function(r, deg) {
 }
 
 # ---------------------------------------------------------------------------
-# View mirror — reflect the scene about the X axis (y -> -y), about the origin
+# View mirror -- reflect the scene about the X axis (y -> -y), about the origin
 # like the rotations above.  A rotation alone cannot undo a handedness
 # difference between two instrument exports, which is why a Y flip is needed
 # on top of the four rotations.
@@ -1337,7 +1337,7 @@ view_transform_raster <- function(r, deg, flip = FALSE) {
 #
 # .auto_view_best() is the shared engine: it scores a list of candidate view
 # transforms (each list(deg=, flip=)) and returns the winning index.  The FIRST
-# candidate must be the identity — it is the fallback whenever nothing scores
+# candidate must be the identity -- it is the fallback whenever nothing scores
 # well enough, or when no candidate clearly beats leaving the view as-is.
 .auto_view_best <- function(src_x, src_y, ref_x, ref_y, cands) {
   fk <- is.finite(src_x) & is.finite(src_y)
@@ -1347,7 +1347,7 @@ view_transform_raster <- function(r, deg, flip = FALSE) {
   if (length(lx) < 4 || length(rx) < 4) return(1L)
 
   # Scoring is O(n_src * n_ref) per candidate. LDIR clouds are tiny, but an
-  # FTIR run can carry thousands of particles — thin deterministically (no RNG,
+  # FTIR run can carry thousands of particles -- thin deterministically (no RNG,
   # so the result stays reproducible and cacheable) to keep the tab responsive.
   cap <- 400L
   thin <- function(v, n) if (n <= cap) v else v[round(seq(1, n, length.out = cap))]
@@ -1393,7 +1393,7 @@ ldir_auto_view_rotation <- function(ldir_x, ldir_y, raman_x, raman_y) {
   degs[.auto_view_best(ldir_x, ldir_y, raman_x, raman_y, cands)]
 }
 
-# Auto view transform including a possible mirror — same measurement as
+# Auto view transform including a possible mirror -- same measurement as
 # ldir_auto_view_rotation() but over all eight orientations, so it can tell a
 # 180 deg rotation apart from a Y flip (which look identical for a symmetric
 # particle cloud but are different scenes).  Used by the FTIR tabs, where the
@@ -1410,8 +1410,8 @@ auto_view_dihedral <- function(src_x, src_y, ref_x, ref_y) {
 # ---------------------------------------------------------------------------
 # Auto view orientation measured from PAIRED coordinates.
 #
-# Every instrument row already carries both frames: x_orig/y_orig (native —
-# what the single-instrument tab plots) and x/y (aligned into Raman space —
+# Every instrument row already carries both frames: x_orig/y_orig (native --
+# what the single-instrument tab plots) and x/y (aligned into Raman space --
 # what the overlay plots). That is a per-particle correspondence, so the
 # native -> Raman orientation can be measured exactly with a 2D Kabsch fit,
 # with no point matching at all.
@@ -1419,13 +1419,13 @@ auto_view_dihedral <- function(src_x, src_y, ref_x, ref_y) {
 # This is strictly better than cloud matching (auto_view_dihedral): it cannot
 # be defeated by the two instruments detecting different particles, by very
 # different particle counts, or by a near-symmetric layout where several
-# rotations score alike — the failure mode that left the view unrotated even
+# rotations score alike -- the failure mode that left the view unrotated even
 # though aligned mode was demonstrably correct.
 #
 # The fitted angle is snapped to a multiple of 90, since that is all a view
 # rotation offers. Mirror-first ordering matches view_transform_xy().
-# Returns list(deg, flip, angle, rmse) — rmse is the residual as a fraction of
-# the cloud radius, so the caller can reject a fit that did not converge —
+# Returns list(deg, flip, angle, rmse) -- rmse is the residual as a fraction of
+# the cloud radius, so the caller can reject a fit that did not converge --
 # or NULL when there is too little paired data to decide.
 # ---------------------------------------------------------------------------
 auto_view_from_pairs <- function(x_native, y_native, x_aligned, y_aligned) {
@@ -1461,7 +1461,7 @@ auto_view_from_pairs <- function(x_native, y_native, x_aligned, y_aligned) {
        angle = best$f$theta * 180 / pi, rmse = best$f$rmse)
 }
 
-# Total LDIR -> Raman rotation for a run, snapped to the nearest 90 deg —
+# Total LDIR -> Raman rotation for a run, snapped to the nearest 90 deg --
 # reconstructed from the pipeline's residual rotation
 # (04_alignment/transform_params_ldir_raman.txt) plus the pre-rotation
 # recorded in the manifest snapshot (ldir_rotate_deg_for_alignment; -90
@@ -1497,7 +1497,7 @@ ldir_total_rotation_deg <- function(run_dir, manifest = NULL) {
 #
 # img_raster : raster array (h x w x channels)
 # x_vals, y_vals : particle coordinate vectors (determines center + extent)
-# padding_um : padding in µm on each side
+# padding_um : padding in um on each side
 #
 # Returns: list(xmin, xmax, ymin, ymax) for annotation_raster
 # ---------------------------------------------------------------------------
@@ -1596,8 +1596,8 @@ parse_particle_selection <- function(text, all_ids) {
 # devices: each function takes plain data and returns a data frame or a grob.
 #
 # The report is assembled with grDevices::pdf(), matching the pipeline's own
-# plots/all_diagnostics.pdf. That keeps it dependency-free — no pandoc, no
-# LaTeX — so it works wherever the app runs.
+# plots/all_diagnostics.pdf. That keeps it dependency-free -- no pandoc, no
+# LaTeX -- so it works wherever the app runs.
 
 # Family x device count table behind "Plastics by Instrument".
 #
@@ -1768,7 +1768,7 @@ report_table_page <- function(df, title, caption = NULL) {
     heights = do.call(grid::unit.c, heights),
     top = grid::textGrob(title, x = 0, hjust = 0,
                          gp = grid::gpar(fontsize = 16, fontface = "bold")),
-    # Page margins — without these the title sits flush against the paper edge.
+    # Page margins -- without these the title sits flush against the paper edge.
     vp = grid::viewport(width  = grid::unit(1, "npc") - grid::unit(1, "cm"),
                         height = grid::unit(1, "npc") - grid::unit(1, "cm")))
 }
@@ -1846,11 +1846,193 @@ report_grid_page <- function(plots, title, caption = NULL, ncol = 2) {
 }
 
 
+
+# ===========================================================================
+# Shared plot renderers (hoisted out of app.R's server scope)
+# ===========================================================================
+# These were defined inside server(), which made them unreachable from
+# main.R -- so the pipeline's report could only ever contain tables while the
+# viewer's download contained figures. They reference no reactives and no
+# input$, so they live here unchanged and BOTH callers now use them. That is
+# the point: one renderer, so the two reports cannot drift apart.
+# ---------------------------------------------------------------------------
+
+# Degenerate-extent guard, used by sanitize_bounds() below. Lives at top
+# level so both the viewer and the pipeline report can reach it.
+.MIN_SPAN <- 1e-6
+
+plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
+
+  if (is.null(df) || nrow(df) == 0) {
+    return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No data"),
+                                 size = 5, colour = "grey50") +
+           theme_void())
+  }
+  # Show all particles in one histogram with smoothed density overlay (normalized to %)
+  ggplot(df, aes(x = feret_max)) +
+    geom_histogram(aes(y = after_stat(density) * 100), alpha = 0.6, bins = 20, fill = "#4472C4", color = "white") +
+    geom_density(aes(y = after_stat(density) * 100), alpha = 0.5, fill = "#70AD47", color = "#70AD47", linewidth = 1.2) +
+    labs(title = inst_name, x = "Feret Max (\u00b5m)", y = "Relative Frequency (%)") +
+    theme_minimal() + theme(plot.title = element_text(size = 11, face = "bold"))
+}
+
+add_image_bg <- function(p, img_info, alpha = 0.4) {
+  if (is.null(img_info)) return(p)
+  p + annotation_raster(img_info$raster,
+        xmin = img_info$xmin, xmax = img_info$xmax,
+        ymin = img_info$ymin, ymax = img_info$ymax,
+        interpolate = TRUE)
+}
+
+breaks_adaptive <- function(rng) {
+  if (is.null(rng) || length(rng) < 2 || rng[1] >= rng[2]) return(NULL)
+
+  span <- rng[2] - rng[1]
+
+  # Choose interval to get ~4-8 breaks (target: 6)
+  intervals <- c(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
+  best_int <- 1000
+  for (int in intervals) {
+    n_breaks <- span / int
+    if (n_breaks >= 4 && n_breaks <= 8) {
+      best_int <- int
+      break
+    }
+    if (n_breaks < 4) {
+      best_int <- int
+      break
+    }
+  }
+
+  seq(floor(rng[1] / best_int) * best_int, ceiling(rng[2] / best_int) * best_int, by = best_int)
+}
+
+safe_size_limits <- function(v) {
+  v <- v[is.finite(v)]
+  if (length(v) == 0) return(NULL)
+  r <- range(v)
+  if (r[1] == r[2]) r <- c(0, r[2] + 1)
+  r
+}
+
+add_particle_labels <- function(p, df, bounds, id_col = "particle_id",
+                                size = 3) {
+  if (is.null(df) || nrow(df) == 0 || !(id_col %in% names(df))) return(p)
+  lab <- df[is.finite(df$x) & is.finite(df$y), , drop = FALSE]
+  if (nrow(lab) == 0) return(p)
+  lab$.lbl <- as.character(lab[[id_col]])
+  lab <- lab[!is.na(lab$.lbl) & nzchar(lab$.lbl), , drop = FALSE]
+  if (nrow(lab) == 0) return(p)
+  size <- if (is.numeric(size) && length(size) == 1 && is.finite(size)) size else 3
+  xr <- diff(bounds$x); yr <- diff(bounds$y)
+  # Nudge/shadow scale gently with text size so bigger labels stay clear of
+  # the marker and keep a proportional shadow.
+  lab$.ly  <- lab$y + yr * 0.006 * size     # nudge above the marker
+  lab$.sx  <- lab$x + xr * 0.0006 * size    # shadow offset
+  lab$.sy  <- lab$.ly - yr * 0.0006 * size
+  p +
+    geom_text(data = lab, aes(x = .sx, y = .sy, label = .lbl),
+              vjust = 0, size = size, colour = "black", alpha = 0.85,
+              inherit.aes = FALSE) +
+    geom_text(data = lab, aes(x = x, y = .ly, label = .lbl),
+              vjust = 0, size = size, colour = "white", fontface = "bold",
+              inherit.aes = FALSE)
+}
+
+make_scatter <- function(df, img_info, bounds, title,
+                          match_colours = NULL, highlight_id = NULL,
+                          full_df = NULL, match_labels = NULL,
+                          plain = FALSE, show_labels = FALSE, label_size = 3,
+                          subtitle = NULL) {
+
+  p <- ggplot(df, aes(x = x, y = y))
+
+  # Background image (with per-image bounds)
+  p <- add_image_bg(p, img_info)
+
+  # Points. In "plain" mode (Show all detected) every particle is drawn in a
+  # single colour with no matched/unmatched distinction or legend.
+  if (isTRUE(plain)) {
+    p <- p + geom_point(aes(size = feret_max), colour = "#1f77b4",
+                        alpha = 0.7)
+  } else {
+    p <- p + geom_point(aes(colour = match_status, size = feret_max),
+                        alpha = 0.7)
+    if (!is.null(match_colours)) {
+      if (!is.null(match_labels))
+        p <- p + scale_colour_manual(values = match_colours, labels = match_labels)
+      else
+        p <- p + scale_colour_manual(values = match_colours)
+    }
+  }
+
+  p <- p +
+    scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12),
+                          limits = safe_size_limits(df$feret_max)) +
+    scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
+    scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
+    coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
+    labs(title = title, subtitle = subtitle,
+         x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+    theme_minimal(base_size = 15) +
+    theme(
+      plot.background  = element_rect(fill = "white", colour = NA),
+      panel.background = element_rect(fill = "grey98", colour = NA),
+      panel.grid       = element_line(colour = "grey90"),
+      plot.subtitle    = element_text(size = 11.5, colour = "#b02a37"),
+      legend.position  = "right",
+      legend.title     = element_text(size = 13),
+      legend.text      = element_text(size = 11)
+    )
+
+  # Highlight selected particle(s) -- ALWAYS shown even if filtered out.
+  # First try the filtered df, then fall back to full_df (unfiltered).
+  # highlight_id can be a character vector (multiple IDs from pattern select)
+  # or a single ID (from the selectInput dropdown).
+  if (!is.null(highlight_id) && length(highlight_id) > 0 &&
+      !identical(highlight_id, "None") && !identical(highlight_id, character(0))) {
+    hl <- NULL
+    if ("particle_id" %in% names(df))
+      hl <- df[df$particle_id %in% highlight_id, ]
+    if ((is.null(hl) || nrow(hl) == 0) && !is.null(full_df) &&
+        "particle_id" %in% names(full_df))
+      hl <- full_df[full_df$particle_id %in% highlight_id, ]
+    if (!is.null(hl) && nrow(hl) > 0) {
+      # Y-offset scales with plot extent so label doesn't overlap the circle
+      y_span <- diff(bounds$y)
+      y_nudge <- y_span * 0.03   # 3% of visible y-range
+      hl$label_y <- hl$y + y_nudge
+      p <- p + geom_point(data = hl, aes(x = x, y = y),
+                           shape = 21, size = 10, stroke = 2,
+                           fill = NA, colour = "#FFD700") +
+               geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
+                          vjust = 0, size = 4.0, fontface = "bold",
+                          colour = "#FFD700")
+    }
+  }
+
+  # Number every displayed particle (opt-in)
+  if (isTRUE(show_labels)) p <- add_particle_labels(p, df, bounds, size = label_size)
+
+  p
+}
+
+sanitize_bounds <- function(b, fallback = list(x = c(-1000, 1000),
+                                               y = c(-1000, 1000))) {
+  ok <- function(v) is.numeric(v) && length(v) == 2L && all(is.finite(v))
+  if (is.null(b) || !ok(b$x) || !ok(b$y)) return(fallback)
+  widen <- function(v) {
+    v <- sort(v)
+    if (diff(v) > .MIN_SPAN) v else c(mean(v) - 0.5, mean(v) + 0.5)
+  }
+  list(x = widen(b$x), y = widen(b$y))
+}
+
 # --- Report assembly ------------------------------------------------------
 
 # Write `pages` (ggplots / grobs, NULLs skipped) to a multi-page PDF at `path`.
 # Returns the number of pages written. A page that fails to draw is replaced by
-# an error page rather than aborting the whole report — a single bad figure
+# an error page rather than aborting the whole report -- a single bad figure
 # should not cost the user the other twenty.
 write_report_pdf <- function(pages, path, width = 11, height = 8.5) {
   pages <- Filter(Negate(is.null), pages)
@@ -1859,9 +2041,9 @@ write_report_pdf <- function(pages, path, width = 11, height = 8.5) {
 
   # cairo_pdf handles UTF-8 text properly regardless of the R session's locale.
   # The report is full of \u00b5m and en-dashes, and the base pdf() device encodes
-  # text using the locale's charset — under a C locale that mangles them (µm
+  # text using the locale's charset -- under a C locale that mangles them (um
   # became garbage, en-dashes became "..."). Fall back to pdf() with a Latin-1
-  # encoding, which still covers µ, if cairo is not compiled in.
+  # encoding, which still covers u, if cairo is not compiled in.
   if (isTRUE(unname(capabilities("cairo")))) {
     grDevices::cairo_pdf(path, width = width, height = height, onefile = TRUE)
   } else {
@@ -2136,4 +2318,288 @@ write_report_html <- function(pages, path,
 
   writeLines(html, path, useBytes = FALSE)
   invisible(length(pages))
+}
+
+# ===========================================================================
+# Shared report assembly (used by the pipeline's automatic report)
+# ===========================================================================
+# The viewer's download handler builds its pages from Shiny reactives, which
+# main.R cannot call -- which is why the automatic report used to contain only
+# tables. Everything below takes plain data frames and therefore runs equally
+# well inside or outside a Shiny session. It reuses the SAME renderers the
+# viewer uses (make_scatter, plot_size_distribution, report_*_page), so the
+# two reports show the same figures for the same run.
+#
+# Fidelity note: the viewer's report reflects whatever filters, zoom, view
+# rotation and highlight selections the operator had set. The automatic
+# report has no operator, so it renders the DEFAULT view state -- which is
+# what the viewer's report shows on a freshly opened session.
+# ---------------------------------------------------------------------------
+
+# ggplot twin of build_plotly_barplot(), for the PDF (plotly cannot be printed
+# to a PDF device). Same families, same ordering, same palette.
+build_material_barplot_gg <- function(device_counts,
+                                      sel_fam  = "__all_plastics__",
+                                      rel_mode = FALSE,
+                                      show_all = TRUE,
+                                      cat_mode = "both") {
+  cts <- device_counts[!vapply(device_counts, is.null, logical(1))]
+  if (length(cts) == 0) return(NULL)
+
+  .fam_palette <- c(
+    PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
+    PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
+    PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
+    Cellulose = "#bcbd22", Acrylate = "#17becf", Other = "#e5c494")
+
+  plastic_fams <- c(synthetic_families, semi_synthetic_families)
+  keep_fams <- if (sel_fam == "__all_plastics__") {
+    if (show_all) NULL
+    else if (identical(cat_mode, "synthetic")) synthetic_families
+    else plastic_fams
+  } else sel_fam
+
+  inst_levels <- names(cts)
+  rows <- do.call(rbind, lapply(inst_levels, function(lbl) {
+    tbl <- cts[[lbl]]
+    fams <- names(tbl)
+    if (!is.null(keep_fams)) fams <- fams[fams %in% keep_fams]
+    if (length(fams) == 0) return(NULL)
+    data.frame(instrument = lbl, family = fams,
+               count = as.integer(tbl[fams]), stringsAsFactors = FALSE)
+  }))
+  if (is.null(rows) || nrow(rows) == 0) return(NULL)
+
+  inst_totals <- tapply(rows$count, rows$instrument, sum)
+  rows$value <- if (rel_mode)
+    round(rows$count / inst_totals[rows$instrument] * 100, 1) else rows$count
+
+  # Largest total at the bottom of the stack, mirroring the plotly version.
+  fams_present <- unique(rows$family)
+  totals <- vapply(fams_present, function(f) sum(rows$value[rows$family == f]),
+                   numeric(1))
+  fam_order <- names(sort(setNames(totals, fams_present), decreasing = TRUE))
+  rows$family     <- factor(rows$family, levels = rev(fam_order))
+  rows$instrument <- factor(rows$instrument, levels = inst_levels)
+
+  pal <- vapply(levels(rows$family),
+                function(f) unname(.fam_palette[f]) %||% "#cccccc", character(1))
+  names(pal) <- levels(rows$family)
+
+  ggplot2::ggplot(rows, ggplot2::aes(x = instrument, y = value, fill = family)) +
+    ggplot2::geom_col(width = 0.65) +
+    ggplot2::geom_text(ggplot2::aes(label = ifelse(value > 0, value, "")),
+                       position = ggplot2::position_stack(vjust = 0.5),
+                       size = 3.2, colour = "white") +
+    ggplot2::scale_fill_manual(values = pal, name = "Family",
+                               breaks = fam_order) +
+    ggplot2::labs(x = NULL,
+                  y = if (rel_mode) "Share (%)" else "Particle Count") +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      panel.grid.major.x = ggplot2::element_blank(),
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA))
+}
+
+# Viewport for an instrument page: frame on the image when there is one
+# (pad 200), else on the particles (pad 300). Mirrors the viewer's tabs.
+.report_view_bounds <- function(img, df) {
+  if (!is.null(img)) {
+    pad <- 200
+    return(sanitize_bounds(list(x = c(img$xmin - pad, img$xmax + pad),
+                                y = c(img$ymin - pad, img$ymax + pad))))
+  }
+  if (!is.null(df) && nrow(df) > 0 && any(is.finite(df$x))) {
+    pad <- 300
+    return(sanitize_bounds(list(
+      x = c(min(df$x, na.rm = TRUE) - pad, max(df$x, na.rm = TRUE) + pad),
+      y = c(min(df$y, na.rm = TRUE) - pad, max(df$y, na.rm = TRUE) + pad))))
+  }
+  sanitize_bounds(list(x = c(-1000, 1000), y = c(-1000, 1000)))
+}
+
+# Resolve an instrument's background image + physical extent, running the same
+# placement cascade the viewer runs (place_image_multirun), with the viewer's
+# P3 fallback (aspect-preserving fit to the particle extent, 300um padding).
+report_instrument_image <- function(key, df, meta, bg_path, native = TRUE) {
+  if (is.null(bg_path) || !nzchar(bg_path) || !file.exists(bg_path)) return(NULL)
+  raw <- tryCatch(load_image_raster(bg_path), error = function(e) NULL)
+  if (is.null(raw)) return(NULL)
+  xs <- if (native && "x_orig" %in% names(df)) df$x_orig else df$x
+  ys <- if (native && "y_orig" %in% names(df)) df$y_orig else df$y
+  ext <- tryCatch(place_image_multirun(key, meta, xs, ys, raw, bg_path),
+                  error = function(e) NULL)
+  if (is.null(ext))
+    ext <- tryCatch(compute_image_bounds(raw, xs, ys, padding_um = 300),
+                    error = function(e) NULL)
+  if (is.null(ext)) return(NULL)
+  c(list(raster = raw), ext[c("xmin", "xmax", "ymin", "ymax")])
+}
+
+# Assemble the full report page list, matching the viewer's download page for
+# page: title, material barplot, plastics table, size distributions, size
+# statistics, one page per instrument over its image, and the overlay.
+#
+# dfs        keyed list (ftir / ftir_bruker / raman / ldir) as returned by
+#            build_instrument_dfs(), already quality-filtered by the caller
+# meta       manifest config_snapshot (drives image placement)
+# img_paths  keyed list of background image paths
+build_report_pages <- function(dfs, meta = list(), img_paths = list(),
+                               run_label = "unknown", run_id = "unknown",
+                               quality_note = NULL) {
+
+  DEV <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
+           "Raman" = "raman", "LDIR" = "ldir")
+  n_of <- function(k) { d <- dfs[[k]]; if (is.null(d)) 0L else nrow(d) }
+  pages <- list()
+
+  # --- 1. Title / provenance ------------------------------------------------
+  pages <- c(pages, list(report_text_page(
+    "Multi-Instrument Particle Matching \u2014 Report",
+    c(paste0("Run                 : ", run_label),
+      paste0("Run ID              : ", run_id),
+      paste0("Generated           : ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+      "",
+      "Particles included in this report:",
+      paste0("  FTIR (PerkinElmer): ", n_of("ftir")),
+      paste0("  FTIR (Bruker)     : ", n_of("ftir_bruker")),
+      paste0("  Raman             : ", n_of("raman")),
+      paste0("  LDIR              : ", n_of("ldir")),
+      if (!is.null(quality_note)) "" else NULL,
+      quality_note),
+    subtitle = "Generated automatically by the pipeline")))
+
+  # --- 2. Material comparison ----------------------------------------------
+  counts <- lapply(setNames(nm = names(DEV)), function(lbl) {
+    d <- dfs[[DEV[[lbl]]]]
+    if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(NULL)
+    table(classify_family_vec(d$material))
+  })
+  pages <- c(pages, list(report_full_figure_page(
+    build_material_barplot_gg(counts),
+    "Material Comparison Across Instruments \u2014 All Plastics (stacked)",
+    "Family counts per instrument, stacked. Absolute counts.")))
+
+  # --- 3. Plastics table ----------------------------------------------------
+  devices <- Filter(Negate(is.null), lapply(setNames(nm = names(DEV)),
+                                            function(lbl) dfs[[DEV[[lbl]]]]))
+  pages <- c(pages, list(report_table_page(
+    report_plastics_table(devices), "Plastics by Instrument",
+    paste0("Material family counts per device. 'Unknown' families are ",
+           "excluded; the Total row sums the families shown."))))
+
+  # --- 4. Size distributions ------------------------------------------------
+  size_plots <- list()
+  if (n_of("ftir") > 0)
+    size_plots <- c(size_plots,
+                    list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
+  if (n_of("raman") > 0)
+    size_plots <- c(size_plots,
+                    list(plot_size_distribution(dfs$raman, "Raman",
+                                                color_matched = "#1f77b4")))
+  if (n_of("ldir") > 0)
+    size_plots <- c(size_plots,
+                    list(plot_size_distribution(dfs$ldir, "LDIR",
+                                                color_matched = "#ff7f0e")))
+  pages <- c(pages, list(report_grid_page(
+    size_plots, "Size Distribution by Instrument",
+    paste0("Feret Max (\u00b5m) per instrument. Solid bars: matched. ",
+           "Outline bars: unmatched."),
+    ncol = min(3, max(1, length(size_plots))))))
+
+  # --- 5. Size statistics ---------------------------------------------------
+  pages <- c(pages, list(report_table_page(
+    report_size_stats_table(dfs), "Size Statistics",
+    "Feret Max summary statistics per instrument.")))
+
+  # --- 6-9. Per-instrument views over the instrument image ------------------
+  # Native instrument frame (x_orig/y_orig), as each viewer tab shows it.
+  inst_spec <- list(
+    list(key = "ftir",        pkey = "ftir_perkin",
+         title = "FTIR (PerkinElmer) \u2014 particles over instrument image",
+         cols = c(matched = "#2ca02c", unmatched = "#d62728"),
+         labs = c(matched = "matched to Raman", unmatched = "unmatched")),
+    list(key = "ftir_bruker", pkey = "ftir_bruker",
+         title = "FTIR (Bruker) \u2014 particles over instrument image",
+         cols = c(matched = "#9467bd", unmatched = "#d62728"),
+         labs = c(matched = "matched to Raman", unmatched = "unmatched")),
+    list(key = "raman",       pkey = "raman",
+         title = "Raman \u2014 particles over instrument image",
+         cols = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
+         labs = c(matched = "matched to FTIR", unmatched = "unmatched")),
+    list(key = "ldir",        pkey = "ldir",
+         title = "LDIR \u2014 particles over instrument image",
+         cols = c(matched = "#d62728", unmatched = "#ff7f0e"),
+         labs = c(matched = "matched to Raman", unmatched = "unmatched")))
+
+  for (sp in inst_spec) {
+    d <- dfs[[sp$key]]
+    if (is.null(d) || nrow(d) == 0) next
+    dd <- d
+    if (all(c("x_orig", "y_orig") %in% names(dd))) {
+      dd$x <- dd$x_orig; dd$y <- dd$y_orig
+    }
+    img <- report_instrument_image(sp$pkey, dd, meta,
+                                   img_paths[[sp$key]], native = FALSE)
+    bounds <- .report_view_bounds(img, dd)
+    pg <- tryCatch(
+      make_scatter(dd, img, bounds,
+                   paste0(sp$title, "  (", nrow(dd), " shown)"),
+                   match_colours = sp$cols, match_labels = sp$labs),
+      error = function(e) NULL)
+    pages <- c(pages, list(report_figure_page(
+      pg, sp$title,
+      paste0("Native instrument frame. ", nrow(dd), " particles after the ",
+             "report quality filter."))))
+  }
+
+  # --- 10. Overlay ----------------------------------------------------------
+  pages <- c(pages, list(report_figure_page(
+    build_overlay_plot(dfs),
+    "Overlay \u2014 all instruments in the shared Raman frame",
+    paste0("All instruments in aligned (Raman) coordinates. ",
+           "One colour per instrument."))))
+
+  Filter(Negate(is.null), pages)
+}
+
+# Overlay: every instrument's aligned coordinates in the shared Raman frame.
+build_overlay_plot <- function(dfs) {
+  spec <- list(
+    list(key = "ftir",        lbl = "FTIR (PerkinElmer)", col = "#2ca02c"),
+    list(key = "ftir_bruker", lbl = "FTIR (Bruker)",      col = "#9467bd"),
+    list(key = "raman",       lbl = "Raman",              col = "#1f77b4"),
+    list(key = "ldir",        lbl = "LDIR",               col = "#d62728"))
+  parts <- list()
+  for (s in spec) {
+    d <- dfs[[s$key]]
+    if (is.null(d) || nrow(d) == 0) next
+    if (!all(c("x", "y") %in% names(d))) next
+    ok <- is.finite(d$x) & is.finite(d$y)
+    if (!any(ok)) next
+    parts[[length(parts) + 1]] <- data.frame(
+      x = d$x[ok], y = d$y[ok],
+      feret_max = if ("feret_max" %in% names(d)) d$feret_max[ok] else 50,
+      instrument = s$lbl, stringsAsFactors = FALSE)
+  }
+  if (length(parts) == 0) return(NULL)
+  all_pts <- do.call(rbind, parts)
+  present <- vapply(spec, function(s) s$lbl, character(1))
+  present <- present[present %in% unique(all_pts$instrument)]
+  pal <- vapply(spec, function(s) s$col, character(1))
+  names(pal) <- vapply(spec, function(s) s$lbl, character(1))
+  all_pts$instrument <- factor(all_pts$instrument, levels = present)
+
+  ggplot2::ggplot(all_pts, ggplot2::aes(x = x, y = y)) +
+    ggplot2::geom_point(ggplot2::aes(colour = instrument, size = feret_max),
+                        alpha = 0.6) +
+    ggplot2::scale_colour_manual(values = pal[present], name = "Instrument") +
+    ggplot2::scale_size_continuous(name = "Feret Max (\u00b5m)",
+                                   range = c(2, 10),
+                                   limits = safe_size_limits(all_pts$feret_max)) +
+    ggplot2::coord_fixed() +
+    ggplot2::labs(x = "X (\u00b5m)", y = "Y (\u00b5m)") +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(plot.background =
+                     ggplot2::element_rect(fill = "white", colour = NA))
 }
