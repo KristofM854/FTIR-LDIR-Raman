@@ -1224,6 +1224,39 @@ if (has_ldir && !is.null(ldir_raw)) {
                   ", rot=", round(ldir_icp$params$rotation_deg, 2), " deg",
                   ", converged=", ldir_icp$converged)
 
+      # --- Accept ICP only if it did not make the pairing worse --------------
+      # ICP minimises nearest-neighbour RMS, and that objective rewards
+      # collapse (a shrunken cloud sits inside dense regions of the target and
+      # scores a LOWER RMS than the correct pose). So RMS cannot be used to
+      # decide whether the refinement helped. One-to-one inlier count can: it
+      # cannot be inflated by shrinking, because each reference particle is
+      # consumed at most once. If ICP lost pairs, keep the pose it started from.
+      .icp_tol <- config$ransac_inlier_dist_um %||% 200
+      .n_init <- align_transform_inliers(icp_initial_transform,
+                                         ldir_for_icp$x_norm, ldir_for_icp$y_norm,
+                                         raman_for_transform$x_norm,
+                                         raman_for_transform$y_norm, .icp_tol)
+      .n_icp  <- align_transform_inliers(ldir_icp$transform,
+                                         ldir_for_icp$x_norm, ldir_for_icp$y_norm,
+                                         raman_for_transform$x_norm,
+                                         raman_for_transform$y_norm, .icp_tol)
+      if (is.finite(.n_init) && is.finite(.n_icp)) {
+        log_message("  LDIR-Raman ICP pairing: ", .n_init, " -> ", .n_icp,
+                    " one-to-one inliers at ", .icp_tol, " um")
+        if (.n_icp < .n_init) {
+          log_message("  LDIR-Raman ICP REJECTED: refinement lost ",
+                      .n_init - .n_icp, " pairs. Reverting to the pre-ICP ",
+                      "transform (scale=",
+                      round(extract_transform_params(icp_initial_transform)$scale, 4),
+                      ", rot=",
+                      round(extract_transform_params(icp_initial_transform)$rotation_deg, 2),
+                      " deg).", level = "WARN")
+          ldir_icp$transform <- icp_initial_transform
+          ldir_icp$params    <- extract_transform_params(icp_initial_transform)
+          ldir_icp$icp_rejected <- TRUE
+        }
+      }
+
       # When Procrustes is locked, discard ICP transform and keep Procrustes
       if (use_procrustes_final) {
         log_message("  Procrustes lock active \u2014 retaining Procrustes transform ",
