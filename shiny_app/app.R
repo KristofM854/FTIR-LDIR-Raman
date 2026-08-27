@@ -17,7 +17,7 @@ FEEDBACK_URL <- "https://forms.office.com/Pages/ResponsePage.aspx?id=kxTyotGkf0u
 # ============================================================================
 
 detail_table_ui <- function(id) {
-  uiOutput(id)https://doi.org/10.3389/fmars.2019.00013
+  uiOutput(id)
 }
 
 # Per-material show/hide checkboxes. Choices are filled from the loaded run
