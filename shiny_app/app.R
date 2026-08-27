@@ -1356,6 +1356,28 @@ server <- function(input, output, session) {
     n_of    <- function(k) { d <- dfs[[k]]; if (is.null(d)) 0L else nrow(d) }
 
     pages <- list()
+    # Interactive twins for the HTML report. Anchors are recorded as pages are
+    # appended, because instrument pages are conditional -- a run without
+    # Bruker data shifts every later index.
+    plotly_specs <- list()
+    .add_inst_fig <- function(d, img, title, cols, labs) {
+      dd <- d
+      if (!is.null(dd) && nrow(dd) > 0 &&
+          all(c("x_orig", "y_orig") %in% names(dd))) {
+        dd$x <- dd$x_orig; dd$y <- dd$y_orig
+      }
+      fig <- tryCatch(build_instrument_plotly(dd, img, title, cols, labs),
+                      error = function(e) NULL)
+      if (is.null(fig)) return(invisible(NULL))
+      plotly_specs[[length(plotly_specs) + 1]] <<- list(
+        fig = fig, after = length(Filter(Negate(is.null), pages)),
+        title = paste0(title, " \u2014 interactive"),
+        caption = paste0("Drag to pan, scroll or box-select to zoom, ",
+                         "double-click to reset. Hover a particle for its ID, ",
+                         "material, quality and size. Use the legend to show ",
+                         "or hide matched and unmatched."))
+      invisible(NULL)
+    }
 
     # --- 1. Title / provenance -------------------------------------------
     pages <- c(pages, list(report_text_page(
@@ -1372,6 +1394,14 @@ server <- function(input, output, session) {
         paste0("  Raman             : ", n_of("raman")),
         paste0("  LDIR              : ", n_of("ldir")),
         "",
+        # Source files for this run, from the manifest. Same helper the
+        # pipeline report uses, so both list them identically. An uploaded
+        # session has no run manifest, so this reports that rather than
+        # inventing filenames.
+        if (!is.null(uploaded_data()))
+          c("Input files:", "  (data uploaded in the viewer; no run manifest)")
+        else report_input_file_lines(m),
+        "",
         "Every figure reproduces the corresponding viewer tab exactly as it was",
         "displayed when this report was generated. Each figure caption records",
         "the filters that produced it."),
@@ -1382,15 +1412,35 @@ server <- function(input, output, session) {
                         if (identical(input$summary_material_select, "__all_plastics__"))
                           "All Plastics (stacked)" else (input$summary_material_select %||% ""))
     bar_cap   <- paste0(
-      "Scope: ", scope, ". Display: ",
-      if (identical(input$summary_bar_display_mode, "rel")) "relative (%)" else "absolute counts",
-      ". Materials: ",
+      "Scope: ", scope, ". Materials: ",
       if (identical(input$summary_bar_materials_mode, "all")) "all particles"
       else if (identical(input$summary_bar_category_mode %||% "both", "synthetic"))
         "synthetic plastics only"
       else "synthetic + semi-synthetic plastics", ".")
+
+    # The report carries BOTH the absolute and the relative view, regardless of
+    # which one the Summary tab's toggle is showing -- the tab is a live
+    # exploration, the report is a record. Every other setting (material
+    # selection, materials/category mode, scope) still comes from the tab.
+    # Built with the shared builder rather than the tab's own reactive, so this
+    # page is identical to the pipeline report's.
+    .bar_counts <- active_material_counts()
+    .bar_sel    <- input$summary_material_select %||% "__all_plastics__"
+    .bar_all    <- identical(input$summary_bar_materials_mode, "all")
+    .bar_cat    <- input$summary_bar_category_mode %||% "both"
+
     pages <- c(pages, list(report_full_figure_page(
-      summary_material_barplot_gg(), bar_title, bar_cap)))
+      build_material_barplot_gg(.bar_counts, .bar_sel, rel_mode = FALSE,
+                                show_all = .bar_all, cat_mode = .bar_cat),
+      paste0(bar_title, " \u2014 absolute"),
+      paste0(bar_cap, " Absolute particle counts."))))
+    pages <- c(pages, list(report_full_figure_page(
+      build_material_barplot_gg(.bar_counts, .bar_sel, rel_mode = TRUE,
+                                show_all = .bar_all, cat_mode = .bar_cat),
+      paste0(bar_title, " \u2014 relative"),
+      paste0(bar_cap, " Share of each instrument's own total (%), so ",
+             "composition is comparable across instruments that found ",
+             "different numbers of particles."))))
 
     pages <- c(pages, list(report_table_page(
       summary_plastics_df(), "Plastics by Instrument",
@@ -1430,6 +1480,10 @@ server <- function(input, output, session) {
                              input$ftir_quality_range, input$ftir_size_range,
                              input$ftir_material_filter,
                              extra = .report_match_desc("ftir")))))
+      .add_inst_fig(ftir_filtered(), ftir_native_image_info(),
+                    "FTIR (PerkinElmer) \u2014 particles over instrument image",
+                    c(matched = "#2ca02c", unmatched = "#d62728"),
+                    c(matched = "matched to Raman", unmatched = "unmatched"))
 
     if (!is.null(ftir_bruker_df_full()) && nrow(ftir_bruker_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1439,6 +1493,10 @@ server <- function(input, output, session) {
                              input$ftir_bruker_size_range,
                              input$ftir_bruker_material_filter,
                              extra = .report_match_desc("ftir_bruker")))))
+      .add_inst_fig(ftir_bruker_filtered(), ftir_bruker_native_image_info(),
+                    "FTIR (Bruker) \u2014 particles over instrument image",
+                    c(matched = "#9467bd", unmatched = "#d62728"),
+                    c(matched = "matched to Raman", unmatched = "unmatched"))
 
     if (!is.null(raman_df_full()) && nrow(raman_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1447,6 +1505,10 @@ server <- function(input, output, session) {
                              input$raman_quality_range, input$raman_size_range,
                              input$raman_material_filter,
                              extra = .report_match_desc("raman")))))
+      .add_inst_fig(raman_filtered(), raman_native_image_info(),
+                    "Raman \u2014 particles over instrument image",
+                    c(matched = "#1f77b4", unmatched = "#ff7f0e"),
+                    c(matched = "matched to FTIR", unmatched = "unmatched"))
 
     if (!is.null(ldir_df_full()) && nrow(ldir_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1457,6 +1519,10 @@ server <- function(input, output, session) {
                              extra = c(.report_match_desc("ldir"),
                                        paste0("background: ",
                                               input$ldir_bg_image %||% "auto"))))))
+      .add_inst_fig(ldir_filtered(), ldir_native_image_info(),
+                    "LDIR \u2014 particles over instrument image",
+                    c(matched = "#d62728", unmatched = "#ff7f0e"),
+                    c(matched = "matched to Raman", unmatched = "unmatched"))
 
     # --- 4. Overlay -------------------------------------------------------
     pages <- c(pages, list(report_figure_page(
@@ -1464,7 +1530,20 @@ server <- function(input, output, session) {
       paste0("Instruments shown: ", .or_none(input$overlay_instruments),
              ". Relationships: ", .or_none(input$overlay_relationships), "."))))
 
-    Filter(Negate(is.null), pages)
+    pages <- Filter(Negate(is.null), pages)
+
+    ov <- tryCatch(build_overlay_plotly(
+            dfs, "Overlay \u2014 all instruments in the shared Raman frame"),
+          error = function(e) NULL)
+    if (!is.null(ov))
+      plotly_specs[[length(plotly_specs) + 1]] <- list(
+        fig = ov, after = length(pages),
+        title = "Overlay \u2014 interactive",
+        caption = paste0("Aligned (Raman) coordinates. Drag to pan, scroll to ",
+                         "zoom, double-click to reset. Use the legend to show ",
+                         "or hide individual instruments."))
+    attr(pages, "plotly_figs") <- plotly_specs
+    pages
   }
 
   # Helper: derive the reports/ save folder (project root next to shiny_app/).
@@ -1569,10 +1648,22 @@ server <- function(input, output, session) {
             table(classify_family_vec(x$material))
           }
         )
-        plotly_fig <- tryCatch(
-          build_plotly_barplot(dcounts),
-          error = function(e) { message("[report] plotly build failed: ", e$message); NULL }
+        .mk_fig <- function(rel) tryCatch(
+          build_plotly_barplot(dcounts, rel_mode = rel),
+          error = function(e) {
+            message("[report] plotly build failed: ", e$message); NULL }
         )
+        # Interactive twins of the two static barplot pages (2 = absolute,
+        # 3 = relative), each placed right after its static counterpart.
+        plotly_specs <- list(
+          list(fig = .mk_fig(FALSE), after = 2L,
+               title = "Material Comparison \u2014 Interactive (absolute counts)",
+               caption = paste0("Hover over bars for exact counts. ",
+                                "Use the legend to show/hide families.")),
+          list(fig = .mk_fig(TRUE), after = 3L,
+               title = "Material Comparison \u2014 Interactive (relative share)",
+               caption = paste0("Share of each instrument's own total (%). ",
+                                "Hover for the underlying count.")))
 
         tmp_dir  <- tempfile()
         dir.create(tmp_dir)
@@ -1585,8 +1676,10 @@ server <- function(input, output, session) {
         write_report_pdf(pages, pdf_path)
 
         incProgress(0.35, detail = "Rendering HTML")
-        write_report_html(pages, html_path, plotly_fig = plotly_fig,
-                          plotly_insert_after = 2L)
+        # Barplot twins plus the instrument/overlay twins that report_pages()
+        # recorded while it built those pages.
+        write_report_html(pages, html_path, plotly_figs = c(
+          plotly_specs, attr(pages, "plotly_figs") %||% list()))
 
         # Save both files to reports/ BEFORE attempting the archive, so the
         # operator still gets them even if the download degrades below.

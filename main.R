@@ -1954,7 +1954,9 @@ tryCatch({
     .dfs, meta = .meta, img_paths = .img_paths,
     run_label = basename(config$output_dir),
     run_id    = .man$run_id %||% basename(config$output_dir),
-    quality_note = .quality_note)
+    quality_note = .quality_note,
+    manifest  = .man,
+    interactive = TRUE)
 
   report_file <- file.path(config$output_dir, "particle_report.pdf")
   n_pages <- write_report_pdf(report_pages, report_file)
@@ -1970,11 +1972,28 @@ tryCatch({
       if (is.null(x) || nrow(x) == 0 || !"material" %in% names(x)) return(NULL)
       table(classify_family_vec(x$material))
     })
-    plotly_fig <- tryCatch(build_plotly_barplot(device_counts),
+    .mk_fig <- function(rel) tryCatch(
+      build_plotly_barplot(device_counts, rel_mode = rel),
       error = function(e) {
         log_message("  WARNING: plotly build failed: ", e$message); NULL })
-    write_report_html(report_pages, html_file, plotly_fig = plotly_fig,
-                      plotly_insert_after = 2L)
+    # Interactive twins of the two static barplot pages (2 = absolute,
+    # 3 = relative), each inserted directly after its static counterpart.
+    # Barplot twins (pages 2 and 3) plus the instrument/overlay twins, whose
+    # anchors build_report_pages() recorded while it built those pages.
+    .bar_specs <- list(
+      list(fig = .mk_fig(FALSE), after = 2L,
+           title = "Material Comparison \u2014 Interactive (absolute counts)",
+           caption = paste0("Hover over bars for exact counts. ",
+                            "Use the legend to show/hide families.")),
+      list(fig = .mk_fig(TRUE), after = 3L,
+           title = "Material Comparison \u2014 Interactive (relative share)",
+           caption = paste0("Share of each instrument's own total (%). ",
+                            "Hover for the underlying count.")))
+    .fig_specs <- attr(report_pages, "plotly_figs") %||% list()
+    write_report_html(report_pages, html_file,
+                      plotly_figs = c(.bar_specs, .fig_specs))
+    log_message("  HTML interactive charts: ",
+                length(.bar_specs) + length(.fig_specs))
     log_message("  HTML report written: ", html_file)
   }, error = function(e) {
     log_message("  WARNING: HTML report generation failed: ", e$message)
