@@ -1372,6 +1372,14 @@ server <- function(input, output, session) {
         paste0("  Raman             : ", n_of("raman")),
         paste0("  LDIR              : ", n_of("ldir")),
         "",
+        # Source files for this run, from the manifest. Same helper the
+        # pipeline report uses, so both list them identically. An uploaded
+        # session has no run manifest, so this reports that rather than
+        # inventing filenames.
+        if (!is.null(uploaded_data()))
+          c("Input files:", "  (data uploaded in the viewer; no run manifest)")
+        else report_input_file_lines(m),
+        "",
         "Every figure reproduces the corresponding viewer tab exactly as it was",
         "displayed when this report was generated. Each figure caption records",
         "the filters that produced it."),
