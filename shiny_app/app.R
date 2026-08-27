@@ -1244,19 +1244,7 @@ server <- function(input, output, session) {
   }) |> bindCache(summary_plastics_df())
 
   # Helper: plot size distribution for one instrument
-  plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
-    if (is.null(df) || nrow(df) == 0) {
-      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No data"),
-                                   size = 5, colour = "grey50") +
-             theme_void())
-    }
-    # Show all particles in one histogram with smoothed density overlay (normalized to %)
-    ggplot(df, aes(x = feret_max)) +
-      geom_histogram(aes(y = after_stat(density) * 100), alpha = 0.6, bins = 20, fill = "#4472C4", color = "white") +
-      geom_density(aes(y = after_stat(density) * 100), alpha = 0.5, fill = "#70AD47", color = "#70AD47", linewidth = 1.2) +
-      labs(title = inst_name, x = "Feret Max (µm)", y = "Relative Frequency (%)") +
-      theme_minimal() + theme(plot.title = element_text(size = 11, face = "bold"))
-  }
+  # plot_size_distribution() now lives in global.R -- shared with the pipeline report
 
   output$size_hist_ftir <- renderPlot({
     df <- summary_dfs()$ftir
@@ -2685,13 +2673,7 @@ server <- function(input, output, session) {
   # ==================================================================
   # Helper: add image background to a ggplot
   # ==================================================================
-  add_image_bg <- function(p, img_info, alpha = 0.4) {
-    if (is.null(img_info)) return(p)
-    p + annotation_raster(img_info$raster,
-          xmin = img_info$xmin, xmax = img_info$xmax,
-          ymin = img_info$ymin, ymax = img_info$ymax,
-          interpolate = TRUE)
-  }
+  # add_image_bg() now lives in global.R -- shared with the pipeline report
 
   # Cheap cache-key identity for a background image: its placement bounds (four
   # numbers) rather than the raster pixels. Used in the plot renderPlot()
@@ -2708,147 +2690,22 @@ server <- function(input, output, session) {
   # ==================================================================
   # Helper: generate axis breaks at every 1000 µm within a range
   # Adaptive axis breaks: choose interval based on zoom level to keep 4-8 breaks visible
-  breaks_adaptive <- function(rng) {
-    if (is.null(rng) || length(rng) < 2 || rng[1] >= rng[2]) return(NULL)
-
-    span <- rng[2] - rng[1]
-
-    # Choose interval to get ~4-8 breaks (target: 6)
-    intervals <- c(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
-    best_int <- 1000
-    for (int in intervals) {
-      n_breaks <- span / int
-      if (n_breaks >= 4 && n_breaks <= 8) {
-        best_int <- int
-        break
-      }
-      if (n_breaks < 4) {
-        best_int <- int
-        break
-      }
-    }
-
-    seq(floor(rng[1] / best_int) * best_int, ceiling(rng[2] / best_int) * best_int, by = best_int)
-  }
+  # breaks_adaptive() now lives in global.R -- shared with the pipeline report
 
   # Positive-width limits for scale_size_continuous. When a view is filtered down
   # to a single particle (or one distinct Feret), the default size domain has
   # zero width, so ggplot rescales from 0/0 -> NaN and the NaN-sized legend key
   # throws "non-finite location/size for viewport", killing the whole plot.
   # Returns NULL when there are no finite values (scale then goes unused).
-  safe_size_limits <- function(v) {
-    v <- v[is.finite(v)]
-    if (length(v) == 0) return(NULL)
-    r <- range(v)
-    if (r[1] == r[2]) r <- c(0, r[2] + 1)
-    r
-  }
+  # safe_size_limits() now lives in global.R -- shared with the pipeline report
 
   # Draw the particle_id next to every point (the "Number all particles" toggle).
   # White text with a thin black shadow so it reads over both the light panel and
   # dark instrument images. Plain geom_text (no repel) keeps it fast for the
   # larger instruments; it is an opt-in overlay so occasional overlap is fine.
-  add_particle_labels <- function(p, df, bounds, id_col = "particle_id",
-                                  size = 3) {
-    if (is.null(df) || nrow(df) == 0 || !(id_col %in% names(df))) return(p)
-    lab <- df[is.finite(df$x) & is.finite(df$y), , drop = FALSE]
-    if (nrow(lab) == 0) return(p)
-    lab$.lbl <- as.character(lab[[id_col]])
-    lab <- lab[!is.na(lab$.lbl) & nzchar(lab$.lbl), , drop = FALSE]
-    if (nrow(lab) == 0) return(p)
-    size <- if (is.numeric(size) && length(size) == 1 && is.finite(size)) size else 3
-    xr <- diff(bounds$x); yr <- diff(bounds$y)
-    # Nudge/shadow scale gently with text size so bigger labels stay clear of
-    # the marker and keep a proportional shadow.
-    lab$.ly  <- lab$y + yr * 0.006 * size     # nudge above the marker
-    lab$.sx  <- lab$x + xr * 0.0006 * size    # shadow offset
-    lab$.sy  <- lab$.ly - yr * 0.0006 * size
-    p +
-      geom_text(data = lab, aes(x = .sx, y = .sy, label = .lbl),
-                vjust = 0, size = size, colour = "black", alpha = 0.85,
-                inherit.aes = FALSE) +
-      geom_text(data = lab, aes(x = x, y = .ly, label = .lbl),
-                vjust = 0, size = size, colour = "white", fontface = "bold",
-                inherit.aes = FALSE)
-  }
+  # add_particle_labels() now lives in global.R -- shared with the pipeline report
 
-  make_scatter <- function(df, img_info, bounds, title,
-                            match_colours = NULL, highlight_id = NULL,
-                            full_df = NULL, match_labels = NULL,
-                            plain = FALSE, show_labels = FALSE, label_size = 3,
-                            subtitle = NULL) {
-
-    p <- ggplot(df, aes(x = x, y = y))
-
-    # Background image (with per-image bounds)
-    p <- add_image_bg(p, img_info)
-
-    # Points. In "plain" mode (Show all detected) every particle is drawn in a
-    # single colour with no matched/unmatched distinction or legend.
-    if (isTRUE(plain)) {
-      p <- p + geom_point(aes(size = feret_max), colour = "#1f77b4",
-                          alpha = 0.7)
-    } else {
-      p <- p + geom_point(aes(colour = match_status, size = feret_max),
-                          alpha = 0.7)
-      if (!is.null(match_colours)) {
-        if (!is.null(match_labels))
-          p <- p + scale_colour_manual(values = match_colours, labels = match_labels)
-        else
-          p <- p + scale_colour_manual(values = match_colours)
-      }
-    }
-
-    p <- p +
-      scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12),
-                            limits = safe_size_limits(df$feret_max)) +
-      scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
-      scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
-      coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
-      labs(title = title, subtitle = subtitle,
-           x = "X (\u00b5m)", y = "Y (\u00b5m)") +
-      theme_minimal(base_size = 15) +
-      theme(
-        plot.background  = element_rect(fill = "white", colour = NA),
-        panel.background = element_rect(fill = "grey98", colour = NA),
-        panel.grid       = element_line(colour = "grey90"),
-        plot.subtitle    = element_text(size = 11.5, colour = "#b02a37"),
-        legend.position  = "right",
-        legend.title     = element_text(size = 13),
-        legend.text      = element_text(size = 11)
-      )
-
-    # Highlight selected particle(s) — ALWAYS shown even if filtered out.
-    # First try the filtered df, then fall back to full_df (unfiltered).
-    # highlight_id can be a character vector (multiple IDs from pattern select)
-    # or a single ID (from the selectInput dropdown).
-    if (!is.null(highlight_id) && length(highlight_id) > 0 &&
-        !identical(highlight_id, "None") && !identical(highlight_id, character(0))) {
-      hl <- NULL
-      if ("particle_id" %in% names(df))
-        hl <- df[df$particle_id %in% highlight_id, ]
-      if ((is.null(hl) || nrow(hl) == 0) && !is.null(full_df) &&
-          "particle_id" %in% names(full_df))
-        hl <- full_df[full_df$particle_id %in% highlight_id, ]
-      if (!is.null(hl) && nrow(hl) > 0) {
-        # Y-offset scales with plot extent so label doesn't overlap the circle
-        y_span <- diff(bounds$y)
-        y_nudge <- y_span * 0.03   # 3% of visible y-range
-        hl$label_y <- hl$y + y_nudge
-        p <- p + geom_point(data = hl, aes(x = x, y = y),
-                             shape = 21, size = 10, stroke = 2,
-                             fill = NA, colour = "#FFD700") +
-                 geom_text(data = hl, aes(x = x, y = label_y, label = particle_id),
-                            vjust = 0, size = 4.0, fontface = "bold",
-                            colour = "#FFD700")
-      }
-    }
-
-    # Number every displayed particle (opt-in)
-    if (isTRUE(show_labels)) p <- add_particle_labels(p, df, bounds, size = label_size)
-
-    p
-  }
+  # make_scatter() now lives in global.R -- shared with the pipeline report
 
   # ==================================================================
   # Helper: detail table HTML for single instrument
@@ -2914,16 +2771,7 @@ server <- function(input, output, session) {
   # Last line of defence before coord_fixed(). Limits can still go non-finite
   # without any brush involved — all-NA coordinates make min()/max() return
   # +/-Inf, and unresolved image-placement metadata yields NA extents.
-  sanitize_bounds <- function(b, fallback = list(x = c(-1000, 1000),
-                                                 y = c(-1000, 1000))) {
-    ok <- function(v) is.numeric(v) && length(v) == 2L && all(is.finite(v))
-    if (is.null(b) || !ok(b$x) || !ok(b$y)) return(fallback)
-    widen <- function(v) {
-      v <- sort(v)
-      if (diff(v) > .MIN_SPAN) v else c(mean(v) - 0.5, mean(v) + 0.5)
-    }
-    list(x = widen(b$x), y = widen(b$y))
-  }
+  # sanitize_bounds() now lives in global.R -- shared with the pipeline report
 
   observeEvent(input$ftir_brush, {
     nb <- .brush_bounds(input$ftir_brush); if (!is.null(nb)) zoom$ftir <- nb
