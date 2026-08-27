@@ -69,7 +69,8 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
                     value = quality_default, step = quality_step)),
       div(id = paste0(id_prefix, "_tour_size"),
         sliderInput(paste0(id_prefix, "_size_range"), "Feret Max (\u00b5m)",
-                    min = 0, max = size_max, value = c(0, size_max), step = 5)),
+                    min = 0, max = size_max,
+                    value = c(DEFAULT_MIN_SIZE_UM, size_max), step = 5)),
       div(id = paste0(id_prefix, "_tour_material"),
         material_filter_ui(paste0(id_prefix, "_material_filter"), "Materials")),
       div(id = paste0(id_prefix, "_tour_match"),
@@ -274,7 +275,8 @@ ui <- fluidPage(
           sliderInput("ldir_quality_range", "Quality",
                       min = 0, max = 1, value = c(0.8, 1), step = 0.01),
           sliderInput("ldir_size_range", "Feret Max (\u00b5m)",
-                      min = 0, max = 1200, value = c(0, 1200), step = 5),
+                      min = 0, max = 1200,
+                      value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
           material_filter_ui("ldir_material_filter", "Materials"),
           # ON by default, same as the other instrument tabs.
           checkboxInput("ldir_show_all_detected",
@@ -440,7 +442,8 @@ ui <- fluidPage(
           # --- GLOBAL FILTERS ---
           h4("Global Filters"),
           sliderInput("overlay_size_range", "Feret Max (\u00b5m)",
-                      min = 0, max = 1200, value = c(0, 1200), step = 5),
+                      min = 0, max = 1200,
+                      value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
           sliderInput("overlay_dist_range", "Match Distance (\u00b5m)",
                       min = 0, max = 100, value = c(0, 100), step = 1),
           hr(),
@@ -450,7 +453,8 @@ ui <- fluidPage(
           sliderInput("overlay_ftir_quality", "AAU Quality",
                       min = 0, max = 1, value = c(0.7, 1), step = 0.01),
           sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 800, value = c(0, 800), step = 5),
+                      min = 0, max = 800,
+                      value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
           material_filter_ui("overlay_ftir_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_ftir_pattern", NULL,
@@ -469,7 +473,8 @@ ui <- fluidPage(
           sliderInput("overlay_raman_quality", "HQI",
                       min = 0, max = 100, value = c(70, 100), step = 1),
           sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 1200, value = c(0, 1200), step = 5),
+                      min = 0, max = 1200,
+                      value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
           material_filter_ui("overlay_raman_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_raman_pattern", NULL,
@@ -494,7 +499,8 @@ ui <- fluidPage(
           sliderInput("overlay_ldir_quality", "Quality",
                       min = 0, max = 1, value = c(0.8, 1), step = 0.01),
           sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 1200, value = c(0, 1200), step = 5),
+                      min = 0, max = 1200,
+                      value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
           material_filter_ui("overlay_ldir_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_ldir_pattern", NULL,
@@ -513,7 +519,8 @@ ui <- fluidPage(
           sliderInput("overlay_ftir_bruker_quality", "AAU Quality",
                       min = 0, max = 1, value = c(0.7, 1), step = 0.01),
           sliderInput("overlay_ftir_bruker_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 800, value = c(0, 800), step = 5),
+                      min = 0, max = 800,
+                      value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
           material_filter_ui("overlay_ftir_bruker_material", "Materials"),
           fluidRow(
             column(8, textInput("overlay_ftir_bruker_pattern", NULL,
@@ -2378,7 +2385,7 @@ server <- function(input, output, session) {
                         min = 0, max = 1,
                         value = c(0.7, 1))
       updateSliderInput(session, "ftir_size_range", min = 0, max = s_max,
-                        value = c(0, s_max))
+                        value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
 
       # Overlay per-instrument
       update_material_choices("overlay_ftir_material", ftir_mats)
@@ -2390,7 +2397,7 @@ server <- function(input, output, session) {
                         value = c(floor(q_range[1] * 100) / 100,
                                   ceiling(q_range[2] * 100) / 100))
       updateSliderInput(session, "overlay_ftir_size", min = 0, max = s_max,
-                        value = c(0, s_max))
+                        value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
     }
 
     # --- Raman controls (individual tab + overlay) ---
@@ -2409,7 +2416,7 @@ server <- function(input, output, session) {
                         min = 0, max = 100,
                         value = c(70, 100))
       updateSliderInput(session, "raman_size_range", min = 0, max = s_max,
-                        value = c(0, s_max))
+                        value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
 
       # Overlay per-instrument
       update_material_choices("overlay_raman_material", raman_mats)
@@ -2419,7 +2426,7 @@ server <- function(input, output, session) {
                         min = floor(q_range[1]), max = ceiling(q_range[2]),
                         value = c(floor(q_range[1]), ceiling(q_range[2])))
       updateSliderInput(session, "overlay_raman_size", min = 0, max = s_max,
-                        value = c(0, s_max))
+                        value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
     }
 
     # --- LDIR controls (individual tab + overlay) ---
@@ -2441,7 +2448,7 @@ server <- function(input, output, session) {
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
-                          value = c(0, s_max))
+                          value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
       }
       score_max <- if ("match_score" %in% names(ldir)) {
         ceiling(max(ldir$match_score, na.rm = TRUE) * 10) / 10
@@ -2471,7 +2478,7 @@ server <- function(input, output, session) {
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "overlay_ldir_size", min = 0, max = s_max,
-                          value = c(0, s_max))
+                          value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
       }
     }
 
@@ -2492,7 +2499,7 @@ server <- function(input, output, session) {
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "ftir_bruker_size_range", min = 0, max = s_max,
-                          value = c(0, s_max))
+                          value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
       }
 
       # Overlay per-instrument
@@ -2508,7 +2515,7 @@ server <- function(input, output, session) {
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "overlay_ftir_bruker_size", min = 0, max = s_max,
-                          value = c(0, s_max))
+                          value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
       }
     }
 

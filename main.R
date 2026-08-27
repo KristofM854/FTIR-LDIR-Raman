@@ -1901,7 +1901,13 @@ tryCatch({
   .rdata <- load_run_data(.run_info)
   .dfs   <- build_instrument_dfs(.rdata)
 
-  # Mirrors filter_instrument() in the viewer, including dropping NA quality.
+  # Minimum Feret Max (um) for the report, same for every instrument and the
+  # same default the viewer's size sliders start at (DEFAULT_MIN_SIZE_UM in
+  # global.R, so the two cannot drift apart).
+  .report_min_size <- DEFAULT_MIN_SIZE_UM
+
+  # Mirrors filter_instrument() in the viewer: quality first, then size,
+  # dropping NA in both (the viewer's sliders bound finite values only).
   for (k in names(REPORT_QUALITY_RANGE)) {
     d <- .dfs[[k]]
     if (is.null(d) || nrow(d) == 0) next
@@ -1911,19 +1917,28 @@ tryCatch({
       q <- suppressWarnings(as.numeric(d$quality))
       d <- d[!is.na(q) & q >= rng[1] & q <= rng[2], , drop = FALSE]
     }
+    n_after_q <- nrow(d)
+    if ("feret_max" %in% names(d)) {
+      s <- suppressWarnings(as.numeric(d$feret_max))
+      d <- d[!is.na(s) & s >= .report_min_size, , drop = FALSE]
+    }
     .dfs[[k]] <- d
-    log_message(sprintf("  Report filter %-19s quality %s-%s: %d of %d kept",
-                        .rq_label[[k]], format(rng[1]), format(rng[2]),
-                        nrow(d), n0))
+    log_message(sprintf(
+      "  Report filter %-19s quality %s-%s: %d of %d | size >= %s um: %d of %d",
+      .rq_label[[k]], format(rng[1]), format(rng[2]), n_after_q, n0,
+      format(.report_min_size), nrow(d), n_after_q))
   }
 
   .quality_note <- c(
-    "Quality filter applied to this report:",
+    "Filters applied to this report:",
     vapply(names(REPORT_QUALITY_RANGE), function(k) {
       r <- REPORT_QUALITY_RANGE[[k]]
-      sprintf("  %-19s %s - %s%s", .rq_label[[k]], format(r[1]), format(r[2]),
+      sprintf("  %-19s quality %s - %s%s", .rq_label[[k]],
+              format(r[1]), format(r[2]),
               if (identical(k, "raman")) "  (HQI)" else "")
     }, character(1)),
+    sprintf("  %-19s Feret Max >= %s um (all instruments)",
+            "", format(.report_min_size)),
     "",
     "Alignment and matching upstream used ALL particles; the filter",
     "affects only the figures and tables below.")
