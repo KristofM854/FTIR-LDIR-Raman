@@ -576,7 +576,8 @@ log_message("ICP refinement sets: FTIR ", nrow(ftir_clean),
 
 # --- Tier 1: Landmark alignment ---
 # Use size-filtered Raman (>= 20 um) -- landmarks are selected by size inside
-landmark_result <- landmark_align(ftir_clean, raman_for_transform, config)
+landmark_result <- landmark_align(ftir_clean, raman_for_transform, config,
+                                  src_label = "FTIR (PerkinElmer)")
 
 use_landmark_transform <- landmark_result$confident && config$landmark_skip_full_ransac
 
@@ -589,7 +590,8 @@ if (use_landmark_transform) {
   log_message(strrep("-", 50))
   log_message("Tier 2: Full alignment (anchor sets)")
 
-  ransac_result <- ransac_align(ftir_norm_align, raman_norm_align, config)
+  ransac_result <- ransac_align(ftir_norm_align, raman_norm_align, config,
+                                src_label = "FTIR (PerkinElmer)")
 
   log_message("RANSAC transform: scale = ", round(ransac_result$params$scale, 4),
               ", rotation = ", round(ransac_result$params$rotation_deg, 2), " deg",
@@ -766,7 +768,10 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
     log_message("Tiered alignment: FTIR (Bruker) ↔ Raman")
 
     # Tier 1: Landmark
-    bruker_landmark_result <- landmark_align(ftir_bruker_clean, raman_for_transform, config)
+    # src_label was omitted here, so Bruker logged as plain "FTIR" -- the same
+    # label PerkinElmer uses, making a warning from either indistinguishable.
+    bruker_landmark_result <- landmark_align(ftir_bruker_clean, raman_for_transform,
+                                             config, src_label = "FTIR (Bruker)")
     use_bruker_landmark    <- bruker_landmark_result$confident && config$landmark_skip_full_ransac
 
     if (use_bruker_landmark) {
@@ -777,7 +782,8 @@ if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
       # Tier 2: Full alignment (same two-aligner race as the PerkinElmer path)
       log_message(strrep("-", 50))
       log_message("  Tier 2: Full alignment (Bruker)")
-      bruker_ransac_result <- ransac_align(ftir_bruker_norm_align, raman_norm_align, config)
+      bruker_ransac_result <- ransac_align(ftir_bruker_norm_align, raman_norm_align,
+                                           config, src_label = "FTIR (Bruker)")
       log_message("  Bruker RANSAC: scale=", round(bruker_ransac_result$params$scale, 4),
                   ", rotation=", round(bruker_ransac_result$params$rotation_deg, 2), " deg",
                   ", reflected=", bruker_ransac_result$params$reflected,
@@ -1125,7 +1131,8 @@ if (has_ldir && !is.null(ldir_raw)) {
                       "mirror between LDIR and Raman)")
 
         ldir_ransac <- tryCatch({
-          ransac_align(ldir_for_align, raman_norm_align, .ldir_align_cfg)
+          ransac_align(ldir_for_align, raman_norm_align, .ldir_align_cfg,
+                       src_label = "LDIR")
         }, error = function(e) {
           log_message("  LDIR RANSAC failed: ", e$message, level = "WARN")
           NULL
