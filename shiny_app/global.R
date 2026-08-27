@@ -2297,6 +2297,17 @@ write_report_html <- function(pages, path,
                               plotly_figs        = NULL,
                               width = 11, height = 8.5) {
 
+  # The report text uses the micro sign and en/em dashes. Under a non-UTF-8
+  # locale R cannot represent them and writes "<U+00B5>" into the page (and
+  # into the embedded figure JSON), which renders as garbage. Nothing in the
+  # writing path can recover that, so say so plainly rather than shipping a
+  # mangled protocol silently. R >= 4.2 on Windows and any modern Linux is
+  # UTF-8 by default, so this normally never fires.
+  if (!isTRUE(l10n_info()[["UTF-8"]]))
+    warning("write_report_html(): locale is not UTF-8 (", Sys.getlocale("LC_CTYPE"),
+            "); non-ASCII text will be mangled in the HTML report. ",
+            "Set a UTF-8 locale before generating the report.", call. = FALSE)
+
   pages <- Filter(Negate(is.null), pages)
   if (length(pages) == 0)
     pages <- list(report_text_page("Report",
@@ -2550,12 +2561,14 @@ report_instrument_image <- function(key, df, meta, bg_path, native = TRUE) {
 # img_paths  keyed list of background image paths
 build_report_pages <- function(dfs, meta = list(), img_paths = list(),
                                run_label = "unknown", run_id = "unknown",
-                               quality_note = NULL, manifest = list()) {
+                               quality_note = NULL, manifest = list(),
+                               interactive = FALSE, img_max_dim = NULL) {
 
   DEV <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
            "Raman" = "raman", "LDIR" = "ldir")
   n_of <- function(k) { d <- dfs[[k]]; if (is.null(d)) 0L else nrow(d) }
   pages <- list()
+  plotly_specs <- list()
 
   # --- 1. Title / provenance ------------------------------------------------
   pages <- c(pages, list(report_text_page(
@@ -2666,6 +2679,24 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
       pg, sp$title,
       paste0("Native instrument frame. ", nrow(dd), " particles after the ",
              "report quality filter."))))
+
+    # Interactive twin, anchored to the static page just appended. Anchors are
+    # recorded here rather than computed afterwards because instrument pages
+    # are conditional -- a run without Bruker data shifts every later index.
+    if (isTRUE(interactive)) {
+      fig <- tryCatch(
+        build_instrument_plotly(dd, img, sp$title, sp$cols, sp$labs,
+                                max_dim = img_max_dim),
+        error = function(e) NULL)
+      if (!is.null(fig))
+        plotly_specs[[length(plotly_specs) + 1]] <- list(
+          fig = fig, after = length(Filter(Negate(is.null), pages)),
+          title = paste0(sp$title, " \u2014 interactive"),
+          caption = paste0("Drag to pan, scroll or box-select to zoom, ",
+                           "double-click to reset. Hover a particle for its ",
+                           "ID, material, quality and size. Use the legend to ",
+                           "show or hide matched and unmatched."))
+    }
   }
 
   # --- 10. Overlay ----------------------------------------------------------
@@ -2675,7 +2706,22 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
     paste0("All instruments in aligned (Raman) coordinates. ",
            "One colour per instrument."))))
 
-  Filter(Negate(is.null), pages)
+  pages <- Filter(Negate(is.null), pages)
+
+  if (isTRUE(interactive)) {
+    ov <- tryCatch(build_overlay_plotly(
+            dfs, "Overlay \u2014 all instruments in the shared Raman frame"),
+          error = function(e) NULL)
+    if (!is.null(ov))
+      plotly_specs[[length(plotly_specs) + 1]] <- list(
+        fig = ov, after = length(pages),
+        title = "Overlay \u2014 interactive",
+        caption = paste0("Aligned (Raman) coordinates. Drag to pan, scroll to ",
+                         "zoom, double-click to reset. Use the legend to show ",
+                         "or hide individual instruments."))
+    attr(pages, "plotly_figs") <- plotly_specs
+  }
+  pages
 }
 
 # Overlay: every instrument's aligned coordinates in the shared Raman frame.
@@ -2717,4 +2763,148 @@ build_overlay_plot <- function(dfs) {
     ggplot2::theme_minimal(base_size = 13) +
     ggplot2::theme(plot.background =
                      ggplot2::element_rect(fill = "white", colour = NA))
+}
+
+# ---------------------------------------------------------------------------
+# Interactive (plotly) twins of the instrument and overlay figures, for the
+# HTML report. The PDF keeps the static ggplot pages -- a PDF cannot hold a
+# widget -- so the HTML becomes a superset: static page first, interactive
+# version directly after it.
+#
+# The background micrograph is placed with layout.images in DATA coordinates,
+# which is the plotly equivalent of the ggplot annotation_raster() that
+# add_image_bg() uses. xaxis$scaleanchor reproduces coord_fixed(), so a
+# micron is the same length on both axes and the image is not sheared.
+# ---------------------------------------------------------------------------
+
+# Encode a raster (matrix/array in [0,1]) as a PNG data URI for layout.images.
+# Re-encoding the raster rather than embedding the source file matters: the
+# raster is what the placement extent was computed against, and for LDIR it may
+# have been rotated for display, in which case the file on disk no longer
+# matches the extent.
+.report_raster_data_uri <- function(raw, max_dim = NULL) {
+  if (is.null(raw) || !requireNamespace("png", quietly = TRUE) ||
+      !requireNamespace("base64enc", quietly = TRUE)) return(NULL)
+  if (!is.null(max_dim) && exists("downsample_raster"))
+    raw <- tryCatch(downsample_raster(raw, max_dim), error = function(e) raw)
+  tmp <- tempfile(fileext = ".png")
+  on.exit(unlink(tmp), add = TRUE)
+  ok <- tryCatch({ png::writePNG(raw, tmp); TRUE }, error = function(e) FALSE)
+  if (!ok) return(NULL)
+  paste0("data:image/png;base64,", base64enc::base64encode(tmp))
+}
+
+# Hover text: what the viewer's hover panel shows for a particle.
+.report_hover_text <- function(d) {
+  g <- function(col, fmt) {
+    if (!col %in% names(d)) return(rep("", nrow(d)))
+    v <- d[[col]]
+    ifelse(is.na(v), "", sprintf(fmt, v))
+  }
+  paste0(
+    ifelse("particle_id" %in% names(d),
+           paste0("<b>", d$particle_id, "</b>"), ""),
+    ifelse("material" %in% names(d), paste0("<br>Material: ", d$material), ""),
+    g("feret_max", "<br>Feret Max: %.1f \u00b5m"),
+    g("quality",   "<br>Quality: %.3g"),
+    ifelse("match_status" %in% names(d),
+           paste0("<br>Status: ", d$match_status), ""))
+}
+
+# One instrument's particles over its micrograph, interactive.
+build_instrument_plotly <- function(d, img, title, match_colours,
+                                    match_labels = NULL, max_dim = NULL) {
+  if (!requireNamespace("plotly", quietly = TRUE)) return(NULL)
+  if (is.null(d) || nrow(d) == 0) return(NULL)
+  d <- d[is.finite(d$x) & is.finite(d$y), , drop = FALSE]
+  if (nrow(d) == 0) return(NULL)
+  if (!"match_status" %in% names(d)) d$match_status <- "unknown"
+  if (!"feret_max" %in% names(d)) d$feret_max <- 50
+  d$.hover <- .report_hover_text(d)
+
+  p <- plotly::plot_ly()
+
+  # Background image, positioned in data coordinates. y is the TOP edge with
+  # plotly's default yanchor, hence ymax rather than ymin.
+  images <- list()
+  if (!is.null(img)) {
+    uri <- .report_raster_data_uri(img$raster, max_dim)
+    if (!is.null(uri))
+      images <- list(list(source = uri, xref = "x", yref = "y",
+                          x = img$xmin, y = img$ymax,
+                          sizex = img$xmax - img$xmin,
+                          sizey = img$ymax - img$ymin,
+                          sizing = "stretch", opacity = 1,
+                          layer = "below"))
+  }
+
+  # Size the markers on Feret Max, matching the static figure's intent.
+  rng <- range(d$feret_max[is.finite(d$feret_max)], na.rm = TRUE)
+  if (!all(is.finite(rng)) || diff(rng) <= 0) rng <- c(0, 1)
+  msize <- 6 + 18 * (d$feret_max - rng[1]) / diff(rng)
+  msize[!is.finite(msize)] <- 8
+
+  for (st in intersect(names(match_colours), unique(d$match_status))) {
+    sub <- d[d$match_status == st, , drop = FALSE]
+    if (nrow(sub) == 0) next
+    p <- plotly::add_trace(
+      p, x = sub$x, y = sub$y, type = "scatter", mode = "markers",
+      name = (match_labels %||% match_colours)[[st]] %||% st,
+      marker = list(size = msize[d$match_status == st],
+                    color = unname(match_colours[[st]]),
+                    opacity = 0.75,
+                    line = list(width = 0.5, color = "rgba(255,255,255,0.6)")),
+      hovertext = sub$.hover, hoverinfo = "text")
+  }
+
+  plotly::layout(
+    p,
+    title  = list(text = title, x = 0.02, xanchor = "left",
+                  font = list(size = 15)),
+    images = images,
+    xaxis  = list(title = "X (\u00b5m)", scaleanchor = "y", scaleratio = 1,
+                  zeroline = FALSE),
+    yaxis  = list(title = "Y (\u00b5m)", zeroline = FALSE),
+    legend = list(orientation = "h", y = -0.12),
+    margin = list(t = 50, r = 20, b = 60, l = 70),
+    hovermode = "closest")
+}
+
+# All instruments in the shared Raman frame, interactive.
+build_overlay_plotly <- function(dfs, title = "Overlay") {
+  if (!requireNamespace("plotly", quietly = TRUE)) return(NULL)
+  spec <- list(
+    list(key = "ftir",        lbl = "FTIR (PerkinElmer)", col = "#2ca02c"),
+    list(key = "ftir_bruker", lbl = "FTIR (Bruker)",      col = "#9467bd"),
+    list(key = "raman",       lbl = "Raman",              col = "#1f77b4"),
+    list(key = "ldir",        lbl = "LDIR",               col = "#d62728"))
+  p <- plotly::plot_ly(); any_trace <- FALSE
+  for (s in spec) {
+    d <- dfs[[s$key]]
+    if (is.null(d) || nrow(d) == 0) next
+    if (!all(c("x", "y") %in% names(d))) next
+    d <- d[is.finite(d$x) & is.finite(d$y), , drop = FALSE]
+    if (nrow(d) == 0) next
+    if (!"feret_max" %in% names(d)) d$feret_max <- 50
+    fm <- d$feret_max; fm[!is.finite(fm)] <- 50
+    rng <- range(fm, na.rm = TRUE)
+    msize <- if (diff(rng) > 0) 5 + 14 * (fm - rng[1]) / diff(rng) else rep(8, length(fm))
+    p <- plotly::add_trace(
+      p, x = d$x, y = d$y, type = "scatter", mode = "markers", name = s$lbl,
+      marker = list(size = msize, color = s$col, opacity = 0.65,
+                    line = list(width = 0.4, color = "rgba(255,255,255,0.5)")),
+      hovertext = .report_hover_text(d), hoverinfo = "text")
+    any_trace <- TRUE
+  }
+  if (!any_trace) return(NULL)
+  plotly::layout(
+    p,
+    title  = list(text = title, x = 0.02, xanchor = "left",
+                  font = list(size = 15)),
+    xaxis  = list(title = "X (\u00b5m)", scaleanchor = "y", scaleratio = 1,
+                  zeroline = FALSE),
+    yaxis  = list(title = "Y (\u00b5m)", zeroline = FALSE),
+    legend = list(orientation = "h", y = -0.12),
+    margin = list(t = 50, r = 20, b = 60, l = 70),
+    hovermode = "closest")
 }
