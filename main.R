@@ -1869,21 +1869,56 @@ tryCatch({
   # Source report helpers from Shiny app
   source("shiny_app/global.R", local = FALSE)
 
+  # --- Report-only quality gate --------------------------------------------
+  # Everything above this point (ingest, image recognition, alignment, ICP,
+  # matching, agreement) deliberately runs on the FULL particle set — narrowing
+  # it there would change which pairs the registration can find. Only the
+  # report is filtered, and it uses the same per-instrument defaults as the
+  # Shiny viewer's quality sliders so the two agree on what a reported
+  # particle is.
+  #
+  # The scales differ per instrument and are NOT interchangeable: FTIR
+  # (PerkinElmer and Bruker) and LDIR carry quality on 0-1, while Raman
+  # carries HQI on 0-100. Confirmed against the ingested CSVs.
+  REPORT_QUALITY_RANGE <- list(
+    "FTIR (PerkinElmer)" = c(0.70, 1),
+    "FTIR (Bruker)"      = c(0.70, 1),
+    "Raman"              = c(70,   100),   # HQI scale
+    "LDIR"               = c(0.80, 1)
+  )
+
+  # Mirrors filter_instrument() in the viewer, including dropping NA quality.
+  .report_quality_filter <- function(df, label) {
+    rng <- REPORT_QUALITY_RANGE[[label]]
+    if (is.null(df) || is.null(rng) || !("quality" %in% names(df))) return(df)
+    q <- suppressWarnings(as.numeric(df$quality))
+    df[!is.na(q) & q >= rng[1] & q <= rng[2], , drop = FALSE]
+  }
+
   # Prepare data for report
   report_devices <- list()
 
-  if (!is.null(ftir_clean) && nrow(ftir_clean) > 0) {
-    report_devices[["FTIR (PerkinElmer)"]] <- ftir_clean
+  .add_report_device <- function(devices, label, df) {
+    if (is.null(df) || nrow(df) == 0) return(devices)
+    n_before <- nrow(df)
+    df <- .report_quality_filter(df, label)
+    rng <- REPORT_QUALITY_RANGE[[label]]
+    log_message(sprintf(
+      "  Report filter %-19s quality %s-%s: %d of %d particles kept",
+      label, format(rng[1]), format(rng[2]), nrow(df), n_before))
+    if (nrow(df) == 0) return(devices)
+    devices[[label]] <- df
+    devices
   }
-  if (!is.null(ftir_bruker_clean) && nrow(ftir_bruker_clean) > 0) {
-    report_devices[["FTIR (Bruker)"]] <- ftir_bruker_clean
-  }
-  if (!is.null(raman_clean) && nrow(raman_clean) > 0) {
-    report_devices[["Raman"]] <- raman_clean
-  }
-  if (has_ldir && !is.null(ldir_results$ldir_clean) && nrow(ldir_results$ldir_clean) > 0) {
-    report_devices[["LDIR"]] <- ldir_results$ldir_clean
-  }
+
+  report_devices <- .add_report_device(report_devices, "FTIR (PerkinElmer)",
+                                       ftir_clean)
+  report_devices <- .add_report_device(report_devices, "FTIR (Bruker)",
+                                       ftir_bruker_clean)
+  report_devices <- .add_report_device(report_devices, "Raman", raman_clean)
+  if (has_ldir)
+    report_devices <- .add_report_device(report_devices, "LDIR",
+                                         ldir_results$ldir_clean)
 
   # Generate report PDF
   report_file <- file.path(config$output_dir, "particle_report.pdf")
@@ -1891,11 +1926,23 @@ tryCatch({
   # Build report pages
   report_pages <- list()
 
-  # Title page
+  # Title page. The quality gate is stated explicitly: these counts are a
+  # filtered subset, while the alignment and matching upstream used every
+  # particle, so a reader comparing the two needs to know why they differ.
   title_text <- paste0(
     "Particle Analysis Report\n",
     "Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n",
-    "Run: ", basename(config$output_dir)
+    "Run: ", basename(config$output_dir), "\n",
+    "\n",
+    "Quality filter applied to this report:\n",
+    paste(vapply(names(REPORT_QUALITY_RANGE), function(k) {
+      r <- REPORT_QUALITY_RANGE[[k]]
+      sprintf("  %-19s %s - %s%s", k, format(r[1]), format(r[2]),
+              if (identical(k, "Raman")) "  (HQI)" else "")
+    }, character(1)), collapse = "\n"), "\n",
+    "\n",
+    "Alignment and matching upstream used ALL particles; the filter\n",
+    "affects only the figures and tables below."
   )
   report_pages[[1]] <- report_text_page("Report", title_text, "")
 
@@ -1905,14 +1952,18 @@ tryCatch({
     if (nrow(plastics_tbl) > 0) {
       report_pages[[length(report_pages) + 1]] <-
         report_table_page(plastics_tbl, "Plastic Families",
-                          "Family counts per instrument (all particles)")
+                          paste0("Family counts per instrument, quality-filtered ",
+                                 "(see the title page for the per-instrument ",
+                                 "ranges)."))
     }
 
     size_tbl <- report_size_stats_table(report_devices)
     if (nrow(size_tbl) > 0) {
       report_pages[[length(report_pages) + 1]] <-
         report_table_page(size_tbl, "Size Statistics",
-                          "Feret Max statistics per instrument")
+                          paste0("Feret Max statistics per instrument, ",
+                                 "quality-filtered (see the title page for ",
+                                 "the per-instrument ranges)."))
     }
   }
 
