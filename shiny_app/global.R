@@ -2222,6 +2222,7 @@ build_plotly_barplot <- function(device_counts,
 write_report_html <- function(pages, path,
                               plotly_fig         = NULL,
                               plotly_insert_after = 2L,
+                              plotly_figs        = NULL,
                               width = 11, height = 8.5) {
 
   pages <- Filter(Negate(is.null), pages)
@@ -2246,21 +2247,21 @@ write_report_html <- function(pages, path,
 
   page_uris <- lapply(pages, encode_page)
 
-  # --- Build plotly HTML snippet -------------------------------------------
-  plotly_html <- ""
-  if (!is.null(plotly_fig) &&
-      requireNamespace("plotly",   quietly = TRUE) &&
-      requireNamespace("jsonlite", quietly = TRUE)) {
-    built    <- plotly::plotly_build(plotly_fig)
+  # --- Build plotly HTML snippets ------------------------------------------
+  # `figs` is a list of list(fig=, after=, title=, caption=) so the report can
+  # carry more than one interactive chart (absolute and relative share).
+  .plotly_snippet <- function(fig, title, caption, idx) {
+    if (is.null(fig) || !requireNamespace("plotly", quietly = TRUE) ||
+        !requireNamespace("jsonlite", quietly = TRUE)) return("")
+    built    <- plotly::plotly_build(fig)
     spec     <- built$x[c("data", "layout")]
     fig_json <- jsonlite::toJSON(spec, auto_unbox = TRUE, null = "null",
                                  na = "null", digits = 6)
-    uid      <- paste0("plotly-", format(Sys.time(), "%Y%m%d%H%M%S"))
-    plotly_html <- paste0(
+    uid <- paste0("plotly-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", idx)
+    paste0(
       '<div class="report-section plotly-section">',
-      '<h2>Material Comparison \u2014 Interactive Chart</h2>',
-      '<p class="caption">Hover over bars for exact counts. ',
-      'Use the legend to show/hide families.</p>',
+      '<h2>', title, '</h2>',
+      '<p class="caption">', caption, '</p>',
       '<div id="', uid, '" style="width:100%;height:520px;"></div>',
       '<script>',
       '(function(){',
@@ -2272,6 +2273,26 @@ write_report_html <- function(pages, path,
       '</div>'
     )
   }
+
+  # Back-compat: a single plotly_fig/plotly_insert_after still works.
+  if (is.null(plotly_figs) && !is.null(plotly_fig))
+    plotly_figs <- list(list(fig = plotly_fig, after = plotly_insert_after))
+  if (is.null(plotly_figs)) plotly_figs <- list()
+
+  snippets <- list()
+  for (i in seq_along(plotly_figs)) {
+    spec <- plotly_figs[[i]]
+    s <- .plotly_snippet(
+      spec$fig,
+      spec$title   %||% "Material Comparison \u2014 Interactive Chart",
+      spec$caption %||% paste0("Hover over bars for exact values. ",
+                               "Use the legend to show/hide families."),
+      i)
+    if (nzchar(s))
+      snippets[[length(snippets) + 1]] <- list(after = spec$after %||% 2L,
+                                               html = s)
+  }
+  has_plotly <- length(snippets) > 0
 
   # --- Assemble HTML -------------------------------------------------------
   css <- paste0(
@@ -2305,19 +2326,19 @@ write_report_html <- function(pages, path,
         '<img src="', uri, '" alt="Report page ', i, '">',
         '</div>'
       ))
-    if (i == plotly_insert_after && nzchar(plotly_html))
-      body_parts <- c(body_parts, plotly_html)
+    for (sn in snippets)
+      if (i == sn$after) body_parts <- c(body_parts, sn$html)
   }
-  # If plotly_insert_after was beyond the last page, append at the end
-  if (plotly_insert_after > length(page_uris) && nzchar(plotly_html))
-    body_parts <- c(body_parts, plotly_html)
+  # Any snippet anchored beyond the last page is appended at the end.
+  for (sn in snippets)
+    if (sn$after > length(page_uris)) body_parts <- c(body_parts, sn$html)
 
   html <- paste0(
     '<!DOCTYPE html>\n<html lang="en">\n<head>\n',
     '<meta charset="UTF-8">\n',
     '<meta name="viewport" content="width=device-width,initial-scale=1">\n',
     '<title>Particle Analysis Report</title>\n',
-    if (!is.null(plotly_fig) && requireNamespace("plotly", quietly = TRUE))
+    if (has_plotly)
       '<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>\n'
     else "",
     '<style>', css, '</style>\n',
@@ -2486,10 +2507,19 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
     if (is.null(d) || nrow(d) == 0 || !"material" %in% names(d)) return(NULL)
     table(classify_family_vec(d$material))
   })
+  # Two views of the same data: absolute counts show how much each instrument
+  # found, relative share shows composition independent of that. Reporting only
+  # one hides half the picture, so the report carries both.
   pages <- c(pages, list(report_full_figure_page(
-    build_material_barplot_gg(counts),
-    "Material Comparison Across Instruments \u2014 All Plastics (stacked)",
-    "Family counts per instrument, stacked. Absolute counts.")))
+    build_material_barplot_gg(counts, rel_mode = FALSE),
+    "Material Comparison Across Instruments \u2014 All Plastics (stacked, absolute)",
+    "Family counts per instrument, stacked. Absolute particle counts.")))
+  pages <- c(pages, list(report_full_figure_page(
+    build_material_barplot_gg(counts, rel_mode = TRUE),
+    "Material Comparison Across Instruments \u2014 All Plastics (stacked, relative)",
+    paste0("The same families as a share of each instrument's own total (%), ",
+           "so composition can be compared across instruments that found ",
+           "different numbers of particles."))))
 
   # --- 3. Plastics table ----------------------------------------------------
   devices <- Filter(Negate(is.null), lapply(setNames(nm = names(DEV)),
