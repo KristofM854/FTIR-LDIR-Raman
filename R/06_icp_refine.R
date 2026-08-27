@@ -36,6 +36,23 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config,
   use_elong_weight <- isTRUE(config$icp_elongation_downweight)
   elong_alpha      <- if (!is.null(config$icp_elongation_alpha)) config$icp_elongation_alpha else 0.5
 
+  # --- Scale guard ----------------------------------------------------------
+  # ICP re-estimates an unconstrained similarity from nearest-neighbour pairs
+  # every iteration, and that objective REWARDS collapse: shrinking the source
+  # cloud packs points into dense regions of the target, so the nearest
+  # neighbour distance falls as the fit gets more wrong. Measured on a real
+  # LDIR<->Raman run: the correct pose (scale 1.06) scores RMS 301 um while a
+  # collapsed one (scale 0.23) scores 67 um and a fully collapsed one (scale
+  # 0.06) scores 38 um. Left unconstrained ICP walks straight down that hill.
+  #
+  # Both clouds are in physical micrometres, so the true scale is near 1.
+  # ransac_align() already enforces [0.8, 1.25]; ICP had no such guard, which
+  # is how a run ended up with scale 0.2336. Clamp each re-estimate to the same
+  # band and keep the rotation/translation from that step.
+  scale_min <- if (!is.null(config$icp_scale_min)) config$icp_scale_min else 0.8
+  scale_max <- if (!is.null(config$icp_scale_max)) config$icp_scale_max else 1.25
+  n_clamped <- 0L
+
   ftir_x  <- ftir_df$x_norm
   ftir_y  <- ftir_df$y_norm
   raman_x <- raman_df$x_norm
@@ -166,7 +183,31 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config,
       weights = est_w
     )
 
-    current_M <- new_tf$matrix
+    # Clamp the scale back into the plausible band (see the scale guard note
+    # above). Rescaling about the source centroid keeps the rotation and the
+    # correspondence geometry this step found, and only removes the collapse
+    # component -- rebuilding the matrix from scratch would discard the step.
+    new_M <- new_tf$matrix
+    s_new <- tryCatch(extract_transform_params(new_M)$scale,
+                      error = function(e) NA_real_)
+    if (is.finite(s_new) && (s_new < scale_min || s_new > scale_max)) {
+      s_clamped <- min(max(s_new, scale_min), scale_max)
+      k <- s_clamped / s_new
+      cx <- mean(est_src_x); cy <- mean(est_src_y)
+      # Map the source centroid, scale the linear part by k, then re-anchor so
+      # the centroid still lands where this iteration put it.
+      p_before <- apply_transform_points(cx, cy, new_M)
+      new_M[1:2, 1:2] <- new_M[1:2, 1:2] * k
+      p_after <- apply_transform_points(cx, cy, new_M)
+      new_M[1, 3] <- new_M[1, 3] + (p_before$x_transformed - p_after$x_transformed)
+      new_M[2, 3] <- new_M[2, 3] + (p_before$y_transformed - p_after$y_transformed)
+      n_clamped <- n_clamped + 1L
+      log_message("  ICP iter ", iter, ": scale ", round(s_new, 4),
+                  " outside [", scale_min, ", ", scale_max, "] - clamped to ",
+                  round(s_clamped, 4), level = "WARN")
+    }
+
+    current_M <- new_M
     prev_rms  <- current_rms
   }
 
@@ -184,12 +225,22 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config,
               "final RMS = ", round(final_rms, 3), " µm, ",
               "converged = ", converged)
 
+  # A run that needed clamping was actively trying to collapse -- almost always
+  # a sign the initial pose was wrong, so say so rather than silently returning
+  # a transform that merely looks plausible.
+  if (n_clamped > 0)
+    log_message("  ICP: scale clamped on ", n_clamped, " of ",
+                length(rms_history), " iterations. The starting pose is ",
+                "probably wrong - check the alignment inlier count.",
+                level = "WARN")
+
   list(
     transform    = current_M,
     params       = params,
     residuals    = nn_final$nn.dists[, 1],
     rms_history  = rms_history,
     converged    = converged,
-    n_iterations = length(rms_history)
+    n_iterations = length(rms_history),
+    n_scale_clamped = n_clamped
   )
 }
