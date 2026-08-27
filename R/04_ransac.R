@@ -21,8 +21,15 @@
 #'   n_inliers    — number of inlier correspondences
 #'   inlier_pairs — data frame of inlier FTIR–Raman index pairs
 #'   diagnostics  — list of diagnostic info (coarse scores, etc.)
-ransac_align <- function(ftir_df, raman_df, config) {
-  log_message("Starting RANSAC alignment")
+ransac_align <- function(ftir_df, raman_df, config, src_label = NULL) {
+  # src_label names the instrument pair in the log and in the low-inlier
+  # warning. Without it the warning read only "Coarse alignment found very few
+  # inliers", with R attributing it to `ransac_align(ftir_lm, raman_lm, ...)`
+  # -- which says "ftir" for BOTH FTIR instruments and gives no way to tell
+  # which alignment was weak.
+  .lbl <- if (is.null(src_label) || !nzchar(src_label)) "" else
+    paste0(" (", src_label, " -> Raman)")
+  log_message("Starting RANSAC alignment", .lbl)
 
   step_deg       <- config$ransac_coarse_step_deg
   n_ransac       <- config$ransac_n_iterations
@@ -180,9 +187,9 @@ ransac_align <- function(ftir_df, raman_df, config) {
   }
 
   if (best_score < min_samples) {
-    warning("Coarse alignment found very few inliers (", best_score,
+    warning("Coarse alignment", .lbl, " found very few inliers (", best_score,
             "). Results may be unreliable. Check that the datasets are from ",
-            "the same physical sample.")
+            "the same physical sample.", call. = FALSE)
   }
 
   # =========================================================================
