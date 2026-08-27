@@ -1692,6 +1692,78 @@ report_size_stats_table <- function(dfs) {
 }
 
 # A text-only page: bold title, then left-aligned body lines.
+# ---------------------------------------------------------------------------
+# Input-file provenance for the report title page.
+#
+# Reads the run manifest's `inputs` block, which records one entry per source
+# file (basename, format, size, and pixel dimensions for images). Shared by the
+# pipeline report and the viewer's download so both list the same thing.
+#
+# Names are middle-truncated rather than wrapped: report_text_page() wraps with
+# strwrap(), which breaks on whitespace and leaves a long unbroken filename to
+# run off the page edge. Truncating in the middle keeps the extension visible,
+# which is the part that identifies the format.
+# ---------------------------------------------------------------------------
+.report_trunc_mid <- function(s, width) {
+  s <- as.character(s)
+  n <- nchar(s)
+  if (is.na(n) || n <= width) return(s)
+  keep  <- width - 3L
+  left  <- ceiling(keep / 2)
+  right <- keep - left
+  paste0(substr(s, 1, left), "...", substr(s, n - right + 1L, n))
+}
+
+.report_fmt_bytes <- function(b) {
+  b <- suppressWarnings(as.numeric(b))
+  if (length(b) != 1 || is.na(b)) return("")
+  if (b >= 1048576) return(sprintf("%.1f MB", b / 1048576))
+  if (b >= 1024)    return(sprintf("%.1f KB", b / 1024))
+  sprintf("%d B", as.integer(b))
+}
+
+report_input_file_lines <- function(manifest, name_width = 46L) {
+  inp <- manifest$inputs
+  if (is.null(inp) || length(inp) == 0)
+    return(c("Input files:", "  (not recorded in this run's manifest)"))
+
+  friendly <- c(ftir = "FTIR (PerkinElmer)", ftir_perkin = "FTIR (PerkinElmer)",
+                ftir_bruker = "FTIR (Bruker)", raman = "Raman", ldir = "LDIR")
+  rows <- list()
+  for (k in names(inp)) {
+    e <- inp[[k]]
+    if (!is.list(e)) next
+    base <- e$basename %||% basename(e$path %||% "")
+    if (!nzchar(base)) next
+    is_img <- grepl("_image$", k) ||
+      toupper(e$format %||% "") %in% c("PNG", "BMP", "TIF", "TIFF", "JPG", "JPEG")
+    inst <- sub("_image$", "", k)
+    dims <- if (!is.null(e$width) && !is.null(e$height) &&
+                is.finite(suppressWarnings(as.numeric(e$width))))
+      sprintf("%dx%d px", as.integer(e$width), as.integer(e$height)) else ""
+    rows[[length(rows) + 1]] <- list(
+      img = is_img,
+      label = friendly[[inst]] %||% inst,
+      base = .report_trunc_mid(base, name_width),
+      fmt = e$format %||% "",
+      size = .report_fmt_bytes(e$size_bytes),
+      dims = dims)
+  }
+  if (length(rows) == 0)
+    return(c("Input files:", "  (not recorded in this run's manifest)"))
+
+  fmt_row <- function(r) sprintf("    %-19s %-*s %-5s %9s %s",
+                                 r$label, name_width, r$base, r$fmt, r$size, r$dims)
+  out <- "Input files:"
+  data_rows <- Filter(function(r) !r$img, rows)
+  img_rows  <- Filter(function(r)  r$img, rows)
+  if (length(data_rows)) out <- c(out, "  Data:",
+                                  vapply(data_rows, fmt_row, character(1)))
+  if (length(img_rows))  out <- c(out, "  Images:",
+                                  vapply(img_rows, fmt_row, character(1)))
+  trimws(out, which = "right")
+}
+
 report_text_page <- function(title, lines = character(0), subtitle = NULL) {
   lines <- .report_wrap(lines)
   body  <- if (length(lines)) paste(lines, collapse = "\n") else ""
@@ -2478,7 +2550,7 @@ report_instrument_image <- function(key, df, meta, bg_path, native = TRUE) {
 # img_paths  keyed list of background image paths
 build_report_pages <- function(dfs, meta = list(), img_paths = list(),
                                run_label = "unknown", run_id = "unknown",
-                               quality_note = NULL) {
+                               quality_note = NULL, manifest = list()) {
 
   DEV <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
            "Raman" = "raman", "LDIR" = "ldir")
@@ -2497,6 +2569,8 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
       paste0("  FTIR (Bruker)     : ", n_of("ftir_bruker")),
       paste0("  Raman             : ", n_of("raman")),
       paste0("  LDIR              : ", n_of("ldir")),
+      "",
+      report_input_file_lines(manifest),
       if (!is.null(quality_note)) "" else NULL,
       quality_note),
     subtitle = "Generated automatically by the pipeline")))
