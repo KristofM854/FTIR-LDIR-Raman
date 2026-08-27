@@ -1461,14 +1461,62 @@ server <- function(input, output, session) {
   }
 
   # Helper: derive the reports/ save folder (project root next to shiny_app/).
+  # Shiny sets the working directory to the app folder, so the project root is
+  # normally its parent; when the app is run from the root itself, use that.
+  # normalizePath() needs mustWork = FALSE here - reports/ usually does not
+  # exist yet, and on Windows the default warns and returns the input unchanged.
   .reports_dir <- function() {
-    root <- tryCatch(normalizePath(file.path(dirname(getwd()), "reports")),
-                     error = function(e) file.path(getwd(), "reports"))
-    # If the app is launched from the project root, getwd() already is the root.
-    # Fall back: look for shiny_app/ as a sibling of the working directory.
-    if (!dir.exists(dirname(root)))
-      root <- file.path(getwd(), "reports")
-    root
+    parent <- dirname(getwd())
+    root <- if (dir.exists(file.path(parent, "shiny_app"))) parent else getwd()
+    normalizePath(file.path(root, "reports"), mustWork = FALSE)
+  }
+
+  # Archive both report files without depending on an external zip binary.
+  # utils::zip() shells out to Sys.getenv("R_ZIPCMD", "zip"); on Windows that
+  # is unset and there is no zip.exe unless Rtools happens to be on PATH, so
+  # the archive was never created and the browser got an error page instead of
+  # a file. Prefer the zip package (pure C, no external process), fall back to
+  # utils::zip, and if neither produces a usable archive serve the HTML report
+  # on its own - it already carries every page plus the interactive chart, and
+  # both files have been written to reports/ by this point regardless.
+  # Can this machine produce a ZIP at all? Decided up front, because
+  # downloadHandler evaluates filename() before content() and the extension
+  # has to match what we are actually going to serve.
+  .can_zip <- function() {
+    if (requireNamespace("zip", quietly = TRUE)) return(TRUE)
+    cmd <- Sys.getenv("R_ZIPCMD", "zip")
+    nzchar(Sys.which(cmd))
+  }
+
+  .zip_report <- function(dest, files, html_fallback) {
+    ok <- FALSE
+    if (requireNamespace("zip", quietly = TRUE)) {
+      ok <- tryCatch({
+        zip::zip(dest, files = basename(files), root = dirname(files[1]))
+        file.exists(dest) && file.info(dest)$size > 0
+      }, error = function(e) FALSE)
+    }
+    if (!ok) {
+      ok <- tryCatch({
+        utils::zip(dest, files = files, flags = "-j")
+        file.exists(dest) && file.info(dest)$size > 0
+      }, error = function(e) FALSE, warning = function(w) FALSE)
+    }
+    if (!ok) {
+      # Serve the HTML rather than nothing. It carries every page plus the
+      # interactive chart, and both files are already in reports/.
+      file.copy(html_fallback, dest, overwrite = TRUE)
+      showNotification(
+        HTML(paste0(
+          "<b>Could not build the ZIP archive.</b><br/>",
+          "Downloaded the interactive HTML report instead - it contains ",
+          "every page. Both the PDF and the HTML were also saved to the ",
+          "<code>reports/</code> folder.<br/>",
+          "To get the ZIP, install the zip package: ",
+          "<code>install.packages(\"zip\")</code>")),
+        type = "warning", duration = 15)
+    }
+    ok
   }
 
   .save_to_reports <- function(src, filename) {
@@ -1484,9 +1532,10 @@ server <- function(input, output, session) {
       run <- if (!is.null(uploaded_data())) "uploaded"
              else basename(selected_run_dir() %||% "run")
       paste0("particle_report_", run, "_",
-             format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip")
+             format(Sys.time(), "%Y%m%d_%H%M%S"),
+             if (.can_zip()) ".zip" else ".html")
     },
-    contentType = "application/zip",
+    contentType = if (.can_zip()) "application/zip" else "text/html",
     content = function(file) {
       stem <- isolate({
         run <- if (!is.null(uploaded_data())) "uploaded"
@@ -1532,11 +1581,13 @@ server <- function(input, output, session) {
         write_report_html(pages, html_path, plotly_fig = plotly_fig,
                           plotly_insert_after = 2L)
 
-        incProgress(0.05, detail = "Packaging ZIP")
-        zip(file, files = c(pdf_path, html_path), flags = "-j")
-
+        # Save both files to reports/ BEFORE attempting the archive, so the
+        # operator still gets them even if the download degrades below.
         .save_to_reports(pdf_path,  pdf_name)
         .save_to_reports(html_path, html_name)
+
+        incProgress(0.05, detail = "Packaging ZIP")
+        .zip_report(file, c(pdf_path, html_path), html_path)
         incProgress(0.05, detail = "Done")
       })
     }
