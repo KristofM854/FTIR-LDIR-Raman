@@ -32,6 +32,17 @@ options(shiny.maxRequestSize = 50 * 1024^2)   # 50 MB
 # membrane/micrograph while keeping annotation_raster() rendering fast.
 BG_IMAGE_MAX_DIM <- 2000L
 
+# Default lower bound (um) for every instrument's Feret Max filter, in the
+# viewer's sliders AND in the generated report. Particles below this are
+# display/reporting noise. The slider minimum stays 0 so an operator can still
+# dial it down; this only sets where it starts.
+#
+# The PIPELINE is deliberately unaffected: ingest, image recognition,
+# alignment, ICP and matching all keep running on every particle, because
+# dropping small ones there would change which pairs registration can find.
+DEFAULT_MIN_SIZE_UM <- 20
+
+
 # Locate the pipeline's R/ directory. global.R is sourced from two very
 # different working directories: the Shiny app runs with getwd() == shiny_app/
 # (so R/ is at ../R), while main.R sources this file from the project root
