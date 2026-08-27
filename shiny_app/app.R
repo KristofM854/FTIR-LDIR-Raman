@@ -1382,15 +1382,35 @@ server <- function(input, output, session) {
                         if (identical(input$summary_material_select, "__all_plastics__"))
                           "All Plastics (stacked)" else (input$summary_material_select %||% ""))
     bar_cap   <- paste0(
-      "Scope: ", scope, ". Display: ",
-      if (identical(input$summary_bar_display_mode, "rel")) "relative (%)" else "absolute counts",
-      ". Materials: ",
+      "Scope: ", scope, ". Materials: ",
       if (identical(input$summary_bar_materials_mode, "all")) "all particles"
       else if (identical(input$summary_bar_category_mode %||% "both", "synthetic"))
         "synthetic plastics only"
       else "synthetic + semi-synthetic plastics", ".")
+
+    # The report carries BOTH the absolute and the relative view, regardless of
+    # which one the Summary tab's toggle is showing -- the tab is a live
+    # exploration, the report is a record. Every other setting (material
+    # selection, materials/category mode, scope) still comes from the tab.
+    # Built with the shared builder rather than the tab's own reactive, so this
+    # page is identical to the pipeline report's.
+    .bar_counts <- active_material_counts()
+    .bar_sel    <- input$summary_material_select %||% "__all_plastics__"
+    .bar_all    <- identical(input$summary_bar_materials_mode, "all")
+    .bar_cat    <- input$summary_bar_category_mode %||% "both"
+
     pages <- c(pages, list(report_full_figure_page(
-      summary_material_barplot_gg(), bar_title, bar_cap)))
+      build_material_barplot_gg(.bar_counts, .bar_sel, rel_mode = FALSE,
+                                show_all = .bar_all, cat_mode = .bar_cat),
+      paste0(bar_title, " \u2014 absolute"),
+      paste0(bar_cap, " Absolute particle counts."))))
+    pages <- c(pages, list(report_full_figure_page(
+      build_material_barplot_gg(.bar_counts, .bar_sel, rel_mode = TRUE,
+                                show_all = .bar_all, cat_mode = .bar_cat),
+      paste0(bar_title, " \u2014 relative"),
+      paste0(bar_cap, " Share of each instrument's own total (%), so ",
+             "composition is comparable across instruments that found ",
+             "different numbers of particles."))))
 
     pages <- c(pages, list(report_table_page(
       summary_plastics_df(), "Plastics by Instrument",
@@ -1569,10 +1589,22 @@ server <- function(input, output, session) {
             table(classify_family_vec(x$material))
           }
         )
-        plotly_fig <- tryCatch(
-          build_plotly_barplot(dcounts),
-          error = function(e) { message("[report] plotly build failed: ", e$message); NULL }
+        .mk_fig <- function(rel) tryCatch(
+          build_plotly_barplot(dcounts, rel_mode = rel),
+          error = function(e) {
+            message("[report] plotly build failed: ", e$message); NULL }
         )
+        # Interactive twins of the two static barplot pages (2 = absolute,
+        # 3 = relative), each placed right after its static counterpart.
+        plotly_specs <- list(
+          list(fig = .mk_fig(FALSE), after = 2L,
+               title = "Material Comparison \u2014 Interactive (absolute counts)",
+               caption = paste0("Hover over bars for exact counts. ",
+                                "Use the legend to show/hide families.")),
+          list(fig = .mk_fig(TRUE), after = 3L,
+               title = "Material Comparison \u2014 Interactive (relative share)",
+               caption = paste0("Share of each instrument's own total (%). ",
+                                "Hover for the underlying count.")))
 
         tmp_dir  <- tempfile()
         dir.create(tmp_dir)
@@ -1585,8 +1617,7 @@ server <- function(input, output, session) {
         write_report_pdf(pages, pdf_path)
 
         incProgress(0.35, detail = "Rendering HTML")
-        write_report_html(pages, html_path, plotly_fig = plotly_fig,
-                          plotly_insert_after = 2L)
+        write_report_html(pages, html_path, plotly_figs = plotly_specs)
 
         # Save both files to reports/ BEFORE attempting the archive, so the
         # operator still gets them even if the download degrades below.
