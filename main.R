@@ -86,8 +86,23 @@ if (input_mode == "explicit") {
   # dialogs when the dataset lives elsewhere.
   .last_dir <- NULL
 
+  # Abort the run cleanly. Raised as a condition rather than a bare stop() so
+  # a caller that sources main.R can distinguish "the operator cancelled" from
+  # "the pipeline failed"; uncaught it simply halts sourcing, which is what an
+  # operator at the console wants.
+  .cancel_pipeline <- function(reason = "cancelled at the file chooser") {
+    message("\n=== Pipeline cancelled (", reason, ") ===")
+    stop(structure(
+      class = c("pipeline_cancelled", "error", "condition"),
+      list(message = paste0("Pipeline cancelled by the user: ", reason),
+           call = NULL)))
+  }
+
   .pick_file <- function(caption, required = FALSE,
                          filter = "All files|*.*") {
+    # A required slot used to re-prompt forever on Cancel, so the only way out
+    # was to kill the R process. Cancel twice in a row to abort instead.
+    cancels <- 0L
     repeat {
       path <- if (.is_windows) {
         tryCatch(
@@ -106,11 +121,18 @@ if (input_mode == "explicit") {
       # Normalize to NULL when nothing was selected
       if (is.null(path) || length(path) == 0 || !nzchar(path)) {
         if (required) {
+          cancels <- cancels + 1L
+          # A non-interactive session cannot offer a second chance -- there is
+          # nobody to press Cancel again, so re-prompting would spin forever.
+          if (!interactive() || cancels >= 2L)
+            .cancel_pipeline("required file not selected")
           message("  This file is required \u2014 please select it.")
+          message("  (Press Cancel again to abort the pipeline.)")
           next
         }
         return(NULL)
       }
+      cancels <- 0L
       .last_dir <<- dirname(path)
       return(path)
     }
@@ -120,7 +142,9 @@ if (input_mode == "explicit") {
   IMAGE_FILTER <- "Image files|*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp|All files|*.*"
 
   message("=== File Input: one dialog per instrument slot ===")
-  message("Press Cancel on any optional slot to skip it.\n")
+  message("Press Cancel on any optional slot to skip it.")
+  message("Raman is required; to abort the whole run, press Cancel twice ",
+          "in a row on that dialog.\n")
 
   ftir_file         <- .pick_file("FTIR (PerkinElmer) \u2014 data file (.csv/.xlsx)",
                                    required = FALSE, filter = DATA_FILTER)
