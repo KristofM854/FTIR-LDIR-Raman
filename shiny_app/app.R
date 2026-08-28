@@ -1834,6 +1834,48 @@ server <- function(input, output, session) {
   overlay_ftir_bruker_quality_d <- debounce(reactive(input$overlay_ftir_bruker_quality), 300)
   overlay_ftir_bruker_size_d    <- debounce(reactive(input$overlay_ftir_bruker_size), 300)
 
+  # --- Overlay per-instrument filtering -------------------------------------
+  # The quality/size sliders used to reach only overlay_matched(), which drives
+  # the match lines and the tables. The plotted points came straight from
+  # *_df_full(), and .add_unmatched() applies only the material filter -- so
+  # moving a quality or size slider visibly did nothing to the unmatched
+  # points, and the summary text counted particles the plot was not drawing.
+  # Both now read overlay_dfs(), so they cannot disagree.
+  .ov_filter <- function(df, q, sz) {
+    if (is.null(df) || nrow(df) == 0) return(df)
+    keep <- rep(TRUE, nrow(df))
+    if (!is.null(q) && "quality" %in% names(df)) {
+      v <- suppressWarnings(as.numeric(df$quality))
+      keep <- keep & !is.na(v) & v >= q[1] & v <= q[2]
+    }
+    if (!is.null(sz) && "feret_max" %in% names(df)) {
+      v <- suppressWarnings(as.numeric(df$feret_max))
+      keep <- keep & !is.na(v) & v >= sz[1] & v <= sz[2]
+    }
+    df[keep, , drop = FALSE]
+  }
+
+  # Unfiltered frames, for the VIEWPORT only: like the instrument tabs, the
+  # overlay frames on all particles so the view does not jump while a slider
+  # is dragged.
+  overlay_dfs_full <- reactive({
+    list(ftir = ftir_df_full(), raman = raman_df_full(),
+         ldir = ldir_df_full(), ftir_bruker = ftir_bruker_df_full())
+  })
+
+  overlay_dfs <- reactive({
+    d <- overlay_dfs_full()
+    list(
+      ftir        = .ov_filter(d$ftir,        overlay_ftir_quality_d(),
+                               overlay_ftir_size_d()),
+      raman       = .ov_filter(d$raman,       overlay_raman_quality_d(),
+                               overlay_raman_size_d()),
+      ldir        = .ov_filter(d$ldir,        overlay_ldir_quality_d(),
+                               overlay_ldir_size_d()),
+      ftir_bruker = .ov_filter(d$ftir_bruker, overlay_ftir_bruker_quality_d(),
+                               overlay_ftir_bruker_size_d()))
+  })
+
   # ------------------------------------------------------------------
   # Handle CSV uploads (fallback)
   # ------------------------------------------------------------------
@@ -2429,11 +2471,11 @@ server <- function(input, output, session) {
       update_material_choices("overlay_ftir_material", ftir_mats)
       updateSelectizeInput(session, "overlay_ftir_particles",
                            choices = ftir_ids, selected = character(0))
+      # Match the single-instrument tabs: fixed scale and fixed default,
+      # not the observed data range. Deriving min/max/value from the data
+      # reset these to full range on every load, wiping the default.
       updateSliderInput(session, "overlay_ftir_quality",
-                        min = floor(q_range[1] * 100) / 100,
-                        max = ceiling(q_range[2] * 100) / 100,
-                        value = c(floor(q_range[1] * 100) / 100,
-                                  ceiling(q_range[2] * 100) / 100))
+                        min = 0, max = 1, value = c(0.7, 1))
       updateSliderInput(session, "overlay_ftir_size", min = 0, max = s_max,
                         value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
     }
@@ -2460,9 +2502,11 @@ server <- function(input, output, session) {
       update_material_choices("overlay_raman_material", raman_mats)
       updateSelectizeInput(session, "overlay_raman_particles",
                            choices = raman_ids, selected = character(0))
+      # Match the single-instrument tabs: fixed scale and fixed default,
+      # not the observed data range. Deriving min/max/value from the data
+      # reset these to full range on every load, wiping the default.
       updateSliderInput(session, "overlay_raman_quality",
-                        min = floor(q_range[1]), max = ceiling(q_range[2]),
-                        value = c(floor(q_range[1]), ceiling(q_range[2])))
+                        min = 0, max = 100, value = c(70, 100))
       updateSliderInput(session, "overlay_raman_size", min = 0, max = s_max,
                         value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
     }
@@ -2508,11 +2552,11 @@ server <- function(input, output, session) {
       updateSelectizeInput(session, "overlay_ldir_particles",
                            choices = ldir_ids, selected = character(0))
       if (all(is.finite(q_range))) {
+        # Match the single-instrument tabs: fixed scale and fixed default,
+        # not the observed data range. Deriving min/max/value from the data
+        # reset these to full range on every load, wiping the default.
         updateSliderInput(session, "overlay_ldir_quality",
-                          min = floor(q_range[1] * 100) / 100,
-                          max = ceiling(q_range[2] * 100) / 100,
-                          value = c(floor(q_range[1] * 100) / 100,
-                                    ceiling(q_range[2] * 100) / 100))
+                          min = 0, max = 1, value = c(0.8, 1))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "overlay_ldir_size", min = 0, max = s_max,
@@ -2545,11 +2589,11 @@ server <- function(input, output, session) {
       updateSelectizeInput(session, "overlay_ftir_bruker_particles",
                            choices = fb_ids, selected = character(0))
       if (all(is.finite(q_range))) {
+        # Match the single-instrument tabs: fixed scale and fixed default,
+        # not the observed data range. Deriving min/max/value from the data
+        # reset these to full range on every load, wiping the default.
         updateSliderInput(session, "overlay_ftir_bruker_quality",
-                          min = floor(q_range[1] * 100) / 100,
-                          max = ceiling(q_range[2] * 100) / 100,
-                          value = c(floor(q_range[1] * 100) / 100,
-                                    ceiling(q_range[2] * 100) / 100))
+                          min = 0, max = 1, value = c(0.7, 1))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "overlay_ftir_bruker_size", min = 0, max = s_max,
@@ -4186,8 +4230,9 @@ server <- function(input, output, session) {
     # filters yield zero particles — so this suppresses the pre-data render
     # without hiding any "run loaded, nothing matches" state.
     req(run_data())
-    dfs <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
-                ftir_bruker = ftir_bruker_df_full())
+
+    dfs_full <- overlay_dfs_full()
+    dfs      <- overlay_dfs()
     matched  <- overlay_matched()
     ldir_m   <- overlay_ldir_matched()
     bruker_m <- overlay_bruker_matched()
@@ -4213,7 +4258,7 @@ server <- function(input, output, session) {
         list(x = c(img_info$xmin - pad, img_info$xmax + pad),
              y = c(img_info$ymin - pad, img_info$ymax + pad))
       } else {
-        compute_bounds(dfs$ftir, dfs$raman)
+        compute_bounds(dfs_full$ftir, dfs_full$raman)
       }
     }
     bounds <- sanitize_bounds(bounds)
@@ -4475,12 +4520,21 @@ server <- function(input, output, session) {
 
   output$overlay_plot <- renderPlot(overlay_plot_obj()) |> bindCache(
     # overlay_matched()/overlay_ldir_matched()/overlay_bruker_matched() fold in
-    # every per-instrument quality/size/distance filter; the four material
-    # inputs are read dynamically via .inst_mat(inst) in the body, so they must
-    # be listed explicitly. Key on mat_keep(), NOT the raw input: a raw NULL
-    # means both "not populated yet" (show all) and "every box unticked" (show
-    # none), which would collide and serve the wrong cached plot.
+    # the per-instrument filters as they affect MATCHED particles; the four
+    # material inputs are read dynamically via .inst_mat(inst) in the body, so
+    # they must be listed explicitly. Key on mat_keep(), NOT the raw input: a
+    # raw NULL means both "not populated yet" (show all) and "every box
+    # unticked" (show none), which would collide and serve the wrong plot.
+    #
+    # The quality/size sliders are keyed explicitly too. They now also filter
+    # the UNMATCHED points, and a slider move that drops only unmatched
+    # particles leaves overlay_matched() byte-identical -- so keying on the
+    # matched frames alone served a stale plot and the sliders looked dead.
     selected_run_dir(), is.null(uploaded_data()),
+    overlay_ftir_quality_d(), overlay_ftir_size_d(),
+    overlay_raman_quality_d(), overlay_raman_size_d(),
+    overlay_ldir_quality_d(), overlay_ldir_size_d(),
+    overlay_ftir_bruker_quality_d(), overlay_ftir_bruker_size_d(),
     overlay_matched(), overlay_ldir_matched(), overlay_bruker_matched(),
     overlay_triplets(), input$overlay_instruments, input$overlay_relationships,
     mat_keep("overlay_ftir_material"), mat_keep("overlay_raman_material"),
@@ -4493,8 +4547,7 @@ server <- function(input, output, session) {
   output$overlay_summary_text <- renderText({
     m       <- overlay_matched()
     bm      <- overlay_bruker_matched()
-    dfs     <- list(ftir = ftir_df_full(), raman = raman_df_full(), ldir = ldir_df_full(),
-                    ftir_bruker = ftir_bruker_df_full())
+    dfs     <- overlay_dfs()
     triplets <- overlay_triplets()
     if (nrow(m) == 0 && is.null(dfs$ftir) && nrow(bm) == 0) return("No pipeline data loaded")
     n_um_f    <- if (!is.null(dfs$ftir))        sum(dfs$ftir$match_status == "unmatched")        else 0
