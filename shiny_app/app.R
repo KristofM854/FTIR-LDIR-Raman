@@ -1356,29 +1356,6 @@ server <- function(input, output, session) {
     n_of    <- function(k) { d <- dfs[[k]]; if (is.null(d)) 0L else nrow(d) }
 
     pages <- list()
-    # Interactive twins for the HTML report. Anchors are recorded as pages are
-    # appended, because instrument pages are conditional -- a run without
-    # Bruker data shifts every later index.
-    plotly_specs <- list()
-    .add_inst_fig <- function(d, img, title, cols, labs) {
-      dd <- d
-      if (!is.null(dd) && nrow(dd) > 0 &&
-          all(c("x_orig", "y_orig") %in% names(dd))) {
-        dd$x <- dd$x_orig; dd$y <- dd$y_orig
-      }
-      fig <- tryCatch(build_instrument_plotly(dd, img, title, cols, labs),
-                      error = function(e) NULL)
-      if (is.null(fig)) return(invisible(NULL))
-      plotly_specs[[length(plotly_specs) + 1]] <<- list(
-        fig = fig, after = length(Filter(Negate(is.null), pages)),
-        title = paste0(title, " \u2014 interactive"),
-        caption = paste0("Drag to pan, scroll or box-select to zoom, ",
-                         "double-click to reset. Hover a particle for its ID, ",
-                         "material, quality and size. Use the legend to show ",
-                         "or hide matched and unmatched."))
-      invisible(NULL)
-    }
-
     # --- 1. Title / provenance -------------------------------------------
     pages <- c(pages, list(report_text_page(
       "Multi-Instrument Particle Matching \u2014 Report",
@@ -1480,10 +1457,6 @@ server <- function(input, output, session) {
                              input$ftir_quality_range, input$ftir_size_range,
                              input$ftir_material_filter,
                              extra = .report_match_desc("ftir")))))
-      .add_inst_fig(ftir_filtered(), ftir_native_image_info(),
-                    "FTIR (PerkinElmer) \u2014 particles over instrument image",
-                    c(matched = "#2ca02c", unmatched = "#d62728"),
-                    c(matched = "matched to Raman", unmatched = "unmatched"))
 
     if (!is.null(ftir_bruker_df_full()) && nrow(ftir_bruker_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1493,10 +1466,6 @@ server <- function(input, output, session) {
                              input$ftir_bruker_size_range,
                              input$ftir_bruker_material_filter,
                              extra = .report_match_desc("ftir_bruker")))))
-      .add_inst_fig(ftir_bruker_filtered(), ftir_bruker_native_image_info(),
-                    "FTIR (Bruker) \u2014 particles over instrument image",
-                    c(matched = "#9467bd", unmatched = "#d62728"),
-                    c(matched = "matched to Raman", unmatched = "unmatched"))
 
     if (!is.null(raman_df_full()) && nrow(raman_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1505,10 +1474,6 @@ server <- function(input, output, session) {
                              input$raman_quality_range, input$raman_size_range,
                              input$raman_material_filter,
                              extra = .report_match_desc("raman")))))
-      .add_inst_fig(raman_filtered(), raman_native_image_info(),
-                    "Raman \u2014 particles over instrument image",
-                    c(matched = "#1f77b4", unmatched = "#ff7f0e"),
-                    c(matched = "matched to FTIR", unmatched = "unmatched"))
 
     if (!is.null(ldir_df_full()) && nrow(ldir_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1519,10 +1484,6 @@ server <- function(input, output, session) {
                              extra = c(.report_match_desc("ldir"),
                                        paste0("background: ",
                                               input$ldir_bg_image %||% "auto"))))))
-      .add_inst_fig(ldir_filtered(), ldir_native_image_info(),
-                    "LDIR \u2014 particles over instrument image",
-                    c(matched = "#d62728", unmatched = "#ff7f0e"),
-                    c(matched = "matched to Raman", unmatched = "unmatched"))
 
     # --- 4. Overlay -------------------------------------------------------
     pages <- c(pages, list(report_figure_page(
@@ -1530,20 +1491,7 @@ server <- function(input, output, session) {
       paste0("Instruments shown: ", .or_none(input$overlay_instruments),
              ". Relationships: ", .or_none(input$overlay_relationships), "."))))
 
-    pages <- Filter(Negate(is.null), pages)
-
-    ov <- tryCatch(build_overlay_plotly(
-            dfs, "Overlay \u2014 all instruments in the shared Raman frame"),
-          error = function(e) NULL)
-    if (!is.null(ov))
-      plotly_specs[[length(plotly_specs) + 1]] <- list(
-        fig = ov, after = length(pages),
-        title = "Overlay \u2014 interactive",
-        caption = paste0("Aligned (Raman) coordinates. Drag to pan, scroll to ",
-                         "zoom, double-click to reset. Use the legend to show ",
-                         "or hide individual instruments."))
-    attr(pages, "plotly_figs") <- plotly_specs
-    pages
+    Filter(Negate(is.null), pages)
   }
 
   # Helper: derive the reports/ save folder (project root next to shiny_app/).
@@ -1676,10 +1624,7 @@ server <- function(input, output, session) {
         write_report_pdf(pages, pdf_path)
 
         incProgress(0.35, detail = "Rendering HTML")
-        # Barplot twins plus the instrument/overlay twins that report_pages()
-        # recorded while it built those pages.
-        write_report_html(pages, html_path, plotly_figs = c(
-          plotly_specs, attr(pages, "plotly_figs") %||% list()))
+        write_report_html(pages, html_path, plotly_figs = plotly_specs)
 
         # Save both files to reports/ BEFORE attempting the archive, so the
         # operator still gets them even if the download degrades below.
