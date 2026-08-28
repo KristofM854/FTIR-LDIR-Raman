@@ -153,7 +153,10 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR") {
   landmark_config$ransac_inlier_dist_um <- min(config$ransac_inlier_dist_um,
                                                 config$landmark_confidence_max_residual_um * 2)
 
-  ransac_result <- ransac_align(ftir_lm, raman_lm, landmark_config)
+  # Thread the instrument label through so a low-inlier warning names the
+  # pair. This is Tier 1 (landmarks only), so say so.
+  ransac_result <- ransac_align(ftir_lm, raman_lm, landmark_config,
+                                src_label = paste0(src_label, " landmarks"))
 
   # --- Evaluate confidence ---
   # Apply the transform and measure how well landmarks match
