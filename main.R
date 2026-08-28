@@ -1954,7 +1954,7 @@ tryCatch({
     ftir        = c(0.70, 1),
     ftir_bruker = c(0.70, 1),
     raman       = c(70,   100),   # HQI scale
-    ldir        = c(0.80, 1)
+    ldir        = c(0.85, 1)
   )
   .rq_label <- c(ftir = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)",
                  raman = "Raman", ldir = "LDIR")
