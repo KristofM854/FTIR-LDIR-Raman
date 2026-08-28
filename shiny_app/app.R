@@ -273,7 +273,7 @@ ui <- fluidPage(
         sidebarPanel(width = 3,
           h4("LDIR Filters"),
           sliderInput("ldir_quality_range", "Quality",
-                      min = 0, max = 1, value = c(0.8, 1), step = 0.01),
+                      min = 0, max = 1, value = c(0.85, 1), step = 0.01),
           sliderInput("ldir_size_range", "Feret Max (\u00b5m)",
                       min = 0, max = 1200,
                       value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
@@ -497,7 +497,7 @@ ui <- fluidPage(
           sliderInput("overlay_ldir_dist_gate", "Match Gate (µm, LDIR↔Raman)",
                       min = 0, max = 500, value = 250, step = 5),
           sliderInput("overlay_ldir_quality", "Quality",
-                      min = 0, max = 1, value = c(0.8, 1), step = 0.01),
+                      min = 0, max = 1, value = c(0.85, 1), step = 0.01),
           sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
                       min = 0, max = 1200,
                       value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
@@ -2526,7 +2526,7 @@ server <- function(input, output, session) {
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ldir_quality_range",
                           min = 0, max = 1,
-                          value = c(0.8, 1))
+                          value = c(0.85, 1))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
@@ -2556,7 +2556,7 @@ server <- function(input, output, session) {
         # not the observed data range. Deriving min/max/value from the data
         # reset these to full range on every load, wiping the default.
         updateSliderInput(session, "overlay_ldir_quality",
-                          min = 0, max = 1, value = c(0.8, 1))
+                          min = 0, max = 1, value = c(0.85, 1))
       }
       if (is.finite(s_max)) {
         updateSliderInput(session, "overlay_ldir_size", min = 0, max = s_max,
