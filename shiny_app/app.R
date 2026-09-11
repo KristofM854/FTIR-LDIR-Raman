@@ -726,7 +726,7 @@ ui <- fluidPage(
             "Overlay repeat runs of one filter on one instrument, produced by ",
             code("tools/reproducibility.R"), "."),
           textInput("repro_base", "Reproducibility folder",
-                    value = "C:/Users/moellerkr/OneDrive - IAEA/My Documents/Automatisations/FTIR-LDIR-Raman/output/reproducibility/"),
+                    value = ""),
           div(style = "margin-bottom: 8px;",
               actionButton("repro_refresh", "Scan", class = "btn-sm btn-primary",
                            icon = icon("refresh")),
