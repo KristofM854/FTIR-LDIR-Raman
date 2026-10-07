@@ -7,7 +7,8 @@
 #   Family   — same polymer family (e.g., Cellulose + CAB both → Cellulose fam)
 #   Disagree — different families
 #
-# Also provides category-level summaries (Synthetic / Semi-synthetic / Natural).
+# Also provides category-level summaries (Synthetic / Semi-synthetic / Natural /
+# Additive/Pigment / Inorganic / Other — see material_category_levels).
 # =============================================================================
 
 #' Normalize a material name to a canonical short form
@@ -185,7 +186,7 @@ analyze_agreement <- function(match_result, config = NULL,
     family_or_better_pct = numeric(),
     stringsAsFactors = FALSE
   )
-  for (cat_val in c("Synthetic", "Semi-synthetic", "Natural/Organic", "Unknown")) {
+  for (cat_val in material_category_levels) {
     mask <- cat_a == cat_val
     if (!any(mask)) next
     n_tot <- sum(mask)

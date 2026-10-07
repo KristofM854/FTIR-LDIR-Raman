@@ -220,6 +220,15 @@ config$raman_image       <- if (exists("raman_image"))       raman_image       e
 config$ldir_image        <- if (exists("ldir_image"))        ldir_image        else NULL
 config$ftir_bruker_image <- if (exists("ftir_bruker_image")) ftir_bruker_image else NULL
 
+# Spectral-library index for material classification (R/08b_material_map.R).
+# Load it now so the log states up front whether trade names / synonyms from
+# the licensed library listings are being resolved in this run.
+if (!is.null(config$spectral_library_dir))
+  options(ftir.spectral_library_dir = config$spectral_library_dir)
+if (is.null(get_spectral_library_index()))
+  log_message("Spectral-library index: not available -- material families ",
+              "come from the built-in name rules only")
+
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
 

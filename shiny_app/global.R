@@ -842,7 +842,7 @@ build_instrument_dfs <- function(data) {
 #' Count unique particles per polymer family and category in a device data frame.
 #'
 #' Uses classify_family_vec() to map raw material names to canonical families,
-#' then classify_category() to group into Synthetic/Semi-synthetic/Natural.
+#' then classify_category() to group into Synthetic/Semi-synthetic/Natural/...
 #'
 #' @param df Device data frame from build_instrument_dfs() (must have a
 #'   \code{material} column).
@@ -863,8 +863,9 @@ summarise_plastics <- function(df) {
   names(tbl) <- c("family", "n")
   tbl$n <- as.integer(tbl$n)
   tbl$category <- classify_category_vec(tbl$family)
-  # Sort: Synthetic first, then Semi-synthetic, then Natural, within each by n desc
-  cat_order <- c("Synthetic", "Semi-synthetic", "Natural/Organic")
+  # Sort by category (Synthetic first, see material_category_levels), within
+  # each by n desc
+  cat_order <- material_category_levels
   tbl$cat_rank <- match(tbl$category, cat_order, nomatch = 99)
   tbl <- tbl[order(tbl$cat_rank, -tbl$n), ]
   tbl$cat_rank <- NULL
@@ -1627,7 +1628,7 @@ report_plastics_table <- function(devices) {
   if (length(all_fams) == 0) return(empty)
 
   fam_cats  <- classify_category_vec(all_fams)
-  cat_order <- c("Synthetic", "Semi-synthetic", "Natural/Organic", "Unknown")
+  cat_order <- material_category_levels
   fam_ord   <- order(match(fam_cats, cat_order, nomatch = 99), all_fams)
   all_fams  <- all_fams[fam_ord]
   fam_cats  <- fam_cats[fam_ord]
@@ -2175,7 +2176,9 @@ build_plotly_barplot <- function(device_counts,
     PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
     PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
     PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-    Cellulose = "#bcbd22", Acrylate = "#17becf", Other = "#e5c494"
+    Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
+    POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
+    Other = "#e5c494"
   )
 
   cts <- device_counts
@@ -2465,7 +2468,9 @@ build_material_barplot_gg <- function(device_counts,
     PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
     PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
     PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-    Cellulose = "#bcbd22", Acrylate = "#17becf", Other = "#e5c494")
+    Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
+    POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
+    Other = "#e5c494")
 
   plastic_fams <- c(synthetic_families, semi_synthetic_families)
   keep_fams <- if (sel_fam == "__all_plastics__") {

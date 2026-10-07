@@ -503,6 +503,11 @@ make_config <- function(ftir_path  = NULL,
     material_map_raman = NULL,
     material_map_ldir  = NULL,
 
+    # --- Spectral-library index (R/08b_material_map.R) ---
+    # Folder with the licensed Raman library listings (PDFs). NULL = look for
+    # the git-ignored spectral_libraries/ folder at the repo root; NA = off.
+    spectral_library_dir = NULL,
+
     # --- Diagnostics ---
     plot_width  = 10,
     plot_height = 8
