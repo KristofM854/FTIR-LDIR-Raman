@@ -220,6 +220,15 @@ config$raman_image       <- if (exists("raman_image"))       raman_image       e
 config$ldir_image        <- if (exists("ldir_image"))        ldir_image        else NULL
 config$ftir_bruker_image <- if (exists("ftir_bruker_image")) ftir_bruker_image else NULL
 
+# Spectral-library index for material classification (R/08b_material_map.R).
+# Load it now so the log states up front whether trade names / synonyms from
+# the licensed library listings are being resolved in this run.
+if (!is.null(config$spectral_library_dir))
+  options(ftir.spectral_library_dir = config$spectral_library_dir)
+if (is.null(get_spectral_library_index()))
+  log_message("Spectral-library index: not available -- material families ",
+              "come from the built-in name rules only")
+
 # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
 config$output_dir <- make_run_dir(config$output_dir)
 
@@ -1886,7 +1895,8 @@ if (!is.na(agreement$agreement_rate)) {
 if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
   tr <- agreement$tiered_rates
   log_message("  Tiered agreement:  Exact ", tr$exact_pct, "%, Family+ ",
-              tr$family_or_better_pct, "%")
+              tr$family_or_better_pct, "%, Filler/pigment ",
+              if (is.null(tr$filler_pct)) 0 else tr$filler_pct, "%")
 }
 if (nrow(composites) > 0) {
   log_message("  Composite matches: ", nrow(composites))
@@ -1918,7 +1928,8 @@ if (has_ldir && !is.null(ldir_results)) {
       ldir_results$ldir_raman_agreement$tiered_rates$n_total > 0) {
     ltr <- ldir_results$ldir_raman_agreement$tiered_rates
     log_message("  LDIR-Raman agreement: Exact ", ltr$exact_pct,
-                "%, Family+ ", ltr$family_or_better_pct, "%")
+                "%, Family+ ", ltr$family_or_better_pct, "%, Filler/pigment ",
+                if (is.null(ltr$filler_pct)) 0 else ltr$filler_pct, "%")
   }
 }
 log_message("  Results in: ", config$output_dir)

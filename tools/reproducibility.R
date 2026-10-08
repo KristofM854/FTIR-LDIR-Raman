@@ -116,8 +116,12 @@ CONFIG <- list(
   c("PC",        "Polycarbonate (PC)"),
   c("PU",        "Polyurethane (PU)"),
   c("PTFE",      "Polytetrafluoroethylene (PTFE, Teflon)"),
-  c("ABS",       "Acrylonitrile butadiene styrene (ABS)"),
+  c("ABS",       "Styrenic copolymers (ABS, SAN, ASA)"),
   c("Rubber",    "Rubber (SBR, NBR, EPDM, tyre wear)"),
+  c("EVA",       "Ethylene vinyl acetate (EVA)"),
+  c("POM",       "Polyoxymethylene / polyacetal (POM)"),
+  c("Epoxy",     "Epoxy resin"),
+  c("Other polymer", "Other synthetic polymer (PVDF, PEEK, silicone, ...)"),
   c("Cellulose", "Cellulose (rayon, viscose, cellulose acetate)"),
   c("Acrylate",  "Acrylate / polyacrylamide")
 )

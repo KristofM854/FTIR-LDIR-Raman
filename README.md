@@ -304,6 +304,45 @@ ftir_use_global_register  = TRUE   # Tier 2 also runs global registration
                                    # particles wins
 ```
 
+## Material families and the Raman spectral libraries
+
+Every material name (FTIR, Raman, LDIR) is mapped to a **family** and a
+**category** in `R/08b_material_map.R`. Upper/lower case, brackets and dashes
+do not matter (`POLY(ETHYLENE TEREPHTHALATE)` = `Polyethylene terephthalate` → PET).
+
+| Category | Families |
+|---|---|
+| Synthetic | PE, PP, PET (incl. PBT/polyester), PS, PVC, PA, PC, PMMA, PU, PTFE, ABS (incl. SAN/ASA), EVA, POM, Epoxy, Rubber, Other polymer |
+| Semi-synthetic | Cellulose, Acrylate |
+| Natural/Organic | Protein, Chitin, Natural |
+| Additive/Pigment | Additive (PEG/surfactants, plasticisers, antioxidants, slip agents, flame retardants), Pigment (TiO₂, iron oxides, organic pigments, dyes) |
+| Inorganic | Mineral (carbonates, silicates/clays, talc, quartz, sulfates), Inorganic |
+| Other | Other compound (a known library substance that is none of the above) |
+
+Notable rules: polyethylene glycol, polyethyleneimine and PEG/PPG surfactants are
+**not** PE/PP; masterbatches count as their carrier polymer; acrylic *monomers*
+are not Acrylate.
+
+**Agreement tiers.** Matched pairs are scored *Exact* (same name), *Family*
+(same family), *Filler/pigment* (one instrument reports a plastic, the other a
+Mineral, Pigment or Additive — e.g. Raman sees the TiO₂ or CaCO₃ compounded into
+a particle whose polymer FTIR identifies) or *Disagree*. Filler/pigment pairs
+are reported separately (`n_filler`, `filler_pct`); they are not counted in
+"Family+", because only one instrument confirms the polymer.
+
+**Spectral-library index (optional).** The WITec Raman uses the S.T. Japan
+libraries (L60002 Polymers & Additives, L60035 Microplastics, L60019 Inorganics,
+...). Their entry listings (PDFs) are licensed and **must not be committed**: put
+them in `spectral_libraries/` at the repository root, which is git-ignored. With
+the `pdftools` package installed, the pipeline and the Shiny app parse them on
+first use into `spectral_libraries/library_index.csv` (re-built when a PDF
+changes). Names are then also matched against every synonym of their library
+entry, so trade names resolve to their polymer (`LUPOLEN 6021 D` → PE), and
+recognised non-plastic entries become `Inorganic` / `Other compound` instead of
+`Unknown`. Without the folder, classification falls back to the name rules
+alone. Set `spectral_library_dir` in the config to use another folder (or `NA`
+to switch the index off).
+
 ## Known limitations
 
 - **LDIR scan area**: `ldir_scan_diameter_um` defaults to 13,000 µm (13 mm filter). If the LDIR software scans a smaller or differently-shaped area, adjust this setting. The pipeline emits a WARN log when LDIR ICP RMS > 100 µm, which is the primary diagnostic for a mismatched scan area.
@@ -314,7 +353,7 @@ ftir_use_global_register  = TRUE   # Tier 2 also runs global registration
 
 - **Raman minimum size**: The Raman instrument detects particles down to ~1 µm, but FTIR resolution is typically ≥ 20 µm. Raman particles below 20 µm have no FTIR counterpart and inflate the "unmatched Raman" count.
 
-- **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses polymer family classification. Extend the mapping in `R/08b_material_map.R` for dataset-specific names.
+- **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Extend the rules in `R/08b_material_map.R` for dataset-specific names.
 
 - **"Polyamide (naturally occurring)" from LDIR**: This LDIR material name refers to biological polyamides (silk, protein-like), not synthetic nylon (PA6, PA12). It is classified into the "Natural" polymer family (not "PA") to avoid false material-agreement matches between synthetic and biological materials.
 

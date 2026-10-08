@@ -3,11 +3,16 @@
 # =============================================================================
 #
 # Supports tiered agreement scoring:
-#   Exact    — both instruments agree on the same canonical name
-#   Family   — same polymer family (e.g., Cellulose + CAB both → Cellulose fam)
-#   Disagree — different families
+#   Exact          — both instruments agree on the same canonical name
+#   Family         — same polymer family (e.g., Cellulose + CAB both → Cellulose fam)
+#   Filler/pigment — one instrument reports a plastic, the other a filler,
+#                    pigment or additive compounded into plastics (TiO2,
+#                    CaCO3, talc, ...): compatible, but the polymer is only
+#                    confirmed by one instrument
+#   Disagree       — anything else
 #
-# Also provides category-level summaries (Synthetic / Semi-synthetic / Natural).
+# Also provides category-level summaries (Synthetic / Semi-synthetic / Natural /
+# Additive/Pigment / Inorganic / Other — see material_category_levels).
 # =============================================================================
 
 #' Normalize a material name to a canonical short form
@@ -124,12 +129,14 @@ analyze_agreement <- function(match_result, config = NULL,
   n_total   <- length(tier)
   n_exact   <- sum(tier == "Exact")
   n_family  <- sum(tier == "Family")
+  n_filler  <- sum(tier == "Filler/pigment")
   n_disagree <- sum(tier == "Disagree")
 
   log_message("  Tiered agreement (n=", n_total, "):")
-  log_message("    Exact:    ", n_exact, " (", round(n_exact / n_total * 100, 1), "%)")
-  log_message("    Family:   ", n_family, " (", round(n_family / n_total * 100, 1), "%)")
-  log_message("    Disagree: ", n_disagree, " (", round(n_disagree / n_total * 100, 1), "%)")
+  log_message("    Exact:          ", n_exact, " (", round(n_exact / n_total * 100, 1), "%)")
+  log_message("    Family:         ", n_family, " (", round(n_family / n_total * 100, 1), "%)")
+  log_message("    Filler/pigment: ", n_filler, " (", round(n_filler / n_total * 100, 1), "%)")
+  log_message("    Disagree:       ", n_disagree, " (", round(n_disagree / n_total * 100, 1), "%)")
 
   # ---- Confusion matrix (use normalized names) ----
   conf_mat <- table(setNames(mat_a, NULL), setNames(mat_b, NULL))
@@ -144,6 +151,7 @@ analyze_agreement <- function(match_result, config = NULL,
     n_pairs        = integer(),
     n_exact        = integer(),
     n_family       = integer(),
+    n_filler       = integer(),
     n_disagree     = integer(),
     exact_pct      = numeric(),
     family_or_better_pct = numeric(),
@@ -156,6 +164,7 @@ analyze_agreement <- function(match_result, config = NULL,
     tier_sub <- tier[mask]
     n_ex <- sum(tier_sub == "Exact")
     n_fm <- sum(tier_sub == "Family")
+    n_fp <- sum(tier_sub == "Filler/pigment")
     n_ds <- sum(tier_sub == "Disagree")
     fam_val <- classify_family(mat)
     cat_val <- classify_category(fam_val)
@@ -167,6 +176,7 @@ analyze_agreement <- function(match_result, config = NULL,
       n_pairs        = n_tot,
       n_exact        = n_ex,
       n_family       = n_fm,
+      n_filler       = n_fp,
       n_disagree     = n_ds,
       exact_pct      = round(n_ex / n_tot * 100, 1),
       family_or_better_pct = round((n_ex + n_fm) / n_tot * 100, 1),
@@ -180,24 +190,27 @@ analyze_agreement <- function(match_result, config = NULL,
     n_pairs        = integer(),
     n_exact        = integer(),
     n_family       = integer(),
+    n_filler       = integer(),
     n_disagree     = integer(),
     exact_pct      = numeric(),
     family_or_better_pct = numeric(),
     stringsAsFactors = FALSE
   )
-  for (cat_val in c("Synthetic", "Semi-synthetic", "Natural/Organic", "Unknown")) {
+  for (cat_val in material_category_levels) {
     mask <- cat_a == cat_val
     if (!any(mask)) next
     n_tot <- sum(mask)
     tier_sub <- tier[mask]
     n_ex <- sum(tier_sub == "Exact")
     n_fm <- sum(tier_sub == "Family")
+    n_fp <- sum(tier_sub == "Filler/pigment")
     n_ds <- sum(tier_sub == "Disagree")
     category_summary <- rbind(category_summary, data.frame(
       category       = cat_val,
       n_pairs        = n_tot,
       n_exact        = n_ex,
       n_family       = n_fm,
+      n_filler       = n_fp,
       n_disagree     = n_ds,
       exact_pct      = round(n_ex / n_tot * 100, 1),
       family_or_better_pct = round((n_ex + n_fm) / n_tot * 100, 1),
@@ -222,9 +235,11 @@ analyze_agreement <- function(match_result, config = NULL,
       n_agree        = as.integer(tapply(agree_mask, size_class, sum)),
       n_exact        = as.integer(tapply(tier == "Exact", size_class, sum)),
       n_family       = as.integer(tapply(tier == "Family", size_class, sum)),
+      n_filler       = as.integer(tapply(tier == "Filler/pigment", size_class, sum)),
       stringsAsFactors = FALSE
     )
-    size_analysis$n_disagree    <- size_analysis$n_pairs - size_analysis$n_exact - size_analysis$n_family
+    size_analysis$n_disagree    <- size_analysis$n_pairs - size_analysis$n_exact -
+      size_analysis$n_family - size_analysis$n_filler
     size_analysis$agreement_pct <- ifelse(
       size_analysis$n_pairs > 0,
       round(size_analysis$n_agree / size_analysis$n_pairs * 100, 1),
@@ -239,7 +254,7 @@ analyze_agreement <- function(match_result, config = NULL,
     size_analysis <- data.frame(
       size_class = character(), n_pairs = integer(),
       n_agree = integer(), n_exact = integer(), n_family = integer(),
-      n_disagree = integer(), agreement_pct = numeric(),
+      n_filler = integer(), n_disagree = integer(), agreement_pct = numeric(),
       family_or_better_pct = numeric()
     )
   }
@@ -284,9 +299,11 @@ analyze_agreement <- function(match_result, config = NULL,
       n_total  = n_total,
       n_exact  = n_exact,
       n_family = n_family,
+      n_filler = n_filler,
       n_disagree = n_disagree,
       exact_pct   = round(n_exact / n_total * 100, 1),
       family_pct  = round(n_family / n_total * 100, 1),
+      filler_pct  = round(n_filler / n_total * 100, 1),
       family_or_better_pct = round((n_exact + n_family) / n_total * 100, 1)
     ),
     agreement_detail  = agreement_detail,
@@ -304,8 +321,10 @@ analyze_agreement <- function(match_result, config = NULL,
   list(
     confusion_matrix = table(NULL),
     agreement_rate   = NA_real_,
-    tiered_rates     = list(n_total = 0, n_exact = 0, n_family = 0, n_disagree = 0,
+    tiered_rates     = list(n_total = 0, n_exact = 0, n_family = 0, n_filler = 0,
+                            n_disagree = 0,
                             exact_pct = NA_real_, family_pct = NA_real_,
+                            filler_pct = NA_real_,
                             family_or_better_pct = NA_real_),
     agreement_detail = data.frame(),
     category_summary = data.frame(),

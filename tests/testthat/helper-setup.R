@@ -20,6 +20,12 @@
 
 REPO_ROOT <- .find_repo_root()
 
+# Material classification must not depend on whether this machine has the
+# licensed spectral-library PDFs (git-ignored spectral_libraries/): switch the
+# library index off for the suite. Tests that need an index build a synthetic
+# one and pass it explicitly.
+options(ftir.spectral_library_dir = NA)
+
 local({
   rdir <- file.path(REPO_ROOT, "R")
   # Order matters only for %||% / helpers used at source time; these four are
