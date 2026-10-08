@@ -1895,7 +1895,8 @@ if (!is.na(agreement$agreement_rate)) {
 if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
   tr <- agreement$tiered_rates
   log_message("  Tiered agreement:  Exact ", tr$exact_pct, "%, Family+ ",
-              tr$family_or_better_pct, "%")
+              tr$family_or_better_pct, "%, Filler/pigment ",
+              if (is.null(tr$filler_pct)) 0 else tr$filler_pct, "%")
 }
 if (nrow(composites) > 0) {
   log_message("  Composite matches: ", nrow(composites))
@@ -1927,7 +1928,8 @@ if (has_ldir && !is.null(ldir_results)) {
       ldir_results$ldir_raman_agreement$tiered_rates$n_total > 0) {
     ltr <- ldir_results$ldir_raman_agreement$tiered_rates
     log_message("  LDIR-Raman agreement: Exact ", ltr$exact_pct,
-                "%, Family+ ", ltr$family_or_better_pct, "%")
+                "%, Family+ ", ltr$family_or_better_pct, "%, Filler/pigment ",
+                if (is.null(ltr$filler_pct)) 0 else ltr$filler_pct, "%")
   }
 }
 log_message("  Results in: ", config$output_dir)

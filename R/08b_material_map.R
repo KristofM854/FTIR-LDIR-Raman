@@ -7,7 +7,7 @@
 #   1. A configurable regex mapping from raw names → canonical types
 #   2. A material family classification (PET → PET, Nylon 6 → PA, talc →
 #      Mineral, PEG → Additive, ...)
-#   3. A tiered agreement scorer: Exact / Family / Disagree
+#   3. A tiered agreement scorer: Exact / Family / Filler/pigment / Disagree
 #   4. A category classifier: Synthetic / Semi-synthetic / Natural/Organic /
 #      Additive/Pigment / Inorganic / Other / Unknown
 #   5. An optional lookup in the local spectral-library index (the S.T. Japan
@@ -564,18 +564,44 @@ classify_category_vec <- function(families) {
 }
 
 
+# Families that are typically compounded INTO a plastic: fillers (Mineral:
+# CaCO3, talc, kaolin, BaSO4, silica), pigments (TiO2, iron oxides, organic
+# pigments) and additives. When one instrument reports such a family and the
+# other a plastic, both can be right about the same particle — e.g. Raman sees
+# the strongly scattering TiO2 while FTIR sees the polymer around it.
+filler_pigment_families <- c("Mineral", "Pigment", "Additive")
+
+#' Is a pair "plastic on one side, filler/pigment/additive on the other"?
+#'
+#' @param fam_a,fam_b Character vectors of material families (same length)
+#' @return Logical vector
+is_filler_pigment_pair <- function(fam_a, fam_b) {
+  plastic <- c(synthetic_families, semi_synthetic_families)
+  (fam_a %in% plastic & fam_b %in% filler_pigment_families) |
+    (fam_b %in% plastic & fam_a %in% filler_pigment_families)
+}
+
 #' Vectorized tiered agreement scoring
+#'
+#' Tiers, best first:
+#'   Exact          — same family and the same name
+#'   Family         — same family (e.g. "HDPE" vs "Polyethylene")
+#'   Filler/pigment — one side a plastic, the other a filler, pigment or
+#'                    additive (see filler_pigment_families): compatible, not
+#'                    a confirmation of the polymer
+#'   Disagree       — anything else
 #'
 #' @param ftir_names Character vector of raw FTIR material names
 #' @param raman_names Character vector of raw Raman material names
 #' @param families Polymer family definitions
-#' @return Character vector: "Exact", "Family", or "Disagree"
+#' @return Character vector: "Exact", "Family", "Filler/pigment" or "Disagree"
 score_tiered_agreement_vec <- function(ftir_names, raman_names,
                                        families = default_polymer_families) {
   ftir_fam  <- classify_family_vec(ftir_names, families)
   raman_fam <- classify_family_vec(raman_names, families)
 
   result <- rep("Disagree", length(ftir_names))
+  result[is_filler_pigment_pair(ftir_fam, raman_fam)] <- "Filler/pigment"
   same_fam <- ftir_fam == raman_fam & ftir_fam != "Unknown"
   result[same_fam] <- "Family"
 

@@ -172,7 +172,8 @@ export_results <- function(match_result, agreement, diagnostics,
       paste0("agreement_n_pairs:       ", tr$n_total),
       paste0("agreement_exact_pct:     ", tr$exact_pct, "%"),
       paste0("agreement_family_pct:    ", tr$family_pct, "%"),
-      paste0("agreement_family_or_better_pct: ", tr$family_or_better_pct, "%")
+      paste0("agreement_family_or_better_pct: ", tr$family_or_better_pct, "%"),
+      paste0("agreement_filler_pigment_pct:   ", if (is.null(tr$filler_pct)) 0 else tr$filler_pct, "%")
     )
   }
 
@@ -245,7 +246,10 @@ export_triage <- function(match_result, agreement, out_dir, n_top = 50) {
   }
   amb_score[is.na(amb_score)] <- 0
 
-  disagree_score <- ifelse(summary$tier == "Disagree", 1, 0)
+  # A plastic-vs-filler/pigment pair is worth a look, but less than a plain
+  # disagreement: both identifications can be right for the same particle.
+  disagree_score <- ifelse(summary$tier == "Disagree", 1,
+                           ifelse(summary$tier == "Filler/pigment", 0.5, 0))
   dist_score <- summary$match_distance / 100
 
   triage_df$triage_score <- amb_score * 2 + disagree_score + dist_score

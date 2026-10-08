@@ -323,6 +323,13 @@ Notable rules: polyethylene glycol, polyethyleneimine and PEG/PPG surfactants ar
 **not** PE/PP; masterbatches count as their carrier polymer; acrylic *monomers*
 are not Acrylate.
 
+**Agreement tiers.** Matched pairs are scored *Exact* (same name), *Family*
+(same family), *Filler/pigment* (one instrument reports a plastic, the other a
+Mineral, Pigment or Additive — e.g. Raman sees the TiO₂ or CaCO₃ compounded into
+a particle whose polymer FTIR identifies) or *Disagree*. Filler/pigment pairs
+are reported separately (`n_filler`, `filler_pct`); they are not counted in
+"Family+", because only one instrument confirms the polymer.
+
 **Spectral-library index (optional).** The WITec Raman uses the S.T. Japan
 libraries (L60002 Polymers & Additives, L60035 Microplastics, L60019 Inorganics,
 ...). Their entry listings (PDFs) are licensed and **must not be committed**: put
