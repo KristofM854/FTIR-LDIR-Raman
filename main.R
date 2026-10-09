@@ -41,6 +41,7 @@ source("R/00_config.R")
 source("R/00b_file_input.R")
 source("R/01_ingest.R")
 source("R/01b_ingest_image.R")
+source("R/ftir_image_placement.R")
 source("R/utils_python.R")
 source("R/01c_ingest_ldir.R")
 source("R/02_prefilter.R")
@@ -438,35 +439,56 @@ if (has_ftir_bruker) {
   log_message("FTIR (Bruker): not provided \u2014 skipping")
 }
 
-# --- FTIR image scan bounds (for background display only) ---
-# FTIR particle um coordinates come directly from the Excel data file.
-# The FTIR image is ONLY used as a background in the single FTIR viewer.
-# No particle extraction is performed on the FTIR image.
+# --- FTIR image placement (for background display only) ---
+# FTIR particle um coordinates come directly from the data file; the FTIR
+# image is only drawn behind them. The PNG carries no geometry metadata, so
+# place_ftir_image() (R/ftir_image_placement.R) takes the extent from the
+# config (ftir_image_width_um / _height_um / _center_*), else registers the
+# particles visible in the image against ALL ingested particles, else falls
+# back to an approximate particle-extent fit. The result is written to the run
+# directory once and reused by the viewer and the report, so no plot derives
+# the image extent from whatever (filtered) particles it happens to draw.
 ftir_scan_bounds <- NULL
+.place_ftir_run_image <- function(img_path, df, prefix, key, label) {
+  if (is.null(img_path) || !nzchar(img_path) || is.null(df) || nrow(df) == 0)
+    return(NULL)
+  img_raw <- read_image_any(img_path, verbose = FALSE)
+  if (is.null(img_raw)) {
+    log_message("  WARNING: could not read ", label, " image \u2014 placement unavailable",
+                level = "WARN")
+    return(NULL)
+  }
+  ok <- is.finite(df$x_um) & is.finite(df$y_um)
+  pl <- place_ftir_image(img_raw, df$x_um[ok], df$y_um[ok], df$feret_max_um[ok],
+                         cfg = config, prefix = prefix)
+  if (is.null(pl)) return(NULL)
+  write_ftir_image_placement(pl, file.path(config$output_dir, FTIR_PLACEMENT_FILES[[key]]))
+  reg <- pl$registration
+  log_message(sprintf("  %s image %d x %d px placed by %s: X [%.1f, %.1f] Y [%.1f, %.1f] um",
+                      label, ncol(img_raw), nrow(img_raw), pl$method,
+                      pl$xmin, pl$xmax, pl$ymin, pl$ymax))
+  if (!is.null(reg))
+    log_message(sprintf("    registration: %d of %d particles matched to %d image blobs, RMS %.1f um (%.2f px), pixel %.3f x %.3f um",
+                        reg$n_matched, reg$n_particles, reg$n_blobs, reg$rms_um, reg$rms_px,
+                        reg$bx, abs(reg$by)))
+  if (identical(pl$method, "particle_extent_approx"))
+    log_message("    APPROXIMATE: no config extent and the image could not be registered ",
+                "to the particles; set ", prefix, "_width_um / _height_um in the config ",
+                "for an exact overlay", level = "WARN")
+  pl
+}
 if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
   log_message(strrep("-", 50))
-  log_message("FTIR image: computing scan bounds for viewer background")
-
-  # Estimate scan bounds from image dimensions and 25 um grid step.
-  # The PerkinElmer Spotlight renders ~6 image pixels per 25 um grid cell.
-  ftir_img_raw <- read_image_any(config$ftir_image, verbose = TRUE)
-  if (is.null(ftir_img_raw)) {
-    log_message("  WARNING: could not read FTIR image \u2014 scan bounds unavailable",
-                level = "WARN")
-  } else {
-    ftir_grid_nx <- round((ncol(ftir_img_raw) + 1) / 6)
-    ftir_grid_ny <- round((nrow(ftir_img_raw) + 1) / 6)
-    ftir_scan_bounds <- list(
-      x_min = 0,
-      x_max = ftir_grid_nx * 25,
-      y_min = 0,
-      y_max = ftir_grid_ny * 25
-    )
-    rm(ftir_img_raw)
-    log_message("  Scan bounds: [0, ", ftir_scan_bounds$x_max, "] x [0, ",
-                ftir_scan_bounds$y_max, "] \u00b5m")
-  }
+  log_message("FTIR image: placing the viewer background")
+  .ftir_pl <- .place_ftir_run_image(config$ftir_image, ftir_raw, "ftir_image",
+                                    "ftir", "FTIR (PerkinElmer)")
+  if (!is.null(.ftir_pl))
+    ftir_scan_bounds <- list(x_min = .ftir_pl$xmin, x_max = .ftir_pl$xmax,
+                             y_min = .ftir_pl$ymin, y_max = .ftir_pl$ymax)
 }
+if (!is.null(config$ftir_bruker_image) && nzchar(config$ftir_bruker_image))
+  invisible(.place_ftir_run_image(config$ftir_bruker_image, ftir_bruker_raw,
+                                  "ftir_bruker_image", "ftir_bruker", "FTIR (Bruker)"))
 
 # ---------------------------------------------------------------------------
 # 3. Pre-filtering
@@ -1975,6 +1997,11 @@ tryCatch({
   .run_info <- list(dir = config$output_dir, format = "subdir")
   .rdata <- load_run_data(.run_info)
   .dfs   <- build_instrument_dfs(.rdata)
+  # Unfiltered frames + the stored FTIR placements: the report's FTIR pages
+  # place their image from these, not from the report-filtered particles.
+  .dfs_all <- .dfs
+  .ftir_placements <- lapply(FTIR_PLACEMENT_FILES, function(f)
+    read_ftir_image_placement(file.path(config$output_dir, f)))
 
   # Minimum Feret Max (um) for the report, same for every instrument and the
   # same default the viewer's size sliders start at (DEFAULT_MIN_SIZE_UM in
@@ -2030,7 +2057,9 @@ tryCatch({
     run_label = basename(config$output_dir),
     run_id    = .man$run_id %||% basename(config$output_dir),
     quality_note = .quality_note,
-    manifest  = .man)
+    manifest  = .man,
+    placements = .ftir_placements,
+    place_dfs  = .dfs_all)
 
   report_file <- file.path(config$output_dir, "particle_report.pdf")
   n_pages <- write_report_pdf(report_pages, report_file)

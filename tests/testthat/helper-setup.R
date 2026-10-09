@@ -31,7 +31,7 @@ local({
   # Order matters only for %||% / helpers used at source time; these four are
   # self-contained given base R + RANN + clue.
   for (m in c("utils.R", "00_config.R", "align_helpers.R", "04_ransac.R",
-              "06_icp_refine.R", "07_match.R")) {
+              "06_icp_refine.R", "07_match.R", "ftir_image_placement.R")) {
     sys.source(file.path(rdir, m), envir = globalenv())
   }
 })
