@@ -65,6 +65,11 @@ source(file.path(.pipeline_r_dir, "08b_material_map.R"), local = TRUE)
 # handle instrument BMP exports even when magick is not installed.
 source(file.path(.pipeline_r_dir, "read_bmp.R"), local = TRUE)
 
+# FTIR image placement (place_ftir_image) -- the ONE function that decides
+# where an FTIR / FTIR (Bruker) image sits under its particles. Shared with the
+# pipeline (main.R) so the viewer, the report and Multi-Run cannot disagree.
+source(file.path(.pipeline_r_dir, "ftir_image_placement.R"), local = TRUE)
+
 # ---------------------------------------------------------------------------
 # List ALL available runs in the output directory (newest first).
 # Returns a named character vector suitable for selectInput choices:
@@ -589,64 +594,6 @@ transform_points <- function(x, y, M_full) {
   pts <- rbind(x, y, rep(1, length(x)))
   result <- M_full %*% pts
   list(x = result[1, ], y = result[2, ])
-}
-
-# ---------------------------------------------------------------------------
-# Estimate FTIR scan bounds from image dimensions and particle coordinates.
-#
-# The PerkinElmer Spotlight exports images at ~6 rendering pixels per 25um
-# grid cell.  From a 2993x2993 image: (2993+1)/6 ~ 499 grid positions,
-# giving a 499 * 25 = 12475 um scan extent.  This function computes the
-# bounds robustly from the image dimensions and grid step.
-# ---------------------------------------------------------------------------
-estimate_ftir_scan_bounds <- function(img_raster, particle_x_um = NULL,
-                                       particle_y_um = NULL,
-                                       grid_step_um = 25) {
-  img_w <- ncol(img_raster)
-  img_h <- nrow(img_raster)
-
-  # Estimate grid positions from image pixel count
-  # Empirical: (image_px + 1) / 6 gives the grid count
-  render_px_per_cell <- 6
-  grid_nx <- round((img_w + 1) / render_px_per_cell)
-  grid_ny <- round((img_h + 1) / render_px_per_cell)
-
-  # Scan extent: grid_count * grid_step
-  x_extent <- grid_nx * grid_step_um
-  y_extent <- grid_ny * grid_step_um
-
-  # Sanity check against particle positions if available
-  if (!is.null(particle_x_um)) {
-    max_px <- max(particle_x_um, na.rm = TRUE)
-    if (x_extent < max_px) x_extent <- ceiling(max_px / 500) * 500
-  }
-  if (!is.null(particle_y_um)) {
-    max_py <- max(particle_y_um, na.rm = TRUE)
-    if (y_extent < max_py) y_extent <- ceiling(max_py / 500) * 500
-  }
-
-  # Center the image extent on the particle distribution midpoint.
-  # The scan origin is unknown, so centering on particle positions is the
-  # best estimate (particles can only appear within the scan area).
-  if (!is.null(particle_x_um) && length(particle_x_um) > 0) {
-    mid_x <- (min(particle_x_um, na.rm = TRUE) +
-              max(particle_x_um, na.rm = TRUE)) / 2
-    xmin <- mid_x - x_extent / 2
-    xmax <- mid_x + x_extent / 2
-  } else {
-    xmin <- 0; xmax <- x_extent
-  }
-
-  if (!is.null(particle_y_um) && length(particle_y_um) > 0) {
-    mid_y <- (min(particle_y_um, na.rm = TRUE) +
-              max(particle_y_um, na.rm = TRUE)) / 2
-    ymin <- mid_y - y_extent / 2
-    ymax <- mid_y + y_extent / 2
-  } else {
-    ymin <- 0; ymax <- y_extent
-  }
-
-  list(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax)
 }
 
 # ---------------------------------------------------------------------------
@@ -1223,8 +1170,8 @@ place_image_ldir_meta <- function(meta) {
 # Dispatch to the instrument-appropriate placement; NULL if unavailable. For
 # Raman this runs the same cascade as raman_native_image_info: WITec extent
 # (P1) then um-per-pixel scale (P2); P3 (particle-extent fit) is left to the
-# caller's fallback. FTIR/Bruker run the analogous two tiers: recorded physical
-# extent (P1) then an aspect-preserving fit to the particle extent (P2).
+# caller's fallback. FTIR/Bruker go through place_ftir_image(): recorded
+# physical extent (P1), image registration (P2), particle-extent fit (P3).
 # `raw` is needed by the Raman P2 tier and by the FTIR P2 fit (which cannot
 # preserve the aspect ratio without knowing the raster's pixel dimensions);
 # `bg_path` only by Raman P2.
@@ -1235,15 +1182,18 @@ place_image_multirun <- function(instrument, meta, x, y, raw = NULL, bg_path = N
       if (is.null(ext)) ext <- place_image_raman_umpx(meta, x, y, raw, bg_path)  # P2
       ext
     },
-    ftir_perkin = {
-      ext <- place_image_ftir_meta(meta, x, y)                  # P1: physical
-      if (is.null(ext)) ext <- place_image_particle_extent(x, y, raw)  # P2: fit
-      ext
-    },
+    ftir_perkin = ,
     ftir_bruker = {
-      ext <- place_image_ftir_meta(meta, x, y)
-      if (is.null(ext)) ext <- place_image_particle_extent(x, y, raw)
-      ext
+      # Same cascade as the FTIR tabs: recorded physical extent (P1), then
+      # registration of the image's own particles against the points (P2),
+      # then the approximate aspect-preserving fit (P3).
+      if (is.null(raw)) {
+        ext <- place_image_ftir_meta(meta, x, y)
+        if (is.null(ext)) ext <- place_image_particle_extent(x, y, raw)
+        return(ext)
+      }
+      pl <- place_ftir_image(raw, x, y, cfg = meta)
+      if (is.null(pl)) NULL else pl[c("xmin", "xmax", "ymin", "ymax", "method")]
     },
     ldir        = place_image_ldir_meta(meta),
     NULL)
@@ -2023,20 +1973,53 @@ add_particle_labels <- function(p, df, bounds, id_col = "particle_id",
               inherit.aes = FALSE)
 }
 
+# Circle outlines (polygon vertices) of radius r in data units, one group per
+# particle; `id` indexes the input rows.
+particle_circles <- function(x, y, r, n = 36L) {
+  ok <- is.finite(x) & is.finite(y) & is.finite(r) & r > 0
+  idx <- which(ok)
+  t <- seq(0, 2 * pi, length.out = n + 1L)[-1L]
+  data.frame(id = rep(idx, each = n),
+             x  = rep(x[idx], each = n) + rep(r[idx], each = n) * cos(t),
+             y  = rep(y[idx], each = n) + rep(r[idx], each = n) * sin(t))
+}
+
 make_scatter <- function(df, img_info, bounds, title,
                           match_colours = NULL, highlight_id = NULL,
                           full_df = NULL, match_labels = NULL,
                           plain = FALSE, show_labels = FALSE, label_size = 3,
-                          subtitle = NULL) {
+                          subtitle = NULL, true_size = FALSE) {
 
   p <- ggplot(df, aes(x = x, y = y))
 
   # Background image (with per-image bounds)
   p <- add_image_bg(p, img_info)
 
+  # true_size: each particle is drawn as a circle of diameter Feret Max in
+  # DATA units (um), so its size can be checked against the image. The default
+  # point markers are sized in screen points by a size scale, which says
+  # nothing about the particle's physical size.
+  if (isTRUE(true_size) && "feret_max" %in% names(df)) {
+    ci <- particle_circles(df$x, df$y, df$feret_max / 2)
+    if (isTRUE(plain) || !"match_status" %in% names(df)) {
+      p <- p + geom_polygon(data = ci, aes(x = x, y = y, group = id),
+                            fill = NA, colour = "#1f77b4", linewidth = 0.5,
+                            inherit.aes = FALSE)
+    } else {
+      ci$match_status <- df$match_status[ci$id]
+      p <- p + geom_polygon(data = ci, aes(x = x, y = y, group = id,
+                                           colour = match_status),
+                            fill = NA, linewidth = 0.5, inherit.aes = FALSE)
+      if (!is.null(match_colours)) {
+        p <- p + if (!is.null(match_labels))
+          scale_colour_manual(values = match_colours, labels = match_labels)
+        else scale_colour_manual(values = match_colours)
+      }
+    }
+    p <- p + geom_point(size = 0.6, colour = "white", alpha = 0.9)
+  } else if (isTRUE(plain)) {
   # Points. In "plain" mode (Show all detected) every particle is drawn in a
   # single colour with no matched/unmatched distinction or legend.
-  if (isTRUE(plain)) {
     p <- p + geom_point(aes(size = feret_max), colour = "#1f77b4",
                         alpha = 0.7)
   } else {
@@ -2050,9 +2033,10 @@ make_scatter <- function(df, img_info, bounds, title,
     }
   }
 
+  if (!isTRUE(true_size))
+    p <- p + scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12),
+                                   limits = safe_size_limits(df$feret_max))
   p <- p +
-    scale_size_continuous(name = "Feret Max (\u00b5m)", range = c(2, 12),
-                          limits = safe_size_limits(df$feret_max)) +
     scale_x_continuous(breaks = breaks_adaptive(bounds$x)) +
     scale_y_continuous(breaks = breaks_adaptive(bounds$y)) +
     coord_fixed(xlim = bounds$x, ylim = bounds$y, expand = FALSE) +
@@ -2541,10 +2525,29 @@ build_material_barplot_gg <- function(device_counts,
 # Resolve an instrument's background image + physical extent, running the same
 # placement cascade the viewer runs (place_image_multirun), with the viewer's
 # P3 fallback (aspect-preserving fit to the particle extent, 300um padding).
-report_instrument_image <- function(key, df, meta, bg_path, native = TRUE) {
+#
+# FTIR / Bruker images go through place_ftir_image() with the registration the
+# pipeline stored for the run (`registration`, from ftir_image_placement.json),
+# so the report shows the image exactly where the viewer does. Without one it
+# is registered against `place_df` -- the run's FULL particle set when the
+# caller has it -- never against the report-filtered `df` alone, which would
+# move the image with the report filter.
+report_instrument_image <- function(key, df, meta, bg_path, native = TRUE,
+                                    registration = NULL, place_df = df) {
   if (is.null(bg_path) || !nzchar(bg_path) || !file.exists(bg_path)) return(NULL)
   raw <- tryCatch(load_image_raster(bg_path), error = function(e) NULL)
   if (is.null(raw)) return(NULL)
+  if (key %in% c("ftir_perkin", "ftir_bruker")) {
+    pd <- if (is.null(place_df) || nrow(place_df) == 0) df else place_df
+    px <- if ("x_orig" %in% names(pd)) pd$x_orig else pd$x
+    py <- if ("y_orig" %in% names(pd)) pd$y_orig else pd$y
+    pl <- tryCatch(place_ftir_image(raw, px, py, pd$feret_max, cfg = meta,
+                                    registration = registration,
+                                    prefix = if (key == "ftir_bruker") "ftir_bruker_image"
+                                             else "ftir_image"),
+                   error = function(e) NULL)
+    if (!is.null(pl)) return(pl[c("raster", "xmin", "xmax", "ymin", "ymax", "method")])
+  }
   xs <- if (native && "x_orig" %in% names(df)) df$x_orig else df$x
   ys <- if (native && "y_orig" %in% names(df)) df$y_orig else df$y
   ext <- tryCatch(place_image_multirun(key, meta, xs, ys, raw, bg_path),
@@ -2564,9 +2567,14 @@ report_instrument_image <- function(key, df, meta, bg_path, native = TRUE) {
 #            build_instrument_dfs(), already quality-filtered by the caller
 # meta       manifest config_snapshot (drives image placement)
 # img_paths  keyed list of background image paths
+# placements keyed list (ftir / ftir_bruker) of stored FTIR registrations
+#            (read_ftir_image_placement()); NULL entries are registered here
+# place_dfs  keyed list of the UNFILTERED instrument frames, used to place
+#            FTIR images when no stored registration exists
 build_report_pages <- function(dfs, meta = list(), img_paths = list(),
                                run_label = "unknown", run_id = "unknown",
-                               quality_note = NULL, manifest = list()) {
+                               quality_note = NULL, manifest = list(),
+                               placements = list(), place_dfs = list()) {
 
   DEV <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
            "Raman" = "raman", "LDIR" = "ldir")
@@ -2671,7 +2679,9 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
       dd$x <- dd$x_orig; dd$y <- dd$y_orig
     }
     img <- report_instrument_image(sp$pkey, dd, meta,
-                                   img_paths[[sp$key]], native = FALSE)
+                                   img_paths[[sp$key]], native = FALSE,
+                                   registration = placements[[sp$key]],
+                                   place_df = place_dfs[[sp$key]] %||% dd)
     bounds <- .report_view_bounds(img, dd)
     pg <- tryCatch(
       make_scatter(dd, img, bounds,

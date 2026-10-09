@@ -57,7 +57,8 @@ make_detail_row <- function(label, value) {
 instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_max,
                                 quality_step, size_max = 1200,
                                 match_choices = c("matched", "unmatched"),
-                                coord_toggle = FALSE, quality_default = NULL) {
+                                coord_toggle = FALSE, quality_default = NULL,
+                                true_size_toggle = FALSE) {
   if (is.null(quality_default)) quality_default <- c(quality_min, quality_max)
 
   sidebarLayout(
@@ -89,7 +90,13 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
         conditionalPanel(
           condition = sprintf("input.%s_show_all_labels", id_prefix),
           sliderInput(paste0(id_prefix, "_label_size"), "Label size",
-                      min = 2, max = 10, value = 3, step = 0.5))),
+                      min = 2, max = 10, value = 3, step = 0.5)),
+        # Circles of diameter Feret Max in um instead of size-scaled points,
+        # so each particle's footprint can be checked against the image.
+        if (true_size_toggle)
+          checkboxInput(paste0(id_prefix, "_true_size"),
+                        "Draw particles at true size (Feret Max, \u00b5m)",
+                        value = FALSE)),
       # View orientation (native mode only) — rotate/mirror the whole native
       # scene into the Raman orientation, so this tab can be read side by side
       # with the Raman tab and the overlay. Display-only; nothing stored moves.
@@ -245,7 +252,8 @@ ui <- fluidPage(
         instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE, quality_default = c(0.7, 1)))
+          coord_toggle = TRUE, quality_default = c(0.7, 1),
+          true_size_toggle = TRUE))
     ),
 
     # Tab 2: FTIR (Bruker) — shown only when data present
@@ -254,7 +262,8 @@ ui <- fluidPage(
         instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
           match_choices = c("Matched \u2194 Raman" = "matched",
                             "Unmatched (vs Raman)" = "unmatched"),
-          coord_toggle = TRUE, quality_default = c(0.7, 1)))
+          coord_toggle = TRUE, quality_default = c(0.7, 1),
+          true_size_toggle = TRUE))
     ),
 
     # Tab 3: Raman
@@ -1935,32 +1944,6 @@ server <- function(input, output, session) {
     build_full_transform(tr)
   })
 
-  # FTIR image bounds in original coordinates.
-  # Priority: 1) from transform_params.txt, 2) from image dims, 3) from particles.
-  ftir_img_bounds <- reactive({
-    # Try saved scan bounds from pipeline output
-    tr <- run_data()$transform
-    if (!is.null(tr$ftir_scan_bounds)) return(tr$ftir_scan_bounds)
-
-    # Estimate from image dimensions (grid geometry)
-    raw_ftir_img <- ftir_raw_image()
-    ftir_d <- ftir_df_full()
-    if (!is.null(raw_ftir_img)) {
-      px <- if (!is.null(ftir_d) && nrow(ftir_d) > 0) ftir_d$x_orig else NULL
-      py <- if (!is.null(ftir_d) && nrow(ftir_d) > 0) ftir_d$y_orig else NULL
-      return(estimate_ftir_scan_bounds(raw_ftir_img, px, py))
-    }
-
-    # Fallback: round up particle coords to nearest 500 µm
-    if (!is.null(ftir_d) && nrow(ftir_d) > 0) {
-      return(list(xmin = 0,
-                  xmax = ceiling(max(ftir_d$x_orig, na.rm = TRUE) / 500) * 500,
-                  ymin = 0,
-                  ymax = ceiling(max(ftir_d$y_orig, na.rm = TRUE) / 500) * 500))
-    }
-    NULL
-  })
-
   # ------------------------------------------------------------------
   # Helper: write overlay contract JSON for viewer debugging
   # ------------------------------------------------------------------
@@ -2009,40 +1992,38 @@ server <- function(input, output, session) {
   raman_image_path      <- reactiveVal(NULL)   # File path of the Raman image (for TIFF metadata extraction)
   ldir_raw_image        <- reactiveVal(NULL)   # LDIR particle map image
 
-  # FTIR tab: raw image placed at native FTIR scan bounds — no transform needed.
-  # FTIR image placed at the actual particle extent (x_orig / y_orig).
-  # Using particle positions for bounds is more reliable than heuristic scan-area
-  # estimation from pixel counts, which produced wrong bounds → tiled appearance.
-  ftir_native_image_info <- reactive({
-    raw <- ftir_raw_image()
-    if (is.null(raw)) return(NULL)
-    ftir_d <- ftir_df_full()
-    if (is.null(ftir_d) || nrow(ftir_d) == 0) return(NULL)
-    x_vals <- ftir_d$x_orig[is.finite(ftir_d$x_orig)]
-    y_vals <- ftir_d$y_orig[is.finite(ftir_d$y_orig)]
-    if (length(x_vals) == 0) return(NULL)
-    ox <- if (isTRUE(is.finite(input$ftir_img_offset_x))) input$ftir_img_offset_x else 0
-    oy <- if (isTRUE(is.finite(input$ftir_img_offset_y))) input$ftir_img_offset_y else 0
-    list(raster = raw,
-         xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
-         ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
-  })
-
-  # FTIR (Bruker) tab: same particle-extent placement as the PerkinElmer tab.
-  ftir_bruker_native_image_info <- reactive({
-    raw <- ftir_bruker_raw_image()
-    if (is.null(raw)) return(NULL)
-    fb_d <- ftir_bruker_df_full()
-    if (is.null(fb_d) || nrow(fb_d) == 0) return(NULL)
-    x_vals <- fb_d$x_orig[is.finite(fb_d$x_orig)]
-    y_vals <- fb_d$y_orig[is.finite(fb_d$y_orig)]
-    if (length(x_vals) == 0) return(NULL)
-    ox <- if (isTRUE(is.finite(input$ftir_bruker_img_offset_x))) input$ftir_bruker_img_offset_x else 0
-    oy <- if (isTRUE(is.finite(input$ftir_bruker_img_offset_y))) input$ftir_bruker_img_offset_y else 0
-    list(raster = raw,
-         xmin = min(x_vals) + ox, xmax = max(x_vals) + ox,
-         ymin = min(y_vals) + oy, ymax = max(y_vals) + oy)
-  })
+  # FTIR / FTIR (Bruker) tabs: native-frame image placement via the shared
+  # place_ftir_image() (R/ftir_image_placement.R) -- the same function the
+  # pipeline report and Multi-Run use. Priority: config/run-metadata extent,
+  # then the registration the pipeline stored for this run (reused when it was
+  # made on an image of this size), else a registration computed here, else an
+  # approximate particle-extent fit. Placement is anchored to the run's FULL
+  # particle set (df_full), never the filtered view, so filters cannot move it.
+  # (It used to stretch the raster onto min/max of the particle coordinates.
+  # The particles never reach the scan edges, so the image was squeezed by a
+  # few percent per axis and the markers drifted off their blobs in proportion
+  # to their distance from a fixed point.)
+  .ftir_stored_registration <- function(key) {
+    run <- selected_run_dir()
+    if (is.null(run) || !is.null(uploaded_data())) return(NULL)
+    read_ftir_image_placement(file.path(run, FTIR_PLACEMENT_FILES[[key]]))
+  }
+  .place_native_ftir <- function(raw, d, key, prefix) {
+    if (is.null(raw) || is.null(d) || nrow(d) == 0) return(NULL)
+    pl <- place_ftir_image(raw, d$x_orig, d$y_orig, d$feret_max,
+                           cfg = active_manifest()$config_snapshot,
+                           registration = .ftir_stored_registration(key),
+                           prefix = prefix)
+    if (!is.null(pl))
+      message("[Particle Viewer] ", key, " image placed by ", pl$method,
+              sprintf(": X [%.1f, %.1f] Y [%.1f, %.1f] um", pl$xmin, pl$xmax, pl$ymin, pl$ymax))
+    pl
+  }
+  ftir_native_image_info <- reactive(
+    .place_native_ftir(ftir_raw_image(), ftir_df_full(), "ftir", "ftir_image"))
+  ftir_bruker_native_image_info <- reactive(
+    .place_native_ftir(ftir_bruker_raw_image(), ftir_bruker_df_full(),
+                       "ftir_bruker", "ftir_bruker_image"))
 
   # Raman tab: image placement with 3-tier priority cascade:
   #   1. Physical extent (WITec center + width/height in µm) — resize-invariant
@@ -3318,7 +3299,8 @@ server <- function(input, output, session) {
                  full_df       = full_ftir,
                  plain         = isTRUE(input$ftir_show_all_detected),
                  show_labels   = isTRUE(input$ftir_show_all_labels),
-                 label_size    = input$ftir_label_size %||% 3)
+                 label_size    = input$ftir_label_size %||% 3,
+                 true_size     = isTRUE(input$ftir_true_size))
   })
 
   output$ftir_plot <- renderPlot(ftir_plot_obj()) |> bindCache(
@@ -3331,6 +3313,7 @@ server <- function(input, output, session) {
     input$ftir_view_rotation, input$ftir_view_flip_y,
     input$ftir_highlight_particle, single_highlight_ids$ftir,
     input$ftir_show_all_detected, input$ftir_show_all_labels, input$ftir_label_size, zoom$ftir,
+    input$ftir_true_size,
     img_key(ftir_native_image_info()), img_key(overlay_image_info())
   )
 
@@ -3967,7 +3950,8 @@ server <- function(input, output, session) {
                  full_df       = full_fb,
                  plain         = isTRUE(input$ftir_bruker_show_all_detected),
                  show_labels   = isTRUE(input$ftir_bruker_show_all_labels),
-                 label_size    = input$ftir_bruker_label_size %||% 3)
+                 label_size    = input$ftir_bruker_label_size %||% 3,
+                 true_size     = isTRUE(input$ftir_bruker_true_size))
   })
 
   output$ftir_bruker_plot <- renderPlot(ftir_bruker_plot_obj()) |> bindCache(
@@ -3976,6 +3960,7 @@ server <- function(input, output, session) {
     input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
     input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
     input$ftir_bruker_show_all_detected, input$ftir_bruker_show_all_labels, input$ftir_bruker_label_size,
+    input$ftir_bruker_true_size,
     zoom$ftir_bruker,
     img_key(ftir_bruker_native_image_info()), img_key(overlay_image_info())
   )

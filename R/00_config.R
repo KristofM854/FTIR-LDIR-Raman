@@ -160,6 +160,19 @@ make_config <- function(ftir_path  = NULL,
     # NULL = fall back to TIFF DPI auto-detection or particle-extent method.
     # raman_um_per_px = 0.38,
     raman_um_per_px = NULL,
+    # --- FTIR image placement (PerkinElmer "Average Abs" PNG / Bruker) ---
+    # Physical extent of the WHOLE exported image (including any border or
+    # colour bar), in the CSV coordinate frame. Center defaults to width/2,
+    # height/2, i.e. the image starts at the scan origin (0, 0). When set, the
+    # image is placed exactly there (resize-invariant). When NULL (default) the
+    # pipeline registers the particles visible in the image against the CSV
+    # particles and stores the fit in <run>/ftir_image_placement.json; see
+    # R/ftir_image_placement.R. Bruker: same fields with prefix
+    # ftir_bruker_image_*.
+    ftir_image_width_um    = NULL,
+    ftir_image_height_um   = NULL,
+    ftir_image_center_x_um = NULL,
+    ftir_image_center_y_um = NULL,
     # --- Descriptor RANSAC (optional Tier 2 replacement) ---
     # Set TRUE to use descriptor-based RANSAC instead of the coarse-grid material
     # RANSAC for LDIR→Raman alignment.  Backward-compatible default: FALSE.

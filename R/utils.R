@@ -855,7 +855,12 @@ write_manifest <- function(run_dir, run_id, config,
                  # exact physical extent (raman_native_image_info Priority 1).
                  "raman_image_width_um", "raman_image_height_um",
                  "raman_image_center_x_um", "raman_image_center_y_um",
-                 "raman_um_per_px")
+                 "raman_um_per_px",
+                 # FTIR image placement (place_ftir_image Priority 1).
+                 "ftir_image_width_um", "ftir_image_height_um",
+                 "ftir_image_center_x_um", "ftir_image_center_y_um",
+                 "ftir_bruker_image_width_um", "ftir_bruker_image_height_um",
+                 "ftir_bruker_image_center_x_um", "ftir_bruker_image_center_y_um")
   cfg_snap <- lapply(cfg_keys, function(k) config[[k]])
   names(cfg_snap) <- cfg_keys
   # Remove NULLs
