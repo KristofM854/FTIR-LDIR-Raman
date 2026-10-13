@@ -529,27 +529,6 @@ ldir_um_per_px <- function(circle_info, config = NULL) {
 }
 
 
-#' Map particle pixel centroids to µm using scan-circle calibration
-#'
-#' Uses the detected scan circle center and radius to compute a
-#' scale factor, rather than assuming full-image bounds = scan area.
-#'
-#' @param cx_particle_px Numeric vector, particle centroid x in pixels
-#' @param cy_particle_px Numeric vector, particle centroid y in pixels
-#' @param circle_info Result from detect_ldir_scan_circle()
-#' @param scan_diameter_um Physical scan diameter in µm (default 13000)
-#' @return Data frame with x_um, y_um columns
-map_pixels_to_um_circle <- function(cx_particle_px, cy_particle_px,
-                                     circle_info, scan_diameter_um = 13000) {
-  scale_um_per_px <- (scan_diameter_um / 2) / circle_info$radius_px
-  x_um <- (cx_particle_px - circle_info$cx_px) * scale_um_per_px
-  # Pixel y increases downward; physical y increases upward
-  y_um <- (circle_info$cy_px - cy_particle_px) * scale_um_per_px
-
-  data.frame(x_um = x_um, y_um = y_um)
-}
-
-
 #' Extract LDIR particle coordinates from the companion image
 #'
 #' The Agilent 8700 LDIR exports a particle map image where particles are
@@ -565,8 +544,6 @@ map_pixels_to_um_circle <- function(cx_particle_px, cy_particle_px,
 #'      background correction per tile + global thresholding. Auto-tunes
 #'      threshold to match expected_count. Achieves ~505 detections matching
 #'      the LDIR software's particle count.
-#'   2. Fallback (if Python unavailable): R-based saturation segmentation
-#'      for color images, adaptive thresholding for grayscale.
 #'
 #' After extraction, pixel centroids are remapped to µm using scan-circle
 #' calibration (not full-image bounds) for robustness to margins/padding.
@@ -735,13 +712,16 @@ extract_ldir_image_coords <- function(image_path,
   }
 
   # --- Step 3: Remap pixel centroids → µm using scan-circle calibration ---
-  um_coords <- map_pixels_to_um_circle(
-    pixel_particles$centroid_px_x,
-    pixel_particles$centroid_px_y,
-    circle_info, scan_diam_um
-  )
-
+  # The image is placed by the scan circle: its centre is (0, 0) µm and its
+  # radius is half the scan diameter.
   scale_um_per_px <- (scan_diam_um / 2) / circle_info$radius_px
+  image <- new_image_object(
+    "ldir", image_path, circle_info$width, circle_info$height,
+    pixel_size_um = scale_um_per_px,
+    origin_px = c(circle_info$cx_px, circle_info$cy_px),
+    provenance = "scan_circle")
+  um_coords <- image_pixels_to_um(pixel_particles$centroid_px_x,
+                                  pixel_particles$centroid_px_y, image)
 
   pixel_particles$x_um <- um_coords$x_um
   pixel_particles$y_um <- um_coords$y_um
@@ -796,7 +776,7 @@ extract_ldir_image_coords <- function(image_path,
     )
   }
 
-  list(particles = pixel_particles, circle_info = circle_info)
+  list(particles = pixel_particles, circle_info = circle_info, image = image)
 }
 
 
@@ -923,7 +903,7 @@ find_ldir_processed_image <- function(img_path, config = NULL) {
 #' components per channel (8-connectivity), then pool the blobs.
 #'
 #' Pixel centroids are mapped to µm in the SAME circle-centred, y-up frame the
-#' optical path uses (map_pixels_to_um_circle), so the result is a drop-in for
+#' optical path uses (scan-circle image object), so the result is a drop-in for
 #' extract_ldir_image_coords(): downstream alignment and the Shiny image overlay
 #' both work unchanged.  The processed overlay carries no visible scan circle, so
 #' full-image bounds are used for calibration (equivalent to the optical path
@@ -982,13 +962,12 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
       (2 * circle_info$radius_px) / circle_info$width
   }
   # Scale priority: explicit config override, else scan-diameter calibration.
-  scale <- if (!is.null(config$ldir_image_scale_um_per_px) &&
-               is.numeric(config$ldir_image_scale_um_per_px) &&
-               config$ldir_image_scale_um_per_px > 0) {
-    config$ldir_image_scale_um_per_px
-  } else {
-    (scan_diam_um / 2) / circle_info$radius_px
-  }
+  scale_from_config <- !is.null(config$ldir_image_scale_um_per_px) &&
+    is.numeric(config$ldir_image_scale_um_per_px) &&
+    config$ldir_image_scale_um_per_px > 0
+  scale <- if (scale_from_config) config$ldir_image_scale_um_per_px
+           else (scan_diam_um / 2) / circle_info$radius_px
+  scale_provenance <- if (scale_from_config) "config" else "processed_full_image"
   circle_info$scale_um_per_px <- scale
 
   Rc <- round(arr[, , 1] * 255)
@@ -1112,6 +1091,7 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
                   " -> ", round(scale_excel, 3), " µm/px (image ~",
                   round(w * scale_excel), " µm wide)")
       scale <- scale_excel
+      scale_provenance <- "excel_area_scale"
       circle_info$scale_um_per_px <- scale
     } else if (!count_ok) {
       log_message("  Scale self-calibration skipped: blob count ", n_blobs,
@@ -1123,8 +1103,13 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
   # --- (e) Map pixel centroids to circle-centred µm (y up), convert sizes ---
   # Same frame as the optical path so the result is a drop-in for the matcher
   # and the Shiny overlay: origin at image centre, y increasing upward.
-  x_um <- (cx_all - circle_info$cx_px) * scale
-  y_um <- (circle_info$cy_px - cy_all) * scale
+  image <- new_image_object(
+    "ldir", img_path, w, h, pixel_size_um = scale,
+    origin_px = c(circle_info$cx_px, circle_info$cy_px),
+    provenance = scale_provenance)
+  um_xy <- image_pixels_to_um(cx_all, cy_all, image)
+  x_um <- um_xy$x_um
+  y_um <- um_xy$y_um
 
   feret_max_um <- feret_all * scale
   # Equivalent-ellipse minor axis from area & major (feret) axis.
@@ -1185,7 +1170,7 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
                   " px — near the resolution floor; shape/size unreliable for these")
   }
 
-  list(particles = df, circle_info = circle_info)
+  list(particles = df, circle_info = circle_info, image = image)
 }
 
 

@@ -104,6 +104,13 @@ Results are written to a timestamped subfolder under `output/` (e.g. `output/202
 
 The ingest module auto-detects CSV delimiters and handles encoding differences (Latin-1, UTF-8).
 
+Tables in any other layout are read with the column-mapping reader: name, in
+an R list or a JSON file, which column holds each field and the units
+(`config$<role>_column_map`). Every reader returns the same canonical particle
+table, which is checked before the pipeline continues. Instrument labels the
+material rules do not know can be translated per instrument in
+`inst/materials/<role>.csv`. See [docs/input_format.md](docs/input_format.md).
+
 ## Pipeline architecture
 
 ```
@@ -111,6 +118,8 @@ main.R                          # Orchestrator
 R/
   00_config.R                   # All tunable parameters
   00b_file_input.R              # Interactive file picker
+  particle_contract.R           # Canonical particle table / image object + validators
+  01_readers.R                  # read_instrument(): reader per role, column-mapping reader, material tables
   01_ingest.R                   # FTIR + Raman CSV/Excel parsing
   01b_ingest_image.R            # Image-based particle extraction (FTIR)
   01c_ingest_ldir.R             # LDIR Excel parsing + image coordinate extraction
@@ -130,6 +139,7 @@ R/
 inst/
   python/
     particle_detector.py        # Python LDIR particle detection backend
+  materials/                    # Per-instrument material tables (user-extendable)
 shiny_app/
   app.R                         # Interactive viewer
   global.R                      # Data loading for Shiny
@@ -385,7 +395,7 @@ to switch the index off).
 
 - **Raman minimum size**: The Raman instrument detects particles down to ~1 µm, but FTIR resolution is typically ≥ 20 µm. Raman particles below 20 µm have no FTIR counterpart and inflate the "unmatched Raman" count.
 
-- **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Extend the rules in `R/08b_material_map.R` for dataset-specific names.
+- **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Translate dataset-specific names in `inst/materials/<role>.csv` (see `tools/material_vocabulary.R` for the labels a run could not classify).
 
 - **"Polyamide (naturally occurring)" from LDIR**: This LDIR material name refers to biological polyamides (silk, protein-like), not synthetic nylon (PA6, PA12). It is classified into the "Natural" polymer family (not "PA") to avoid false material-agreement matches between synthetic and biological materials.
 

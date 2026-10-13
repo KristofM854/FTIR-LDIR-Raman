@@ -73,7 +73,7 @@ make_config <- function(ftir_path  = NULL,
     #   disable relabelling and keep every raw identification.
     ldir_hqi_unknown_threshold = 0.85,
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
-    ldir_flip_y_for_alignment = FALSE, # map_pixels_to_um_circle already inverts y;
+    ldir_flip_y_for_alignment = FALSE, # the LDIR image mapping already inverts y;
                                        # Raman y is also upward — no second flip needed
     ldir_rotate_deg_for_alignment = -90, # clockwise rotation applied before alignment;
                                           # corrects instrument export convention vs Raman.
@@ -480,10 +480,23 @@ make_config <- function(ftir_path  = NULL,
     # Ambiguity detection
     ambiguity_radius_um        = 50,    # radius for counting nearby candidates
 
-    # --- Material equivalence mapping ---
-    material_map_ftir  = NULL,
-    material_map_raman = NULL,
-    material_map_ldir  = NULL,
+    # --- Readers (R/01_readers.R, docs/input_format.md) ---
+    # <role>_column_map: read that role's file with the generic column-mapping
+    # reader instead of the built-in one (an R list or a JSON file path).
+    # Roles: ftir, ftir_bruker, raman, ldir. An LDIR table that maps x_um/y_um
+    # needs no image.
+    ftir_column_map        = NULL,
+    ftir_bruker_column_map = NULL,
+    raman_column_map       = NULL,
+    ldir_column_map        = NULL,
+    # Material tables: instrument label -> name used for classification.
+    # NULL = inst/materials/<role>.csv; or a path / data frame per role.
+    material_table_dir        = NULL,
+    ftir_material_table       = NULL,
+    ftir_bruker_material_table = NULL,
+    raman_material_table      = NULL,
+    ldir_material_table       = NULL,
+    sample_id                 = NA_character_,  # written to every particle table
 
     # --- Spectral-library index (R/08b_material_map.R) ---
     # Folder with the licensed Raman library listings (PDFs). NULL = look for

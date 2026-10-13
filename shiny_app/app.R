@@ -2173,7 +2173,7 @@ server <- function(input, output, session) {
 
   # LDIR tab: image placed at the full scan-circle extent.
   # LDIR coordinates are circle-calibrated and centred at (0,0) via
-  # map_pixels_to_um_circle(), so the scan area spans ±(scan_diameter/2) µm.
+  # the scan-circle image object (R/particle_contract.R), so the scan area spans ±(scan_diameter/2) µm.
   # annotation_raster places row 1 at ymax.  Since row 1 of the PNG is the
   # top of the physical scan = high positive y in circle coords, no row-flip
   # is needed.

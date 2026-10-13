@@ -39,9 +39,11 @@ source("R/read_bmp.R")
 source("R/measure_raman_placement.R")
 source("R/tps_refine.R")
 source("R/utils.R")
+source("R/particle_contract.R")
 source("R/00_config.R")
 source("R/00b_file_input.R")
 source("R/01_ingest.R")
+source("R/01_readers.R")
 source("R/01b_ingest_image.R")
 source("R/ftir_image_placement.R")
 source("R/utils_python.R")
@@ -353,13 +355,16 @@ log_message(strrep("=", 60))
 
 # Create stage-based output directories for audit exports
 .out_dirs <- get_output_dirs(config$output_dir)
+# Canonical image objects of this run (R/particle_contract.R), written to
+# 00_manifest/images.json at the end.
+.image_objects <- list()
 
 # --- FTIR ---
-ftir_raw  <- annotate_materials(ingest_ftir(config$ftir_path, sheet = config$ftir_sheet))
+ftir_raw  <- read_instrument("ftir", config)
 write.csv(ftir_raw, file.path(.out_dirs$ingested, "ftir_perkin_ingested.csv"), row.names = FALSE)
 
 # --- Raman ---
-raman_raw <- annotate_materials(ingest_raman(config$raman_path, sheet = config$raman_sheet))
+raman_raw <- read_instrument("raman", config)
 write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
 
 # --- Auto-calibrate Raman image placement ----------------------------------
@@ -417,14 +422,31 @@ if (!is.null(.raman_image_info)) {
   }
 }
 
+# Raman image object: the extent the viewer uses (auto-calibrated above, else
+# the configured WITec values). Without an extent the viewer falls back to the
+# particle bounding box, which is not recorded as an image object.
+if (!is.null(.raman_image_info) &&
+    all(!vapply(config[c("raman_image_width_um", "raman_image_height_um",
+                         "raman_image_center_x_um", "raman_image_center_y_um")],
+                is.null, logical(1)))) {
+  .w <- config$raman_image_width_um;    .h <- config$raman_image_height_um
+  .cx <- config$raman_image_center_x_um; .cy <- config$raman_image_center_y_um
+  .image_objects$raman <- tryCatch(image_object_from_extent(
+    "raman", config$raman_image,
+    .raman_image_info$orig_width, .raman_image_info$orig_height,
+    c(xmin = .cx - .w / 2, xmax = .cx + .w / 2, ymin = .cy - .h / 2, ymax = .cy + .h / 2),
+    provenance = if (!is.null(.raman_fit) && !isTRUE(.raman_fit$mirrored))
+      "registration" else "config"),
+    error = function(e) NULL)
+}
+
 # --- LDIR (optional) ---
 ldir_raw <- NULL
 has_ldir <- !is.null(config$ldir_path) && nzchar(config$ldir_path)
 if (has_ldir) {
-  ldir_raw <- ingest_ldir(config$ldir_path)
-  # Relabel low-HQI identifications as "unknown" (kept, not dropped) to mirror
-  # the LDIR software; flows into the viewer and the agreement analysis.
-  ldir_raw <- annotate_materials(relabel_ldir_low_hqi(ldir_raw, config))
+  # Low-HQI identifications are relabelled "unknown" (kept, not dropped) to
+  # mirror the LDIR software; see read_instrument().
+  ldir_raw <- read_instrument("ldir", config)
   # Auto-load coordinate-swap corrections from the CSV sidecar next to the LDIR
   # Excel (<stem>_coord_swaps.csv), unless swaps were set explicitly in config.
   # [[ ]] and list(): `config$ldir_coord_swaps <- NULL` would DELETE the
@@ -433,7 +455,8 @@ if (has_ldir) {
   if (is.null(config[["ldir_coord_swaps"]]))
     config["ldir_coord_swaps"] <- list(load_ldir_coord_swaps(config$ldir_path, config))
   write.csv(ldir_raw, file.path(.out_dirs$ingested, "ldir_ingested.csv"), row.names = FALSE)
-  log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
+  log_message("LDIR data loaded: ", nrow(ldir_raw), " particles",
+              if (all(is.na(ldir_raw$x_um))) " (no coordinates)" else "")
 } else {
   log_message("LDIR: not provided \u2014 skipping LDIR analysis")
 }
@@ -442,7 +465,7 @@ if (has_ldir) {
 ftir_bruker_raw <- NULL
 has_ftir_bruker <- !is.null(config$ftir_bruker_path) && nzchar(config$ftir_bruker_path)
 if (has_ftir_bruker) {
-  ftir_bruker_raw <- annotate_materials(ingest_ftir_bruker(config$ftir_bruker_path))
+  ftir_bruker_raw <- read_instrument("ftir_bruker", config)
   write.csv(ftir_bruker_raw, file.path(.out_dirs$ingested, "ftir_bruker_ingested.csv"), row.names = FALSE)
   log_message("FTIR (Bruker) data loaded: ", nrow(ftir_bruker_raw), " particles")
 } else {
@@ -459,6 +482,23 @@ if (has_ftir_bruker) {
 # directory once and reused by the viewer and the report, so no plot derives
 # the image extent from whatever (filtered) particles it happens to draw.
 ftir_scan_bounds <- NULL
+.placement_provenance <- c(config_extent = "config", registration = "registration",
+                           particle_extent_approx = "particle_extent_approx")
+.placement_image_object <- function(pl, instrument, path) {
+  if (is.null(pl)) return(NULL)
+  # In the file's own pixels: a downsampled raster covers the first
+  # fx * width (fy * height) pixels of the file (see .raster_coverage).
+  cov <- .raster_coverage(pl$raster)
+  tryCatch(image_object_from_extent(
+    instrument, path, cov$fx * cov$orig_w, cov$fy * cov$orig_h,
+    c(xmin = pl$xmin, xmax = pl$xmax, ymin = pl$ymin, ymax = pl$ymax),
+    provenance = .placement_provenance[[pl$method]],
+    # A row-flipped placement: the file's first row is the lowest y.
+    y_axis = if (isTRUE(pl$flip_rows)) "down" else "up"),
+    error = function(e) {
+      log_message("  ", instrument, " image object not recorded: ", conditionMessage(e),
+                  level = "WARN"); NULL })
+}
 .place_ftir_run_image <- function(img_path, df, prefix, key, label) {
   if (is.null(img_path) || !nzchar(img_path) || is.null(df) || nrow(df) == 0)
     return(NULL)
@@ -485,6 +525,7 @@ ftir_scan_bounds <- NULL
     log_message("    APPROXIMATE: no config extent and the image could not be registered ",
                 "to the particles; set ", prefix, "_width_um / _height_um in the config ",
                 "for an exact overlay", level = "WARN")
+  .image_objects[[key]] <<- .placement_image_object(pl, key, img_path)
   pl
 }
 if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
@@ -913,8 +954,14 @@ if (has_ldir && !is.null(ldir_raw)) {
   # 12a. Extract coordinates from LDIR image BEFORE filtering (join on raw data)
   ldir_with_coords <- ldir_raw
   has_ldir_coords  <- FALSE
+  ldir_table_has_coords <- sum(!is.na(ldir_raw$x_um) & !is.na(ldir_raw$y_um)) >= 10
 
-  if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) {
+  if (ldir_table_has_coords) {
+    # Coordinates came with the table (generic column-mapping reader): no
+    # image extraction or image join.
+    log_message("LDIR coordinates taken from the particle table (no image join)")
+    has_ldir_coords <- TRUE
+  } else if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) {
     log_message("Extracting LDIR coordinates from companion image")
     # Python is required for LDIR image analysis: fail here, with what is
     # missing, rather than partway through the detection.
@@ -960,6 +1007,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       )
       ldir_image_particles <- ldir_proc_result$particles
       .ldir_circle_info    <- ldir_proc_result$circle_info
+      .ldir_image_object   <- ldir_proc_result$image
     } else {
       # Circle-calibrated extraction -- expected_count uses RAW count for best matching
       ldir_extract_result  <- extract_ldir_image_coords(
@@ -970,6 +1018,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       )
       ldir_image_particles <- ldir_extract_result$particles
       .ldir_circle_info    <- ldir_extract_result$circle_info
+      .ldir_image_object   <- ldir_extract_result$image
     }
 
     # Persist circle calibration to manifest
@@ -978,6 +1027,8 @@ if (has_ldir && !is.null(ldir_raw)) {
       error = function(e)
         log_message("  Could not update manifest ldir_circle: ", e$message, level = "WARN")
     )
+
+    .image_objects$ldir <- .ldir_image_object
 
     # Save raw image-extracted coordinates (before join) for Shiny viewer
     ldir_image_extracted <- ldir_image_particles
@@ -1472,7 +1523,8 @@ if (has_ldir && !is.null(ldir_raw)) {
       # --- Persist alignment method + matrix to manifest ---
       tryCatch({
         .align_method_str <- ldir_aligned$align_method[1] %||% "ransac_icp"
-        update_manifest_ldir_circle(config$output_dir, .ldir_circle_info)  # refresh
+        if (exists(".ldir_circle_info"))   # absent when the table had coordinates
+          update_manifest_ldir_circle(config$output_dir, .ldir_circle_info)  # refresh
         m_path <- resolve_manifest_path(config$output_dir)
         if (file.exists(m_path) && requireNamespace("jsonlite", quietly = TRUE)) {
           m_upd <- jsonlite::fromJSON(m_path, simplifyVector = FALSE)
@@ -1970,6 +2022,7 @@ log_message("  Results in: ", config$output_dir)
 # Rewrite the parameter dump with the values the run ended with (the Raman
 # image auto-calibration and LDIR coordinate-swap loading update config).
 write_run_environment(config$output_dir, config)
+write_image_objects(config$output_dir, .image_objects)
 
 # ---------------------------------------------------------------------------
 # 16. Generate Report (PDF + interactive HTML)

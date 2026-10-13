@@ -134,10 +134,9 @@ analyze_agreement <- function(match_result, config = NULL,
   mat_a_raw <- mat_a_all[keep]
   mat_b_raw <- mat_b_all[keep]
 
-  # Exact polymer names (or the configured material maps)
-  mapped <- map_paired_materials(mat_a_raw, mat_b_raw, config)
-  mat_a <- mapped$ftir_canonical
-  mat_b <- mapped$raman_canonical
+  # Exact polymer names
+  mat_a <- canonical_polymer_vec(mat_a_raw)
+  mat_b <- canonical_polymer_vec(mat_b_raw)
 
   # ---- Tiered agreement scoring ----
   tier <- score_tiered_agreement_vec(mat_a_raw, mat_b_raw)

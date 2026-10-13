@@ -457,7 +457,7 @@ place_ftir_image <- function(raw, x, y, size_um = NULL, cfg = NULL,
     }
     list(raster = r, xmin = ext$xmin, xmax = ext$xmax,
          ymin = ext$ymin, ymax = ext$ymax, method = method,
-         registration = reg)
+         registration = reg, flip_rows = isTRUE(flip_rows))
   }
 
   # P1: explicit physical extent.
