@@ -20,7 +20,9 @@
 # 0. Setup: load packages and source modules
 # ---------------------------------------------------------------------------
 
-required_packages <- c("readxl", "ggplot2", "RANN", "ggrepel")
+# clue is required, not optional: without it match_particles() would switch
+# from optimal (Hungarian) to greedy matching and change the results.
+required_packages <- c("readxl", "ggplot2", "RANN", "ggrepel", "clue", "jsonlite", "png")
 
 missing_pkgs <- required_packages[!vapply(required_packages, requireNamespace,
                                           logical(1), quietly = TRUE)]
@@ -910,6 +912,9 @@ if (has_ldir && !is.null(ldir_raw)) {
 
   if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) {
     log_message("Extracting LDIR coordinates from companion image")
+    # Python is required for LDIR image analysis: fail here, with what is
+    # missing, rather than partway through the detection.
+    setup_python_detector()
 
     # Prefer the canonical PNG (format-guaranteed) produced by canonicalize_ldir_image().
     # Fall back to the original path if canonicalization was skipped.

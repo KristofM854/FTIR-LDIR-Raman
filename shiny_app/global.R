@@ -6,7 +6,8 @@ library(shiny)
 library(ggplot2)
 library(ggrepel)
 library(png)
-library(rintrojs)
+# rintrojs (guided tour) is loaded in app.R: it is UI-only, and main.R sources
+# this file to build the report on machines without the viewer's packages.
 
 # %||% is used throughout this app (image offsets, placement fallbacks, etc.)
 # but is only DEFINED (guarded) in R/07_match.R / R/09_diagnostics.R, which

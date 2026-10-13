@@ -3,57 +3,6 @@
 # =============================================================================
 
 #' Create default configuration
-#' 
-#' # ---- Python configuration (must run before any reticulate use) ----
-#
-# The LDIR image backend is optional: if Python or its packages are missing,
-# the pipeline falls back to an R-based segmentation (see README). Python is
-# therefore never hard-required here — a hardcoded, mandatory interpreter path
-# would break the pipeline on any machine that does not have that exact path.
-#
-# BUT we must still PIN a real interpreter when one exists. If we leave the
-# choice to reticulate, it auto-provisions an ephemeral 'r-reticulate'
-# virtualenv — which on locked-down/offline machines tries to download `uv`
-# (SSL error) and points at a python.exe that does not exist, so a perfectly
-# good Python install is wrongly reported as "not installed" and the LDIR
-# detector silently falls back to (weaker) R extraction.
-#
-# Interpreter priority:
-#   1. RETICULATE_PYTHON environment variable — explicit override. Set this
-#      (e.g. in ~/.Renviron) if your interpreter is not auto-detected:
-#        RETICULATE_PYTHON=/usr/bin/python3          (Linux/macOS)
-#        RETICULATE_PYTHON=C:/Program Files/Python314/python.exe   (Windows)
-#   2. A known interpreter that actually exists on THIS machine (list below).
-#   3. python3 / python on PATH.
-# Each candidate is used only when the file exists, so listing a Windows path
-# is harmless on Linux/macOS. Nothing is forced with required = TRUE.
-
-Sys.setenv(RETICULATE_USE_UV = "0")  # prevents uv auto-install attempts
-
-if (requireNamespace("reticulate", quietly = TRUE)) {
-  .py <- Sys.getenv("RETICULATE_PYTHON", unset = "")
-  if (!nzchar(.py)) {
-    .cands <- c(
-      "C:/Program Files/Python314/python.exe",
-      "C:/Program Files/Python313/python.exe",
-      "C:/Program Files/Python312/python.exe",
-      "C:/Program Files/Python311/python.exe",
-      unname(Sys.which("python3")),
-      unname(Sys.which("python"))
-    )
-    .cands <- .cands[nzchar(.cands) & file.exists(.cands)]
-    if (length(.cands) > 0) .py <- .cands[[1]]
-    rm(.cands)
-  }
-  if (nzchar(.py)) {
-    # Pin it so reticulate uses THIS interpreter and does not build a venv /
-    # download uv. required = FALSE: a bad value degrades to the R fallback
-    # instead of aborting the pipeline at source() time.
-    Sys.setenv(RETICULATE_PYTHON = .py)
-    try(reticulate::use_python(.py, required = FALSE), silent = TRUE)
-  }
-  rm(.py)
-}
 #'
 #' Returns a list of all pipeline parameters. Modify this function or override
 #' individual values in main.R to adjust the pipeline behavior.

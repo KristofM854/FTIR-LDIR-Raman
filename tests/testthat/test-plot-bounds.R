@@ -1,4 +1,5 @@
-# Viewport guards (shiny_app/app.R): .brush_bounds() and sanitize_bounds().
+# Viewport guards: .brush_bounds() (shiny_app/app.R) and sanitize_bounds()
+# (shiny_app/global.R).
 #
 # Regression for "non-finite location and/or size for viewport" — grid aborts
 # the ENTIRE plot (the image appears to vanish) when coord_fixed() is handed a
@@ -15,6 +16,16 @@
   env <- new.env(parent = globalenv())
   eval(parse(text = gsub("^  ", "", paste(src[i:(j - 1)], collapse = "\n"))),
        envir = env)
+  # sanitize_bounds() moved to global.R (shared with the pipeline report);
+  # take it, and the .MIN_SPAN it uses, from there.
+  gexprs <- parse(file.path(REPO_ROOT, "shiny_app", "global.R"), keep.source = FALSE)
+  for (e in gexprs) {
+    if (is.call(e) && identical(e[[1]], as.name("<-")) &&
+        as.character(e[[2]]) %in% c("sanitize_bounds", ".MIN_SPAN"))
+      eval(e, envir = env)
+  }
+  skip_if_not(exists("sanitize_bounds", envir = env, inherits = FALSE),
+              "sanitize_bounds not found in global.R")
   env
 }
 

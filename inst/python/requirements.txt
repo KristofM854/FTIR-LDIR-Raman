@@ -1,0 +1,12 @@
+# Python packages for the LDIR image backend (inst/python/particle_detector.py).
+# Python is required whenever an LDIR image is analysed.
+#
+#   pip install -r inst/python/requirements.txt
+#
+# Versions are the ones the test suite last ran with (Python 3.13). To record
+# the exact versions of your own environment for a deposit, run
+#   pip freeze | grep -iE "^(numpy|scipy|pillow)=="
+# and replace the lines below.
+numpy==2.5.3
+scipy==1.18.1
+Pillow==12.3.0

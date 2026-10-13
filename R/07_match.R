@@ -33,16 +33,17 @@ match_particles <- function(src_df, ref_df, config,
 
   method <- config$match_method %||% "hungarian"
 
-  # Auto-fallback if clue is unavailable
-  if (method == "hungarian" && !requireNamespace("clue", quietly = TRUE)) {
-    log_message("  clue package not available — falling back to greedy matching")
-    method <- "greedy"
-  }
+  # Optimal assignment needs clue. Switching silently to greedy would change
+  # the results, so a missing package is an error, not a fallback.
+  if (method == "hungarian" && !requireNamespace("clue", quietly = TRUE))
+    stop("match_method = 'hungarian' needs the 'clue' package: install.packages('clue')",
+         call. = FALSE)
 
-  # Auto-fallback for very large problems
+  # Very large problems switch to greedy (the dense cost matrix is n^2).
   n_smaller <- min(nrow(src_df), nrow(ref_df))
   if (method == "hungarian" && n_smaller > 2000) {
-    log_message("  Large problem (", n_smaller, " particles) — falling back to greedy")
+    log_message("  Large problem (", n_smaller, " particles) — using greedy ",
+                "matching instead of Hungarian; results are not optimal", level = "WARN")
     method <- "greedy"
   }
 

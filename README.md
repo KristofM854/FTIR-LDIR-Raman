@@ -21,22 +21,24 @@ When the same filter is analysed by multiple instruments, each produces its own 
 **R (≥ 4.1)** — the code uses the native `|>` pipe. Install the full package set:
 ```r
 install.packages(c(
-  "clue", "dplyr", "ggplot2", "ggrepel", "jpeg", "jsonlite", "magick",
-  "png", "RANN", "readxl", "rintrojs", "shiny",
-  "reticulate"   # optional — enables the preferred Python LDIR backend
+  "base64enc", "clue", "ggplot2", "ggrepel", "gridExtra", "gtable", "jpeg",
+  "jsonlite", "magick", "plotly", "png", "RANN", "readxl", "reticulate",
+  "rintrojs", "shiny", "shinyFiles", "zip"
 ))
 ```
+(`DESCRIPTION` is the authoritative list.)
 
-**Python 3** with these packages (optional — for the preferred LDIR image backend):
+**Python 3** is **required for LDIR image analysis** (FTIR/Raman-only runs do not need it):
 ```bash
-pip3 install numpy scipy Pillow matplotlib
+pip install -r inst/python/requirements.txt    # numpy, scipy, Pillow
 ```
 
-The Python backend is invoked automatically via `reticulate`. If Python or its
-packages are unavailable, the pipeline falls back to an R-based saturation
-segmentation approach. To pin a specific interpreter, set the
-`RETICULATE_PYTHON` environment variable (e.g. in `~/.Renviron`) before
-launching R; when unset, `reticulate` auto-discovers Python on `PATH`.
+The Python backend is called through `reticulate`. There is no R fallback: if
+Python or one of its packages is missing, the run stops before the LDIR image
+step and says what is missing. Nothing is installed automatically. To pin a
+specific interpreter, set `RETICULATE_PYTHON` (e.g. in `~/.Renviron`) before
+launching R; otherwise a standard Windows install or `python3`/`python` on
+`PATH` is used.
 
 #### Reproducible environment (recommended for the deposit)
 
@@ -138,15 +140,20 @@ The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**
 
 Since the Agilent 8700 LDIR does not export particle coordinates, the pipeline extracts them from the companion PNG image:
 
-**Primary method (Python, preferred)**:
+**Detection (Python, required)**:
 - Per-tile iterative sigma-clipping background correction (4×4 grid, scipy Gaussian)
 - Global thresholding after background subtraction (not per-tile, because ~3% of particles span tile boundaries)
 - Auto-tuned threshold — binary search to match the expected count from the Excel file
-- Achieves ~99.6% join rate between image-detected and Excel particles on tested datasets
 
-**Fallback (R, no Python)**:
-- HSV saturation segmentation for colored particle maps
-- Adaptive threshold for grayscale images
+The detected blobs are then paired with the Excel rows by size and shape
+(the Excel has no coordinates). By default every Excel row receives a
+position; a row whose pairing cost exceeds `ldir_match_threshold` keeps its
+position but carries a join warning (see the agreement outputs). A "join rate"
+is therefore 100 % by construction and says nothing about join correctness.
+
+When the LDIR software's processed overlay (`<image>_analyzed.<ext>`) is
+present, its coloured blobs are segmented in R instead (the machine's own
+segmentation); Python is still required for the scan-circle detection.
 
 After detection, image pixel centroids are mapped to physical µm coordinates using the configured scan diameter. An optional scan-order validation (Kendall τ correlation) checks that particle IDs follow the expected raster pattern.
 

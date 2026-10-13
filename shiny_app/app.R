@@ -3,6 +3,7 @@
 # =============================================================================
 
 source("global.R")
+library(rintrojs)   # guided tour (UI only)
 
 # Multiple-file selection: always enable (works on all platforms; especially
 # useful on Windows where the OS Open dialog can select multiple files at once).

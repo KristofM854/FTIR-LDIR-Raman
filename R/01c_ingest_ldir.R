@@ -274,11 +274,12 @@ detect_ldir_scan_circle <- function(image_path, config = NULL) {
     }
     log_message("  Python circle failed sanity check (cx=",
                 round(py_circle$cx_px, 1), ", cy=", round(py_circle$cy_px, 1),
-                ", r=", round(py_circle$radius_px, 1), ") — trying R fallback",
+                ", r=", round(py_circle$radius_px, 1), ") — trying R edge-fit",
                 level = "WARN")
   }
 
-  # --- Fallback: R algebraic edge-fit ---
+  # --- Second method: R algebraic edge-fit, used when the Python circle is
+  #     missing or fails the sanity check above (Python itself is required). ---
   n_ch <- if (length(dim(img)) == 3) dim(img)[3] else 1
   if (n_ch >= 3) {
     brightness <- pmax(img[,,1], img[,,2], img[,,3])
@@ -1303,7 +1304,7 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
 #' @param expected_count Expected number of particles
 #' @param circle_info Result from detect_ldir_scan_circle() (optional).
 #'   When provided, the scan circle is applied as a mask in the Python
-#'   backend and in the R saturation fallback.
+#'   backend.
 #' @return Data frame with centroid_px_x, centroid_px_y, and standard columns
 .extract_ldir_pixel_centroids <- function(image_path, scan_bounds, expected_count,
                                           circle_info = NULL, config = NULL) {
@@ -1371,147 +1372,6 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
   }
 
   py_result
-}
-
-
-#' Saturation-based extraction returning pixel centroids
-#'
-#' Same algorithm as .extract_ldir_saturation but returns centroid_px_x/y
-#' in addition to x_um/y_um (which are computed for size filtering only).
-.extract_ldir_saturation_px <- function(img, h, w, scan_bounds, expected_count,
-                                         circle_info = NULL) {
-  r_ch <- img[,,1]; g_ch <- img[,,2]; b_ch <- img[,,3]
-
-  mx <- pmax(r_ch, g_ch, b_ch)
-  mn <- pmin(r_ch, g_ch, b_ch)
-  sat <- ifelse(mx > 0, (mx - mn) / mx, 0)
-
-  binary <- sat > 0.3 & mx > 0.08
-
-  # Mask out pixels outside the scan circle
-  if (!is.null(circle_info) && isTRUE(circle_info$radius_px > 0)) {
-    cx <- circle_info$cx_px
-    cy <- circle_info$cy_px
-    r  <- circle_info$radius_px
-    rows_m <- matrix(seq_len(h), nrow = h, ncol = w)
-    cols_m <- matrix(seq_len(w), nrow = h, ncol = w, byrow = TRUE)
-    in_circle <- (rows_m - cy)^2 + (cols_m - cx)^2 <= (r * 1.05)^2
-    binary <- binary & in_circle
-  }
-
-  n_fg <- sum(binary)
-  log_message("  Saturation threshold: ", n_fg, " foreground pixels (",
-              round(n_fg / (h * w) * 100, 1), "%)")
-
-  cc <- .two_pass_ccl(binary, h, w)
-  lab_mat <- cc$labels
-  n_components <- cc$n_components
-
-  if (n_components == 0) return(.empty_image_df())
-
-  min_pixels <- 10
-  fg_idx    <- which(binary, arr.ind = TRUE)
-  fg_labels <- lab_mat[binary]
-  tab       <- tabulate(fg_labels, nbins = n_components)
-  keep_ids  <- which(tab >= min_pixels)
-
-  if (length(keep_ids) == 0) return(.empty_image_df())
-
-  label_factor <- factor(fg_labels, levels = keep_ids)
-  valid <- !is.na(label_factor)
-  fg_rows <- fg_idx[valid, 1]
-  fg_cols <- fg_idx[valid, 2]
-  lf      <- droplevels(label_factor[valid])
-
-  cy <- tapply(fg_rows, lf, mean)
-  cx <- tapply(fg_cols, lf, mean)
-  row_min <- tapply(fg_rows, lf, min)
-  row_max <- tapply(fg_rows, lf, max)
-  col_min <- tapply(fg_cols, lf, min)
-  col_max <- tapply(fg_cols, lf, max)
-  bb_h <- row_max - row_min + 1
-  bb_w <- col_max - col_min + 1
-  areas <- tab[keep_ids]
-
-  # Pixel centroids (0-indexed convention: subtract 0.5)
-  cx_full <- as.numeric(cx) - 0.5
-  cy_full <- as.numeric(cy) - 0.5
-
-  # Compute approximate µm sizes for filtering using scan_bounds
-  if (!is.null(scan_bounds)) {
-    x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / w
-    y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / h
-    size_scale <- max(x_scale, y_scale)
-    area_scale <- x_scale * y_scale
-  } else {
-    size_scale <- 1
-    area_scale <- 1
-  }
-
-  n_kept <- length(keep_ids)
-
-  df <- data.frame(
-    particle_id    = paste0("LDIR_IMG_", seq_len(n_kept)),
-    centroid_px_x  = cx_full,
-    centroid_px_y  = cy_full,
-    x_um           = NA_real_,   # will be overwritten by circle calibration
-    y_um           = NA_real_,
-    area_um2       = as.numeric(areas) * area_scale,
-    major_um       = as.numeric(pmax(bb_w, bb_h)) * size_scale,
-    minor_um       = as.numeric(pmin(bb_w, bb_h)) * size_scale,
-    feret_min_um   = as.numeric(pmin(bb_w, bb_h)) * size_scale,
-    feret_max_um   = as.numeric(pmax(bb_w, bb_h)) * size_scale,
-    material       = NA_character_,
-    quality        = NA_real_,
-    source_file    = "LDIR_image",
-    stringsAsFactors = FALSE
-  )
-
-  # Size filter
-  df <- df[df$feret_max_um >= 20, ]
-
-  # Auto-trim if too many
-  if (!is.null(expected_count) && expected_count > 0 && nrow(df) > expected_count * 1.5) {
-    target_n <- round(expected_count * 1.3)
-    if (nrow(df) > target_n) {
-      size_cutoff <- sort(df$feret_max_um, decreasing = TRUE)[min(target_n, nrow(df))]
-      df <- df[df$feret_max_um >= size_cutoff, ]
-    }
-  }
-
-  log_message("  Final: ", nrow(df), " particles from saturation segmentation")
-  df
-}
-
-
-#' Adaptive-threshold extraction returning pixel centroids (fallback)
-.extract_ldir_adaptive_px <- function(image_path, h_full, w_full,
-                                       scan_bounds, expected_count) {
-  # Delegate to existing extract_particles_from_image, then recover pixel coords
-  result <- extract_particles_from_image(
-    image_path,
-    scan_bounds     = scan_bounds,
-    adaptive_radius = 50L,
-    adaptive_offset = 0.05,
-    min_pixels      = 15,
-    min_size_um     = 20,
-    downsample      = 2L,
-    expected_count  = expected_count,
-    instrument      = "LDIR"
-  )
-
-  if (nrow(result) > 0 && !is.null(scan_bounds)) {
-    # Reverse the µm → pixel mapping to recover pixel centroids
-    x_scale <- (scan_bounds$x_max - scan_bounds$x_min) / w_full
-    y_scale <- (scan_bounds$y_max - scan_bounds$y_min) / h_full
-    result$centroid_px_x <- (result$x_um - scan_bounds$x_min) / x_scale
-    result$centroid_px_y <- (scan_bounds$y_max - result$y_um) / y_scale
-  } else if (nrow(result) > 0) {
-    result$centroid_px_x <- result$x_um
-    result$centroid_px_y <- result$y_um
-  }
-
-  result
 }
 
 
