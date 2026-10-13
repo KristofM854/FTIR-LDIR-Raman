@@ -1824,7 +1824,9 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
 #' @param config Pipeline config (uses ldir_coord_swaps)
 #' @return df with the requested coordinate corrections applied
 apply_ldir_coord_swaps <- function(df, config = NULL) {
-  swaps <- if (!is.null(config)) config$ldir_coord_swaps else NULL
+  # [[ ]], not $: with the element absent, $ partial-matches
+  # ldir_coord_swaps_suffix and would return the suffix string.
+  swaps <- if (!is.null(config)) config[["ldir_coord_swaps"]] else NULL
   if (is.null(swaps) || length(swaps) == 0) return(df)
   if (!"particle_id" %in% names(df)) return(df)
 
@@ -1941,7 +1943,8 @@ apply_ldir_coord_swaps <- function(df, config = NULL) {
 #'   disables the search)
 #' @return Full path to the sidecar CSV if found, otherwise NULL
 find_ldir_coord_swaps_file <- function(ldir_path, config = NULL) {
-  suffix <- if (!is.null(config)) config$ldir_coord_swaps_suffix else "_coord_swaps"
+  # NULL/"" suffix in a supplied config disables the sidecar.
+  suffix <- if (!is.null(config)) config[["ldir_coord_swaps_suffix"]] else "_coord_swaps"
   if (is.null(suffix) || !nzchar(suffix)) return(NULL)
   if (is.null(ldir_path) || !nzchar(ldir_path)) return(NULL)
 

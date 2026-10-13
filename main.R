@@ -426,8 +426,11 @@ if (has_ldir) {
   ldir_raw <- annotate_materials(relabel_ldir_low_hqi(ldir_raw, config))
   # Auto-load coordinate-swap corrections from the CSV sidecar next to the LDIR
   # Excel (<stem>_coord_swaps.csv), unless swaps were set explicitly in config.
-  if (is.null(config$ldir_coord_swaps))
-    config$ldir_coord_swaps <- load_ldir_coord_swaps(config$ldir_path, config)
+  # [[ ]] and list(): `config$ldir_coord_swaps <- NULL` would DELETE the
+  # element, after which config$ldir_coord_swaps partial-matches
+  # ldir_coord_swaps_suffix and returns "_coord_swaps" as a bogus swap.
+  if (is.null(config[["ldir_coord_swaps"]]))
+    config["ldir_coord_swaps"] <- list(load_ldir_coord_swaps(config$ldir_path, config))
   write.csv(ldir_raw, file.path(.out_dirs$ingested, "ldir_ingested.csv"), row.names = FALSE)
   log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
 } else {

@@ -18,19 +18,31 @@ Bruker if available):
       landmark sizes, size prefilters, HQI and LDIR quality cutoffs.
 - [ ] LDIR join check against Raman (same-family neighbour rate vs chance),
       replacing the scan-order test, which cannot detect a bad join.
-- [ ] Actual LDIR scale on your data (is it inside the ICP band 0.8-1.25?).
+- [x] Actual scales on dataset A (all four instruments): FTIR→Raman 0.9965,
+      Bruker→Raman 1.0021, LDIR→Raman 1.0381; the ICP clamp never engaged, so
+      the 0.8-1.25 band stays for every pair. Re-check on the other datasets.
 - [ ] Material vocabulary: counts of names falling to "Unknown" / "Other
       polymer" / Unresolved per instrument.
 - [ ] Regression test on one real dataset (needs your OK to commit a small one).
 - [ ] docs/validation.md with all numbers per dataset.
 
+## Dataset A (all four instruments) — numbers so far
+
+| Pair | gate | n src / Raman | matched | chance matches (shift / rotation / Poisson) | match distance median / p90 / max |
+|---|---|---|---|---|---|
+| FTIR (PerkinElmer)–Raman | 100 µm | 33 / 43 | 32 | 1.6 / 2.7 / 2.1 | 8.7 / 21.1 / 61.5 µm |
+| FTIR (Bruker)–Raman | 100 µm | 42 / 43 | 29 | 1.9 / 2.8 / 2.6 | 15.8 / 41.3 / 56.8 µm |
+| LDIR–Raman | 250 µm | 40 / 43 | 34 | 8.5 / 10.7 / 13.4 | 8.5 / 40.9 / 113.0 µm |
+
+Matched pairs are identical before and after the Phase 1.5 changes (all six
+pair files). The manual LDIR swap file corrects 10 of 40 image joins.
+
 ## Waiting for a decision
 
-- [ ] ICP / alignment scale band (audit Q6) — see the explanation in the
-      Phase 1.5 report. Currently 0.8-1.25 for every instrument pair, now a
-      declared parameter.
-- [ ] Spectral-library index for published numbers (audit Q7). The run now
-      records whether it was used (manifest `spectral_library_index`).
+- [x] ICP / alignment scale band (audit Q6): keep 0.8-1.25 for every pair
+      (dataset A, see above).
+- [x] Spectral-library index (audit Q7): option (a), use it and disclose;
+      internal use for now. The run records whether it was used.
 - [ ] "Acrylate" family (incl. polyacrylonitrile) is categorised
       Semi-synthetic (`R/08b_material_map.R`, `semi_synthetic_families`).
 - [ ] Triplet consensus does not yet apply the agreement quality gate

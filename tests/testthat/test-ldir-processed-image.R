@@ -703,3 +703,16 @@ test_that("apply_ldir_coord_swaps tolerates case / separator / bare-number ids",
   out2 <- apply_ldir_coord_swaps(df, list(ldir_coord_swaps = list(c("19", "29"))))
   expect_equal(out2$x_um[out2$particle_id == "A19"], 400)
 })
+
+test_that("a config without coordinate swaps applies none (no $ partial match)", {
+  # `config$ldir_coord_swaps <- NULL` deletes the element; config$ldir_coord_swaps
+  # then partial-matched ldir_coord_swaps_suffix ("_coord_swaps") and the
+  # suffix was applied as a swap entry.
+  cfg <- make_config(); cfg$ldir_coord_swaps <- NULL
+  expect_false("ldir_coord_swaps" %in% names(cfg))
+  df <- data.frame(particle_id = c("A1", "A2"), x_um = c(1, 2), y_um = c(3, 4))
+  expect_identical(suppressMessages(apply_ldir_coord_swaps(df, cfg)), df)
+  cfg["ldir_coord_swaps"] <- list(list(c("A1", "A2")))
+  out <- suppressMessages(apply_ldir_coord_swaps(df, cfg))
+  expect_identical(out$x_um, c(2, 1))
+})
