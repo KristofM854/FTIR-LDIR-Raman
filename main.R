@@ -354,11 +354,11 @@ log_message(strrep("=", 60))
 .out_dirs <- get_output_dirs(config$output_dir)
 
 # --- FTIR ---
-ftir_raw  <- ingest_ftir(config$ftir_path, sheet = config$ftir_sheet)
+ftir_raw  <- annotate_materials(ingest_ftir(config$ftir_path, sheet = config$ftir_sheet))
 write.csv(ftir_raw, file.path(.out_dirs$ingested, "ftir_perkin_ingested.csv"), row.names = FALSE)
 
 # --- Raman ---
-raman_raw <- ingest_raman(config$raman_path, sheet = config$raman_sheet)
+raman_raw <- annotate_materials(ingest_raman(config$raman_path, sheet = config$raman_sheet))
 write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
 
 # --- Auto-calibrate Raman image placement ----------------------------------
@@ -423,7 +423,7 @@ if (has_ldir) {
   ldir_raw <- ingest_ldir(config$ldir_path)
   # Relabel low-HQI identifications as "unknown" (kept, not dropped) to mirror
   # the LDIR software; flows into the viewer and the agreement analysis.
-  ldir_raw <- relabel_ldir_low_hqi(ldir_raw, config)
+  ldir_raw <- annotate_materials(relabel_ldir_low_hqi(ldir_raw, config))
   # Auto-load coordinate-swap corrections from the CSV sidecar next to the LDIR
   # Excel (<stem>_coord_swaps.csv), unless swaps were set explicitly in config.
   if (is.null(config$ldir_coord_swaps))
@@ -438,7 +438,7 @@ if (has_ldir) {
 ftir_bruker_raw <- NULL
 has_ftir_bruker <- !is.null(config$ftir_bruker_path) && nzchar(config$ftir_bruker_path)
 if (has_ftir_bruker) {
-  ftir_bruker_raw <- ingest_ftir_bruker(config$ftir_bruker_path)
+  ftir_bruker_raw <- annotate_materials(ingest_ftir_bruker(config$ftir_bruker_path))
   write.csv(ftir_bruker_raw, file.path(.out_dirs$ingested, "ftir_bruker_ingested.csv"), row.names = FALSE)
   log_message("FTIR (Bruker) data loaded: ", nrow(ftir_bruker_raw), " particles")
 } else {
@@ -1598,9 +1598,11 @@ if (has_ldir && !is.null(ldir_raw)) {
           ldir_fam  <- classify_family_vec(triplets$ldir_material)
 
           # Count how many instrument families agree with Raman
-          fr_agree   <- ftir_fam == raman_fam & ftir_fam != "Unknown"
-          lr_agree   <- ldir_fam == raman_fam & ldir_fam != "Unknown"
-          fl_agree   <- ftir_fam == ldir_fam  & ftir_fam != "Unknown"
+          # Same rule as the pairwise agreement: "Unknown" and the "Other
+          # polymer" catch-all never count as agreeing.
+          fr_agree   <- family_agrees(ftir_fam, raman_fam)
+          lr_agree   <- family_agrees(ldir_fam, raman_fam)
+          fl_agree   <- family_agrees(ftir_fam, ldir_fam)
           n_agree    <- as.integer(fr_agree) + as.integer(lr_agree) +
                         as.integer(fl_agree)
           # n_agree ranges 0-3 (3 = all three pairwise family comparisons agree)
@@ -1927,9 +1929,9 @@ if (!is.na(agreement$agreement_rate)) {
 }
 if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
   tr <- agreement$tiered_rates
-  log_message("  Tiered agreement:  Exact ", tr$exact_pct, "%, Family+ ",
-              tr$family_or_better_pct, "%, Filler/pigment ",
-              if (is.null(tr$filler_pct)) 0 else tr$filler_pct, "%")
+  log_message("  Agreement:         Family ", tr$family_or_better_pct, "% (primary), Exact ",
+              tr$exact_pct, "%, Filler/pigment ", tr$filler_pct, "% of ", tr$n_resolved,
+              " resolved pairs; ", tr$n_unresolved, " unresolved")
 }
 if (nrow(composites) > 0) {
   log_message("  Composite matches: ", nrow(composites))
@@ -1960,9 +1962,11 @@ if (has_ldir && !is.null(ldir_results)) {
       !is.null(ldir_results$ldir_raman_agreement$tiered_rates) &&
       ldir_results$ldir_raman_agreement$tiered_rates$n_total > 0) {
     ltr <- ldir_results$ldir_raman_agreement$tiered_rates
-    log_message("  LDIR-Raman agreement: Exact ", ltr$exact_pct,
-                "%, Family+ ", ltr$family_or_better_pct, "%, Filler/pigment ",
-                if (is.null(ltr$filler_pct)) 0 else ltr$filler_pct, "%")
+    log_message("  LDIR-Raman agreement: Family ", ltr$family_or_better_pct,
+                "% (primary), Exact ", ltr$exact_pct, "%, Filler/pigment ",
+                ltr$filler_pct, "% of ", ltr$n_resolved, " resolved pairs; ",
+                ltr$n_unresolved, " unresolved, ", ltr$n_join_warning,
+                " with LDIR join warning")
   }
 }
 log_message("  Results in: ", config$output_dir)

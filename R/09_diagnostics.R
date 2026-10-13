@@ -314,14 +314,14 @@ plot_confusion_matrix <- function(agreement) {
   lab_b <- agreement$instrument_b %||% "Raman"
 
   # Add tiered info to subtitle if available
-  subtitle_text <- paste0("Overall agreement: ",
+  subtitle_text <- paste0("Family agreement: ",
                           round(agreement$agreement_rate * 100, 1), "%")
   if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
     tr <- agreement$tiered_rates
     subtitle_text <- paste0(
-      "Exact: ", tr$exact_pct, "% | Family: ", tr$family_pct,
-      "% | Family+: ", tr$family_or_better_pct, "%",
-      if (isTRUE(tr$n_filler > 0)) paste0(" | Filler/pigment: ", tr$filler_pct, "%") else ""
+      "Family (primary): ", tr$family_or_better_pct, "% | Exact polymer: ", tr$exact_pct,
+      "%", if (isTRUE(tr$n_filler > 0)) paste0(" | Filler/pigment: ", tr$filler_pct, "%") else "",
+      " | of ", tr$n_resolved, " resolved pairs; ", tr$n_unresolved, " unresolved"
     )
   }
 
@@ -405,27 +405,28 @@ plot_tiered_agreement <- function(agreement) {
   detail <- agreement$agreement_detail
 
   # Reshape for stacked bar
-  n_filler <- if ("n_filler" %in% names(detail)) detail$n_filler else rep(0L, nrow(detail))
+  tiers <- c("Exact", "Family", "Filler/pigment", "Unresolved", "Disagree")
   bar_data <- data.frame(
-    material = rep(detail$material_a, 4),
-    tier     = rep(c("Exact", "Family", "Filler/pigment", "Disagree"), each = nrow(detail)),
-    count    = c(detail$n_exact, detail$n_family, n_filler, detail$n_disagree),
+    material = rep(detail$material_a, length(tiers)),
+    tier     = rep(tiers, each = nrow(detail)),
+    count    = c(detail$n_exact, detail$n_family, detail$n_filler,
+                 detail$n_unresolved, detail$n_disagree),
     stringsAsFactors = FALSE
   )
-  bar_data$tier <- factor(bar_data$tier,
-                          levels = c("Disagree", "Filler/pigment", "Family", "Exact"))
+  bar_data$tier <- factor(bar_data$tier, levels = rev(tiers))
 
   p <- ggplot2::ggplot(bar_data, ggplot2::aes(x = material, y = count, fill = tier)) +
     ggplot2::geom_col(position = "stack") +
     ggplot2::scale_fill_manual(values = c(
       Exact = "#2166ac", Family = "#92c5de", "Filler/pigment" = "#fddc84",
-      Disagree = "#f4a582"
+      Unresolved = "#bdbdbd", Disagree = "#f4a582"
     ), drop = FALSE) +
     ggplot2::labs(
       title = "Tiered Agreement by Material",
-      subtitle = paste0("Overall: Exact ",
-                        agreement$tiered_rates$exact_pct, "%, Family+ ",
-                        agreement$tiered_rates$family_or_better_pct, "%"),
+      subtitle = paste0("Family agreement ", agreement$tiered_rates$family_or_better_pct,
+                        "% (primary), exact polymer ", agreement$tiered_rates$exact_pct,
+                        "% of resolved pairs; ", agreement$tiered_rates$n_unresolved,
+                        " unresolved"),
       x = "Material", y = "Count", fill = "Agreement"
     ) +
     ggplot2::theme_minimal() +

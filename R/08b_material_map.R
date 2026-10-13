@@ -602,36 +602,158 @@ is_filler_pigment_pair <- function(fam_a, fam_b) {
     (fam_b %in% plastic & fam_a %in% filler_pigment_families)
 }
 
+# ---- Canonical polymer names ----
+#
+# Two levels are reported for every identification:
+#   material_polymer -- the exact polymer, with the instruments' different
+#                       spellings of the same polymer unified ("Polyethylene
+#                       terephtalate", "PET" and "Poly(ethylene terephthalate)"
+#                       are all PET; "Polybutylene terephthalate" stays PBT)
+#   material_family  -- the family it belongs to (PBT -> PET family,
+#                       chlorinated PE -> PE family; see default_polymer_families)
+#
+# Only true synonyms are unified here. Different grades stay different
+# polymers (HDPE is not PE: they agree at family level, not exactly).
+# Patterns are matched against the whole name in the flattened form used by
+# the family rules (upper case, brackets removed, "POLY (" joined, dashes and
+# commas as spaces). A name no pattern claims keeps its own flattened form.
+default_polymer_synonyms <- list(
+  PET   = c("^PET$", "^POLYETHYLENE TEREPHT?H?ALATE$"),   # also "terephtalate"
+  PETG  = c("^PETG$", "^(GLYCOL MODIFIED|PET G)$"),
+  PBT   = c("^PBT$", "^POLYBUTYLENE TEREPHT?H?ALATE$"),
+  PE    = c("^PE$", "^POLYETHYLENE$"),
+  HDPE  = c("^HDPE$", "^HIGH DENSITY POLYETHYLENE$"),
+  LDPE  = c("^LDPE$", "^LOW DENSITY POLYETHYLENE$"),
+  LLDPE = c("^LLDPE$", "^LINEAR LOW DENSITY POLYETHYLENE$"),
+  CPE   = c("^CPE$", "^CHLORINATED POLYETHYLENE$"),
+  PP    = c("^PP$", "^POLYPRO$", "^POLYPROPYLENE$"),
+  PS    = c("^PS$", "^POLYSTYRENE$"),
+  PVC   = c("^PVC$", "^POLYVINYL CHLORIDE$"),
+  PC    = c("^PC$", "^POLYCARBONATE$"),
+  PA    = c("^PA$", "^POLYAMIDE$", "^NYLON$"),
+  PA6   = c("^(PA|NYLON|POLYAMIDE) ?6$"),
+  PA66  = c("^(PA|NYLON|POLYAMIDE) ?6 ?6$"),
+  PA12  = c("^(PA|NYLON|POLYAMIDE) ?12$"),
+  PMMA  = c("^PMMA$", "^POLY ?METHYL METHACRYLATE$"),
+  PU    = c("^PU$", "^PUR$", "^POLYURETHANE$"),
+  PTFE  = c("^PTFE$", "^POLYTETRAFLUOROETHYLENE$"),
+  ABS   = c("^ABS$", "^ACRYLONITRILE BUTADIENE STYRENE$"),
+  SAN   = c("^SAN$", "^STYRENE ACRYLONITRILE$"),
+  EVA   = c("^EVA$", "^ETHYLENE VINYL ACETATE$", "^POLYETHYLENE CO VINYL ACETATE$"),
+  POM   = c("^POM$", "^POLYOXYMETHYLENE$", "^POLYACETAL$"),
+  PAN   = c("^PAN$", "^POLYACRYLONITRILE$"),
+  PVA   = c("^PVA$", "^PVOH$", "^POLYVINYL ALCOHOL$"),
+  PLA   = c("^PLA$", "^POLYLACTIC ACID$", "^POLYLACTIDE$")
+)
+
+# Labels meaning "no identification": such a particle has no material to
+# compare, so it never enters an agreement denominator.
+unidentified_labels <- c("", "UNKNOWN", "UNIDENTIFIED", "NOT IDENTIFIED",
+                         "NO MATCH", "N/A", "NA", "NONE")
+
+#' TRUE where a material label carries no identification.
+is_unidentified <- function(x) {
+  is.na(x) | toupper(trimws(as.character(x))) %in% unidentified_labels
+}
+
+.polymer_key <- function(x) {
+  x <- .flatten_for_rules(x)
+  x <- gsub("[-_,/]+", " ", x)
+  trimws(gsub("\\s+", " ", x))
+}
+
+#' Canonical (exact) polymer name for raw material labels.
+#'
+#' Tries the whole name, then the name without a trailing bracket, then the
+#' abbreviation in that bracket ("Polycarbonate (PC)"). Unidentified labels return "UNKNOWN".
+#'
+#' @param names Character vector of raw material names
+#' @param synonyms Named list: canonical name -> regex patterns
+#' @return Character vector
+canonical_polymer_vec <- function(names, synonyms = default_polymer_synonyms) {
+  names <- as.character(names)
+  out <- rep("UNKNOWN", length(names))
+  u <- unique(names[!is_unidentified(names)])
+  if (length(u) == 0) return(out)
+  canon_one <- function(n) {
+    n <- sub("\\s+lab bench\\s*$", "", n, ignore.case = TRUE)   # FTIR library suffix
+    abbr <- regmatches(n, regexpr("\\(([A-Za-z0-9 ]+)\\)\\s*$", n))
+    base <- trimws(sub("\\(([A-Za-z0-9 ]+)\\)\\s*$", "", n))
+    for (k in unique(c(.polymer_key(n), .polymer_key(base),
+                       .polymer_key(gsub("[()]", "", abbr))))) {
+      if (!nzchar(k)) next
+      for (cn in names(synonyms))
+        if (any(grepl(paste0("(?:", synonyms[[cn]], ")", collapse = "|"), k, perl = TRUE)))
+          return(cn)
+    }
+    .polymer_key(n)
+  }
+  cu <- vapply(u, canon_one, character(1), USE.NAMES = FALSE)
+  hit <- !is_unidentified(names)
+  out[hit] <- cu[match(names[hit], u)]
+  out
+}
+
+#' Add material_polymer and material_family columns to a particle table.
+#'
+#' @param df Data frame with a `material` column
+#' @return df with the two columns added (or replaced)
+annotate_materials <- function(df) {
+  if (is.null(df) || !"material" %in% names(df)) return(df)
+  df$material_polymer <- canonical_polymer_vec(df$material)
+  df$material_family  <- ifelse(is_unidentified(df$material), "Unknown",
+                                classify_family_vec(df$material))
+  df
+}
+
+# Families that do not resolve a material well enough to call two
+# identifications the same: "Unknown" (no rule recognises the name) and the
+# "Other polymer" catch-all (two different unlisted polymers both land there).
+unresolved_families <- c("Unknown", "Other polymer")
+
+#' Do two family labels agree? (Same family, and a family that resolves.)
+family_agrees <- function(fam_a, fam_b) {
+  fam_a == fam_b & !fam_a %in% unresolved_families
+}
+
 #' Vectorized tiered agreement scoring
 #'
 #' Tiers, best first:
-#'   Exact          — same family and the same name
-#'   Family         — same family (e.g. "HDPE" vs "Polyethylene")
+#'   Exact          — the same polymer (canonical_polymer_vec)
+#'   Family         — different polymers of the same family (e.g. HDPE vs PE,
+#'                    PBT vs PET)
 #'   Filler/pigment — one side a plastic, the other a filler, pigment or
 #'                    additive (see filler_pigment_families): compatible, not
 #'                    a confirmation of the polymer
+#'   Unresolved     — the comparison cannot be made from the names: either
+#'                    name is not recognised by any family rule, or both fall
+#'                    into the "Other polymer" catch-all as different
+#'                    polymers. Needs human inspection; not an agreement and
+#'                    not a disagreement.
 #'   Disagree       — anything else
 #'
-#' @param ftir_names Character vector of raw FTIR material names
-#' @param raman_names Character vector of raw Raman material names
+#' Primary agreement = Exact + Family ("family hit"); secondary = Exact.
+#' Unidentified labels ("unknown", NA, ...) must be removed by the caller:
+#' they are not scored at all.
+#'
+#' @param names_a,names_b Character vectors of raw material names
 #' @param families Polymer family definitions
-#' @return Character vector: "Exact", "Family", "Filler/pigment" or "Disagree"
-score_tiered_agreement_vec <- function(ftir_names, raman_names,
+#' @return Character vector of tiers
+score_tiered_agreement_vec <- function(names_a, names_b,
                                        families = default_polymer_families) {
-  ftir_fam  <- classify_family_vec(ftir_names, families)
-  raman_fam <- classify_family_vec(raman_names, families)
+  fam_a <- classify_family_vec(names_a, families)
+  fam_b <- classify_family_vec(names_b, families)
+  pol_a <- canonical_polymer_vec(names_a)
+  pol_b <- canonical_polymer_vec(names_b)
 
-  result <- rep("Disagree", length(ftir_names))
-  result[is_filler_pigment_pair(ftir_fam, raman_fam)] <- "Filler/pigment"
-  same_fam <- ftir_fam == raman_fam & ftir_fam != "Unknown"
-  result[same_fam] <- "Family"
-
-  # Exact: same family AND same canonical (uppercased trimmed) name
-  ftir_canon  <- toupper(trimws(ftir_names))
-  raman_canon <- toupper(trimws(raman_names))
-  exact <- same_fam & (ftir_canon == raman_canon)
+  result <- rep("Disagree", length(names_a))
+  result[is_filler_pigment_pair(fam_a, fam_b)] <- "Filler/pigment"
+  unresolved <- fam_a == "Unknown" | fam_b == "Unknown" |
+                (fam_a == "Other polymer" & fam_b == "Other polymer")
+  result[unresolved] <- "Unresolved"
+  result[family_agrees(fam_a, fam_b)] <- "Family"
+  exact <- pol_a == pol_b & !is_unidentified(names_a) & !is_unidentified(names_b)
   result[exact] <- "Exact"
-
   result
 }
 
@@ -672,7 +794,7 @@ map_materials <- function(raw_names, mapping) {
 #' Apply material mapping to matched pairs for agreement scoring
 #'
 #' If material maps are configured, uses them. Otherwise falls back to
-#' the abbreviation-based normalize_material() from 08_agreement.R.
+#' canonical_polymer_vec().
 #'
 #' @param ftir_materials Character vector of raw FTIR material names
 #' @param raman_materials Character vector of raw Raman material names
@@ -682,9 +804,9 @@ map_paired_materials <- function(ftir_materials, raman_materials, config) {
   ftir_mapped  <- map_materials(ftir_materials, config$material_map_ftir)
   raman_mapped <- map_materials(raman_materials, config$material_map_raman)
 
-  # Fall back to abbreviation normalization if no mapping was configured
-  if (is.null(ftir_mapped))  ftir_mapped  <- normalize_material(ftir_materials)
-  if (is.null(raman_mapped)) raman_mapped <- normalize_material(raman_materials)
+  # Without a configured mapping, use the canonical polymer names
+  if (is.null(ftir_mapped))  ftir_mapped  <- canonical_polymer_vec(ftir_materials)
+  if (is.null(raman_mapped)) raman_mapped <- canonical_polymer_vec(raman_materials)
 
   list(
     ftir_canonical  = ftir_mapped,

@@ -1750,9 +1750,19 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
     n_joined <- n_joined + 1
   }
 
+  # A forced join (cost above ldir_match_threshold) keeps its coordinates but
+  # is flagged: the size/shape evidence for the pairing is weak, so its
+  # position -- and every match and agreement built on it -- carries a warning.
+  excel_df$coord_join_warning <- !is.na(excel_df$coord_match_cost) &
+                                 excel_df$coord_match_cost > max_cost
+
   n_missing <- n_excel - n_joined
   log_message("  Joined coordinates: ", n_joined, " of ", n_excel, " particles",
               if (force_coord) " [force_coord_match]" else "")
+  if (any(excel_df$coord_join_warning))
+    log_message("  Join warning: ", sum(excel_df$coord_join_warning), " of ", n_joined,
+                " joins have cost > ", max_cost, " (kept, flagged coord_join_warning)",
+                level = "WARN")
   if (n_rejected > 0) {
     log_message("  Rejected ", n_rejected, " joins with cost > ", max_cost,
                 " (poor size match)")
@@ -1909,8 +1919,11 @@ apply_ldir_coord_swaps <- function(df, config = NULL) {
   for (t in names(assign_map)) {
     it <- which(df$particle_id == t)
     is <- which(orig$particle_id == assign_map[[t]])
-    if (length(it) == 1L && length(is) == 1L)
+    if (length(it) == 1L && length(is) == 1L) {
       df[it, move_cols] <- orig[is, move_cols, drop = FALSE]
+      # A manual correction is a verified join: no warning.
+      if ("coord_join_warning" %in% names(df)) df$coord_join_warning[it] <- FALSE
+    }
   }
   log_message("  Coord relabel applied: ", length(assign_map),
               " particle(s) reassigned (", length(clarity), " sidecar row(s))")

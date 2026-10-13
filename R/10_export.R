@@ -168,12 +168,18 @@ export_results <- function(match_result, agreement, diagnostics,
   if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
     tr <- agreement$tiered_rates
     stats_lines <- c(stats_lines, "",
-      "# Tiered agreement",
-      paste0("agreement_n_pairs:       ", tr$n_total),
-      paste0("agreement_exact_pct:     ", tr$exact_pct, "%"),
-      paste0("agreement_family_pct:    ", tr$family_pct, "%"),
-      paste0("agreement_family_or_better_pct: ", tr$family_or_better_pct, "%"),
-      paste0("agreement_filler_pigment_pct:   ", if (is.null(tr$filler_pct)) 0 else tr$filler_pct, "%")
+      "# Agreement (rates over resolved pairs)",
+      paste0("agreement_pairs_matched:        ", tr$n_pairs_matched),
+      paste0("agreement_excluded_quality:     ", tr$n_excluded_quality_a + tr$n_excluded_quality_b),
+      paste0("agreement_excluded_unidentified:", tr$n_excluded_unidentified),
+      paste0("agreement_n_scored:             ", tr$n_total),
+      paste0("agreement_n_unresolved:         ", tr$n_unresolved),
+      paste0("agreement_n_resolved:           ", tr$n_resolved),
+      paste0("agreement_family_pct_PRIMARY:   ", tr$family_or_better_pct, "%"),
+      paste0("agreement_exact_pct_SECONDARY:  ", tr$exact_pct, "%"),
+      paste0("agreement_family_only_pct:      ", tr$family_pct, "%"),
+      paste0("agreement_filler_pigment_pct:   ", tr$filler_pct, "%"),
+      paste0("agreement_disagree_pct:         ", tr$disagree_pct, "%")
     )
   }
 
@@ -248,7 +254,9 @@ export_triage <- function(match_result, agreement, out_dir, n_top = 50) {
 
   # A plastic-vs-filler/pigment pair is worth a look, but less than a plain
   # disagreement: both identifications can be right for the same particle.
-  disagree_score <- ifelse(summary$tier == "Disagree", 1,
+  # Unresolved pairs need a human to look at the names, so they rank with
+  # disagreements.
+  disagree_score <- ifelse(summary$tier %in% c("Disagree", "Unresolved"), 1,
                            ifelse(summary$tier == "Filler/pigment", 0.5, 0))
   dist_score <- summary$match_distance / 100
 

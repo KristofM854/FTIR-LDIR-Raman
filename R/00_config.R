@@ -27,6 +27,12 @@ make_config <- function(ftir_path  = NULL,
 
     # --- Pre-filtering ---
     raman_hqi_threshold   = 70,    # minimum HQI score for Raman particles
+                                   # (alignment anchors; and agreement scoring)
+    # Agreement scoring uses every matched pair whose identifications the
+    # instruments trust: FTIR AAU >= ftir_agreement_min_quality, Raman HQI >=
+    # raman_hqi_threshold, LDIR quality >= ldir_hqi_unknown_threshold. Lower-
+    # quality particles still take part in alignment and matching.
+    ftir_agreement_min_quality = 0.70,
     ftir_quality_threshold = 0,    # minimum AAU score for FTIR (0 = keep all)
     min_particle_size_um  = 0,     # minimum Feret size in um (0 = keep all)
 
