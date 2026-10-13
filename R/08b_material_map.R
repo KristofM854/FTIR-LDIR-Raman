@@ -440,6 +440,27 @@ get_spectral_library_index <- function() {
   .material_index_env$index
 }
 
+#' What the material classification used in this session, for the manifest.
+#'
+#' Family assignments differ with and without the licensed library index, so
+#' a run records whether it was used and which version (md5 of the cached
+#' library_index.csv; the folder path itself is not recorded).
+#'
+#' @return list(used, n_entries, n_libraries, libraries, index_md5)
+spectral_library_index_status <- function() {
+  idx <- get_spectral_library_index()
+  if (is.null(idx)) return(list(used = FALSE))
+  dir <- spectral_library_dir()
+  csv <- if (is.null(dir)) NA_character_ else file.path(dir, "library_index.csv")
+  list(used        = TRUE,
+       n_entries   = length(idx$library),
+       n_libraries = length(unique(idx$library)),
+       libraries   = sort(unique(idx$library)),
+       index_md5   = if (!is.na(csv) && file.exists(csv))
+                       unname(tools::md5sum(csv)) else NA_character_)
+}
+
+
 #' Find a material name in the spectral-library index.
 #'
 #' @param name Character scalar

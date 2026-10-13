@@ -240,7 +240,9 @@ config$output_dir <- make_run_dir(config$output_dir)
   ldir       = if (!is.null(config$ldir_path)  && nzchar(config$ldir_path))  config$ldir_path  else NULL,
   ldir_image  = if (!is.null(config$ldir_image)  && nzchar(config$ldir_image))  config$ldir_image  else NULL,
   ftir_image  = if (!is.null(config$ftir_image)  && nzchar(config$ftir_image))  config$ftir_image  else NULL,
-  raman_image = if (!is.null(config$raman_image) && nzchar(config$raman_image)) config$raman_image else NULL
+  raman_image = if (!is.null(config$raman_image) && nzchar(config$raman_image)) config$raman_image else NULL,
+  ftir_bruker       = if (!is.null(config$ftir_bruker_path)  && nzchar(config$ftir_bruker_path))  config$ftir_bruker_path  else NULL,
+  ftir_bruker_image = if (!is.null(config$ftir_bruker_image) && nzchar(config$ftir_bruker_image)) config$ftir_bruker_image else NULL
 )
 .run_input_paths <- .run_input_paths[!vapply(.run_input_paths, is.null, logical(1))]
 
@@ -298,6 +300,8 @@ tryCatch({
 }, error = function(e) {
   log_message("  Could not write manifest: ", e$message, level = "WARN")
 })
+# Full parameter set + R session, so a run can be reproduced from its folder.
+write_run_environment(config$output_dir, config)
 
 # --- Debug mode setup (Step 0: bulletproof) ---
 # Set config$debug <- TRUE before sourcing to enable debug artifacts.
@@ -1955,6 +1959,9 @@ if (has_ldir && !is.null(ldir_results)) {
   }
 }
 log_message("  Results in: ", config$output_dir)
+# Rewrite the parameter dump with the values the run ended with (the Raman
+# image auto-calibration and LDIR coordinate-swap loading update config).
+write_run_environment(config$output_dir, config)
 
 # ---------------------------------------------------------------------------
 # 16. Generate Report (PDF + interactive HTML)
