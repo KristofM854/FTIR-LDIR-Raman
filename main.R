@@ -209,10 +209,11 @@ if (input_mode == "explicit") {
   if (!exists("ftir_bruker_image")) ftir_bruker_image <- NULL
 }
 
+# output_dir may be preset before sourcing (hardcoded mode, examples, tests).
 config <- make_config(
   ftir_path  = ftir_file,
   raman_path = raman_file,
-  output_dir = "output"
+  output_dir = if (exists("output_dir")) output_dir else "output"
 )
 
 # Store optional device paths in config
@@ -1842,12 +1843,9 @@ if (!is.null(bruker_match_result)) {
                file.path(.export_dirs$alignment, "transform_params_ftir_bruker_raman.txt"))
     log_message("  Wrote transform_params_ftir_bruker_raman.txt")
   }
-  if (!is.null(bruker_agreement) && !is.null(bruker_agreement$agreement_detail) &&
-      nrow(bruker_agreement$agreement_detail) > 0) {
-    write.csv(bruker_agreement$agreement_detail,
-              file.path(.export_dirs$agreement, "agreement_pairwise_ftir_bruker_raman.csv"),
-              row.names = FALSE)
-    log_message("  Wrote agreement_pairwise_ftir_bruker_raman.csv")
+  if (!is.null(bruker_agreement)) {
+    write_agreement_tables(bruker_agreement, .export_dirs$agreement, "ftir_bruker_raman")
+    log_message("  Wrote agreement tables (ftir_bruker_raman)")
   }
 } else if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
   # Fallback for skipped alignment (e.g. too few plastic anchors)

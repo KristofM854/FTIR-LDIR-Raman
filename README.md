@@ -20,6 +20,17 @@ When the same filter is analysed by multiple instruments, each produces its own 
 
 ## Quick start
 
+With the prerequisites below installed, run the bundled example (one filter
+measured with all four instruments, `examples/dataset_A/`) from the
+repository root:
+
+```bash
+Rscript examples/run_example_A.R        # results in output/<date>_<n>/
+```
+
+It takes about 1–2 minutes. Open the results with the viewer
+(`shiny::runApp("shiny_app")`).
+
 ### Prerequisites
 
 **R (≥ 4.1)** — the code uses the native `|>` pipe. Install the full package set:
@@ -189,7 +200,8 @@ Each run creates a timestamped folder (e.g., `output/2026-02-19_1/`) containing:
 | `unmatched_raman.csv` | Raman particles with no FTIR match |
 | `unmatched_ldir.csv` | LDIR particles with no Raman match |
 | `agreement_summary.csv` | Per-material agreement rates (Exact / Family / Disagree) |
-| `agreement_pairwise.csv` | Per-pair material comparison with tier scoring |
+| `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored matched pair: tier, exact polymers, families, LDIR join warning |
+| `06_agreement/agreement_by_material_<pair>.csv` | Counts and rates per material |
 | `ldir_raman_matched.csv` | LDIR↔Raman matched pairs |
 | `ldir_ftir_matched.csv` | LDIR↔FTIR matched pairs |
 | `ldir_raman_agreement.csv` | LDIR↔Raman material agreement |

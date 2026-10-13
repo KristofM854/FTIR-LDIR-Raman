@@ -66,10 +66,11 @@ setup_python_detector <- function() {
     fail("Missing Python packages: ", paste(.python_required[missing], collapse = ", "),
          " (interpreter: ", reticulate::py_config()$python, ").")
 
-  detector_path <- file.path("inst", "python", "particle_detector.py")
-  if (!file.exists(detector_path))
-    detector_path <- file.path("..", "inst", "python", "particle_detector.py")
-  if (!file.exists(detector_path))
+  # Repository root, shiny_app/ or tests/testthat/ as working directory.
+  cands <- file.path(c(".", "..", file.path("..", "..")), "inst", "python",
+                     "particle_detector.py")
+  detector_path <- cands[file.exists(cands)][1]
+  if (is.na(detector_path))
     fail("inst/python/particle_detector.py not found from ", getwd(), ".")
 
   reticulate::source_python(detector_path, envir = globalenv())
