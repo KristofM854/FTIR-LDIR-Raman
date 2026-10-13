@@ -173,7 +173,9 @@ make_config <- function(ftir_path  = NULL,
     # these is logged as suspicious.
     icp_min_scale        = 0.5,   # scale below this → WARN (likely degenerate)
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
-    icp_max_rotation_deg = 90,    # |rotation| above this → WARN (likely spurious)
+    # (No rotation warning: the aligners search the full 360 degrees and a
+    # filter can sit in any orientation -- dataset A is rotated ~180 degrees
+    # between FTIR/LDIR and Raman.)
 
     # Enable/disable scan-circle detection for LDIR image coordinate mapping.
     # TRUE  (default): detect the circular scan area and use it for µm calibration.
@@ -459,13 +461,13 @@ make_config <- function(ftir_path  = NULL,
     # --- Particle matching ---
     match_method               = "hungarian",  # "hungarian" or "greedy"
     match_dist_threshold_um    = 100,   # FTIR<->Raman gate (fine, dense)
-    # Dedicated, looser gate for any pairing that involves LDIR. LDIR
-    # centroids are coarser (circle calibration, large particles) so genuine
-    # matches sit at larger residuals — on real runs the 90th percentile of
-    # true LDIR<->Raman match distance is ~220 um, which the 100 um gate cuts.
-    # Measure headroom for a given run with tools/diagnose_matching.R.
+    # Dedicated gate for any pairing that involves LDIR (coarser,
+    # image-derived centroids). Dataset A (all four instruments): LDIR<->Raman
+    # match distances median 8.5, p90 41, max 113 um; at the former 250 um gate
+    # 8.5-13 of 34 matches were expected by chance alone. Measure headroom for
+    # a given run with tools/diagnose_matching.R.
     # NULL = fall back to match_dist_threshold_um.
-    match_dist_threshold_ldir_um = 250,
+    match_dist_threshold_ldir_um = 150,
     match_adaptive_dist_factor = 0.15,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",

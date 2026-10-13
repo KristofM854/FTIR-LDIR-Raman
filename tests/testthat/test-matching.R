@@ -28,12 +28,12 @@ test_that("Hungarian matching pairs coincident particles 1-to-1", {
 })
 
 test_that("LDIR pairing uses the looser LDIR distance gate", {
-  # One pair separated by 200 um: outside the 100 um FTIR gate, inside the
-  # 250 um LDIR gate (config$match_dist_threshold_ldir_um).
+  # One pair separated by 130 um: outside the 100 um FTIR gate, inside the
+  # 150 um LDIR gate (config$match_dist_threshold_ldir_um).
   src <- data.frame(particle_id = "L1", x_aligned = 0, y_aligned = 0,
                     feret_max_um = 30, area_um2 = 900, major_um = 30, minor_um = 25,
                     stringsAsFactors = FALSE)
-  ref <- data.frame(particle_id = "R1", x_norm = 200, y_norm = 0,
+  ref <- data.frame(particle_id = "R1", x_norm = 130, y_norm = 0,
                     feret_max_um = 30, area_um2 = 900, major_um = 30, minor_um = 25,
                     stringsAsFactors = FALSE)
   cfg <- make_config()
@@ -93,17 +93,17 @@ test_that("cross-instrument pairs match in the shared aligned frame", {
     d <- mk_src(ids, x, y); d$x_norm <- d$x_aligned; d$y_norm <- d$y_aligned; d
   }
 
-  # Bruker <-> Perkin: both FTIR -> fine 100 µm gate. P3 is 180 µm off (outside).
+  # Bruker <-> Perkin: both FTIR -> fine 100 µm gate. P3 is 130 µm off (outside).
   bru <- mk_src(c("B1", "B2", "B3"), c(0, 1000, 2000), c(0, 0, 0))
-  per <- mk_ref(c("P1", "P2", "P3"), c(2, 1000, 2180), c(0, 0, 0))
+  per <- mk_ref(c("P1", "P2", "P3"), c(2, 1000, 2130), c(0, 0, 0))
   cfg <- make_config()
   res <- match_particles(bru, per, cfg, src_label = "ftir_bruker", ref_label = "ftir_perkin")
-  expect_equal(res$match_stats$n_matched, 2L)      # 180 µm pair rejected at 100 µm
+  expect_equal(res$match_stats$n_matched, 2L)      # 130 µm pair rejected at 100 µm
   expect_true(all(c("ftir_bruker_particle_id", "ftir_perkin_particle_id") %in%
                   names(res$matched)))
 
-  # Bruker <-> LDIR: pair involves LDIR -> looser 250 µm gate admits the 180 µm pair.
-  ldr <- mk_ref(c("L1", "L2", "L3"), c(2, 1000, 2180), c(0, 0, 0))
+  # Bruker <-> LDIR: pair involves LDIR -> looser 150 µm gate admits the 130 µm pair.
+  ldr <- mk_ref(c("L1", "L2", "L3"), c(2, 1000, 2130), c(0, 0, 0))
   res2 <- match_particles(bru, ldr, cfg, src_label = "ftir_bruker", ref_label = "ldir")
   expect_equal(res2$match_stats$n_matched, 3L)
   expect_true(all(c("ftir_bruker_particle_id", "ldir_particle_id") %in%

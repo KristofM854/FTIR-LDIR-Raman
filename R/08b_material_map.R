@@ -225,8 +225,10 @@ default_polymer_families <- list(
 
 synthetic_families    <- c("PET", "PP", "PE", "PS", "PVC", "PA", "PC",
                            "PMMA", "PU", "PTFE", "ABS", "Rubber",
-                           "EVA", "POM", "Epoxy", "Other polymer")
-semi_synthetic_families <- c("Cellulose", "Acrylate")
+                           "EVA", "POM", "Epoxy", "Acrylate", "Other polymer")
+# Regenerated cellulose (rayon, viscose, cellulose acetate) only. Acrylic
+# polymers, polyacrylonitrile included, are synthetic.
+semi_synthetic_families <- c("Cellulose")
 natural_families      <- c("Protein", "Chitin", "Natural")
 additive_families     <- c("Additive", "Pigment")
 inorganic_families    <- c("Mineral", "Inorganic")

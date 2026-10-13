@@ -418,7 +418,7 @@ load_run_data <- function(run_info) {
 # manifest's config snapshot; falls back to the pipeline default (250 um) for
 # runs whose manifest predates the gate being recorded.
 ldir_acceptance_gate <- function(run_dir) {
-  default_gate <- 250
+  default_gate <- 150   # make_config() match_dist_threshold_ldir_um
   if (is.null(run_dir) || !nzchar(run_dir)) return(default_gate)
   man <- tryCatch(load_run_manifest(run_dir), error = function(e) NULL)
   cs  <- if (!is.null(man)) man$config_snapshot else NULL

@@ -323,8 +323,8 @@ do not matter (`POLY(ETHYLENE TEREPHTHALATE)` = `Polyethylene terephthalate` →
 
 | Category | Families |
 |---|---|
-| Synthetic | PE, PP, PET (incl. PBT/polyester), PS, PVC, PA, PC, PMMA, PU, PTFE, ABS (incl. SAN/ASA), EVA, POM, Epoxy, Rubber, Other polymer |
-| Semi-synthetic | Cellulose, Acrylate |
+| Synthetic | PE, PP, PET (incl. PBT/polyester), PS, PVC, PA, PC, PMMA, PU, PTFE, ABS (incl. SAN/ASA), EVA, POM, Epoxy, Rubber, Acrylate (acrylic polymers incl. polyacrylonitrile), Other polymer |
+| Semi-synthetic | Cellulose (regenerated: rayon, viscose, cellulose acetate) |
 | Natural/Organic | Protein, Chitin, Natural |
 | Additive/Pigment | Additive (PEG/surfactants, plasticisers, antioxidants, slip agents, flame retardants), Pigment (TiO₂, iron oxides, organic pigments, dyes) |
 | Inorganic | Mineral (carbonates, silicates/clays, talc, quartz, sulfates), Inorganic |
@@ -334,12 +334,21 @@ Notable rules: polyethylene glycol, polyethyleneimine and PEG/PPG surfactants ar
 **not** PE/PP; masterbatches count as their carrier polymer; acrylic *monomers*
 are not Acrylate.
 
-**Agreement tiers.** Matched pairs are scored *Exact* (same name), *Family*
-(same family), *Filler/pigment* (one instrument reports a plastic, the other a
-Mineral, Pigment or Additive — e.g. Raman sees the TiO₂ or CaCO₃ compounded into
-a particle whose polymer FTIR identifies) or *Disagree*. Filler/pigment pairs
-are reported separately (`n_filler`, `filler_pct`); they are not counted in
-"Family+", because only one instrument confirms the polymer.
+Every particle table carries both levels: `material_polymer` (the exact
+polymer, with spelling variants of the same polymer unified, e.g. PET; grades
+such as PBT, HDPE or chlorinated PE kept distinct) and `material_family`.
+
+**Agreement tiers.** A matched pair is scored only when both identifications
+pass their instrument's quality cutoff (FTIR AAU ≥ 0.70, Raman HQI ≥ 70, LDIR
+≥ 0.85) and neither is "unknown". Scored pairs are *Exact* (same polymer),
+*Family* (different polymers of the same family), *Filler/pigment* (one
+instrument reports a plastic, the other a Mineral, Pigment or Additive — e.g.
+Raman sees the TiO₂ or CaCO₃ compounded into a particle whose polymer FTIR
+identifies), *Unresolved* (a name no family rule recognises, or two different
+polymers in the "Other polymer" catch-all — flagged for inspection) or
+*Disagree*. **Primary agreement = family hit (Exact + Family); secondary =
+exact polymer.** Rates are over resolved pairs; filler/pigment pairs are not a
+family hit, because only one instrument confirms the polymer.
 
 **Spectral-library index (optional).** The WITec Raman uses the S.T. Japan
 libraries (L60002 Polymers & Additives, L60035 Microplastics, L60019 Inorganics,

@@ -1152,7 +1152,7 @@ if (has_ldir && !is.null(ldir_raw)) {
             ldir_for_align, raman_norm_align, config,
             scale_min     = config$icp_min_scale        %||% 0.5,
             scale_max     = config$icp_max_scale        %||% 2.0,
-            rot_limit_deg = config$icp_max_rotation_deg %||% 90
+            rot_limit_deg = 180   # any orientation (filters can be rotated)
           )
         }, error = function(e) {
           log_message("  Descriptor RANSAC failed: ", e$message, level = "WARN")
@@ -1394,10 +1394,6 @@ if (has_ldir && !is.null(ldir_raw)) {
                       " outside [", config$icp_min_scale %||% 0.5, ", ",
                       config$icp_max_scale %||% 2.0,
                       "] \u2014 transform may be unreliable", level = "WARN")
-        if (abs(.tf_rot) > (config$icp_max_rotation_deg %||% 90))
-          log_message("  ALIGNMENT GUARDRAIL: rotation=", round(.tf_rot, 1),
-                      "\u00b0 > ", config$icp_max_rotation_deg %||% 90,
-                      "\u00b0 \u2014 likely spurious rotation", level = "WARN")
         if (sqrt(.tf_tx^2 + .tf_ty^2) > .fov_um)
           log_message("  ALIGNMENT GUARDRAIL: translation=",
                       round(sqrt(.tf_tx^2 + .tf_ty^2)), " \u00b5m > FOV (",

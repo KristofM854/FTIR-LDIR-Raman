@@ -1936,7 +1936,10 @@ apply_ldir_coord_swaps <- function(df, config = NULL) {
 #' Locate the coord-swaps CSV sidecar for an LDIR dataset
 #'
 #' Searches the LDIR Excel's directory for "<excel-stem><suffix>.csv"
-#' (suffix from config$ldir_coord_swaps_suffix, default "_coord_swaps").
+#' (suffix from config$ldir_coord_swaps_suffix, default "_coord_swaps"), then
+#' for any .csv/.txt whose name contains "coord" (or "cord") and "swap". When
+#' several match, the one containing the Excel stem wins; otherwise none is
+#' used (with a warning) rather than guessing.
 #'
 #' @param ldir_path Path to the LDIR Excel file
 #' @param config    Pipeline config (uses ldir_coord_swaps_suffix; NULL suffix
@@ -1950,9 +1953,30 @@ find_ldir_coord_swaps_file <- function(ldir_path, config = NULL) {
 
   dir  <- dirname(ldir_path)
   stem <- tools::file_path_sans_ext(basename(ldir_path))
+  # 1. The documented name: "<excel-stem><suffix>.csv"
   for (ext in c("csv", "CSV")) {
     hit <- Sys.glob(file.path(dir, paste0(stem, suffix, ".", ext)))
     if (length(hit) > 0 && file.exists(hit[[1]])) return(hit[[1]])
+  }
+  # 2. Any .csv/.txt in the same folder whose name mentions coordinate swaps,
+  #    whatever the separators or spelling: "coord"/"cord" AND "swap"
+  #    ("LDIR_coord_swaps.csv", "A coord-swap.csv", "cordswaps.txt", ...).
+  cand <- list.files(dir, pattern = "\\.(csv|txt)$", ignore.case = TRUE)
+  key  <- tolower(cand)
+  cand <- cand[grepl("coo?rd", key) & grepl("swap", key)]
+  if (length(cand) == 1L) {
+    log_message("  Coordinate-swap sidecar: ", cand, " (matched by name)")
+    return(file.path(dir, cand))
+  }
+  if (length(cand) > 1L) {
+    with_stem <- cand[grepl(tolower(stem), tolower(cand), fixed = TRUE)]
+    if (length(with_stem) == 1L) {
+      log_message("  Coordinate-swap sidecar: ", with_stem, " (matched by name)")
+      return(file.path(dir, with_stem))
+    }
+    log_message("  Several coordinate-swap files next to ", basename(ldir_path), ": ",
+                paste(cand, collapse = ", "), " -- none used. Name the right one '",
+                stem, suffix, ".csv' or set config$ldir_coord_swaps.", level = "WARN")
   }
   NULL
 }
