@@ -45,8 +45,8 @@ pair files). The manual LDIR swap file corrects 10 of 40 image joins.
 - [x] Spectral-library index (audit Q7): option (a), use it and disclose;
       internal use for now. The run records whether it was used.
 - [x] "Acrylate" family (incl. polyacrylonitrile): Synthetic.
-- [ ] Triplet consensus does not yet apply the agreement quality gate
-      (it already uses the Unknown/catch-all rule). Planned with Phase 2b.
+- [x] Triplet consensus applies the agreement quality gate (build_triplets();
+      "Not scored" when fewer than two sides pass).
 
 ## Manual steps on your machine
 
@@ -72,8 +72,9 @@ pair files). The manual LDIR swap file corrects 10 of 40 image joins.
       `ldir_alignment_method` records only landmark/ransac.
 - M11 Dataset-specific defaults (LDIR −90° pre-rotation, debug IDs A3/MP_11,
       anchor material vocabularies).
-- M12/M13 Duplicated PerkinElmer/Bruker pipeline; 2,074-line `main.R`
-      (→ `run_pipeline(config)` + `align_and_match()`, Phase 2b).
+- [x] M12/M13 Duplicated PerkinElmer/Bruker pipeline; 2,074-line `main.R`:
+      now `run_pipeline(config)` + `align_and_match()`; main.R is file input
+      and config only.
 - [x] M16 FTIR "size" is the Major dim, Raman's is Feret max: stated in
       docs/input_format.md.
 - Python detector has no unit tests (Phase 3).

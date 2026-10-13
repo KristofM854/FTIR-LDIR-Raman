@@ -73,7 +73,10 @@ setup_python_detector <- function() {
   if (is.na(detector_path))
     fail("inst/python/particle_detector.py not found from ", getwd(), ".")
 
-  reticulate::source_python(detector_path, envir = globalenv())
+  # Into a private environment: the detector's functions are reached through
+  # .python_state$detector, not left in the user's workspace.
+  .python_state$detector <- new.env(parent = emptyenv())
+  reticulate::source_python(detector_path, envir = .python_state$detector)
   .python_state$loaded <- TRUE
   log_message("  Python particle detector loaded (", reticulate::py_config()$python, ")")
   invisible(TRUE)
@@ -120,7 +123,7 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
   }
 
   result <- tryCatch({
-    run_full_pipeline(
+    .python_state$detector$run_full_pipeline(
       image_path = image_path,
       grid_rows = as.integer(grid_rows),
       grid_cols = as.integer(grid_cols),
@@ -206,7 +209,7 @@ detect_ldir_scan_circle_python <- function(image_path) {
   if (!file.exists(image_path)) return(NULL)
 
   result <- tryCatch({
-    detect_scan_circle(image_path)
+    .python_state$detector$detect_scan_circle(image_path)
   }, error = function(e) {
     log_message("  [WARN] Python circle detection failed: ", conditionMessage(e))
     NULL

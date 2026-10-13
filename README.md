@@ -72,22 +72,34 @@ renv::restore()
 
 ### Running the pipeline
 
-**Option A — Hardcoded paths** (non-interactive):
+**Option A — File pickers** (default): `source("main.R")` opens one file
+dialog per instrument slot (Raman is required; cancel optional slots to skip
+them).
+
+**Option B — Paths in a script** (non-interactive):
 
 ```r
+input_mode <- "hardcoded"
 ftir_file  <- "Comparstic Spotlight F2Ba Au 240926.csv"
 raman_file <- "Comparstic Raman F2Ba Au IAEA 240930.csv"
 ldir_file  <- "Comparstic LDIR F2Ba Au MP2 240925.xlsx"          # optional
 ftir_image <- "Average Abs.( Comparstic Spotlight F2Ba Au 240926 ).png"  # optional
 ldir_image <- "LDIR_particle_map.png"                             # optional
+config_overrides <- list(match_dist_threshold_um = 80)            # optional
 source("main.R")
 ```
 
-**Option B — Interactive file picker**:
+`examples/run_example_A.R` is a complete example of this.
+
+**Option C — As a function**:
 
 ```r
-input_mode <- "interactive"
-source("main.R")
+source("R/load.R"); load_pipeline()
+config <- make_config(ftir_path = "ftir.csv", raman_path = "raman.csv",
+                      output_dir = "output")
+config$ldir_path  <- "ldir.xlsx"
+config$ldir_image <- "ldir.png"
+result <- run_pipeline(config)   # every output also goes to the run folder
 ```
 
 Results are written to a timestamped subfolder under `output/` (e.g. `output/2026-02-19_1/`).
@@ -114,7 +126,7 @@ material rules do not know can be translated per instrument in
 ## Pipeline architecture
 
 ```
-main.R                          # Orchestrator
+main.R                          # File input + config, then run_pipeline(config)
 R/
   00_config.R                   # All tunable parameters
   00b_file_input.R              # Interactive file picker
@@ -134,6 +146,9 @@ R/
   08b_material_map.R            # Polymer family classification & equivalence mapping
   09_diagnostics.R              # Overlay plots, histograms, confusion matrix
   10_export.R                   # CSV/PDF/TXT export
+  align_and_match.R             # Raman reference frame; align + match + agreement per pair; triplets
+  ldir_stage.R                  # LDIR: image coordinates, alignment, matching
+  run_pipeline.R                # run_pipeline(config): the whole run as one function
   utils.R                       # Logging, geometry, transform utilities
   utils_python.R                # Reticulate bridge for Python LDIR detector
 inst/
