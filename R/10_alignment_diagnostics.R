@@ -78,7 +78,7 @@ write_residual_quiver_png <- function(residuals, raman_df, output_path,
     if (is.null(residuals) || nrow(residuals) == 0) return(invisible(NULL))
 
     arrow_df <- if (nrow(residuals) > max_arrows) {
-      residuals[sample.int(nrow(residuals), max_arrows), ]
+      residuals[unique(round(seq(1, nrow(residuals), length.out = max_arrows))), ]  # deterministic
     } else {
       residuals
     }

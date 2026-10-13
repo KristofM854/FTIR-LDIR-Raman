@@ -13,7 +13,28 @@
 # fall back to magick for those.
 #
 # Sourced by main.R (pipeline: read_image_any fallback) and by
-# shiny_app/global.R (viewer: load_image_raster fallback).
+# shiny_app/global.R (viewer: load_image_raster fallback). Also holds
+# magick_bitmap_array(), the one place magick pixel data is unpacked.
+
+#' Pixel array from a magick bitmap, as [height, width, channels] integers 0-255.
+#'
+#' magick::image_data() returns a bitmap stored channel-first ([C, W, H]).
+#' Current magick versions define as.integer() on it to return the array
+#' already transposed to [H, W, C]; reshaping that result as [C, W, H] again
+#' (what the readers here used to do) scrambles every pixel -- the "tiled /
+#' colour-distorted arrays" the viewer worked around by reading PNGs with png.
+#' Older magick versions return a flat vector in bitmap order; both are handled.
+#'
+#' @param bm magick bitmap (raw or character array, dim = c(C, W, H))
+#' @return Integer array, dim = c(H, W, C)
+magick_bitmap_array <- function(bm) {
+  d <- dim(bm)
+  ints <- if (is.character(bm)) strtoi(bm, base = 16L) else as.integer(bm)
+  if (length(dim(ints)) == 3L && all(dim(ints) == d[c(3L, 2L, 1L)]))
+    return(ints)
+  aperm(array(as.integer(ints), dim = d), c(3L, 2L, 1L))
+}
+
 
 #' Read an uncompressed BMP file as a raster array
 #'

@@ -3,57 +3,6 @@
 # =============================================================================
 
 #' Create default configuration
-#' 
-#' # ---- Python configuration (must run before any reticulate use) ----
-#
-# The LDIR image backend is optional: if Python or its packages are missing,
-# the pipeline falls back to an R-based segmentation (see README). Python is
-# therefore never hard-required here — a hardcoded, mandatory interpreter path
-# would break the pipeline on any machine that does not have that exact path.
-#
-# BUT we must still PIN a real interpreter when one exists. If we leave the
-# choice to reticulate, it auto-provisions an ephemeral 'r-reticulate'
-# virtualenv — which on locked-down/offline machines tries to download `uv`
-# (SSL error) and points at a python.exe that does not exist, so a perfectly
-# good Python install is wrongly reported as "not installed" and the LDIR
-# detector silently falls back to (weaker) R extraction.
-#
-# Interpreter priority:
-#   1. RETICULATE_PYTHON environment variable — explicit override. Set this
-#      (e.g. in ~/.Renviron) if your interpreter is not auto-detected:
-#        RETICULATE_PYTHON=/usr/bin/python3          (Linux/macOS)
-#        RETICULATE_PYTHON=C:/Program Files/Python314/python.exe   (Windows)
-#   2. A known interpreter that actually exists on THIS machine (list below).
-#   3. python3 / python on PATH.
-# Each candidate is used only when the file exists, so listing a Windows path
-# is harmless on Linux/macOS. Nothing is forced with required = TRUE.
-
-Sys.setenv(RETICULATE_USE_UV = "0")  # prevents uv auto-install attempts
-
-if (requireNamespace("reticulate", quietly = TRUE)) {
-  .py <- Sys.getenv("RETICULATE_PYTHON", unset = "")
-  if (!nzchar(.py)) {
-    .cands <- c(
-      "C:/Program Files/Python314/python.exe",
-      "C:/Program Files/Python313/python.exe",
-      "C:/Program Files/Python312/python.exe",
-      "C:/Program Files/Python311/python.exe",
-      unname(Sys.which("python3")),
-      unname(Sys.which("python"))
-    )
-    .cands <- .cands[nzchar(.cands) & file.exists(.cands)]
-    if (length(.cands) > 0) .py <- .cands[[1]]
-    rm(.cands)
-  }
-  if (nzchar(.py)) {
-    # Pin it so reticulate uses THIS interpreter and does not build a venv /
-    # download uv. required = FALSE: a bad value degrades to the R fallback
-    # instead of aborting the pipeline at source() time.
-    Sys.setenv(RETICULATE_PYTHON = .py)
-    try(reticulate::use_python(.py, required = FALSE), silent = TRUE)
-  }
-  rm(.py)
-}
 #'
 #' Returns a list of all pipeline parameters. Modify this function or override
 #' individual values in main.R to adjust the pipeline behavior.
@@ -78,6 +27,12 @@ make_config <- function(ftir_path  = NULL,
 
     # --- Pre-filtering ---
     raman_hqi_threshold   = 70,    # minimum HQI score for Raman particles
+                                   # (alignment anchors; and agreement scoring)
+    # Agreement scoring uses every matched pair whose identifications the
+    # instruments trust: FTIR AAU >= ftir_agreement_min_quality, Raman HQI >=
+    # raman_hqi_threshold, LDIR quality >= ldir_hqi_unknown_threshold. Lower-
+    # quality particles still take part in alignment and matching.
+    ftir_agreement_min_quality = 0.70,
     ftir_quality_threshold = 0,    # minimum AAU score for FTIR (0 = keep all)
     min_particle_size_um  = 0,     # minimum Feret size in um (0 = keep all)
 
@@ -204,6 +159,18 @@ make_config <- function(ftir_path  = NULL,
     ldir_tps_min_controls = 6,     # min confident matches to attempt TPS
 
     # Transform guardrail thresholds (applied to every alignment path):
+    # Scale band each aligner may use (FTIR/Raman/LDIR coordinates are all in
+    # micrometres, so the true scale is near 1). Global registration searches
+    # [align_scale_min, align_scale_max], widened to the clouds' span ratio;
+    # ICP clamps every re-estimate to [icp_scale_min, icp_scale_max] because its
+    # nearest-neighbour objective rewards shrinking the source (collapse). The
+    # run log says when the ICP clamp binds.
+    align_scale_min      = 0.8,
+    align_scale_max      = 1.25,
+    icp_scale_min        = 0.8,
+    icp_scale_max        = 1.25,
+    # Warning thresholds only (no clamping): a final scale/rotation outside
+    # these is logged as suspicious.
     icp_min_scale        = 0.5,   # scale below this → WARN (likely degenerate)
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
     icp_max_rotation_deg = 90,    # |rotation| above this → WARN (likely spurious)

@@ -2,80 +2,80 @@
 # utils_python.R — Reticulate bridge for Python particle detector
 # =============================================================================
 
-.python_detector_loaded <- FALSE
+# Whether particle_detector.py has been loaded in this session.
+.python_state <- new.env(parent = emptyenv())
+.python_state$loaded <- FALSE
 
-#' Initialize the Python environment for particle detection
+#' Python packages the LDIR image backend needs (import name = pip name).
+#' Pinned versions: inst/python/requirements.txt.
+.python_required <- c(numpy = "numpy", scipy = "scipy", PIL = "Pillow")
+
+#' Bind reticulate to a real Python interpreter.
 #'
-#' Sources the particle_detector.py module via reticulate.
-#' Safe to call multiple times (idempotent).
+#' Called once, lazily, before the first Python use -- not at source() time.
+#' Left to itself reticulate provisions an ephemeral 'r-reticulate' virtualenv,
+#' which on locked-down/offline machines tries to download `uv` and fails.
 #'
-#' @return Invisible TRUE if successful, FALSE if not.
+#' Interpreter priority:
+#'   1. RETICULATE_PYTHON environment variable (set it in ~/.Renviron if your
+#'      interpreter is not found automatically).
+#'   2. A standard Windows install that exists on this machine.
+#'   3. python3 / python on PATH.
+#'
+#' @return The interpreter path, or "" when none was found.
+configure_python <- function() {
+  Sys.setenv(RETICULATE_USE_UV = "0")   # never auto-install uv
+  py <- Sys.getenv("RETICULATE_PYTHON", unset = "")
+  if (!nzchar(py)) {
+    cands <- c(sprintf("C:/Program Files/Python3%d/python.exe", 14:11),
+               unname(Sys.which("python3")), unname(Sys.which("python")))
+    cands <- cands[nzchar(cands) & file.exists(cands)]
+    if (length(cands) > 0) py <- cands[[1]]
+  }
+  if (nzchar(py)) {
+    Sys.setenv(RETICULATE_PYTHON = py)
+    try(reticulate::use_python(py, required = FALSE), silent = TRUE)
+  }
+  py
+}
+
+#' Load the Python particle detector, or stop with what is missing.
+#'
+#' LDIR image analysis requires Python 3 with numpy, scipy and Pillow (see
+#' inst/python/requirements.txt). There is no R fallback and nothing is
+#' installed automatically: a run must not change its own environment.
+#' Idempotent.
+#'
+#' @return Invisible TRUE (errors otherwise).
 setup_python_detector <- function() {
-  if (.python_detector_loaded) return(invisible(TRUE))
+  if (isTRUE(.python_state$loaded)) return(invisible(TRUE))
+  fail <- function(...) stop(
+    "LDIR image analysis requires Python 3 with numpy, scipy and Pillow ",
+    "(pip install -r inst/python/requirements.txt). ", ..., call. = FALSE)
 
-  if (!requireNamespace("reticulate", quietly = TRUE)) {
-    log_message("  [WARN] reticulate package not available — Python detector disabled")
-    return(invisible(FALSE))
-  }
+  if (!requireNamespace("reticulate", quietly = TRUE))
+    fail("The R package 'reticulate' is not installed.")
+  py <- configure_python()
+  if (!reticulate::py_available(initialize = TRUE))
+    fail("No Python interpreter found", if (nzchar(py)) paste0(" (tried ", py, ")"),
+         ". Set RETICULATE_PYTHON to your python executable.")
 
-  # Verify required Python packages; auto-install via pip if missing
-  # But first: only attempt install if Python is actually available.
-  required  <- c("numpy", "scipy", "PIL")
-  pip_names <- c(numpy = "numpy", scipy = "scipy", PIL = "Pillow")
+  missing <- names(.python_required)[!vapply(names(.python_required),
+                                             reticulate::py_module_available, logical(1))]
+  if (length(missing) > 0)
+    fail("Missing Python packages: ", paste(.python_required[missing], collapse = ", "),
+         " (interpreter: ", reticulate::py_config()$python, ").")
 
-  missing_pkgs <- required[!vapply(required, reticulate::py_module_available, logical(1))]
-  if (length(missing_pkgs) > 0) {
-    # Check if ANY Python is available before attempting install
-    if (!reticulate::py_available()) {
-      log_message("  [WARN] Python not installed on this system — Python detector disabled")
-      log_message("  Falling back to R-based particle extraction")
-      return(invisible(FALSE))
-    }
-
-    pip_missing <- unname(pip_names[missing_pkgs])
-    log_message("  Python packages missing: ", paste(pip_missing, collapse = ", "),
-                " — attempting auto-install via pip")
-    tryCatch({
-      reticulate::py_install(pip_missing, pip = TRUE)
-      log_message("  Auto-install succeeded")
-    }, error = function(e) {
-      log_message("  [WARN] Auto-install failed: ", conditionMessage(e),
-                  " — install manually with: pip install ",
-                  paste(pip_missing, collapse = " "))
-    })
-    # Re-check after attempted install
-    still_missing <- missing_pkgs[
-      !vapply(missing_pkgs, reticulate::py_module_available, logical(1))
-    ]
-    if (length(still_missing) > 0) {
-      log_message("  [WARN] Python packages still unavailable after install attempt: ",
-                  paste(unname(pip_names[still_missing]), collapse = ", "),
-                  " — Python detector disabled")
-      return(invisible(FALSE))
-    }
-  }
-
-  # Find detector script relative to project root
   detector_path <- file.path("inst", "python", "particle_detector.py")
-  if (!file.exists(detector_path)) {
-    # Try from shiny_app working directory
+  if (!file.exists(detector_path))
     detector_path <- file.path("..", "inst", "python", "particle_detector.py")
-  }
+  if (!file.exists(detector_path))
+    fail("inst/python/particle_detector.py not found from ", getwd(), ".")
 
-  if (!file.exists(detector_path)) {
-    log_message("  [WARN] particle_detector.py not found")
-    return(invisible(FALSE))
-  }
-
-  tryCatch({
-    reticulate::source_python(detector_path, envir = globalenv())
-    .python_detector_loaded <<- TRUE
-    log_message("  Python particle detector loaded successfully")
-    invisible(TRUE)
-  }, error = function(e) {
-    log_message("  [WARN] Failed to load Python detector: ", conditionMessage(e))
-    invisible(FALSE)
-  })
+  reticulate::source_python(detector_path, envir = globalenv())
+  .python_state$loaded <- TRUE
+  log_message("  Python particle detector loaded (", reticulate::py_config()$python, ")")
+  invisible(TRUE)
 }
 
 
@@ -108,7 +108,7 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
                                      merge_fibers = TRUE,
                                      closing_radius = 2L) {
 
-  if (!setup_python_detector()) return(NULL)
+  setup_python_detector()
 
   stopifnot(file.exists(image_path))
 
@@ -201,7 +201,7 @@ detect_particles_python <- function(image_path, scan_bounds = NULL,
 #'   cx_px, cy_px, radius_px, width, height, edge_gap_px, export_type, detected.
 #'   Returns NULL if Python is unavailable.
 detect_ldir_scan_circle_python <- function(image_path) {
-  if (!setup_python_detector()) return(NULL)
+  setup_python_detector()
   if (!file.exists(image_path)) return(NULL)
 
   result <- tryCatch({

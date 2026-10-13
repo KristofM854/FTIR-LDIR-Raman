@@ -18,21 +18,29 @@ Encoding: UTF-8
 Depends:
     R (>= 4.1.0)
 Imports:
+    base64enc,
     clue,
-    dplyr,
     ggplot2,
     ggrepel,
-    plotly,
+    gridExtra,
+    gtable,
     jpeg,
     jsonlite,
     magick,
+    plotly,
     png,
     RANN,
     readxl,
+    reticulate,
     rintrojs,
-    shiny
+    shiny,
+    shinyFiles,
+    zip
 Suggests:
-    reticulate
-SystemRequirements: Python (>= 3.8) with numpy, scipy, Pillow, matplotlib
-    (optional — enables the preferred LDIR image backend; the pipeline falls
-    back to an R-based segmentation when Python or reticulate is unavailable).
+    pdftools,
+    testthat (>= 3.0.0),
+    tiff,
+    withr
+SystemRequirements: Python (>= 3.9) with numpy, scipy and Pillow
+    (inst/python/requirements.txt). Required for LDIR image analysis;
+    FTIR/Raman-only runs do not need Python.

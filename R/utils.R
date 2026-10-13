@@ -61,6 +61,32 @@ get_output_dirs <- function(run_dir) {
 # Coordinate parsing
 # ---------------------------------------------------------------------------
 
+#' Convert to numeric, accepting a decimal comma ("15898,4").
+#'
+#' Exports written on a machine with a European locale use "," as the decimal
+#' mark; as.numeric() turns those into NA without an error. A value that is a
+#' plain number with exactly one comma and no point is read as a decimal comma.
+#' (Instrument exports do not use thousands separators.)
+as_number <- function(x) {
+  if (is.numeric(x)) return(as.numeric(x))
+  x <- trimws(as.character(x))
+  dec_comma <- !is.na(x) & grepl("^[-+]?[0-9]*,[0-9]+([eE][-+]?[0-9]+)?$", x)
+  x[dec_comma] <- sub(",", ".", x[dec_comma], fixed = TRUE)
+  suppressWarnings(as.numeric(x))
+}
+
+
+#' A config value, or its make_config() default when the caller's config lacks
+#' it (tools and tests pass partial configs). Keeps one source of defaults:
+#' an inline fallback that differs from make_config() makes the same function
+#' behave differently depending on who calls it.
+cfg_value <- function(config, key) {
+  v <- config[[key]]
+  if (is.null(v)) v <- make_config()[[key]]
+  v
+}
+
+
 #' Parse FTIR coordinate string "[x;y]" into numeric x, y
 #' @param coord_str Character vector of strings like "[1234;5678]" or "[1234.5;5678.9]"
 #' @return Data frame with columns x_um and y_um
@@ -70,8 +96,9 @@ parse_ftir_coordinates <- function(coord_str) {
   cleaned <- gsub("\\[|\\]", "", coord_str)
   parts   <- strsplit(cleaned, ";")
 
-  x_um <- vapply(parts, function(p) as.numeric(p[1]), numeric(1))
-  y_um <- vapply(parts, function(p) as.numeric(p[2]), numeric(1))
+  # as_number() also accepts a decimal comma: "[94,5;1650,2]".
+  x_um <- vapply(parts, function(p) as_number(p[1]), numeric(1))
+  y_um <- vapply(parts, function(p) as_number(p[2]), numeric(1))
 
   data.frame(x_um = x_um, y_um = y_um)
 }
@@ -375,11 +402,7 @@ read_image_any <- function(path, verbose = TRUE) {
       img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
       # Export as RGBA bitmap (4 channels; images without alpha get A=255)
       raw_data <- magick::image_data(img_rgb, channels = "rgba")
-      vals <- if (is.character(raw_data)) strtoi(raw_data, base = 16L)
-              else as.integer(raw_data)
-      arr <- array(vals / 255, dim = dim(raw_data))
-      arr <- aperm(arr, c(3, 2, 1))   # [4, W, H] -> [H, W, 4] (RGBA raster)
-      return(arr)
+      return(magick_bitmap_array(raw_data) / 255)   # [H, W, 4] RGBA raster
     }, error = function(e) {
       log_message("  magick failed (", e$message, "), trying pkg fallback",
                   level = "WARN")
@@ -482,9 +505,7 @@ make_preview_image <- function(img_rgb, max_dim = 1200L) {
       raw <- magick::image_data(
                magick::image_convert(mg, colorspace = "sRGB"),
                channels = "rgb")
-      vals <- if (is.character(raw)) strtoi(raw, base = 16L) else as.integer(raw)
-      out  <- array(vals, dim = c(3L, nw, nh))
-      out  <- aperm(out, c(3L, 2L, 1L))        # [3,W,H] -> [H,W,3]
+      out  <- magick_bitmap_array(raw)          # [H, W, 3]
       storage.mode(out) <- "integer"
       return(out)
     }, error = function(e) NULL)
@@ -729,6 +750,54 @@ resolve_manifest_path <- function(run_dir) {
   staged
 }
 
+#' Commit hash of the working copy, or NA when there is no git checkout (an
+#' archived copy such as the Zenodo deposit) or no git executable. Uses
+#' system2() so it neither depends on a POSIX shell redirect nor errors when
+#' git prints nothing.
+current_git_commit <- function() {
+  out <- tryCatch(
+    suppressWarnings(system2("git", c("rev-parse", "HEAD"),
+                             stdout = TRUE, stderr = FALSE)),
+    error = function(e) character(0))
+  if (length(out) == 0 || is.na(out[1]) || !grepl("^[0-9a-f]{40}$", out[1]))
+    return(NA_character_)
+  out[1]
+}
+
+
+#' Write the complete parameter set and the R session into the run folder.
+#'
+#' The manifest's config_snapshot carries only the keys the viewer needs; this
+#' records everything that determines the results: every config value
+#' (00_manifest/config_full.json) and the R version, platform, attached and
+#' loaded package versions, the Python interpreter reticulate is bound to and
+#' the git commit (00_manifest/session_info.txt).
+#'
+#' @param run_dir Run output directory
+#' @param config  Config list from make_config()
+#' @return Invisible character vector of the two file paths
+write_run_environment <- function(run_dir, config) {
+  out_dir <- file.path(run_dir, "00_manifest")
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  cfg_path <- file.path(out_dir, "config_full.json")
+  ses_path <- file.path(out_dir, "session_info.txt")
+  if (requireNamespace("jsonlite", quietly = TRUE)) {
+    writeLines(jsonlite::toJSON(config, pretty = TRUE, auto_unbox = TRUE,
+                                null = "null", na = "null", digits = NA,
+                                force = TRUE), cfg_path)
+  } else {
+    dput(config, file = cfg_path)
+  }
+  py <- Sys.getenv("RETICULATE_PYTHON", unset = "")
+  writeLines(c(
+    paste0("git_commit: ", current_git_commit()),
+    paste0("python:     ", if (nzchar(py)) py else "(not configured)"),
+    "",
+    utils::capture.output(print(utils::sessionInfo()))), ses_path)
+  invisible(c(cfg_path, ses_path))
+}
+
+
 #' Records authoritative provenance for every pipeline run: run ID,
 #' timestamp, git commit, R session, config snapshot, input file hashes,
 #' and instrument image details.
@@ -759,17 +828,11 @@ write_manifest <- function(run_dir, run_id, config,
   manifest_dir <- dirname(manifest_path)
   if (!dir.exists(manifest_dir)) dir.create(manifest_dir, recursive = TRUE)
 
-  # --- Git commit ---
-  git_commit <- tryCatch(
-    trimws(system("git rev-parse HEAD 2>/dev/null", intern = TRUE)[1]),
-    error = function(e) NA_character_
-  )
-  if (length(git_commit) == 0 || startsWith(git_commit, "fatal")) {
-    git_commit <- NA_character_
-  }
+  # --- Git commit (NA outside a git checkout, e.g. an archived copy) ---
+  git_commit <- current_git_commit()
 
   # --- Input file info ---
-  image_names <- c("ftir_image", "raman_image", "ldir_image")
+  image_names <- c("ftir_image", "raman_image", "ldir_image", "ftir_bruker_image")
   detect_input_dims <- function(path) {
     if (!file.exists(path) || !requireNamespace("magick", quietly = TRUE)) {
       return(list(width = NA_integer_, height = NA_integer_))
@@ -840,11 +903,11 @@ write_manifest <- function(run_dir, run_id, config,
   # --- Config snapshot (key values only) ---
   cfg_keys <- c("ldir_scan_diameter_um", "ldir_flip_y_for_alignment",
                  "ldir_image_width_um", "ldir_rotate_deg_for_alignment",
-                 "min_quality_ftir", "min_quality_raman", "min_size_um",
+                 "ftir_quality_threshold", "raman_hqi_threshold",
                  # Pre-match filters — tools/diagnose_matching.R reads these to
                  # reconstruct the matching-eligible particle set.
                  "min_particle_size_um", "ldir_quality_threshold",
-                 "ransac_iterations", "icp_max_iter", "match_radius_um",
+                 "align_seed", "ransac_n_iterations", "icp_max_iterations",
                  # Match acceptance gates — the Shiny viewer reads these from
                  # the manifest to decide which forced LDIR<->Raman pairs are
                  # genuine (match_distance <= gate) vs over-gate assignments
@@ -875,6 +938,8 @@ write_manifest <- function(run_dir, run_id, config,
     platform        = R.version$platform,
     user            = Sys.info()[["user"]],
     config_snapshot = cfg_snap,
+    spectral_library_index = if (exists("spectral_library_index_status", mode = "function"))
+                               spectral_library_index_status() else NULL,
     inputs          = inputs_info,
     image_assets    = image_assets,
     images          = if (length(images_clean) > 0) images_clean else NULL,

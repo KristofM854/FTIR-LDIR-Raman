@@ -20,7 +20,9 @@
 # 0. Setup: load packages and source modules
 # ---------------------------------------------------------------------------
 
-required_packages <- c("readxl", "ggplot2", "RANN", "ggrepel")
+# clue is required, not optional: without it match_particles() would switch
+# from optimal (Hungarian) to greedy matching and change the results.
+required_packages <- c("readxl", "ggplot2", "RANN", "ggrepel", "clue", "jsonlite", "png")
 
 missing_pkgs <- required_packages[!vapply(required_packages, requireNamespace,
                                           logical(1), quietly = TRUE)]
@@ -240,7 +242,9 @@ config$output_dir <- make_run_dir(config$output_dir)
   ldir       = if (!is.null(config$ldir_path)  && nzchar(config$ldir_path))  config$ldir_path  else NULL,
   ldir_image  = if (!is.null(config$ldir_image)  && nzchar(config$ldir_image))  config$ldir_image  else NULL,
   ftir_image  = if (!is.null(config$ftir_image)  && nzchar(config$ftir_image))  config$ftir_image  else NULL,
-  raman_image = if (!is.null(config$raman_image) && nzchar(config$raman_image)) config$raman_image else NULL
+  raman_image = if (!is.null(config$raman_image) && nzchar(config$raman_image)) config$raman_image else NULL,
+  ftir_bruker       = if (!is.null(config$ftir_bruker_path)  && nzchar(config$ftir_bruker_path))  config$ftir_bruker_path  else NULL,
+  ftir_bruker_image = if (!is.null(config$ftir_bruker_image) && nzchar(config$ftir_bruker_image)) config$ftir_bruker_image else NULL
 )
 .run_input_paths <- .run_input_paths[!vapply(.run_input_paths, is.null, logical(1))]
 
@@ -298,6 +302,8 @@ tryCatch({
 }, error = function(e) {
   log_message("  Could not write manifest: ", e$message, level = "WARN")
 })
+# Full parameter set + R session, so a run can be reproduced from its folder.
+write_run_environment(config$output_dir, config)
 
 # --- Debug mode setup (Step 0: bulletproof) ---
 # Set config$debug <- TRUE before sourcing to enable debug artifacts.
@@ -348,11 +354,11 @@ log_message(strrep("=", 60))
 .out_dirs <- get_output_dirs(config$output_dir)
 
 # --- FTIR ---
-ftir_raw  <- ingest_ftir(config$ftir_path, sheet = config$ftir_sheet)
+ftir_raw  <- annotate_materials(ingest_ftir(config$ftir_path, sheet = config$ftir_sheet))
 write.csv(ftir_raw, file.path(.out_dirs$ingested, "ftir_perkin_ingested.csv"), row.names = FALSE)
 
 # --- Raman ---
-raman_raw <- ingest_raman(config$raman_path, sheet = config$raman_sheet)
+raman_raw <- annotate_materials(ingest_raman(config$raman_path, sheet = config$raman_sheet))
 write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
 
 # --- Auto-calibrate Raman image placement ----------------------------------
@@ -417,11 +423,14 @@ if (has_ldir) {
   ldir_raw <- ingest_ldir(config$ldir_path)
   # Relabel low-HQI identifications as "unknown" (kept, not dropped) to mirror
   # the LDIR software; flows into the viewer and the agreement analysis.
-  ldir_raw <- relabel_ldir_low_hqi(ldir_raw, config)
+  ldir_raw <- annotate_materials(relabel_ldir_low_hqi(ldir_raw, config))
   # Auto-load coordinate-swap corrections from the CSV sidecar next to the LDIR
   # Excel (<stem>_coord_swaps.csv), unless swaps were set explicitly in config.
-  if (is.null(config$ldir_coord_swaps))
-    config$ldir_coord_swaps <- load_ldir_coord_swaps(config$ldir_path, config)
+  # [[ ]] and list(): `config$ldir_coord_swaps <- NULL` would DELETE the
+  # element, after which config$ldir_coord_swaps partial-matches
+  # ldir_coord_swaps_suffix and returns "_coord_swaps" as a bogus swap.
+  if (is.null(config[["ldir_coord_swaps"]]))
+    config["ldir_coord_swaps"] <- list(load_ldir_coord_swaps(config$ldir_path, config))
   write.csv(ldir_raw, file.path(.out_dirs$ingested, "ldir_ingested.csv"), row.names = FALSE)
   log_message("LDIR data loaded: ", nrow(ldir_raw), " particles (no coordinates)")
 } else {
@@ -432,7 +441,7 @@ if (has_ldir) {
 ftir_bruker_raw <- NULL
 has_ftir_bruker <- !is.null(config$ftir_bruker_path) && nzchar(config$ftir_bruker_path)
 if (has_ftir_bruker) {
-  ftir_bruker_raw <- ingest_ftir_bruker(config$ftir_bruker_path)
+  ftir_bruker_raw <- annotate_materials(ingest_ftir_bruker(config$ftir_bruker_path))
   write.csv(ftir_bruker_raw, file.path(.out_dirs$ingested, "ftir_bruker_ingested.csv"), row.names = FALSE)
   log_message("FTIR (Bruker) data loaded: ", nrow(ftir_bruker_raw), " particles")
 } else {
@@ -906,6 +915,9 @@ if (has_ldir && !is.null(ldir_raw)) {
 
   if (!is.null(config$ldir_image) && nzchar(config$ldir_image)) {
     log_message("Extracting LDIR coordinates from companion image")
+    # Python is required for LDIR image analysis: fail here, with what is
+    # missing, rather than partway through the detection.
+    setup_python_detector()
 
     # Prefer the canonical PNG (format-guaranteed) produced by canonicalize_ldir_image().
     # Fall back to the original path if canonicalization was skipped.
@@ -1033,7 +1045,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       ldir_with_coords,
       flip_y       = isTRUE(config$ldir_flip_y_for_alignment),
       scale_coords = isTRUE(config$normalize_scale),
-      rotate_deg   = config$ldir_rotate_deg_for_alignment %||% 0,
+      rotate_deg   = cfg_value(config, "ldir_rotate_deg_for_alignment"),
       debug_dir    = if (isTRUE(config$debug)) config$debug_dir else NULL
     )
     ldir_with_coords <- ldir_norm_result$df
@@ -1439,7 +1451,9 @@ if (has_ldir && !is.null(ldir_raw)) {
             !is.null(.residuals_for_overlay) &&
             nrow(.residuals_for_overlay) > 0) {
           arrow_df <- if (nrow(.residuals_for_overlay) > 150)
-            .residuals_for_overlay[sample.int(nrow(.residuals_for_overlay), 150), ]
+            # evenly spaced, not random: the same run must draw the same plot
+            .residuals_for_overlay[unique(round(seq(1, nrow(.residuals_for_overlay),
+                                                    length.out = 150))), ]
           else .residuals_for_overlay
           p_overlay <- p_overlay +
             ggplot2::geom_segment(
@@ -1587,9 +1601,11 @@ if (has_ldir && !is.null(ldir_raw)) {
           ldir_fam  <- classify_family_vec(triplets$ldir_material)
 
           # Count how many instrument families agree with Raman
-          fr_agree   <- ftir_fam == raman_fam & ftir_fam != "Unknown"
-          lr_agree   <- ldir_fam == raman_fam & ldir_fam != "Unknown"
-          fl_agree   <- ftir_fam == ldir_fam  & ftir_fam != "Unknown"
+          # Same rule as the pairwise agreement: "Unknown" and the "Other
+          # polymer" catch-all never count as agreeing.
+          fr_agree   <- family_agrees(ftir_fam, raman_fam)
+          lr_agree   <- family_agrees(ldir_fam, raman_fam)
+          fl_agree   <- family_agrees(ftir_fam, ldir_fam)
           n_agree    <- as.integer(fr_agree) + as.integer(lr_agree) +
                         as.integer(fl_agree)
           # n_agree ranges 0-3 (3 = all three pairwise family comparisons agree)
@@ -1916,9 +1932,9 @@ if (!is.na(agreement$agreement_rate)) {
 }
 if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
   tr <- agreement$tiered_rates
-  log_message("  Tiered agreement:  Exact ", tr$exact_pct, "%, Family+ ",
-              tr$family_or_better_pct, "%, Filler/pigment ",
-              if (is.null(tr$filler_pct)) 0 else tr$filler_pct, "%")
+  log_message("  Agreement:         Family ", tr$family_or_better_pct, "% (primary), Exact ",
+              tr$exact_pct, "%, Filler/pigment ", tr$filler_pct, "% of ", tr$n_resolved,
+              " resolved pairs; ", tr$n_unresolved, " unresolved")
 }
 if (nrow(composites) > 0) {
   log_message("  Composite matches: ", nrow(composites))
@@ -1949,12 +1965,17 @@ if (has_ldir && !is.null(ldir_results)) {
       !is.null(ldir_results$ldir_raman_agreement$tiered_rates) &&
       ldir_results$ldir_raman_agreement$tiered_rates$n_total > 0) {
     ltr <- ldir_results$ldir_raman_agreement$tiered_rates
-    log_message("  LDIR-Raman agreement: Exact ", ltr$exact_pct,
-                "%, Family+ ", ltr$family_or_better_pct, "%, Filler/pigment ",
-                if (is.null(ltr$filler_pct)) 0 else ltr$filler_pct, "%")
+    log_message("  LDIR-Raman agreement: Family ", ltr$family_or_better_pct,
+                "% (primary), Exact ", ltr$exact_pct, "%, Filler/pigment ",
+                ltr$filler_pct, "% of ", ltr$n_resolved, " resolved pairs; ",
+                ltr$n_unresolved, " unresolved, ", ltr$n_join_warning,
+                " with LDIR join warning")
   }
 }
 log_message("  Results in: ", config$output_dir)
+# Rewrite the parameter dump with the values the run ended with (the Raman
+# image auto-calibration and LDIR coordinate-swap loading update config).
+write_run_environment(config$output_dir, config)
 
 # ---------------------------------------------------------------------------
 # 16. Generate Report (PDF + interactive HTML)

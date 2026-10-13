@@ -92,14 +92,37 @@ find_column <- function(df, patterns) {
 safe_numeric <- function(df, ...) {
   col <- find_column(df, c(...))
   if (is.null(col)) return(rep(NA_real_, nrow(df)))
-  as.numeric(df[[col]])
+  as_number(df[[col]])
 }
 
 
 #' Safely extract numeric values from a named column (may be NULL)
 safe_col_numeric <- function(df, col_name) {
   if (is.null(col_name)) return(rep(NA_real_, nrow(df)))
-  as.numeric(df[[col_name]])
+  as_number(df[[col_name]])
+}
+
+
+#' Stop unless an export has particle rows.
+require_rows <- function(raw, filepath, instrument) {
+  if (is.null(raw) || nrow(raw) == 0)
+    stop(instrument, " file contains no particle rows: ", filepath, call. = FALSE)
+  invisible(raw)
+}
+
+
+#' Stop if particle IDs are duplicated.
+#'
+#' IDs are join keys downstream (LDIR coordinate swaps, three-way triplets,
+#' the viewer's selection), so a duplicate silently attaches data to the wrong
+#' particle. Fail with the offending IDs instead.
+require_unique_ids <- function(ids, filepath, instrument) {
+  dup <- unique(ids[duplicated(ids) & !is.na(ids)])
+  if (length(dup) > 0)
+    stop(instrument, " file has ", length(dup), " duplicated particle ID(s): ",
+         paste(utils::head(dup, 10), collapse = ", "),
+         if (length(dup) > 10) ", ..." else "", " (", filepath, ")", call. = FALSE)
+  invisible(ids)
 }
 
 
@@ -120,6 +143,7 @@ ingest_ftir <- function(filepath, sheet = "Long_Table") {
   log_message("Reading FTIR data from: ", filepath)
 
   raw <- read_data_file(filepath, sheet = sheet)
+  require_rows(raw, filepath, "FTIR")
 
   # Sanitize column names to valid UTF-8 immediately
   # (prevents "invalid multibyte string" from µ/²/³ in tolower/grep)
@@ -146,17 +170,28 @@ ingest_ftir <- function(filepath, sheet = "Long_Table") {
   coord_px <- coord_candidates[grepl("pixel", coord_candidates, ignore.case = TRUE)]
   coord_um <- setdiff(coord_candidates, coord_px)
 
-  # Prefer the µm column; fall back to whatever is available
-  coord_col <- if (length(coord_um) > 0) coord_um[1] else coord_candidates[1]
+  # The µm column is required. Falling back to the pixel column would carry
+  # map-pixel indices forward as micrometres (off by the pixel size, 6.25x on
+  # a Spotlight map) with nothing downstream able to notice.
+  if (length(coord_um) == 0)
+    stop("FTIR file has no micrometre coordinate column (found only: ",
+         paste(coord_candidates, collapse = ", "), "). Export 'Coord. [µm]' ",
+         "or rename the micrometre column so it starts with 'Coord'. ", filepath,
+         call. = FALSE)
+  coord_col <- coord_um[1]
 
   log_message("  Coordinate candidates: ", paste(coord_candidates, collapse = ", "))
   log_message("  Using coordinate column: '", coord_col, "'")
 
   coords <- parse_ftir_coordinates(raw[[coord_col]])
+  if (all(is.na(coords$x_um)) || all(is.na(coords$y_um)))
+    stop("FTIR coordinate column '", coord_col, "' could not be parsed as ",
+         "\"[x;y]\" (first value: ", raw[[coord_col]][1], "). ", filepath, call. = FALSE)
 
   # Find identifier column
   id_col <- find_column(raw, c("Identifier", "ID", "Particle"))
   particle_ids <- if (!is.null(id_col)) as.character(raw[[id_col]]) else paste0("P_", seq_len(nrow(raw)))
+  require_unique_ids(particle_ids, filepath, "FTIR")
 
   # Find material/group column
   mat_col <- find_column(raw, c("Group", "Material", "Polymer"))
@@ -204,6 +239,7 @@ ingest_raman <- function(filepath, sheet = "Long_Table") {
   log_message("Reading Raman data from: ", filepath)
 
   raw <- read_data_file(filepath, sheet = sheet)
+  require_rows(raw, filepath, "Raman")
 
   # Sanitize column names to valid UTF-8 immediately
   names(raw) <- safe_colnames(names(raw))
@@ -227,6 +263,7 @@ ingest_raman <- function(filepath, sheet = "Long_Table") {
   # Find particle ID column
   id_col <- find_column(raw, c("Particle Name", "Particle", "ID"))
   particle_ids <- if (!is.null(id_col)) as.character(raw[[id_col]]) else paste0("R_", seq_len(nrow(raw)))
+  require_unique_ids(particle_ids, filepath, "Raman")
 
   # Find material column
   mat_col <- find_column(raw, c("Material", "material_mapped", "material_raw",
@@ -236,8 +273,8 @@ ingest_raman <- function(filepath, sheet = "Long_Table") {
   # Build standardized data frame
   df <- data.frame(
     particle_id  = particle_ids,
-    x_um         = as.numeric(raw[[x_col]]),
-    y_um         = as.numeric(raw[[y_col]]),
+    x_um         = as_number(raw[[x_col]]),
+    y_um         = as_number(raw[[y_col]]),
     area_um2     = safe_numeric(raw, "Area"),
     major_um     = safe_numeric(raw, "Length"),
     minor_um     = safe_numeric(raw, "Width"),
