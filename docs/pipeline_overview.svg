@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="1360" viewBox="0 0 1040 1360" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9aa5b1"/></marker></defs>
+<rect width="1040" height="1360" fill="#ffffff"/>
+<text x="24" y="38" font-size="19" font-weight="bold" fill="#1f2933" text-anchor="start">FTIR-LDIR-Raman pipeline: from instrument exports to matched particles and agreement</text>
+<text x="24" y="60" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Raman is the reference frame: every other instrument is aligned onto it. Each run writes everything into one output folder.</text>
+<rect x="24" y="82" width="80" height="150" rx="8" fill="#e4e7eb"/>
+<text x="64" y="153.0" font-size="20" font-weight="bold" fill="#52606d" text-anchor="middle">1</text>
+<text x="64" y="172.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Inputs</text>
+<rect x="120.0" y="82" width="215.0" height="150" rx="8" fill="#ffffff" stroke="#2f6db5" stroke-width="2"/>
+<rect x="120.0" y="82" width="215.0" height="26" rx="8" fill="#2f6db5"/>
+<rect x="120.0" y="98" width="215.0" height="10" fill="#2f6db5"/>
+<text x="130.0" y="100" font-size="12.5" font-weight="bold" fill="#ffffff" text-anchor="start">FTIR (PerkinElmer)</text>
+<text x="130.0" y="128" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">particle table .csv/.xlsx</text>
+<text x="130.0" y="144" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  Coord. [µm] "[x;y]", AAU,</text>
+<text x="130.0" y="160" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  Group, sizes</text>
+<text x="130.0" y="176" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">chemical image (PNG)</text>
+<text x="130.0" y="192" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  “Average Abs”, optional</text>
+<rect x="347.0" y="82" width="215.0" height="150" rx="8" fill="#ffffff" stroke="#7656a8" stroke-width="2"/>
+<rect x="347.0" y="82" width="215.0" height="26" rx="8" fill="#7656a8"/>
+<rect x="347.0" y="98" width="215.0" height="10" fill="#7656a8"/>
+<text x="357.0" y="100" font-size="12.5" font-weight="bold" fill="#ffffff" text-anchor="start">FTIR (Bruker), optional</text>
+<text x="357.0" y="128" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">particle table (same</text>
+<text x="357.0" y="144" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  format as PerkinElmer)</text>
+<text x="357.0" y="160" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">image, optional</text>
+<rect x="574.0" y="82" width="215.0" height="150" rx="8" fill="#ffffff" stroke="#23845a" stroke-width="2"/>
+<rect x="574.0" y="82" width="215.0" height="26" rx="8" fill="#23845a"/>
+<rect x="574.0" y="98" width="215.0" height="10" fill="#23845a"/>
+<text x="584.0" y="100" font-size="12.5" font-weight="bold" fill="#ffffff" text-anchor="start">Raman (WITec) — reference</text>
+<text x="584.0" y="128" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">particle table .csv/.xlsx</text>
+<text x="584.0" y="144" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  Visual Center Point X/Y,</text>
+<text x="584.0" y="160" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  Material, HQI, Feret</text>
+<text x="584.0" y="176" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">micrograph, optional</text>
+<text x="584.0" y="192" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  (+ WITec width/height/centre)</text>
+<rect x="801.0" y="82" width="215.0" height="150" rx="8" fill="#ffffff" stroke="#c45f24" stroke-width="2"/>
+<rect x="801.0" y="82" width="215.0" height="26" rx="8" fill="#c45f24"/>
+<rect x="801.0" y="98" width="215.0" height="10" fill="#c45f24"/>
+<text x="811.0" y="100" font-size="12.5" font-weight="bold" fill="#ffffff" text-anchor="start">LDIR (Agilent 8700), optional</text>
+<text x="811.0" y="128" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">particle table .xlsx</text>
+<text x="811.0" y="144" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  NO coordinates; ID, size,</text>
+<text x="811.0" y="160" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  Identification, Quality</text>
+<text x="811.0" y="176" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">particle map image (+ _analyzed</text>
+<text x="811.0" y="192" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  overlay, _coord_swaps.csv)</text>
+<rect x="24" y="262" width="80" height="250" rx="8" fill="#e4e7eb"/>
+<text x="64" y="383.0" font-size="20" font-weight="bold" fill="#52606d" text-anchor="middle">2</text>
+<text x="64" y="402.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Ingest</text>
+<text x="64" y="416.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">&amp; check</text>
+<line x1="227.5" y1="232" x2="227.5" y2="262" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="120.0" y="262" width="215.0" height="40" rx="8" fill="#ffffff" stroke="#2f6db5" stroke-width="1.5"/>
+<text x="227.5" y="287" font-size="12.5" font-weight="bold" fill="#2f6db5" text-anchor="middle">ingest_ftir()</text>
+<line x1="454.5" y1="232" x2="454.5" y2="262" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="347.0" y="262" width="215.0" height="40" rx="8" fill="#ffffff" stroke="#7656a8" stroke-width="1.5"/>
+<text x="454.5" y="287" font-size="12.5" font-weight="bold" fill="#7656a8" text-anchor="middle">ingest_ftir_bruker()</text>
+<line x1="681.5" y1="232" x2="681.5" y2="262" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="574.0" y="262" width="215.0" height="40" rx="8" fill="#ffffff" stroke="#23845a" stroke-width="1.5"/>
+<text x="681.5" y="287" font-size="12.5" font-weight="bold" fill="#23845a" text-anchor="middle">ingest_raman()</text>
+<line x1="908.5" y1="232" x2="908.5" y2="262" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="801.0" y="262" width="215.0" height="40" rx="8" fill="#ffffff" stroke="#c45f24" stroke-width="1.5"/>
+<text x="908.5" y="287" font-size="12.5" font-weight="bold" fill="#c45f24" text-anchor="middle">ingest_ldir()</text>
+<rect x="120" y="316" width="896" height="62" rx="8" fill="#f4f6f8" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="132" y="336" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">Common particle table: particle_id, x_um, y_um, feret/major/minor, area, material, quality</text>
+<text x="132" y="355" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">Input contract: µm coordinates required · no empty file · unique IDs · decimal comma accepted · annotate_materials() adds material_polymer + material_family</text>
+<line x1="227.5" y1="302" x2="227.5" y2="316" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="454.5" y1="302" x2="454.5" y2="316" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="681.5" y1="302" x2="681.5" y2="316" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="908.5" y1="302" x2="908.5" y2="316" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="801.0" y="392" width="215.0" height="120" rx="8" fill="#ffffff" stroke="#c45f24" stroke-width="1.5"/>
+<text x="811.0" y="411.0" font-size="11.8" font-weight="bold" fill="#1f2933" text-anchor="start">LDIR coordinates</text>
+<text x="811.0" y="427.5" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">Python detector (required)</text>
+<text x="811.0" y="444.0" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">→ scan circle → µm (13 mm)</text>
+<text x="811.0" y="460.5" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">→ size/shape join to Excel</text>
+<text x="811.0" y="477.0" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">   rows; weak joins kept with</text>
+<text x="811.0" y="493.5" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">   coord_join_warning</text>
+<line x1="908.5" y1="378" x2="908.5" y2="392" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="120" y="392" width="669.0" height="120" rx="8" fill="#fff8e1" stroke="#c9a227" stroke-width="1.2" stroke-dasharray="6 4"/>
+<text x="132" y="411" font-size="11.8" font-weight="bold" fill="#1f2933" text-anchor="start">Image placement — display only, never changes results</text>
+<text x="132" y="430" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">FTIR: image particles registered to the table (→ ftir_image_placement.json)</text>
+<text x="132" y="449" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">Raman: WITec width/height/centre, or auto-calibration against the particles</text>
+<text x="132" y="468" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">LDIR: the same scan circle as the coordinates (→ manifest)</text>
+<text x="132" y="487" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">Used by the viewer and the report to draw each image under its particles</text>
+<line x1="227.5" y1="378" x2="227.5" y2="392" stroke="#c9a227" stroke-width="1.6" marker-end="url(#ah)" stroke-dasharray="5 4"/>
+<line x1="454.5" y1="378" x2="454.5" y2="392" stroke="#c9a227" stroke-width="1.6" marker-end="url(#ah)" stroke-dasharray="5 4"/>
+<line x1="681.5" y1="378" x2="681.5" y2="392" stroke="#c9a227" stroke-width="1.6" marker-end="url(#ah)" stroke-dasharray="5 4"/>
+<rect x="24" y="546" width="80" height="64" rx="8" fill="#e4e7eb"/>
+<text x="64" y="574.0" font-size="20" font-weight="bold" fill="#52606d" text-anchor="middle">3</text>
+<text x="64" y="593.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Prefilter</text>
+<text x="64" y="607.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">&amp; normalise</text>
+<rect x="120" y="546" width="896" height="64" rx="8" fill="#f4f6f8" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="132" y="568" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">All particles with valid coordinates go to alignment; matching set may use size/quality prefilters (default: none)</text>
+<text x="132" y="588" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">Each cloud is centred on its own full-cloud centroid (x_norm = x_um − mean): a common origin only, the aligners find the real offset</text>
+<line x1="795.0" y1="378" x2="795.0" y2="532" stroke="#9aa5b1" stroke-width="1.6"/>
+<line x1="795.0" y1="532" x2="520.0" y2="532" stroke="#9aa5b1" stroke-width="1.6"/>
+<line x1="520.0" y1="532" x2="520.0" y2="546" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="908.5" y1="512" x2="908.5" y2="532" stroke="#9aa5b1" stroke-width="1.6"/>
+<line x1="908.5" y1="532" x2="520.0" y2="532" stroke="#9aa5b1" stroke-width="1.6"/>
+<rect x="24" y="644" width="80" height="150" rx="8" fill="#e4e7eb"/>
+<text x="64" y="715.0" font-size="20" font-weight="bold" fill="#52606d" text-anchor="middle">4</text>
+<text x="64" y="734.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Align to</text>
+<text x="64" y="748.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Raman</text>
+<rect x="120.0" y="644" width="164.8" height="96" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="202.4" y="666" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="middle">Tier 0</text>
+<text x="202.4" y="686" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">manual landmark</text>
+<text x="202.4" y="702" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">pairs (LDIR,</text>
+<text x="202.4" y="718" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">optional)</text>
+<line x1="284.8" y1="692" x2="302.8" y2="692" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="302.8" y="644" width="164.8" height="96" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="385.20000000000005" y="666" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="middle">Tier 1</text>
+<text x="385.20000000000005" y="686" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">landmarks: large</text>
+<text x="385.20000000000005" y="702" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">particles + fibres</text>
+<text x="385.20000000000005" y="718" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">(≥ 100 µm)</text>
+<line x1="467.6" y1="692" x2="485.6" y2="692" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="485.6" y="644" width="164.8" height="96" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="568.0" y="666" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="middle">Tier 2</text>
+<text x="568.0" y="686" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">RANSAC vs global</text>
+<text x="568.0" y="702" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">registration; more</text>
+<text x="568.0" y="718" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">inliers wins</text>
+<line x1="650.4000000000001" y1="692" x2="668.4000000000001" y2="692" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="668.4000000000001" y="644" width="164.8" height="96" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="750.8000000000001" y="666" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="middle">ICP</text>
+<text x="750.8000000000001" y="686" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">refine on all</text>
+<text x="750.8000000000001" y="702" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">particles; scale</text>
+<text x="750.8000000000001" y="718" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">band 0.8–1.25</text>
+<line x1="833.2" y1="692" x2="851.2" y2="692" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="851.2" y="644" width="164.8" height="96" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="933.6" y="666" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="middle">TPS</text>
+<text x="933.6" y="686" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">LDIR only: smooth</text>
+<text x="933.6" y="702" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">warp, kept if more</text>
+<text x="933.6" y="718" font-size="11.6" font-weight="normal" fill="#1f2933" text-anchor="middle">pairs match</text>
+<text x="120" y="764" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Run separately for FTIR→Raman, Bruker→Raman and LDIR→Raman. Tier 1 skips Tier 2 when confident. Seeded (align_seed): identical inputs give identical transforms.</text>
+<text x="120" y="784" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Output: x_aligned, y_aligned in the Raman frame (Raman µm minus Raman centroid) + 3×3 similarity transform (scale, rotation, mirror, shift).</text>
+<line x1="520.0" y1="610" x2="520.0" y2="644" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="24" y="824" width="80" height="104" rx="8" fill="#e4e7eb"/>
+<text x="64" y="872.0" font-size="20" font-weight="bold" fill="#52606d" text-anchor="middle">5</text>
+<text x="64" y="891.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Match</text>
+<rect x="120" y="824" width="501.76000000000005" height="104" rx="8" fill="#f4f6f8" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="132" y="846" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">One-to-one matching (Hungarian)</text>
+<text x="132" y="865" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">gate 100 µm (LDIR pairs 250 µm), widened for large</text>
+<text x="132" y="884" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">particles; size/shape only break near-ties</text>
+<text x="132" y="903" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">per pair: distance, ambiguity score; 1:many composites</text>
+<rect x="637.76" y="824" width="378.23999999999995" height="104" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="649.76" y="846" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">Pairs</text>
+<text x="649.76" y="865" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">FTIR↔Raman · Bruker↔Raman</text>
+<text x="649.76" y="884" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">LDIR↔Raman · LDIR↔FTIR</text>
+<text x="649.76" y="903" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="start">triplets: shared Raman particle</text>
+<line x1="520.0" y1="794" x2="520.0" y2="824" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="24" y="962" width="80" height="112" rx="8" fill="#e4e7eb"/>
+<text x="64" y="1014.0" font-size="20" font-weight="bold" fill="#52606d" text-anchor="middle">6</text>
+<text x="64" y="1033.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Agreement</text>
+<rect x="120.0" y="962" width="286.6666666666667" height="112" rx="8" fill="#f4f6f8" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="132.0" y="984" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Quality gate</text>
+<text x="132.0" y="1006" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">pair scored only if both</text>
+<text x="132.0" y="1023" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">identifications pass:</text>
+<text x="132.0" y="1040" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">FTIR AAU ≥ 0.70 · Raman HQI ≥ 70</text>
+<text x="132.0" y="1057" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">LDIR ≥ 0.85 · no “unknown”</text>
+<line x1="406.6666666666667" y1="1018" x2="424.6666666666667" y2="1018" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="424.6666666666667" y="962" width="286.6666666666667" height="112" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="436.6666666666667" y="984" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Tiers</text>
+<text x="436.6666666666667" y="1006" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">Exact: same polymer</text>
+<text x="436.6666666666667" y="1023" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">Family: same family</text>
+<text x="436.6666666666667" y="1040" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">Filler/pigment · Disagree</text>
+<text x="436.6666666666667" y="1057" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">Unresolved: flag, inspect</text>
+<line x1="711.3333333333334" y1="1018" x2="729.3333333333334" y2="1018" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="729.3333333333334" y="962" width="286.6666666666667" height="112" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="741.3333333333334" y="984" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Reported</text>
+<text x="741.3333333333334" y="1006" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">PRIMARY: family agreement</text>
+<text x="741.3333333333334" y="1023" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">(Exact + Family)</text>
+<text x="741.3333333333334" y="1040" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">SECONDARY: exact polymer</text>
+<text x="741.3333333333334" y="1057" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">rates over resolved pairs</text>
+<line x1="520.0" y1="928" x2="520.0" y2="962" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="24" y="1108" width="80" height="132" rx="8" fill="#e4e7eb"/>
+<text x="64" y="1170.0" font-size="20" font-weight="bold" fill="#52606d" text-anchor="middle">7</text>
+<text x="64" y="1189.0" font-size="11.5" font-weight="bold" fill="#52606d" text-anchor="middle">Outputs</text>
+<rect x="120.0" y="1108" width="286.6666666666667" height="132" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="132.0" y="1130" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Run folder output/&lt;date&gt;_&lt;n&gt;/</text>
+<text x="132.0" y="1151" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">00_manifest: manifest, full config,</text>
+<text x="132.0" y="1168" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">  session info, input hashes</text>
+<text x="132.0" y="1185" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">01_ingested … 03_prefiltered</text>
+<text x="132.0" y="1202" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">04_alignment · 05_matches</text>
+<text x="132.0" y="1219" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">06_agreement · 07_diagnostics</text>
+<rect x="424.6666666666667" y="1108" width="286.6666666666667" height="132" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="436.6666666666667" y="1130" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Report</text>
+<text x="436.6666666666667" y="1151" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">particle_report.pdf / .html</text>
+<text x="436.6666666666667" y="1168" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">materials, size statistics,</text>
+<text x="436.6666666666667" y="1185" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">each instrument over its image,</text>
+<text x="436.6666666666667" y="1202" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">overlay in the Raman frame</text>
+<rect x="729.3333333333334" y="1108" width="286.6666666666667" height="132" rx="8" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.2"/>
+<text x="741.3333333333334" y="1130" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Shiny viewer (shiny_app/)</text>
+<text x="741.3333333333334" y="1151" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">native and aligned views</text>
+<text x="741.3333333333334" y="1168" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">with the placed images,</text>
+<text x="741.3333333333334" y="1185" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">filters, overlay, multi-run</text>
+<text x="741.3333333333334" y="1202" font-size="11.8" font-weight="normal" fill="#1f2933" text-anchor="start">reproducibility, PDF export</text>
+<line x1="520.0" y1="1074" x2="520.0" y2="1108" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="120" y1="1270" x2="160" y2="1270" stroke="#9aa5b1" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="168" y="1274" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">data flow</text>
+<line x1="260" y1="1270" x2="300" y2="1270" stroke="#c9a227" stroke-width="1.6" marker-end="url(#ah)" stroke-dasharray="5 4"/>
+<text x="308" y="1274" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">display only (does not affect alignment, matching or agreement)</text>
+<text x="120" y="1296" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">Entry points: main.R (pipeline), shiny_app/app.R (viewer). Parameters: make_config() in R/00_config.R.</text>
+<text x="120" y="1314" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">Key modules: R/01_ingest.R, R/01c_ingest_ldir.R, R/03b_landmark_align.R, R/04_ransac.R, R/06_icp_refine.R, R/07_match.R,</text>
+<text x="120" y="1332" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">R/08_agreement.R, R/08b_material_map.R, R/ftir_image_placement.R, inst/python/particle_detector.py.</text>
+</svg>

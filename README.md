@@ -11,8 +11,12 @@ When the same filter is analysed by multiple instruments, each produces its own 
 3. **Aligns** coordinate systems using a tiered approach (Landmark → RANSAC → ICP)
 4. **Matches** particles spatially across all three instrument pairs (FTIR↔Raman, LDIR↔Raman, LDIR↔FTIR)
 5. **Identifies triplets** — particles detected by all three instruments simultaneously, with material-agreement quality scoring
-6. **Compares** material identifications to assess inter-instrument agreement at Exact / Family / Disagree tiers
+6. **Compares** material identifications: family agreement (primary) and exact-polymer agreement (secondary), counting only identifications each instrument trusts; unresolvable name pairs are flagged for inspection
 7. **Exports** matched pairs, agreement statistics, diagnostic plots, and a Shiny viewer
+
+## Pipeline overview
+
+![Pipeline overview: inputs, ingest and checks, prefilter and normalisation, alignment to the Raman frame, matching, agreement, outputs](docs/pipeline_overview.svg)
 
 ## Quick start
 
