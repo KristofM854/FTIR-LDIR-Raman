@@ -4,7 +4,8 @@
 #
 # FTIR, Raman, and LDIR identify materials using different spectral libraries
 # and nomenclature. This module provides:
-#   1. A configurable regex mapping from raw names → canonical types
+#   1. Canonical (exact) polymer names: different spellings of one polymer
+#      unified (canonical_polymer_vec)
 #   2. A material family classification (PET → PET, Nylon 6 → PA, talc →
 #      Mineral, PEG → Additive, ...)
 #   3. A tiered agreement scorer: Exact / Family / Filler/pigment / Disagree
@@ -15,8 +16,9 @@
 #      names and synonyms resolve to the same family as their generic name
 #      ("HOSTALEN GM 7040" → its synonym "POLYETHYLENE" → PE).
 #
-# The mapping tables are stored in config (material_map_ftir, material_map_raman,
-# material_map_ldir). When NULL, the pipeline uses built-in defaults below.
+# Instrument-specific vocabulary is translated before any of this, by the
+# per-instrument material tables (inst/materials/<role>.csv, applied in
+# read_instrument(), R/01_readers.R).
 #
 # Spectral-library index
 # ----------------------
@@ -225,8 +227,10 @@ default_polymer_families <- list(
 
 synthetic_families    <- c("PET", "PP", "PE", "PS", "PVC", "PA", "PC",
                            "PMMA", "PU", "PTFE", "ABS", "Rubber",
-                           "EVA", "POM", "Epoxy", "Other polymer")
-semi_synthetic_families <- c("Cellulose", "Acrylate")
+                           "EVA", "POM", "Epoxy", "Acrylate", "Other polymer")
+# Regenerated cellulose (rayon, viscose, cellulose acetate) only. Acrylic
+# polymers, polyacrylonitrile included, are synthetic.
+semi_synthetic_families <- c("Cellulose")
 natural_families      <- c("Protein", "Chitin", "Natural")
 additive_families     <- c("Additive", "Pigment")
 inorganic_families    <- c("Mineral", "Inorganic")
@@ -755,61 +759,4 @@ score_tiered_agreement_vec <- function(names_a, names_b,
   exact <- pol_a == pol_b & !is_unidentified(names_a) & !is_unidentified(names_b)
   result[exact] <- "Exact"
   result
-}
-
-
-#' Map raw material names to canonical types using a user-provided mapping
-#'
-#' Each entry in `mapping` is: canonical_name = "regex pattern".
-#' The first matching pattern wins. Unmatched names pass through unchanged
-#' (uppercased + trimmed).
-#'
-#' @param raw_names Character vector of raw material names
-#' @param mapping Named list: names = canonical types, values = regex patterns
-#' @return Character vector of canonical material names
-map_materials <- function(raw_names, mapping) {
-  if (is.null(mapping) || length(mapping) == 0) {
-    return(NULL)  # signal: use default normalization
-  }
-
-  result <- rep(NA_character_, length(raw_names))
-
-  for (canonical in names(mapping)) {
-    pattern <- mapping[[canonical]]
-    hits <- grepl(pattern, raw_names, ignore.case = TRUE)
-    # Only assign if not already mapped (first match wins)
-    result[hits & is.na(result)] <- toupper(canonical)
-  }
-
-  # Anything unmatched: fall back to uppercase trimmed raw name
-  unmapped <- is.na(result)
-  if (any(unmapped)) {
-    result[unmapped] <- toupper(trimws(raw_names[unmapped]))
-  }
-
-  result
-}
-
-
-#' Apply material mapping to matched pairs for agreement scoring
-#'
-#' If material maps are configured, uses them. Otherwise falls back to
-#' canonical_polymer_vec().
-#'
-#' @param ftir_materials Character vector of raw FTIR material names
-#' @param raman_materials Character vector of raw Raman material names
-#' @param config Configuration list with material_map_ftir / material_map_raman
-#' @return List with ftir_canonical and raman_canonical character vectors
-map_paired_materials <- function(ftir_materials, raman_materials, config) {
-  ftir_mapped  <- map_materials(ftir_materials, config$material_map_ftir)
-  raman_mapped <- map_materials(raman_materials, config$material_map_raman)
-
-  # Without a configured mapping, use the canonical polymer names
-  if (is.null(ftir_mapped))  ftir_mapped  <- canonical_polymer_vec(ftir_materials)
-  if (is.null(raman_mapped)) raman_mapped <- canonical_polymer_vec(raman_materials)
-
-  list(
-    ftir_canonical  = ftir_mapped,
-    raman_canonical = raman_mapped
-  )
 }

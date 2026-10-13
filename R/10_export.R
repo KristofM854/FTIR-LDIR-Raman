@@ -132,9 +132,7 @@ export_results <- function(match_result, agreement, diagnostics,
     write.csv(agreement$agreement_detail,
               file.path(dirs$agreement, "agreement_summary.csv"),
               row.names = FALSE)
-    write.csv(agreement$summary_df,
-              file.path(dirs$agreement, "agreement_pairwise_ftir_perkin_raman.csv"),
-              row.names = FALSE)
+    write_agreement_tables(agreement, dirs$agreement, "ftir_perkin_raman")
     log_message("  Wrote agreement CSVs")
   }
 
@@ -231,6 +229,23 @@ export_results <- function(match_result, agreement, diagnostics,
   }
 
   log_message("Export complete.")
+  invisible(NULL)
+}
+
+
+#' Write one instrument pair's agreement tables, the same for every pair:
+#'   agreement_pairwise_<pair>.csv   one row per scored matched pair (tier,
+#'                                   polymers, families, join warning, distance)
+#'   agreement_by_material_<pair>.csv  counts and rates per material of A
+#' (The LDIR and Bruker "pairwise" files used to hold the per-material table.)
+write_agreement_tables <- function(agreement, out_dir, pair) {
+  if (is.null(agreement)) return(invisible(NULL))
+  if (!is.null(agreement$summary_df) && nrow(agreement$summary_df) > 0)
+    write.csv(agreement$summary_df,
+              file.path(out_dir, paste0("agreement_pairwise_", pair, ".csv")), row.names = FALSE)
+  if (!is.null(agreement$agreement_detail) && nrow(agreement$agreement_detail) > 0)
+    write.csv(agreement$agreement_detail,
+              file.path(out_dir, paste0("agreement_by_material_", pair, ".csv")), row.names = FALSE)
   invisible(NULL)
 }
 
@@ -339,11 +354,7 @@ export_ldir_results <- function(ldir_results, dirs) {
     ), file.path(dirs$alignment, "transform_params_ldir_raman.txt"))
   }
 
-  if (!is.null(ldir_results$ldir_raman_agreement) &&
-      nrow(ldir_results$ldir_raman_agreement$agreement_detail) > 0) {
-    write.csv(ldir_results$ldir_raman_agreement$agreement_detail,
-              file.path(dirs$agreement, "agreement_pairwise_ldir_raman.csv"), row.names = FALSE)
-  }
+  write_agreement_tables(ldir_results$ldir_raman_agreement, dirs$agreement, "ldir_raman")
 
   if (!is.null(ldir_results$ldir_clean)) {
     ldir_df <- data.frame(

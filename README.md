@@ -20,6 +20,17 @@ When the same filter is analysed by multiple instruments, each produces its own 
 
 ## Quick start
 
+With the prerequisites below installed, run the bundled example (one filter
+measured with all four instruments, `examples/dataset_A/`) from the
+repository root:
+
+```bash
+Rscript examples/run_example_A.R        # results in output/<date>_<n>/
+```
+
+It takes about 1–2 minutes. Open the results with the viewer
+(`shiny::runApp("shiny_app")`).
+
 ### Prerequisites
 
 **R (≥ 4.1)** — the code uses the native `|>` pipe. Install the full package set:
@@ -93,6 +104,13 @@ Results are written to a timestamped subfolder under `output/` (e.g. `output/202
 
 The ingest module auto-detects CSV delimiters and handles encoding differences (Latin-1, UTF-8).
 
+Tables in any other layout are read with the column-mapping reader: name, in
+an R list or a JSON file, which column holds each field and the units
+(`config$<role>_column_map`). Every reader returns the same canonical particle
+table, which is checked before the pipeline continues. Instrument labels the
+material rules do not know can be translated per instrument in
+`inst/materials/<role>.csv`. See [docs/input_format.md](docs/input_format.md).
+
 ## Pipeline architecture
 
 ```
@@ -100,6 +118,8 @@ main.R                          # Orchestrator
 R/
   00_config.R                   # All tunable parameters
   00b_file_input.R              # Interactive file picker
+  particle_contract.R           # Canonical particle table / image object + validators
+  01_readers.R                  # read_instrument(): reader per role, column-mapping reader, material tables
   01_ingest.R                   # FTIR + Raman CSV/Excel parsing
   01b_ingest_image.R            # Image-based particle extraction (FTIR)
   01c_ingest_ldir.R             # LDIR Excel parsing + image coordinate extraction
@@ -119,6 +139,7 @@ R/
 inst/
   python/
     particle_detector.py        # Python LDIR particle detection backend
+  materials/                    # Per-instrument material tables (user-extendable)
 shiny_app/
   app.R                         # Interactive viewer
   global.R                      # Data loading for Shiny
@@ -189,7 +210,8 @@ Each run creates a timestamped folder (e.g., `output/2026-02-19_1/`) containing:
 | `unmatched_raman.csv` | Raman particles with no FTIR match |
 | `unmatched_ldir.csv` | LDIR particles with no Raman match |
 | `agreement_summary.csv` | Per-material agreement rates (Exact / Family / Disagree) |
-| `agreement_pairwise.csv` | Per-pair material comparison with tier scoring |
+| `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored matched pair: tier, exact polymers, families, LDIR join warning |
+| `06_agreement/agreement_by_material_<pair>.csv` | Counts and rates per material |
 | `ldir_raman_matched.csv` | LDIR↔Raman matched pairs |
 | `ldir_ftir_matched.csv` | LDIR↔FTIR matched pairs |
 | `ldir_raman_agreement.csv` | LDIR↔Raman material agreement |
@@ -323,8 +345,8 @@ do not matter (`POLY(ETHYLENE TEREPHTHALATE)` = `Polyethylene terephthalate` →
 
 | Category | Families |
 |---|---|
-| Synthetic | PE, PP, PET (incl. PBT/polyester), PS, PVC, PA, PC, PMMA, PU, PTFE, ABS (incl. SAN/ASA), EVA, POM, Epoxy, Rubber, Other polymer |
-| Semi-synthetic | Cellulose, Acrylate |
+| Synthetic | PE, PP, PET (incl. PBT/polyester), PS, PVC, PA, PC, PMMA, PU, PTFE, ABS (incl. SAN/ASA), EVA, POM, Epoxy, Rubber, Acrylate (acrylic polymers incl. polyacrylonitrile), Other polymer |
+| Semi-synthetic | Cellulose (regenerated: rayon, viscose, cellulose acetate) |
 | Natural/Organic | Protein, Chitin, Natural |
 | Additive/Pigment | Additive (PEG/surfactants, plasticisers, antioxidants, slip agents, flame retardants), Pigment (TiO₂, iron oxides, organic pigments, dyes) |
 | Inorganic | Mineral (carbonates, silicates/clays, talc, quartz, sulfates), Inorganic |
@@ -334,12 +356,21 @@ Notable rules: polyethylene glycol, polyethyleneimine and PEG/PPG surfactants ar
 **not** PE/PP; masterbatches count as their carrier polymer; acrylic *monomers*
 are not Acrylate.
 
-**Agreement tiers.** Matched pairs are scored *Exact* (same name), *Family*
-(same family), *Filler/pigment* (one instrument reports a plastic, the other a
-Mineral, Pigment or Additive — e.g. Raman sees the TiO₂ or CaCO₃ compounded into
-a particle whose polymer FTIR identifies) or *Disagree*. Filler/pigment pairs
-are reported separately (`n_filler`, `filler_pct`); they are not counted in
-"Family+", because only one instrument confirms the polymer.
+Every particle table carries both levels: `material_polymer` (the exact
+polymer, with spelling variants of the same polymer unified, e.g. PET; grades
+such as PBT, HDPE or chlorinated PE kept distinct) and `material_family`.
+
+**Agreement tiers.** A matched pair is scored only when both identifications
+pass their instrument's quality cutoff (FTIR AAU ≥ 0.70, Raman HQI ≥ 70, LDIR
+≥ 0.85) and neither is "unknown". Scored pairs are *Exact* (same polymer),
+*Family* (different polymers of the same family), *Filler/pigment* (one
+instrument reports a plastic, the other a Mineral, Pigment or Additive — e.g.
+Raman sees the TiO₂ or CaCO₃ compounded into a particle whose polymer FTIR
+identifies), *Unresolved* (a name no family rule recognises, or two different
+polymers in the "Other polymer" catch-all — flagged for inspection) or
+*Disagree*. **Primary agreement = family hit (Exact + Family); secondary =
+exact polymer.** Rates are over resolved pairs; filler/pigment pairs are not a
+family hit, because only one instrument confirms the polymer.
 
 **Spectral-library index (optional).** The WITec Raman uses the S.T. Japan
 libraries (L60002 Polymers & Additives, L60035 Microplastics, L60019 Inorganics,
@@ -364,7 +395,7 @@ to switch the index off).
 
 - **Raman minimum size**: The Raman instrument detects particles down to ~1 µm, but FTIR resolution is typically ≥ 20 µm. Raman particles below 20 µm have no FTIR counterpart and inflate the "unmatched Raman" count.
 
-- **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Extend the rules in `R/08b_material_map.R` for dataset-specific names.
+- **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Translate dataset-specific names in `inst/materials/<role>.csv` (see `tools/material_vocabulary.R` for the labels a run could not classify).
 
 - **"Polyamide (naturally occurring)" from LDIR**: This LDIR material name refers to biological polyamides (silk, protein-like), not synthetic nylon (PA6, PA12). It is classified into the "Natural" polymer family (not "PA") to avoid false material-agreement matches between synthetic and biological materials.
 

@@ -1,0 +1,4 @@
+# Material table for the "ftir" role (see inst/materials/README.md).
+# label: the identification exactly as the instrument exports it (case and
+#        surrounding spaces are ignored); material: the name to use instead.
+label,material

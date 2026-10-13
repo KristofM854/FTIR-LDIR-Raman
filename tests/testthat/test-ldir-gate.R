@@ -42,17 +42,17 @@
 
 test_that("annotate_ldir_gate flags only within-gate pairs as genuine", {
   env <- .load_global_helpers()
-  m <- .synthetic_ldir_match(c(50, 120, 200, 240, 10, 400, 600, 900))
+  m <- .synthetic_ldir_match(c(50, 120, 140, 145, 10, 400, 600, 900))
   data <- env$annotate_ldir_gate(list(ldir_raman_matched = m), "dummy")
 
-  expect_equal(data$ldir_match_gate_um, 250)
+  expect_equal(data$ldir_match_gate_um, 150)
   expect_equal(data$ldir_raman_matched$within_gate,
                c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE))
 })
 
 test_that("build_instrument_dfs reports over-gate forced pairs as unmatched LDIR", {
   env <- .load_global_helpers()
-  m <- .synthetic_ldir_match(c(50, 120, 200, 240, 10, 400, 600, 900))
+  m <- .synthetic_ldir_match(c(50, 120, 140, 145, 10, 400, 600, 900))
   data <- env$annotate_ldir_gate(
     list(ldir_raman_matched = m, unmatched_ldir = NULL,
          matched = NULL, unmatched_raman = NULL), "dummy")
@@ -108,9 +108,9 @@ test_that("regate_ldir retunes within_gate to an explicit gate", {
   expect_false("within_gate" %in% names(out$ldir_raman_matched))
 })
 
-test_that("ldir_acceptance_gate falls back to 250 when unrecorded", {
+test_that("ldir_acceptance_gate falls back to the 150 um default when unrecorded", {
   env <- .load_global_helpers()
   # Override the manifest loader to return no gate keys.
   env$load_run_manifest <- function(run_dir) list(config_snapshot = list())
-  expect_equal(env$ldir_acceptance_gate("dummy"), 250)
+  expect_equal(env$ldir_acceptance_gate("dummy"), 150)
 })

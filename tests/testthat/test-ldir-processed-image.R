@@ -716,3 +716,25 @@ test_that("a config without coordinate swaps applies none (no $ partial match)",
   out <- suppressMessages(apply_ldir_coord_swaps(df, cfg))
   expect_identical(out$x_um, c(2, 1))
 })
+
+test_that("the swap sidecar is found under any name with coord/cord + swap", {
+  d <- withr::local_tempdir()
+  xlsx <- file.path(d, "LDIR_data.xlsx"); file.create(xlsx)
+  expect_null(find_ldir_coord_swaps_file(xlsx, make_config()))
+  for (nm in c("LDIR_coord_swaps.csv", "A cord-swap.CSV", "coordswaps.txt")) {
+    unlink(list.files(d, pattern = "\\.(csv|CSV|txt)$", full.names = TRUE))
+    file.create(file.path(d, nm))
+    expect_identical(basename(suppressMessages(find_ldir_coord_swaps_file(xlsx, make_config()))), nm)
+  }
+  # Two candidates: the one naming the Excel stem wins ...
+  file.create(file.path(d, "LDIR_data_swaps_coords_v2.csv"))
+  expect_identical(basename(suppressMessages(find_ldir_coord_swaps_file(xlsx, make_config()))),
+                   "LDIR_data_swaps_coords_v2.csv")
+  # ... and with no way to choose, none is used.
+  file.create(file.path(d, "LDIR_data coord swap old.csv"))
+  expect_null(suppressMessages(find_ldir_coord_swaps_file(xlsx, make_config())))
+  # The documented exact name always wins.
+  file.create(file.path(d, "LDIR_data_coord_swaps.csv"))
+  expect_identical(basename(find_ldir_coord_swaps_file(xlsx, make_config())),
+                   "LDIR_data_coord_swaps.csv")
+})

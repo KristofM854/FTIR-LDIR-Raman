@@ -22,7 +22,8 @@ Bruker if available):
       Bruker→Raman 1.0021, LDIR→Raman 1.0381; the ICP clamp never engaged, so
       the 0.8-1.25 band stays for every pair. Re-check on the other datasets.
 - [ ] Material vocabulary: counts of names falling to "Unknown" / "Other
-      polymer" / Unresolved per instrument.
+      polymer" / Unresolved per instrument (`tools/material_vocabulary.R`;
+      dataset A: all identified labels resolve, PET only).
 - [ ] Regression test on one real dataset (needs your OK to commit a small one).
 - [ ] docs/validation.md with all numbers per dataset.
 
@@ -43,8 +44,7 @@ pair files). The manual LDIR swap file corrects 10 of 40 image joins.
       (dataset A, see above).
 - [x] Spectral-library index (audit Q7): option (a), use it and disclose;
       internal use for now. The run records whether it was used.
-- [ ] "Acrylate" family (incl. polyacrylonitrile) is categorised
-      Semi-synthetic (`R/08b_material_map.R`, `semi_synthetic_families`).
+- [x] "Acrylate" family (incl. polyacrylonitrile): Synthetic.
 - [ ] Triplet consensus does not yet apply the agreement quality gate
       (it already uses the Unknown/catch-all rule). Planned with Phase 2b.
 
@@ -74,8 +74,8 @@ pair files). The manual LDIR swap file corrects 10 of 40 image joins.
       anchor material vocabularies).
 - M12/M13 Duplicated PerkinElmer/Bruker pipeline; 2,074-line `main.R`
       (→ `run_pipeline(config)` + `align_and_match()`, Phase 2b).
-- M16 FTIR "size" is the Major dim, Raman's is Feret max — state in the
-      input contract.
+- [x] M16 FTIR "size" is the Major dim, Raman's is Feret max: stated in
+      docs/input_format.md.
 - Python detector has no unit tests (Phase 3).
 
 ## Decided

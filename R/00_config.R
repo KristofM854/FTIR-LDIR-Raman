@@ -73,7 +73,7 @@ make_config <- function(ftir_path  = NULL,
     #   disable relabelling and keep every raw identification.
     ldir_hqi_unknown_threshold = 0.85,
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
-    ldir_flip_y_for_alignment = FALSE, # map_pixels_to_um_circle already inverts y;
+    ldir_flip_y_for_alignment = FALSE, # the LDIR image mapping already inverts y;
                                        # Raman y is also upward — no second flip needed
     ldir_rotate_deg_for_alignment = -90, # clockwise rotation applied before alignment;
                                           # corrects instrument export convention vs Raman.
@@ -173,7 +173,9 @@ make_config <- function(ftir_path  = NULL,
     # these is logged as suspicious.
     icp_min_scale        = 0.5,   # scale below this → WARN (likely degenerate)
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
-    icp_max_rotation_deg = 90,    # |rotation| above this → WARN (likely spurious)
+    # (No rotation warning: the aligners search the full 360 degrees and a
+    # filter can sit in any orientation -- dataset A is rotated ~180 degrees
+    # between FTIR/LDIR and Raman.)
 
     # Enable/disable scan-circle detection for LDIR image coordinate mapping.
     # TRUE  (default): detect the circular scan area and use it for µm calibration.
@@ -459,13 +461,13 @@ make_config <- function(ftir_path  = NULL,
     # --- Particle matching ---
     match_method               = "hungarian",  # "hungarian" or "greedy"
     match_dist_threshold_um    = 100,   # FTIR<->Raman gate (fine, dense)
-    # Dedicated, looser gate for any pairing that involves LDIR. LDIR
-    # centroids are coarser (circle calibration, large particles) so genuine
-    # matches sit at larger residuals — on real runs the 90th percentile of
-    # true LDIR<->Raman match distance is ~220 um, which the 100 um gate cuts.
-    # Measure headroom for a given run with tools/diagnose_matching.R.
+    # Dedicated gate for any pairing that involves LDIR (coarser,
+    # image-derived centroids). Dataset A (all four instruments): LDIR<->Raman
+    # match distances median 8.5, p90 41, max 113 um; at the former 250 um gate
+    # 8.5-13 of 34 matches were expected by chance alone. Measure headroom for
+    # a given run with tools/diagnose_matching.R.
     # NULL = fall back to match_dist_threshold_um.
-    match_dist_threshold_ldir_um = 250,
+    match_dist_threshold_ldir_um = 150,
     match_adaptive_dist_factor = 0.15,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",
@@ -478,10 +480,23 @@ make_config <- function(ftir_path  = NULL,
     # Ambiguity detection
     ambiguity_radius_um        = 50,    # radius for counting nearby candidates
 
-    # --- Material equivalence mapping ---
-    material_map_ftir  = NULL,
-    material_map_raman = NULL,
-    material_map_ldir  = NULL,
+    # --- Readers (R/01_readers.R, docs/input_format.md) ---
+    # <role>_column_map: read that role's file with the generic column-mapping
+    # reader instead of the built-in one (an R list or a JSON file path).
+    # Roles: ftir, ftir_bruker, raman, ldir. An LDIR table that maps x_um/y_um
+    # needs no image.
+    ftir_column_map        = NULL,
+    ftir_bruker_column_map = NULL,
+    raman_column_map       = NULL,
+    ldir_column_map        = NULL,
+    # Material tables: instrument label -> name used for classification.
+    # NULL = inst/materials/<role>.csv; or a path / data frame per role.
+    material_table_dir        = NULL,
+    ftir_material_table       = NULL,
+    ftir_bruker_material_table = NULL,
+    raman_material_table      = NULL,
+    ldir_material_table       = NULL,
+    sample_id                 = NA_character_,  # written to every particle table
 
     # --- Spectral-library index (R/08b_material_map.R) ---
     # Folder with the licensed Raman library listings (PDFs). NULL = look for
