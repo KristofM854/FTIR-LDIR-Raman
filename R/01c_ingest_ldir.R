@@ -1440,8 +1440,8 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   # --- Config knobs ---
   w_ar        <- if (!is.null(config$ldir_join_weight_ar))            config$ldir_join_weight_ar            else 0.3
   w_rank      <- if (!is.null(config$ldir_join_weight_rank))          config$ldir_join_weight_rank          else 2.0
-  conf_thr    <- if (!is.null(config$ldir_join_confidence_threshold)) config$ldir_join_confidence_threshold else 0.3
-  conf_marg   <- if (!is.null(config$ldir_join_confidence_margin))    config$ldir_join_confidence_margin    else 1.5
+  conf_thr    <- cfg_value(config, "ldir_join_confidence_threshold")
+  conf_marg   <- cfg_value(config, "ldir_join_confidence_margin")
   keep_factor <- if (!is.null(config$ldir_join_blob_keep_factor))     config$ldir_join_blob_keep_factor     else 1.1
 
   # --- Pre-filter image blobs ---
@@ -1564,7 +1564,7 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   #
   # The term is inert unless the image side carries the descriptors, so the
   # optical-image path is unaffected.
-  w_shape     <- if (!is.null(config$ldir_join_weight_shape)) config$ldir_join_weight_shape else 1.0
+  w_shape     <- cfg_value(config, "ldir_join_weight_shape")
   shape_descs <- if (!is.null(config$ldir_join_shape_descriptors)) config$ldir_join_shape_descriptors else "eccentricity"
   gate_scale  <- if (!is.null(config$ldir_join_shape_size_gate)) config$ldir_join_shape_size_gate else 0.15
   shape_cost  <- matrix(0, nrow = n_excel, ncol = n_image)

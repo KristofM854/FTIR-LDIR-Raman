@@ -52,3 +52,18 @@ test_that("global_register_align reproduces the pre-refactor baseline", {
                        151.56799790, 54.31971715, 1), nrow = 3)
   expect_equal(unname(g$transform), baseline, tolerance = 1e-6)
 })
+
+test_that("a coarse pose found on centred clouds maps correctly in the original frame", {
+  # global_register_align() falls back to this when the pose has no usable
+  # correspondences; the fallback used to drop the rotated source centroid.
+  set.seed(3)
+  sx <- runif(20, 0, 3000); sy <- runif(20, 0, 3000)
+  sc <- c(mean(sx), mean(sy)); rc <- c(500, -200)
+  for (mir in c(FALSE, TRUE)) {
+    pose <- list(deg = 37, s = 1.1, mir = mir, tx = 40, ty = -25)
+    want <- align_pose_xy(pose$deg, pose$s, pose$mir, sx - sc[1], sy - sc[2])
+    got  <- apply_transform_points(sx, sy, coarse_pose_matrix(pose, sc, rc))
+    expect_equal(got$x_transformed, want$x + pose$tx + rc[1], tolerance = 1e-9)
+    expect_equal(got$y_transformed, want$y + pose$ty + rc[2], tolerance = 1e-9)
+  }
+})

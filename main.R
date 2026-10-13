@@ -1042,7 +1042,7 @@ if (has_ldir && !is.null(ldir_raw)) {
       ldir_with_coords,
       flip_y       = isTRUE(config$ldir_flip_y_for_alignment),
       scale_coords = isTRUE(config$normalize_scale),
-      rotate_deg   = config$ldir_rotate_deg_for_alignment %||% 0,
+      rotate_deg   = cfg_value(config, "ldir_rotate_deg_for_alignment"),
       debug_dir    = if (isTRUE(config$debug)) config$debug_dir else NULL
     )
     ldir_with_coords <- ldir_norm_result$df
@@ -1448,7 +1448,9 @@ if (has_ldir && !is.null(ldir_raw)) {
             !is.null(.residuals_for_overlay) &&
             nrow(.residuals_for_overlay) > 0) {
           arrow_df <- if (nrow(.residuals_for_overlay) > 150)
-            .residuals_for_overlay[sample.int(nrow(.residuals_for_overlay), 150), ]
+            # evenly spaced, not random: the same run must draw the same plot
+            .residuals_for_overlay[unique(round(seq(1, nrow(.residuals_for_overlay),
+                                                    length.out = 150))), ]
           else .residuals_for_overlay
           p_overlay <- p_overlay +
             ggplot2::geom_segment(

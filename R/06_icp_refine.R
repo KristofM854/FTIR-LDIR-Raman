@@ -31,7 +31,7 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config,
   max_pair_dist  <- config$icp_max_pair_dist_um
   allow_mirror   <- config$ransac_allow_mirror
   use_reciprocal <- isTRUE(config$icp_reciprocal)
-  trim_pct       <- if (!is.null(config$icp_trim_pct)) config$icp_trim_pct else 0
+  trim_pct       <- cfg_value(config, "icp_trim_pct")
 
   use_elong_weight <- isTRUE(config$icp_elongation_downweight)
   elong_alpha      <- if (!is.null(config$icp_elongation_alpha)) config$icp_elongation_alpha else 0.5
@@ -46,11 +46,11 @@ icp_refine <- function(ftir_df, raman_df, initial_transform, config,
   # 0.06) scores 38 um. Left unconstrained ICP walks straight down that hill.
   #
   # Both clouds are in physical micrometres, so the true scale is near 1.
-  # ransac_align() already enforces [0.8, 1.25]; ICP had no such guard, which
-  # is how a run ended up with scale 0.2336. Clamp each re-estimate to the same
-  # band and keep the rotation/translation from that step.
-  scale_min <- if (!is.null(config$icp_scale_min)) config$icp_scale_min else 0.8
-  scale_max <- if (!is.null(config$icp_scale_max)) config$icp_scale_max else 1.25
+  # ICP had no guard, which is how a run ended up with scale 0.2336. Clamp
+  # each re-estimate to [icp_scale_min, icp_scale_max] (declared in
+  # make_config()) and keep the rotation/translation from that step.
+  scale_min <- cfg_value(config, "icp_scale_min")
+  scale_max <- cfg_value(config, "icp_scale_max")
   n_clamped <- 0L
 
   ftir_x  <- ftir_df$x_norm

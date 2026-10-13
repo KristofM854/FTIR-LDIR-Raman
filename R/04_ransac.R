@@ -544,6 +544,26 @@ build_coarse_transform_with_translation <- function(angle_deg, mirror, tx, ty,
 }
 
 
+#' 3x3 transform of a pose found on centred clouds, in the original frame.
+#'
+#' global_register_align() searches rotation/scale/mirror/translation on
+#' clouds centred at their means (src - sc, ref - rc). In the original frame
+#' the translation is therefore t + rc - s*R(sc), with R including the mirror.
+#' (The coarse fallback used to drop the s*R(sc) term, misplacing the source by
+#' about its centroid distance from the origin.)
+#'
+#' @param pose list(deg, s, mir, tx, ty) from the pose search
+#' @param src_centroid,ref_centroid numeric(2)
+#' @return 3x3 matrix
+coarse_pose_matrix <- function(pose, src_centroid, ref_centroid) {
+  sc_t <- align_pose_xy(pose$deg, pose$s, pose$mir, src_centroid[1], src_centroid[2])
+  build_coarse_transform_with_translation(
+    pose$deg, pose$mir,
+    pose$tx + ref_centroid[1] - sc_t$x, pose$ty + ref_centroid[2] - sc_t$y,
+    scale = pose$s)
+}
+
+
 # ============================================================================
 # Global registration — robust alignment for sparse / heavily-transformed
 # point clouds (e.g. LDIR -> Raman with large scale + rotation differences).
@@ -570,7 +590,7 @@ global_register_align <- function(src_df, ref_df, config,
          ", ref ", n_ref, ")")
 
   tol      <- if (is.null(config$ransac_inlier_dist_um)) 200 else config$ransac_inlier_dist_um
-  step_deg <- if (is.null(config$ransac_coarse_step_deg)) 2 else config$ransac_coarse_step_deg
+  step_deg <- cfg_value(config, "ransac_coarse_step_deg")
   if (step_deg < 2) step_deg <- 2   # 1-deg grid is needless here and slow
 
   scx <- mean(sx); scy <- mean(sy); rcx <- mean(rx); rcy <- mean(ry)
@@ -588,8 +608,8 @@ global_register_align <- function(src_df, ref_df, config,
   # starting pose. Keep the same band ransac_align() enforces, widened only as
   # far as span_ratio actually implies. Override with config$align_scale_min /
   # _max for data where the two frames genuinely differ in scale.
-  s_min <- if (!is.null(config$align_scale_min)) config$align_scale_min else 0.8
-  s_max <- if (!is.null(config$align_scale_max)) config$align_scale_max else 1.25
+  s_min <- cfg_value(config, "align_scale_min")
+  s_max <- cfg_value(config, "align_scale_max")
   if (is.finite(span_ratio) && span_ratio > 0) {
     s_min <- min(s_min, span_ratio * 0.75)
     s_max <- max(s_max, span_ratio * 1.25)
@@ -672,9 +692,7 @@ global_register_align <- function(src_df, ref_df, config,
   }
 
   # No usable correspondences — hand back the coarse pose transform
-  M <- build_coarse_transform_with_translation(best$deg, best$mir,
-         best$tx + rcx - best$s * 0, best$ty + rcy - best$s * 0,
-         scale = best$s)
+  M <- coarse_pose_matrix(best, c(scx, scy), c(rcx, rcy))
   log_message("  Global registration: only ", best$n,
               " coarse inliers, no refit — using coarse pose", level = "WARN")
   list(transform = M, params = extract_transform_params(M),

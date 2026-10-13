@@ -88,7 +88,7 @@ match_particles <- function(src_df, ref_df, config,
               if (force_complete) " [force_complete]" else "")
 
   dist_thresh     <- config$match_dist_threshold_um
-  adaptive_factor <- config$match_adaptive_dist_factor %||% 0
+  adaptive_factor <- cfg_value(config, "match_adaptive_dist_factor")
   lam_area        <- config$match_lambda_area   %||% 0.3
   lam_feret       <- config$match_lambda_feret  %||% 0.3
   lam_aspect      <- config$match_lambda_aspect %||% 0.1
@@ -200,7 +200,7 @@ match_particles <- function(src_df, ref_df, config,
   log_message("  Using greedy nearest-neighbour matching")
 
   dist_thresh      <- config$match_dist_threshold_um
-  adaptive_factor  <- config$match_adaptive_dist_factor %||% 0
+  adaptive_factor  <- cfg_value(config, "match_adaptive_dist_factor")
   size_weight      <- config$match_size_weight
   size_metric      <- config$match_size_metric
 

@@ -76,6 +76,17 @@ as_number <- function(x) {
 }
 
 
+#' A config value, or its make_config() default when the caller's config lacks
+#' it (tools and tests pass partial configs). Keeps one source of defaults:
+#' an inline fallback that differs from make_config() makes the same function
+#' behave differently depending on who calls it.
+cfg_value <- function(config, key) {
+  v <- config[[key]]
+  if (is.null(v)) v <- make_config()[[key]]
+  v
+}
+
+
 #' Parse FTIR coordinate string "[x;y]" into numeric x, y
 #' @param coord_str Character vector of strings like "[1234;5678]" or "[1234.5;5678.9]"
 #' @return Data frame with columns x_um and y_um

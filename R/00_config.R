@@ -153,6 +153,18 @@ make_config <- function(ftir_path  = NULL,
     ldir_tps_min_controls = 6,     # min confident matches to attempt TPS
 
     # Transform guardrail thresholds (applied to every alignment path):
+    # Scale band each aligner may use (FTIR/Raman/LDIR coordinates are all in
+    # micrometres, so the true scale is near 1). Global registration searches
+    # [align_scale_min, align_scale_max], widened to the clouds' span ratio;
+    # ICP clamps every re-estimate to [icp_scale_min, icp_scale_max] because its
+    # nearest-neighbour objective rewards shrinking the source (collapse). The
+    # run log says when the ICP clamp binds.
+    align_scale_min      = 0.8,
+    align_scale_max      = 1.25,
+    icp_scale_min        = 0.8,
+    icp_scale_max        = 1.25,
+    # Warning thresholds only (no clamping): a final scale/rotation outside
+    # these is logged as suspicious.
     icp_min_scale        = 0.5,   # scale below this → WARN (likely degenerate)
     icp_max_scale        = 2.0,   # scale above this → WARN (likely degenerate)
     icp_max_rotation_deg = 90,    # |rotation| above this → WARN (likely spurious)
