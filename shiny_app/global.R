@@ -897,10 +897,7 @@ load_image_raster <- function(path) {
       if (length(img_mg) > 1) img_mg <- img_mg[1]
       img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
       raw_data <- magick::image_data(img_rgb, channels = "rgba")
-      vals <- if (is.character(raw_data)) strtoi(raw_data, base = 16L)
-              else as.integer(raw_data)
-      arr <- array(vals / 255, dim = dim(raw_data))
-      aperm(arr, c(3, 2, 1))   # [4, W, H] -> [H, W, 4] (RGBA raster)
+      magick_bitmap_array(raw_data) / 255   # [H, W, 4] RGBA raster
     }, error = function(e) NULL)
     if (!is.null(arr)) return(arr)
   }

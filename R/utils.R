@@ -402,11 +402,7 @@ read_image_any <- function(path, verbose = TRUE) {
       img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
       # Export as RGBA bitmap (4 channels; images without alpha get A=255)
       raw_data <- magick::image_data(img_rgb, channels = "rgba")
-      vals <- if (is.character(raw_data)) strtoi(raw_data, base = 16L)
-              else as.integer(raw_data)
-      arr <- array(vals / 255, dim = dim(raw_data))
-      arr <- aperm(arr, c(3, 2, 1))   # [4, W, H] -> [H, W, 4] (RGBA raster)
-      return(arr)
+      return(magick_bitmap_array(raw_data) / 255)   # [H, W, 4] RGBA raster
     }, error = function(e) {
       log_message("  magick failed (", e$message, "), trying pkg fallback",
                   level = "WARN")
@@ -509,9 +505,7 @@ make_preview_image <- function(img_rgb, max_dim = 1200L) {
       raw <- magick::image_data(
                magick::image_convert(mg, colorspace = "sRGB"),
                channels = "rgb")
-      vals <- if (is.character(raw)) strtoi(raw, base = 16L) else as.integer(raw)
-      out  <- array(vals, dim = c(3L, nw, nh))
-      out  <- aperm(out, c(3L, 2L, 1L))        # [3,W,H] -> [H,W,3]
+      out  <- magick_bitmap_array(raw)          # [H, W, 3]
       storage.mode(out) <- "integer"
       return(out)
     }, error = function(e) NULL)
