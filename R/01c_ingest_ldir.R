@@ -28,6 +28,7 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
   log_message("Reading LDIR data from: ", filepath)
 
   raw <- readxl::read_excel(filepath, sheet = sheet)
+  require_rows(raw, filepath, "LDIR")
 
   # Sanitize column names to valid UTF-8 immediately
   names(raw) <- safe_colnames(names(raw))
@@ -72,6 +73,7 @@ ingest_ldir <- function(filepath, sheet = "Particles") {
   } else {
     paste0("LDIR_", seq_len(nrow(raw)))
   }
+  require_unique_ids(particle_ids, filepath, "LDIR")
 
   # Sizes
   width_um  <- safe_col_numeric(raw, width_col)

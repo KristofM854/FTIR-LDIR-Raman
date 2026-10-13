@@ -61,6 +61,21 @@ get_output_dirs <- function(run_dir) {
 # Coordinate parsing
 # ---------------------------------------------------------------------------
 
+#' Convert to numeric, accepting a decimal comma ("15898,4").
+#'
+#' Exports written on a machine with a European locale use "," as the decimal
+#' mark; as.numeric() turns those into NA without an error. A value that is a
+#' plain number with exactly one comma and no point is read as a decimal comma.
+#' (Instrument exports do not use thousands separators.)
+as_number <- function(x) {
+  if (is.numeric(x)) return(as.numeric(x))
+  x <- trimws(as.character(x))
+  dec_comma <- !is.na(x) & grepl("^[-+]?[0-9]*,[0-9]+([eE][-+]?[0-9]+)?$", x)
+  x[dec_comma] <- sub(",", ".", x[dec_comma], fixed = TRUE)
+  suppressWarnings(as.numeric(x))
+}
+
+
 #' Parse FTIR coordinate string "[x;y]" into numeric x, y
 #' @param coord_str Character vector of strings like "[1234;5678]" or "[1234.5;5678.9]"
 #' @return Data frame with columns x_um and y_um
@@ -70,8 +85,9 @@ parse_ftir_coordinates <- function(coord_str) {
   cleaned <- gsub("\\[|\\]", "", coord_str)
   parts   <- strsplit(cleaned, ";")
 
-  x_um <- vapply(parts, function(p) as.numeric(p[1]), numeric(1))
-  y_um <- vapply(parts, function(p) as.numeric(p[2]), numeric(1))
+  # as_number() also accepts a decimal comma: "[94,5;1650,2]".
+  x_um <- vapply(parts, function(p) as_number(p[1]), numeric(1))
+  y_um <- vapply(parts, function(p) as_number(p[2]), numeric(1))
 
   data.frame(x_um = x_um, y_um = y_um)
 }
