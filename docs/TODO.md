@@ -12,12 +12,15 @@ Bruker if available):
 - [ ] Before/after comparison of all outputs on every dataset (Phase 2 refactor
       must reproduce them or explain each difference).
 - [ ] Null model: expected chance matches at the chosen gates, per instrument
-      pair (method validated on synthetic data: ~28 chance matches of 130 at
-      160/158 particles, 100 µm gate).
-- [ ] Parameter sensitivity: match_dist_threshold_um, ransac_inlier_dist_um,
-      landmark sizes, size prefilters, HQI and LDIR quality cutoffs.
-- [ ] LDIR join check against Raman (same-family neighbour rate vs chance),
-      replacing the scan-order test, which cannot detect a bad join.
+      pair: `tools/validation.R` (`examples/validate_example_A.R`); dataset A
+      below. Repeat on the other datasets.
+- [ ] Parameter sensitivity (gate, landmark tier on/off, landmark size,
+      Raman size filter, TPS, RANSAC inlier distance): `tools/validation.R`;
+      dataset A below. Quality-cutoff sweep still to add.
+- [ ] LDIR join check against Raman: `ldir_join_check()` (family agreement and
+      LDIR-table vs Raman size correlation, against randomly re-assigned LDIR
+      rows). Dataset A below. Still to decide: replace the scan-order log line
+      with it in the pipeline itself?
 - [x] Actual scales on dataset A (all four instruments): FTIR→Raman 0.9965,
       Bruker→Raman 1.0021, LDIR→Raman 1.0381; the ICP clamp never engaged, so
       the 0.8-1.25 band stays for every pair. Re-check on the other datasets.
@@ -37,6 +40,23 @@ Bruker if available):
 
 Matched pairs are identical before and after the Phase 1.5 changes (all six
 pair files). The manual LDIR swap file corrects 10 of 40 image joins.
+
+Validation (`examples/validate_example_A.R`, 200 displacements per null):
+
+| Pair | observed | chance: rotation / shift / Poisson | gate 0.5x → 2x: matched |
+|---|---|---|---|
+| FTIR (PerkinElmer)–Raman | 32 | 2.9 / 1.7 / 2.1 | 31 → 33 |
+| FTIR (Bruker)–Raman | 29 | 3.1 / 2.0 / 2.6 | 27 → 31 |
+| LDIR–Raman (150 µm) | 34 | 5.8 / 4.1 / 5.4 | 33 → 34 |
+
+- Alignment: every sweep value (landmark tier on/off, landmark size 50–200 µm,
+  Raman size filter 10–40 µm, TPS on/off, RANSAC inlier distance 100–300 µm
+  with Tier 2 forced) keeps 100% of the baseline pairs. Different coarse
+  starts (landmark vs RANSAC, rotations differing by up to 0.4°) converge to
+  the same final transform after ICP.
+- LDIR join: size Spearman LDIR table vs Raman 0.78 (random join 0.00, 95%
+  0.28; p < 0.001; biased upward by the matcher's size term). Family
+  agreement is uninformative here (single-polymer sample: random join 91%).
 
 ## Waiting for a decision
 

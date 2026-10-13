@@ -20,7 +20,8 @@
 #'   ftir_path, raman_path, and optionally ftir_bruker_path, ldir_path,
 #'   ftir_image, ftir_bruker_image, raman_image, ldir_image)
 #' @param report Also write the PDF / HTML report
-#' @return Invisibly, a list: config (as run, incl. output_dir), raman (the
+#' @return Invisibly, a list: config (as run, incl. output_dir), raw (the
+#'   canonical particle tables as read), raman (the
 #'   reference frame), ftir, ftir_bruker (align_and_match() results), ldir
 #'   (LDIR stage results), cross (Bruker<->PerkinElmer, Bruker<->LDIR matches),
 #'   composites, tps_assessment
@@ -672,7 +673,10 @@ run_pipeline <- function(config, report = TRUE) {
 
   if (isTRUE(report)) write_pipeline_report(config)
 
-  invisible(list(config = config, raman = ref, ftir = ftir_pair, ftir_bruker = bruker_pair,
+  invisible(list(config = config,
+                 raw = list(ftir = ftir_raw, ftir_bruker = ftir_bruker_raw,
+                            raman = raman_raw, ldir = ldir_raw),
+                 raman = ref, ftir = ftir_pair, ftir_bruker = bruker_pair,
                  ldir = ldir_results,
                  cross = list(ftir_bruker_ftir_perkin = bruker_perkin_match,
                               ftir_bruker_ldir = bruker_ldir_match),
