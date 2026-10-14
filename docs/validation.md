@@ -40,8 +40,9 @@ pair re-aligned): landmark tier on/off (forcing RANSAC vs global
 registration), landmark size 50–200 µm, Raman size filter 10–40 µm, TPS
 on/off, RANSAC inlier distance 100–300 µm with Tier 2 forced. **Every variant
 keeps 100% of the baseline pairs.** Different coarse starts (landmark vs
-RANSAC; coarse rotations differing by up to 0.4°) converge to the same final
-transform after ICP.
+RANSAC; coarse rotations differing by up to 0.6°) converge to the same final
+transform after ICP. (Tier 2 with the default geometric anchors, i.e. no
+material anchor filter.)
 
 **Synthetic** (`tests/testthat/test-pipeline-synthetic.R`): 120 particles in
 the Raman frame; FTIR (PerkinElmer) rotated 178° and scaled 0.997, written in
@@ -53,7 +54,19 @@ true correspondence (100 of 100 per instrument).
 ## 2. Matching and chance matches
 
 Matching is one-to-one (Hungarian) within a distance gate: 100 µm, 150 µm for
-pairs involving LDIR.
+pairs involving LDIR. The cost is the centre distance in µm plus unitless size
+and shape terms (0.3·|ln area ratio| + 0.3·|ln Feret ratio| + 0.1·relative
+aspect-ratio difference) that add less than 1.5 µm even for a tenfold size
+difference: **matching is effectively by distance**, with size and shape only
+breaking near-ties. For the paper (Methods):
+
+> Particles were paired one-to-one between instruments with the Hungarian
+> algorithm, minimising the summed centre-to-centre distance within a 100 µm
+> gate (150 µm for pairs involving LDIR). Size and shape enter the cost only
+> as small tie-breaking terms (< 1.5 µm equivalent), so pairing is
+> effectively by position. Material identifications were not used for
+> alignment or pairing, so the material agreement between instruments is an
+> independent comparison.
 
 **Dataset A**
 

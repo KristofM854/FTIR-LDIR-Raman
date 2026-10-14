@@ -187,7 +187,17 @@ Alignment is **geometric** — it uses position, size, and shape, never material
 
 The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**.
 
-`align_ftir_materials` / `align_raman_materials` optionally narrow the Tier 2 anchor set to polymers both instruments should agree on. This is a **hint for spiked lab samples, not a requirement**: the filter is honoured only while it leaves at least `align_min_anchor_count` particles, otherwise the full cloud is used and the log says so. Set them to `NULL` for field samples.
+`align_ftir_materials` / `align_raman_materials` / `align_ldir_materials` can narrow the Tier 2 anchor set to polymers both instruments identify reliably (e.g. PET and PP on spiked lab samples). They are **off by default** (`NULL`): alignment is then purely geometric and does not depend on the identifications it is later used to compare. When set, a filter is honoured only while it leaves at least `align_min_anchor_count` particles.
+
+### Matching
+
+Particles are paired one-to-one (Hungarian algorithm) within a distance gate
+(100 µm; 150 µm for pairs involving LDIR), minimising the summed cost. The
+cost is the centre-to-centre distance in µm plus small unitless size and
+shape terms, 0.3·|ln(area ratio)| + 0.3·|ln(Feret ratio)| + 0.1·(relative
+aspect-ratio difference). These add less than 1.5 µm even for a tenfold size
+difference, so **matching is effectively by distance**: size and shape only
+decide between candidates whose distances differ by about a micrometre.
 
 ### LDIR coordinate extraction
 
@@ -225,7 +235,7 @@ On a single-polymer sample only the size statistic is informative.
 | Step | Size filter | Material filter | HQI filter |
 |------|-------------|-----------------|------------|
 | Spatial transform (landmarks, ICP) | ≥ 20 µm | none | none |
-| Tier 2 alignment anchors | ≥ 20 µm | PET / PP if ≥ 4 available, else none | ≥ 70 if ≥ 4 available, else none |
+| Tier 2 alignment anchors | ≥ 20 µm | none (optional: e.g. PET / PP if ≥ 4 available) | ≥ 70 if ≥ 4 available, else none |
 | Spatial matching | all | none | none |
 | Agreement scoring | all | none | ≥ 70 |
 
@@ -324,14 +334,13 @@ All parameters are in `R/00_config.R` (`make_config()`); every run records the
 full set in `00_manifest/config_full.json`. Key settings:
 
 ```r
-# Alignment anchors — a HINT, not a requirement. Alignment is geometric; these
-# only narrow the anchor set when the sample happens to contain these polymers.
-# Each filter is honoured only while it leaves >= align_min_anchor_count
-# particles, otherwise the full cloud is used. Set to NULL to disable material
-# anchoring entirely (recommended for field samples).
-align_ftir_materials      = c("PET", "Polypro")
-align_raman_materials     = c("Polyethylene terephtalate", "Polypropylene")
-align_ldir_materials      = c("Polyethylene terephthalate", "Polypropylene", "Polycarbonate")
+# Alignment anchors — off by default: alignment is purely geometric. On spiked
+# lab samples they can narrow the Tier 2 anchor set to polymers every
+# instrument identifies reliably; a filter is honoured only while it leaves
+# >= align_min_anchor_count particles.
+align_ftir_materials      = NULL   # e.g. c("PET", "Polypro") for spiked samples
+align_raman_materials     = NULL   # e.g. c("Polyethylene terephtalate", "Polypropylene")
+align_ldir_materials      = NULL
 align_min_anchor_count    = 4      # below this, the material filter is dropped
 align_raman_min_size_um   = 20     # Raman particles below this are excluded from alignment
 
@@ -420,8 +429,6 @@ to switch the index off).
 ## Known limitations
 
 - **LDIR scan area**: `ldir_scan_diameter_um` defaults to 13,000 µm (13 mm filter). If the LDIR software scans a smaller or differently-shaped area, adjust this setting. The pipeline emits a WARN log when LDIR ICP RMS > 100 µm, which is the primary diagnostic for a mismatched scan area.
-
-- **LDIR material anchor count**: The LDIR RANSAC alignment uses PET, PP, and PC particles as anchors. If fewer than 4 such particles exist in the dataset, all particles are used, which can produce a poor initial transform for the alignment step.
 
 - **FTIR feret size**: The PerkinElmer Spotlight CSV does not export a dedicated Feret Max column. The pipeline uses `Major dim` as a proxy, which may overestimate actual Feret dimensions for non-convex particles.
 

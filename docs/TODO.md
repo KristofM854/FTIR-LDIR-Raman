@@ -97,15 +97,16 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
 - [x] M2 Tier 2 race scored on one-to-one pairs (tier2_pairs()).
 - [x] M3 Landmarks trusted only with >= 8 one-to-one landmark pairs
       (landmark_min_pairs); dataset A has 18 / 17 / 16.
-- [ ] M4 Matching cost is effectively distance-only; state in the paper.
+- [x] M4 Matching is effectively distance-only: stated in README and
+      docs/validation.md (with a Methods sentence for the paper).
 - [x] M5 Composite matches no longer share a Raman fragment.
 - [x] M8 Image placements without metadata / calibration / registration are
       labelled "approximate image placement" in the viewer and report.
 - [x] M10 Triplets: direct_ldir_ftir_match flags LDIR and FTIR particles that
       are not each other's direct match (dataset A: 0 of 32).
-- [ ] M11 Anchor material lists (PET/PP) as default: open question.
-      LDIR -90 deg pre-rotation kept as the Agilent export convention;
-      debug trace IDs removed.
+- [x] M11 Anchor material lists off by default (NULL); LDIR -90 deg
+      pre-rotation kept as the Agilent export convention; debug trace IDs
+      removed.
 - [x] M12/M13 run_pipeline(config) + align_and_match().
 - [x] M16 Size definitions stated in docs/input_format.md.
 - [x] L3 unmatched_ftir / unmatched_raman aliases removed for non-FTIR pairs.
