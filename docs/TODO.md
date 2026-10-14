@@ -86,7 +86,11 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
 - [ ] Check that the GitHub workflow is green after the push (it now pins
       R 4.6.1 and installs everything DESCRIPTION declares; not run on GitHub
       from this branch yet).
-- [ ] ORCID, co-authors and DOI in CITATION.cff / .zenodo.json (Phase 4).
+- [ ] CITATION.cff / .zenodo.json: ORCID, affiliation, co-authors,
+      date-released, and the DOI once Zenodo has minted it (then the
+      method paper as preferred-citation).
+- [ ] docs/ai_assistance.md: confirm whether any commits under your name
+      (e.g. 2026-02-27) contain code from other AI tools.
 
 ## Deferred audit findings (Phase 2 or later)
 

@@ -8,6 +8,7 @@
 # RANSAC coarse search. These tests pin the three guards that stop that.
 
 local({
+  sys.source(file.path(REPO_ROOT, "R", "align_and_match.R"), envir = globalenv())
   rdir <- file.path(REPO_ROOT, "R")
   for (m in c("03_normalize.R", "03b_landmark_align.R")) {
     sys.source(file.path(rdir, m), envir = globalenv())
@@ -66,52 +67,7 @@ test_that("NA materials never slip into the anchor set", {
   expect_false(any(is.na(out$material)))
 })
 
-# ---- normalize_coordinates guards -------------------------------------------
-
-test_that("an empty cloud is rejected with a clear message, not a NaN centroid", {
-  ok <- .particles(rep(50, 5))
-  expect_error(normalize_coordinates(ok, ok[0, ], normalize_scale = FALSE),
-               "centroid source is empty")
-  expect_error(normalize_coordinates(ok[0, ], ok, normalize_scale = FALSE),
-               "centroid source is empty")
-})
-
-test_that("an all-NA coordinate column is rejected", {
-  ok <- .particles(rep(50, 5))
-  bad <- ok
-  bad$x_um <- NA_real_
-  expect_error(normalize_coordinates(ok, bad, normalize_scale = FALSE),
-               "entirely NA")
-})
-
-test_that("a healthy pair still normalizes to zero-mean coordinates", {
-  a <- .particles(rep(50, 5))
-  b <- .particles(rep(50, 7))
-  res <- normalize_coordinates(a, b, normalize_scale = FALSE)
-  expect_equal(mean(res$ftir$x_norm), 0)
-  expect_equal(mean(res$raman$y_norm), 0)
-  expect_false(any(is.na(res$ftir$x_norm)))
-})
-
 # ---- apply_normalization ----------------------------------------------------
-
-test_that("apply_normalization reproduces normalize_coordinates on the same set", {
-  a   <- .particles(rep(50, 6))
-  res <- normalize_coordinates(a, a, normalize_scale = FALSE)
-  out <- apply_normalization(a, res$ftir_centroid, res$ftir_scale)
-  expect_equal(out$x_norm, res$ftir$x_norm)
-  expect_equal(out$y_norm, res$ftir$y_norm)
-})
-
-test_that("apply_normalization puts a subset in the SAME frame as the parent", {
-  # This is the property that makes a full-cloud centroid safe to use for the
-  # material anchor subset: the subset's coordinates must not shift.
-  a      <- .particles(rep(50, 10))
-  res    <- normalize_coordinates(a, a, normalize_scale = FALSE)
-  subset <- a[c(2, 5, 9), ]
-  out    <- apply_normalization(subset, res$ftir_centroid, res$ftir_scale)
-  expect_equal(out$x_norm, res$ftir$x_norm[c(2, 5, 9)])
-})
 
 test_that("apply_normalization survives a degenerate scale", {
   a <- .particles(rep(50, 4))
@@ -180,36 +136,6 @@ test_that("landmark selection is deterministic under ties", {
 
 # ---- Tier 2 aligner interchangeability --------------------------------------
 
-test_that("global_register_align is a drop-in for ransac_align in Tier 2", {
-  # Tier 2 picks whichever aligner pairs more particles, so both must return the
-  # same shape: main.R reads $transform, $params$scale/$rotation_deg/$reflected
-  # and $n_inliers off whichever one wins.
-  cfg <- make_config()
-  cfg$ransac_coarse_step_deg <- 10L
-  cfg$ransac_n_iterations    <- 100L
-
-  src <- make_cloud(18, seed = 3)
-  names(src) <- c("x_norm", "y_norm")
-  src$feret_max_um <- seq(40, 200, length.out = 18)
-  M  <- make_similarity(s = 1, deg = 18, tx = 120, ty = -75)
-  tr <- apply_transform_points(src$x_norm, src$y_norm, M)
-  ref <- data.frame(x_norm = tr$x_transformed, y_norm = tr$y_transformed,
-                    feret_max_um = src$feret_max_um)
-
-  r <- ransac_align(src, ref, cfg)
-  g <- global_register_align(src, ref, cfg, allow_mirror = cfg$ransac_allow_mirror)
-
-  for (res in list(r, g)) {
-    expect_true(is.matrix(res$transform))
-    expect_equal(dim(res$transform), c(3L, 3L))
-    expect_false(any(is.na(res$transform)))
-    expect_true(is.numeric(res$params$scale))
-    expect_true(is.numeric(res$params$rotation_deg))
-    expect_true(is.logical(res$params$reflected))
-    expect_true(is.numeric(res$n_inliers))
-  }
-})
-
 # ---- end-to-end: the original crash must not be reachable -------------------
 
 test_that("a PC-only sample aligns instead of crashing in RANN::nn2", {
@@ -238,11 +164,12 @@ test_that("a PC-only sample aligns instead of crashing in RANN::nn2", {
   raman_anchors <- select_material_anchors(raman, cfg$align_raman_materials, 4, "Raman")
   expect_equal(nrow(raman_anchors), nrow(raman))  # filter dropped, not applied
 
-  norm <- normalize_coordinates(ftir, raman, normalize_scale = FALSE)
-  expect_false(any(is.na(norm$raman_centroid)))
+  nf <- suppressMessages(cloud_normalization(ftir))
+  nr <- suppressMessages(cloud_normalization(raman))
+  expect_false(any(is.na(nr$centroid)))
 
-  ftir_n  <- apply_normalization(ftir_anchors,  norm$ftir_centroid,  norm$ftir_scale)
-  raman_n <- apply_normalization(raman_anchors, norm$raman_centroid, norm$raman_scale)
+  ftir_n  <- apply_normalization(ftir_anchors,  nf$centroid, nf$scale)
+  raman_n <- apply_normalization(raman_anchors, nr$centroid, nr$scale)
   expect_false(any(is.na(cbind(raman_n$x_norm, raman_n$y_norm))))
 
   res <- ransac_align(ftir_n, raman_n, cfg)

@@ -1,0 +1,21 @@
+{
+  "title": "FTIR-LDIR-Raman: multi-instrument microplastic particle matching pipeline",
+  "upload_type": "software",
+  "version": "1.0.0",
+  "description": "<p>Aligns and matches microplastic particles measured on the same filter by FTIR (PerkinElmer Spotlight, Bruker LUMOS), Raman (WITec) and LDIR (Agilent 8700) microspectroscopy, and compares the instruments' material identifications at family and exact-polymer level. R pipeline with a Python LDIR image backend and a Shiny viewer. Includes an example dataset (one filter, all four instruments), the test suite and validation (docs/validation.md). Developed with AI assistance (docs/ai_assistance.md).</p>",
+  "creators": [
+    {
+      "name": "Moeller, Kristof"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "microplastics",
+    "FTIR",
+    "Raman",
+    "LDIR",
+    "microspectroscopy",
+    "point set registration",
+    "particle matching"
+  ]
+}

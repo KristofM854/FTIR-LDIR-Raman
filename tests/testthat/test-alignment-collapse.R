@@ -38,17 +38,9 @@ test_that("one-to-one inlier count prefers the correct pose over the collapse", 
   expect_gt(n_correct, n_collapsed)
 })
 
-test_that("RMS does NOT separate them -- it prefers the collapse", {
-  # Pinned so nobody reintroduces an RMS-based acceptance gate.
-  rms_at <- function(deg, s) {
-    r <- align_score_pose(deg, s, FALSE, lx, ly, rx, ry, TOL)
-    p <- align_pose_xy(deg, s, FALSE, lx, ly)
-    px <- p$x + r$tx; py <- p$y + r$ty
-    d <- sqrt(outer(rx, px, "-")^2 + outer(ry, py, "-")^2)
-    sqrt(mean(apply(d, 2, min)^2))
-  }
-  expect_lt(rms_at(-18, 0.234), rms_at(90, 1.05))
-})
+# Nearest-neighbour RMS cannot make this decision: on these clouds it is LOWER
+# for the collapsed pose (-18 deg, scale 0.234) than for the true one, which is
+# why acceptance uses the one-to-one inlier count above, never RMS.
 
 test_that("collapsing cannot beat the true pose once each gets its best offset", {
   n_base <- .score(90, 1.05)

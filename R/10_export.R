@@ -8,7 +8,7 @@
 #' @param agreement Result from analyze_agreement()
 #' @param diagnostics List of ggplot objects from generate_diagnostics()
 #' @param icp_result Result from icp_refine()
-#' @param norm_result Result from normalize_coordinates()
+#' @param norm_result Normalisation of the pair (align_and_match()$norm)
 #' @param config Configuration list
 #' @param ftir_scan_bounds Optional scan bounds
 #' @param ldir_results Optional list of LDIR pipeline results

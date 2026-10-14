@@ -2149,7 +2149,7 @@ server <- function(input, output, session) {
 
     # Exact placement when WITec metadata is available: overlay coordinates
     # are Raman stage coordinates minus the Raman centroid (pure translation,
-    # normalize_coordinates() applies no scale/rotation to Raman), so the
+    # the Raman frame applies no scale/rotation to Raman), so the
     # stage-frame extent maps into overlay space by subtracting that same
     # centroid — recovered per-row as (x_orig - x), constant across particles.
     cfg <- tryCatch(active_manifest()$config_snapshot, error = function(e) list())
@@ -5480,7 +5480,7 @@ server <- function(input, output, session) {
     # LDIR only: how confidently this particle's material/quality (an Excel
     # row) was matched to its image-detected position, purely by size
     # similarity (no position is involved in that join - see
-    # docs/multirun_image_placement_plan.md). High cost => the material shown
+    # multi-run placement design notes, `git show 1983824:docs/multirun_image_placement_plan.md`). High cost => the material shown
     # here may belong to a different blob than the one actually plotted,
     # which can surface as a false "material disagreement" between runs.
     # Hidden for instruments with native coordinates (always NA there).
@@ -5588,7 +5588,7 @@ server <- function(input, output, session) {
   # LDIR only: each run's own detected scan circle, side by side. Lets you
   # check whether a scan-circle detection drift between repeat runs (rather
   # than a genuine reproducibility failure) explains missing/discordant
-  # particles - see docs/multirun_image_placement_plan.md. NULL (nothing
+  # particles - see multi-run placement design notes, `git show 1983824:docs/multirun_image_placement_plan.md`. NULL (nothing
   # rendered) for any other instrument or when no per-run circle was
   # recorded (outputs from before this was added).
   output$repro_ldir_circle_ui <- renderUI({

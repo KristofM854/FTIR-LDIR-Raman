@@ -271,7 +271,7 @@ write_transform_audit_json <- function(ldir_norm_params, raman_norm_params,
 #' @param ldir_aligned     Data frame with x_aligned, y_aligned
 #' @param raman_clean      Data frame with x_norm, y_norm
 #' @param ldir_norm_params List with centroid_x/y, scale_factor, y_flip_applied
-#' @param norm_result      Return value of normalize_coordinates() —
+#' @param norm_result      Normalisation of the pair (align_and_match()$norm) —
 #'                         used for raman_centroid and raman_scale
 #' @param ldir_icp         ICP result list with $transform (3×3 matrix)
 #' @param config           Pipeline config list with $output_dir

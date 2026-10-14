@@ -1,4 +1,4 @@
-# Multi-Run Raman placement (docs/multirun_image_placement_plan.md, plan v3):
+# Multi-Run Raman placement (multi-run placement design notes, `git show 1983824:docs/multirun_image_placement_plan.md`, plan v3):
 # raman_image_width/height/center_x/center_y_um is a PER-DATASET WITec value
 # baked into each pipeline run's manifest.json at run time. tools/
 # reproducibility.R must resolve it from the matching run's manifest (matched

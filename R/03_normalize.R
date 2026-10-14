@@ -2,96 +2,16 @@
 # 03_normalize.R — Initial coordinate normalization
 # =============================================================================
 
-#' Normalize coordinates of both point clouds
-#'
-#' Centers both point clouds at their respective centroids.
-#' Optionally normalizes scale (divides by RMS distance from centroid).
-#'
-#' @param ftir_df FTIR data frame with x_um, y_um
-#' @param raman_df Raman data frame with x_um, y_um
-#' @param normalize_scale Logical, whether to normalize scale
-#' @return List with:
-#'   ftir  — FTIR df with added x_norm, y_norm
-#'   raman — Raman df with added x_norm, y_norm
-#'   ftir_centroid  — c(cx, cy) of FTIR
-#'   raman_centroid — c(cx, cy) of Raman
-#'   ftir_scale     — scale factor applied to FTIR (1 if not normalized)
-#'   raman_scale    — scale factor applied to Raman (1 if not normalized)
-normalize_coordinates <- function(ftir_df, raman_df, normalize_scale = FALSE) {
-  log_message("Normalizing coordinates")
-
-  # Fail loudly on an empty cloud. mean(numeric(0)) is NaN, which silently
-  # poisons every x_norm/y_norm downstream and only surfaces much later as
-  # "NA/NaN/Inf in foreign function call" from RANN::nn2 deep inside the
-  # aligner. Name the problem here, where the cause is still visible.
-  if (nrow(ftir_df) == 0 || nrow(raman_df) == 0) {
-    stop("Cannot normalize coordinates: centroid source is empty (FTIR ",
-         nrow(ftir_df), " rows, Raman ", nrow(raman_df), " rows). ",
-         "A centroid needs at least one particle per dataset.")
-  }
-  if (all(is.na(ftir_df$x_um)) || all(is.na(ftir_df$y_um)) ||
-      all(is.na(raman_df$x_um)) || all(is.na(raman_df$y_um))) {
-    stop("Cannot normalize coordinates: a coordinate column is entirely NA. ",
-         "Check that the ingest step found the right coordinate columns.")
-  }
-
-  # Centroids
-  ftir_cx  <- mean(ftir_df$x_um, na.rm = TRUE)
-  ftir_cy  <- mean(ftir_df$y_um, na.rm = TRUE)
-  raman_cx <- mean(raman_df$x_um, na.rm = TRUE)
-  raman_cy <- mean(raman_df$y_um, na.rm = TRUE)
-
-  log_message("  FTIR centroid:  (", round(ftir_cx, 1), ", ", round(ftir_cy, 1), ")")
-  log_message("  Raman centroid: (", round(raman_cx, 1), ", ", round(raman_cy, 1), ")")
-
-  # Center
-  ftir_df$x_norm  <- ftir_df$x_um - ftir_cx
-  ftir_df$y_norm  <- ftir_df$y_um - ftir_cy
-  raman_df$x_norm <- raman_df$x_um - raman_cx
-  raman_df$y_norm <- raman_df$y_um - raman_cy
-
-  ftir_scale  <- 1
-  raman_scale <- 1
-
-  if (normalize_scale) {
-    # RMS distance from centroid
-    ftir_rms  <- sqrt(mean(ftir_df$x_norm^2 + ftir_df$y_norm^2))
-    raman_rms <- sqrt(mean(raman_df$x_norm^2 + raman_df$y_norm^2))
-
-    if (ftir_rms > 0 && raman_rms > 0) {
-      ftir_scale  <- ftir_rms
-      raman_scale <- raman_rms
-
-      ftir_df$x_norm  <- ftir_df$x_norm / ftir_scale
-      ftir_df$y_norm  <- ftir_df$y_norm / ftir_scale
-      raman_df$x_norm <- raman_df$x_norm / raman_scale
-      raman_df$y_norm <- raman_df$y_norm / raman_scale
-
-      log_message("  Scale normalization: FTIR RMS = ", round(ftir_rms, 1),
-                  ", Raman RMS = ", round(raman_rms, 1))
-    }
-  }
-
-  list(
-    ftir           = ftir_df,
-    raman          = raman_df,
-    ftir_centroid  = c(ftir_cx, ftir_cy),
-    raman_centroid = c(raman_cx, raman_cy),
-    ftir_scale     = ftir_scale,
-    raman_scale    = raman_scale
-  )
-}
-
-
 #' Apply an existing centroid (and scale) to another data frame
 #'
 #' Every particle set that takes part in a spatial step must be centred on the
 #' SAME centroid as the set the transform was estimated from, otherwise the
 #' transform is applied in the wrong frame. This re-applies the normalization
-#' returned by normalize_coordinates() to any other data frame.
+#' of a cloud (cloud_normalization(), R/align_and_match.R) to any other data
+#' frame.
 #'
 #' @param df Data frame with x_um, y_um
-#' @param centroid Numeric c(cx, cy) from normalize_coordinates()
+#' @param centroid Numeric c(cx, cy) from cloud_normalization()
 #' @param scale Scale divisor (1 when normalize_scale was FALSE)
 #' @return df with x_norm, y_norm added / overwritten
 apply_normalization <- function(df, centroid, scale = 1) {

@@ -1,5 +1,5 @@
 # =============================================================================
-# diagnose_multirun_placement.R — plan v3 diagnostic (docs/multirun_image_placement_plan.md)
+# diagnose_multirun_placement.R — plan v3 diagnostic (multi-run placement design notes, `git show 1983824:docs/multirun_image_placement_plan.md`)
 # =============================================================================
 # Compares the three places a Raman WITec calibration can live, for the
 # dataset behind a Multi-Run (reproducibility) view:

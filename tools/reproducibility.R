@@ -444,7 +444,7 @@ if (identical(CONFIG$instrument, "ldir")) {
   }
   # Every run's own detected circle, so a scan-circle detection drift between
   # repeat runs (a candidate cause of spurious "particles don't match between
-  # runs" results - see docs/multirun_image_placement_plan.md) can be
+  # runs" results - see multi-run placement design notes, `git show 1983824:docs/multirun_image_placement_plan.md`) can be
   # compared at a glance instead of opening each run's own
   # ldir_calibration.txt individually.
   for (i in seq_along(runs)) {
