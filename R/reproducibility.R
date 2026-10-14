@@ -295,7 +295,7 @@ run_reproducibility <- function(runs, gate = 75, align_gate = 300,
 #' is the Hungarian-assignment cost from join_ldir_coords() — how confidently
 #' that particle's Excel row (material/quality) was matched to an
 #' image-detected blob purely by size similarity (no position is involved in
-#' that join; see docs/multirun_image_placement_plan.md). A high cost here
+#' that join; see multi-run placement design notes, `git show 1983824:docs/multirun_image_placement_plan.md`). A high cost here
 #' flags particles whose MATERIAL LABEL could plausibly have been assigned to
 #' the wrong blob, which the viewer surfaces as a false "material
 #' disagreement" (red ring) between runs even when the physical particle

@@ -1033,7 +1033,7 @@ write_manifest <- function(run_dir, run_id, config,
 #' matches X's current content, NOT from whatever happens to be in
 #' \code{R/00_config.R} right now — that may have since been edited for a
 #' different scan. This is what \code{tools/reproducibility.R} got wrong
-#' (see \code{docs/multirun_image_placement_plan.md}, plan v3): its CONFIG
+#' (multi-run placement design notes, plan v3: git show 1983824:docs/multirun_image_placement_plan.md): its CONFIG
 #' fields were hand-copied from \code{R/00_config.R} at whatever moment the
 #' user last edited them, which drifted out of sync with the actual
 #' calibration in effect for the replicate runs being compared.

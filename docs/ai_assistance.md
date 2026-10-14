@@ -43,6 +43,16 @@ In short: essentially all code, tests and documentation text were written by
 the assistant; the author directed the work, reviewed and merged every change,
 ran the pipeline on the instruments' data and supplied the datasets.
 
+## Contributions
+
+| Role (CRediT) | Who |
+|---|---|
+| Conceptualisation: the idea of matching particles across FTIR, Raman and LDIR on the same filter, and the comparison it serves | Author |
+| Methodology: which steps the pipeline takes, the agreement rules, cutoffs and gates, what counts as validation | Author, with the assistant proposing options and the author deciding |
+| Data: filters, measurements, instrument exports | Author |
+| Software: implementation, tests, documentation | AI assistant, directed and reviewed by the author |
+| Validation: running the checks, interpreting the results | Author, with the checks implemented by the assistant |
+
 ## What the assistant did
 
 - Wrote the pipeline: readers, LDIR image analysis (R and Python), alignment
