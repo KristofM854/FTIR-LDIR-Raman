@@ -78,53 +78,9 @@ export_results <- function(match_result, agreement, diagnostics,
   }
 
   # --- 3. Transform parameters ---
-  params <- icp_result$params
-  param_lines <- c(
-    "# FTIR_perkin-to-Raman Transform Parameters",
-    paste0("# Generated: ", Sys.time()),
-    "",
-    paste0("scale:        ", round(params$scale, 6)),
-    paste0("rotation_deg: ", round(params$rotation_deg, 4)),
-    paste0("tx:           ", round(params$tx, 4)),
-    paste0("ty:           ", round(params$ty, 4)),
-    paste0("reflected:    ", params$reflected),
-    "",
-    "# Normalization parameters (applied before transform)",
-    paste0("ftir_centroid_x:  ", round(norm_result$ftir_centroid[1], 4)),
-    paste0("ftir_centroid_y:  ", round(norm_result$ftir_centroid[2], 4)),
-    paste0("raman_centroid_x: ", round(norm_result$raman_centroid[1], 4)),
-    paste0("raman_centroid_y: ", round(norm_result$raman_centroid[2], 4)),
-    paste0("ftir_scale:       ", round(norm_result$ftir_scale, 6)),
-    paste0("raman_scale:      ", round(norm_result$raman_scale, 6)),
-    "",
-    "# ICP refinement info",
-    paste0("icp_converged:    ", icp_result$converged),
-    paste0("icp_iterations:   ", icp_result$n_iterations),
-    paste0("icp_final_rms:    ",
-           round(tail(icp_result$rms_history, 1), 4), " um"),
-    ""
-  )
-
-  if (!is.null(ftir_scan_bounds)) {
-    param_lines <- c(param_lines,
-      "# FTIR scan area (physical extent of the background image)",
-      paste0("ftir_scan_xmin:   ", ftir_scan_bounds$x_min),
-      paste0("ftir_scan_xmax:   ", ftir_scan_bounds$x_max),
-      paste0("ftir_scan_ymin:   ", ftir_scan_bounds$y_min),
-      paste0("ftir_scan_ymax:   ", ftir_scan_bounds$y_max),
-      ""
-    )
-  }
-
-  param_lines <- c(param_lines,
-    "# 3x3 Transform matrix (homogeneous, FTIR_norm -> Raman_norm)",
-    paste0("matrix_row1: ", paste(round(icp_result$transform[1, ], 8), collapse = ", ")),
-    paste0("matrix_row2: ", paste(round(icp_result$transform[2, ], 8), collapse = ", ")),
-    paste0("matrix_row3: ", paste(round(icp_result$transform[3, ], 8), collapse = ", "))
-  )
-  writeLines(param_lines,
-             file.path(dirs$alignment, "transform_params_ftir_perkin_raman.txt"))
-  log_message("  Wrote transform_params_ftir_perkin_raman.txt")
+  write_transform_params(list(icp = icp_result, norm = norm_result),
+                         file.path(dirs$alignment, "transform_params_ftir_perkin_raman.txt"),
+                         "FTIR_perkin", scan_bounds = ftir_scan_bounds)
 
   # --- 4. Agreement summary (tiered) ---
   if (!is.null(agreement) && !is.null(agreement$agreement_detail) &&
