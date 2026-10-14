@@ -92,29 +92,24 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
 - [ ] docs/ai_assistance.md: confirm whether any commits under your name
       (e.g. 2026-02-27) contain code from other AI tools.
 
-## Deferred audit findings (Phase 2 or later)
+## Deferred audit findings
 
-- M2  Transform selection counts many-to-one inliers (RANSAC vs global race).
-- M3  Landmark "confident" has no chance baseline (as few as 4 inliers).
-- M4  Matching cost is effectively distance-only; document in the paper.
-- M5  Composite (1:many) matches can reuse a Raman fragment.
-- M8  Raman/LDIR image-placement fallbacks still derive extent from particles
-      (display only).
-- M10 Triplets: no consistency check against the direct LDIR↔FTIR match;
-      `ldir_alignment_method` records only landmark/ransac.
-- M11 Dataset-specific defaults (LDIR −90° pre-rotation, debug IDs A3/MP_11,
-      anchor material vocabularies).
-- [x] M12/M13 Duplicated PerkinElmer/Bruker pipeline; 2,074-line `main.R`:
-      now `run_pipeline(config)` + `align_and_match()`; main.R is file input
-      and config only.
-- [x] M16 FTIR "size" is the Major dim, Raman's is Feret max: stated in
-      docs/input_format.md.
-- [x] Python detector unit tests (inst/python/test_particle_detector.py).
-- [ ] Scan-circle radius: detect_scan_circle() overestimates the radius ~12% on
-      a synthetic disk (blurred halo counted as disk; 80th-percentile
-      threshold also limits it to disks covering < 20% of the frame). On an
-      optical LDIR image the radius sets um/px. Needs a real optical export
-      with a visible scan circle to confirm and fix.
+- [x] M2 Tier 2 race scored on one-to-one pairs (tier2_pairs()).
+- [x] M3 Landmarks trusted only with >= 8 one-to-one landmark pairs
+      (landmark_min_pairs); dataset A has 18 / 17 / 16.
+- [ ] M4 Matching cost is effectively distance-only; state in the paper.
+- [x] M5 Composite matches no longer share a Raman fragment.
+- [x] M8 Image placements without metadata / calibration / registration are
+      labelled "approximate image placement" in the viewer and report.
+- [x] M10 Triplets: direct_ldir_ftir_match flags LDIR and FTIR particles that
+      are not each other's direct match (dataset A: 0 of 32).
+- [ ] M11 Anchor material lists (PET/PP) as default: open question.
+      LDIR -90 deg pre-rotation kept as the Agilent export convention;
+      debug trace IDs removed.
+- [x] M12/M13 run_pipeline(config) + align_and_match().
+- [x] M16 Size definitions stated in docs/input_format.md.
+- [x] L3 unmatched_ftir / unmatched_raman aliases removed for non-FTIR pairs.
+- [x] Python detector unit tests.
 
 ## Fixed during Phase 3
 

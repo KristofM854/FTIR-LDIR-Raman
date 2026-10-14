@@ -188,15 +188,17 @@ align_and_match <- function(src_raw, ref, config, label) {
           log_message("Global registration failed: ", e$message, level = "WARN")
           NULL })
       if (!is.null(global)) {
-        if (global$n_inliers > ransac$n_inliers) {
-          log_message("Tier 2: using global registration (", global$n_inliers,
-                      " inliers vs RANSAC ", ransac$n_inliers, ")")
+        n_r <- tier2_pairs(ransac$transform, norm_align, ref$norm_align, config)
+        n_g <- tier2_pairs(global$transform, norm_align, ref$norm_align, config)
+        if (n_g > n_r) {
+          log_message("Tier 2: using global registration (", n_g,
+                      " one-to-one pairs vs RANSAC ", n_r, ")")
           ransac <- global
           transform <- global$transform
           method <- "global_register"
         } else {
-          log_message("Tier 2: keeping RANSAC (", ransac$n_inliers,
-                      " inliers vs global ", global$n_inliers, ")")
+          log_message("Tier 2: keeping RANSAC (", n_r,
+                      " one-to-one pairs vs global ", n_g, ")")
         }
       }
     }
@@ -223,6 +225,20 @@ align_and_match <- function(src_raw, ref, config, label) {
        match = match, agreement = agreement,
        norm = list(ftir_centroid = nm$centroid, ftir_scale = nm$scale,
                    raman_centroid = ref$centroid, raman_scale = ref$scale))
+}
+
+
+#' Score a Tier 2 candidate transform: one-to-one pairs between the
+#' transformed source anchors and the reference anchors within
+#' ransac_inlier_dist_um. The aligners' own inlier counts are not comparable
+#' (RANSAC counts many-to-one nearest neighbours), so the race between RANSAC
+#' and global registration is decided on this common score; ties keep RANSAC.
+#' @return Integer (-1 when the transform is missing)
+tier2_pairs <- function(M, src, ref, config) {
+  if (is.null(M)) return(-1L)
+  n <- align_transform_inliers(M, src$x_norm, src$y_norm, ref$x_norm, ref$y_norm,
+                               config$ransac_inlier_dist_um %||% 200)
+  if (is.na(n)) -1L else n
 }
 
 
@@ -258,8 +274,14 @@ match_aligned_pair <- function(src_aligned, ref_aligned, config, src_label, ref_
 #' @param ldir_match match_particles() result LDIR -> Raman
 #' @param raman_for_match Raman particles the matches refer to
 #' @param config Pipeline config
+#' @param ldir_ftir_match Optional match_particles() result LDIR -> FTIR. When
+#'   given, `direct_ldir_ftir_match` says whether the triplet's LDIR and FTIR
+#'   particles are also each other's direct match (FALSE: the triplet links
+#'   them only through the Raman particle, so one of the two Raman pairs may
+#'   be wrong; NA: the LDIR particle has no direct FTIR match).
 #' @return data.frame, one row per triplet (zero rows when there are none)
-build_triplets <- function(ftir_match, ldir_match, raman_for_match, config) {
+build_triplets <- function(ftir_match, ldir_match, raman_for_match, config,
+                           ldir_ftir_match = NULL) {
   fm <- ftir_match$matched; lm <- ldir_match$matched
   if (is.null(fm) || is.null(lm) || nrow(fm) == 0 || nrow(lm) == 0) return(data.frame())
   col <- function(d, k) if (k %in% names(d)) d[[k]] else rep(NA, nrow(d))
@@ -278,6 +300,13 @@ build_triplets <- function(ftir_match, ldir_match, raman_for_match, config) {
   if (nrow(triplets) == 0) {
     log_message("  Three-way triplets: 0 particles matched")
     return(triplets)
+  }
+  dm <- ldir_ftir_match$matched
+  if (!is.null(dm) && all(c("ldir_particle_id", "ftir_particle_id") %in% names(dm))) {
+    partner <- as.character(dm$ftir_particle_id)[match(triplets$ldir_particle_id,
+                                                       dm$ldir_particle_id)]
+    triplets$direct_ldir_ftir_match <- ifelse(is.na(partner), NA,
+                                              partner == as.character(triplets$ftir_particle_id))
   }
   ri <- match(triplets$raman_particle_id, raman_for_match$particle_id)
   triplets$raman_material <- raman_for_match$material[ri]
@@ -319,6 +348,12 @@ build_triplets <- function(ftir_match, ldir_match, raman_for_match, config) {
               " full agreement, ", n_partial, " partial, ", n_unscored,
               " not scored, ", nrow(triplets) - n_full - n_partial - n_unscored,
               " no agreement)")
+  if ("direct_ldir_ftir_match" %in% names(triplets)) {
+    n_off <- sum(triplets$direct_ldir_ftir_match %in% FALSE)
+    log_message("  Triplets whose LDIR and FTIR particles are not each other's direct ",
+                "match: ", n_off, " of ", nrow(triplets),
+                level = if (n_off > 0) "WARN" else "INFO")
+  }
   triplets
 }
 

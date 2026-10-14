@@ -1392,7 +1392,7 @@ debug_ldir_branches <- function(ldir_aligned, raman_df, ldir_raman_match,
                 paste(plot_cols, collapse = ","), ")")
 
     # A3 in the final overlay (what is actually plotted)
-    trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+    trace_ids <- config$debug_trace_ids %||% character(0)
     for (pid in trace_ids) {
       row_idx <- which(ldir_aligned$particle_id == pid)
       if (length(row_idx) > 0) {

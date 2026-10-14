@@ -179,9 +179,9 @@ The coordinate systems from FTIR and Raman differ in origin, rotation (often ~18
 
 Alignment is **geometric** — it uses position, size, and shape, never material identification. (Material is compared only afterwards, in agreement scoring, so the geometry never depends on the identifications it is used to validate.)
 
-1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 50% inliers, residual < 50 µm), Tier 2 is skipped.
+1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 8 one-to-one landmark pairs, ≥ 50% inliers, residual < 50 µm), Tier 2 is skipped.
 
-2. **Tier 2 — RANSAC + global registration**: Two aligners run and the one pairing more particles wins. The coarse RANSAC does a rotation grid search (1° steps, including mirror check) and refines a similarity transform. Global registration sweeps rotation × scale and recovers translation by voting over all pairwise offsets, scoring one-to-one — more robust when the two clouds overlap only partially.
+2. **Tier 2 — RANSAC + global registration**: Two aligners run and the one giving more one-to-one pairs wins. The coarse RANSAC does a rotation grid search (1° steps, including mirror check) and refines a similarity transform. Global registration sweeps rotation × scale and recovers translation by voting over all pairwise offsets, scoring one-to-one — more robust when the two clouds overlap only partially.
 
 3. **ICP refinement**: Iterative Closest Point polishes the transform using all particles ≥ 20 µm, with reciprocal nearest-neighbour filtering and 10% trimming of worst pairs.
 
@@ -237,6 +237,7 @@ Particles matched by all three instruments are identified by finding the interse
 - `n_instrument_agreement`: count of pairwise family agreements among scored sides (0–3)
 - `material_consensus`: "Full agreement", "FTIR+Raman agree", ..., "No agreement", or "Not scored" when fewer than two sides are scored
 - `ftir_family`, `raman_family`, `ldir_family` and each side's quality
+- `direct_ldir_ftir_match`: whether the triplet's LDIR and FTIR particles are also each other's direct match (FALSE flags a triplet linked only through the Raman particle)
 
 ## Output files
 
@@ -353,6 +354,7 @@ landmark_adaptive_size    = TRUE   # If < landmark_min_count particles clear the
                                    # relative to the sample, not in absolute µm
 landmark_target_count     = 12     # How many to take in that fallback
 landmark_min_size_floor_um = 30    # ...but never anything below this
+landmark_min_pairs        = 8      # one-to-one landmark pairs needed to skip Tier 2
 
 # Matching
 match_dist_threshold_um   = 100    # Max distance for a valid spatial match (µm)

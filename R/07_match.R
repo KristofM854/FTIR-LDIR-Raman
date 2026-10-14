@@ -358,16 +358,14 @@ match_particles <- function(src_df, ref_df, config,
   log_message("  Mean match distance: ",
               round(match_stats$mean_distance, 2), " µm")
 
-  # Back-compat names for unmatched
+  # Unmatched particles under each side's label (unmatched_ftir and
+  # unmatched_raman for the default FTIR -> Raman labels)
   result <- list(
     matched         = matched,
     match_stats     = match_stats
   )
   result[[paste0("unmatched_", src_label)]] <- unmatched_src
   result[[paste0("unmatched_", ref_label)]] <- unmatched_ref
-  # Back-compat
-  result$unmatched_ftir  <- unmatched_src
-  result$unmatched_raman <- unmatched_ref
 
   result
 }
@@ -479,8 +477,14 @@ find_composite_matches <- function(src_df, ref_unmatched, config,
   composites <- list()
   ref_x <- ref_unmatched$x_norm
   ref_y <- ref_unmatched$y_norm
+  # Each reference fragment belongs to at most one composite: larger source
+  # particles claim their fragments first (ties by ID, so the result does not
+  # depend on row order).
+  used <- logical(nrow(ref_unmatched))
+  visit <- order(-ifelse(is.na(src_df$area_um2), 0, src_df$area_um2),
+                 as.character(src_df$particle_id))
 
-  for (i in seq_len(nrow(src_df))) {
+  for (i in visit) {
     sx <- src_df$x_aligned[i]
     sy <- src_df$y_aligned[i]
     if (is.na(sx) || is.na(sy)) next
@@ -490,7 +494,7 @@ find_composite_matches <- function(src_df, ref_unmatched, config,
     if (is.na(r) || r <= 0) r <- config$match_dist_threshold_um
 
     dists <- sqrt((ref_x - sx)^2 + (ref_y - sy)^2)
-    candidates <- which(dists <= r)
+    candidates <- which(dists <= r & !used)
 
     if (length(candidates) < 2) next
 
@@ -502,7 +506,9 @@ find_composite_matches <- function(src_df, ref_unmatched, config,
     area_ratio <- combined_area / src_area
 
     if (area_ratio >= 0.3 && area_ratio <= 5.0) {
+      used[candidates] <- TRUE
       composites[[length(composites) + 1]] <- data.frame(
+        .row            = i,
         src_particle_id = src_df$particle_id[i],
         n_ref_parts     = length(candidates),
         ref_ids         = paste(ref_unmatched$particle_id[candidates], collapse = ";"),
@@ -514,7 +520,13 @@ find_composite_matches <- function(src_df, ref_unmatched, config,
     }
   }
 
-  result <- if (length(composites) > 0) do.call(rbind, composites) else {
+  result <- if (length(composites) > 0) {
+    r <- do.call(rbind, composites)
+    r <- r[order(r$.row), , drop = FALSE]      # source table order
+    r$.row <- NULL
+    rownames(r) <- NULL
+    r
+  } else {
     data.frame(
       src_particle_id = character(), n_ref_parts = integer(),
       ref_ids = character(), combined_area = numeric(),

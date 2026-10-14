@@ -535,7 +535,7 @@ run_pipeline <- function(config, report = TRUE) {
 
     # Step 5: dump traced particles + full snapshot for final overlay
     if (isTRUE(config$debug)) {
-      trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+      trace_ids <- config$debug_trace_ids %||% character(0)
       dump_particle(ldir_plot_df, trace_ids, "final_overlay", config$debug_dir)
       trace_particle_snapshot(ldir_plot_df, "final_overlay", config)
 
@@ -558,7 +558,7 @@ run_pipeline <- function(config, report = TRUE) {
       debug_subtitle = if (isTRUE(config$debug)) {
         # Build per-particle subtitle for A3 etc.
         parts <- character(0)
-        for (pid in (config$debug_trace_ids %||% c("A3", "MP_11"))) {
+        for (pid in (config$debug_trace_ids %||% character(0))) {
           ri <- which(ldir_plot_df$particle_id == pid)
           if (length(ri) > 0) {
             parts <- c(parts, sprintf("%s: (%.1f, %.1f)",
