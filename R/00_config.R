@@ -39,15 +39,18 @@ make_config <- function(ftir_path  = NULL,
     # --- Coordinate normalization ---
     normalize_scale = FALSE,  # scale both clouds to unit variance (usually not needed)
 
-    # --- Material-based alignment anchors ---
-    # These narrow the anchor set to polymers both instruments should agree on,
-    # which helps on spiked lab samples. They are a HINT, not a requirement:
-    # each is honoured only while it leaves >= align_min_anchor_count particles,
-    # otherwise the full cloud is used (alignment is geometric — it does not
-    # need a specific polymer). Set either to NULL to disable material
-    # anchoring entirely, which is the sensible choice for field samples.
-    align_ftir_materials = c("PET", "Polypro"),
-    align_raman_materials = c("Polyethylene terephtalate", "Polypropylene"),
+    # --- Material-based alignment anchors (off by default) ---
+    # Optionally narrow the Tier 2 anchor set to polymers both instruments
+    # identify reliably, e.g. on spiked lab samples:
+    #   align_ftir_materials  = c("PET", "Polypro")
+    #   align_raman_materials = c("Polyethylene terephtalate", "Polypropylene")
+    #   align_ldir_materials  = c("Polyethylene terephthalate", "Polypropylene",
+    #                             "Polycarbonate")
+    # A filter is honoured only while it leaves >= align_min_anchor_count
+    # particles. NULL (default): alignment is purely geometric and does not
+    # depend on the identifications it is later used to compare.
+    align_ftir_materials = NULL,
+    align_raman_materials = NULL,
     align_min_anchor_count = 4,    # below this, drop the filter instead
     align_raman_min_size_um = 20,  # exclude Raman particles below FTIR detection limit
 
@@ -57,8 +60,7 @@ make_config <- function(ftir_path  = NULL,
     ftir_use_global_register = TRUE,
 
     # --- LDIR-specific settings ---
-    align_ldir_materials = c("Polyethylene terephthalate", "Polypropylene",
-                             "Polycarbonate"),
+    align_ldir_materials = NULL,   # see align_ftir_materials above
     ldir_quality_threshold = 0,    # Agilent quality score (0-1). 0 = keep ALL
                                    # ingested particles — no quality pre-filter.
                                    # Filter interactively in the viewer instead;

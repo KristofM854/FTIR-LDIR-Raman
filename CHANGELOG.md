@@ -53,6 +53,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   RANSAC and global registration is decided on one-to-one pairs. Dataset A
   unchanged.
 - **(results)** Composite (1:many) matches no longer share a Raman fragment.
+- Material anchors for Tier 2 alignment are off by default
+  (`align_*_materials = NULL`); alignment is purely geometric unless set.
 - Triplets carry `direct_ldir_ftir_match`; approximate image placements are
   labelled in the viewer and report; debug trace IDs no longer default to
   dataset A's particles.

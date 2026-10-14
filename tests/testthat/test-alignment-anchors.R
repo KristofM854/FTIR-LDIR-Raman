@@ -2,7 +2,7 @@
 # or degenerate particle set.
 #
 # Background: a Polycarbonate-dominated sample produced zero Raman alignment
-# anchors (align_raman_materials is PET/PP). nrow == 0 made the centroid NaN,
+# anchors (align_raman_materials set to PET/PP). nrow == 0 made the centroid NaN,
 # every x_norm/y_norm became NaN, and the failure only surfaced ~40 lines later
 # as "NA/NaN/Inf in foreign function call (arg 1)" from RANN::nn2 inside the
 # RANSAC coarse search. These tests pin the three guards that stop that.
@@ -146,6 +146,9 @@ test_that("a PC-only sample aligns instead of crashing in RANN::nn2", {
   cfg <- make_config()
   cfg$ransac_coarse_step_deg <- 10L
   cfg$ransac_n_iterations    <- 100L
+  # The spiked-sample anchor filter (off by default) is what emptied the set
+  cfg$align_ftir_materials  <- c("PET", "Polypro")
+  cfg$align_raman_materials <- c("Polyethylene terephtalate", "Polypropylene")
 
   ftir <- .particles(seq(260, 120, length.out = 12),
                      material = c(rep("PET", 6), rep("Polycarbonate", 6)))
