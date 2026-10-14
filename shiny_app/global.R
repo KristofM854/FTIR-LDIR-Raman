@@ -1066,6 +1066,10 @@ raman_image_extent_from_config <- function(cfg, x_orig, y_orig, min_frac = 0.5) 
 
   neg <- score(-cy)   # panel value in Y-down video frame -> negate (expected)
   raw <- score(cy)    # panel value already in stage frame
+  # From the WITec placement file the centre is known to be in the stage frame
+  # (R/measure_raman_placement.R): no guessing.
+  if (identical(cfg$raman_image_y_frame, "stage"))
+    neg$frac_inside <- -Inf
   best <- if (neg$frac_inside >= raw$frac_inside) {
     c(neg, list(y_negated = TRUE))
   } else {
@@ -1133,7 +1137,9 @@ place_image_raman_meta <- function(meta, x, y) {
     raman_image_width_um    = .repro_meta_num(meta, "raman_image_width_um"),
     raman_image_height_um   = .repro_meta_num(meta, "raman_image_height_um"),
     raman_image_center_x_um = .repro_meta_num(meta, "raman_image_center_x_um"),
-    raman_image_center_y_um = .repro_meta_num(meta, "raman_image_center_y_um"))
+    raman_image_center_y_um = .repro_meta_num(meta, "raman_image_center_y_um"),
+    raman_image_y_frame     = if (!is.null(meta) && "raman_image_y_frame" %in% names(meta))
+                                as.character(meta[["raman_image_y_frame"]][1]))
   ext <- raman_image_extent_from_config(cfg, x, y)
   if (is.null(ext)) return(NULL)
   list(xmin = ext$xmin, xmax = ext$xmax, ymin = ext$ymin, ymax = ext$ymax)

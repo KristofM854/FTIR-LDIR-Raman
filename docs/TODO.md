@@ -59,6 +59,11 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
   0.28; p < 0.001; biased upward by the matcher's size term). Family
   agreement is uninformative here (single-polymer sample: random join 91%).
 
+- [x] WITec image placement file (sample Faanui SW1L R4 B): X/Y = top-left
+      corner, stage frame; 100% of 14,562 particles on the image, brightness
+      peak at zero offset and scale 1.00. Used automatically when found.
+      The current auto-calibration found no confident fit on this sample.
+
 ## Waiting for a decision
 
 - [x] ICP / alignment scale band (audit Q6): keep 0.8-1.25 for every pair

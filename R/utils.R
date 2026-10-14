@@ -577,8 +577,21 @@ assert_not_tiled_montage <- function(img_rgb, tag, strict = FALSE) {
 #' @return Named list: detected_format, orig_width, orig_height, md5,
 #'   canonical_path, canonical_width, canonical_height,
 #'   preview_path, preview_width, preview_height, preview_scale
+#' @param max_canonical_px Long-side limit for the canonical image (NULL = keep
+#'   full size). A larger image is downsized (aspect kept) and the downsized
+#'   copy becomes the canonical image the viewer, report and Raman
+#'   auto-calibration use. Only for images that are display backgrounds placed
+#'   by physical extent (the extent does not depend on the pixel count).
+#' @param max_canonical_mb A downsized canonical image larger than this as PNG
+#'   is written as JPEG instead, lowering the quality in steps of 5 from 95
+#'   (not below 40) until it fits.
+#' @param copy_original_max_mb Originals larger than this are not copied into
+#'   inputs/; they are recorded by path and MD5 only.
 canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
-                                          max_preview_px = 2000L) {
+                                          max_preview_px = 2000L,
+                                          max_canonical_px = NULL,
+                                          max_canonical_mb = 5,
+                                          copy_original_max_mb = 100) {
   if (!dir.exists(inputs_dir)) dir.create(inputs_dir, recursive = TRUE)
 
   prefix   <- paste0(tolower(instrument), "_image_")
@@ -601,7 +614,8 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
   # handles PNG/JPEG via png/jpeg and BMP via read_bmp_raster (R/read_bmp.R).
   if (!requireNamespace("magick", quietly = TRUE)) {
     log_message("  magick not available; canonicalizing ", instrument,
-                " image with native R readers", level = "WARN")
+                " image with native R readers",
+                if (!is.null(max_canonical_px)) " (no downsizing: needs magick)", level = "WARN")
     if (!requireNamespace("png", quietly = TRUE)) {
       log_message("  png package unavailable; skipping ", instrument,
                   " image canonicalization", level = "WARN")
@@ -661,14 +675,42 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     result$magick_format <- info$format
 
     # --- Copy original under inputs/ with detected extension ---
-    orig_dest <- file.path(inputs_dir,
-                           paste0(inst, "_image_original.", tolower(ext_orig)))
-    file.copy(src_path, orig_dest, overwrite = TRUE)
-    result$orig_dest <- normalizePath(orig_dest, mustWork = FALSE)
+    # (not for very large files: a 1 GB micrograph copied into every run)
+    src_mb <- file.info(src_path)$size / 1024^2
+    if (is.finite(src_mb) && src_mb > copy_original_max_mb) {
+      log_message("  [", instrument, "] Original ", round(src_mb), " MB: not copied ",
+                  "into the run (recorded by path and MD5)")
+    } else {
+      orig_dest <- file.path(inputs_dir,
+                             paste0(inst, "_image_original.", tolower(ext_orig)))
+      file.copy(src_path, orig_dest, overwrite = TRUE)
+      result$orig_dest <- normalizePath(orig_dest, mustWork = FALSE)
+    }
 
-    # --- Write canonical PNG ---
+    # --- Write canonical image ---
+    downsize <- !is.null(max_canonical_px) && max(info$width, info$height) > max_canonical_px
     canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.png"))
-    if (identical(detected, "PNG")) {
+    if (downsize) {
+      img_mg <- magick::image_resize(img_mg, paste0(max_canonical_px, "x", max_canonical_px))
+      magick::image_write(img_mg, path = canon_path, format = "png")
+      if (file.info(canon_path)$size / 1024^2 > max_canonical_mb) {
+        unlink(canon_path)
+        canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.jpg"))
+        quality <- 95
+        repeat {
+          magick::image_write(img_mg, path = canon_path, format = "jpeg", quality = quality)
+          if (file.info(canon_path)$size / 1024^2 <= max_canonical_mb || quality <= 40) break
+          quality <- quality - 5
+        }
+        result$canonical_jpeg_quality <- quality
+      }
+      result$canonical_downsized <- TRUE
+      log_message("  [", instrument, "] Image ", info$width, "x", info$height,
+                  " px downsized for the run (long side ", max_canonical_px, " px",
+                  if (!is.null(result$canonical_jpeg_quality))
+                    paste0(", JPEG quality ", result$canonical_jpeg_quality) else "",
+                  ", ", round(file.info(canon_path)$size / 1024^2, 2), " MB)")
+    } else if (identical(detected, "PNG")) {
       # Lossless: byte-identical copy avoids magick re-encode / colour-management drift
       file.copy(src_path, canon_path, overwrite = TRUE)
     } else {
@@ -678,11 +720,12 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     result$canonical_path   <- canon_path
     result$canonical_width  <- canon_info$width
     result$canonical_height <- canon_info$height
-    log_message("  [", instrument, "] Canonical PNG: ", canon_path,
+    log_message("  [", instrument, "] Canonical image: ", canon_path,
                 " (", canon_info$width, "x", canon_info$height, ")")
 
-    # --- Preview (downscaled) ---
-    max_dim <- max(info$width, info$height)
+    # --- Preview (downscaled, from the canonical image) ---
+    cur <- magick::image_info(img_mg)
+    max_dim <- max(cur$width, cur$height)
     if (max_dim > max_preview_px) {
       scale_pct <- round(max_preview_px / max_dim * 100)
       prev_mg   <- magick::image_scale(img_mg, paste0(scale_pct, "%"))

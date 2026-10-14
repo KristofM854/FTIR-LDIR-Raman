@@ -110,11 +110,27 @@ make_config <- function(ftir_path  = NULL,
     raman_image_height_um   = NULL,
     raman_image_center_x_um = NULL,
     raman_image_center_y_um = NULL,
+    # Frame of raman_image_center_y_um: NULL = decide by which reading contains
+    # the particles (WITec panel values are Y-down); "stage" = Y up (set
+    # automatically when the WITec placement file is used).
+    raman_image_y_frame     = NULL,
     # Fixed µm-per-pixel scale for the Raman microscope image.
     # Used only as Priority 2 fallback when the four fields above are NULL.
     # NULL = fall back to TIFF DPI auto-detection or particle-extent method.
     # raman_um_per_px = 0.38,
     raman_um_per_px = NULL,
+    # WITec image placement file (Width/Height/X/Y/Rotation, written next to
+    # the exported image): NULL = look for <image stem>.txt next to the image,
+    # a path = use that file, NA = ignore. When found, it places the image
+    # exactly and the auto-calibration only cross-checks it. Values set in
+    # raman_image_width_um ... above take precedence over the file.
+    raman_image_metadata = NULL,
+    # Raman images larger than this (long side, px) are downsized for the run:
+    # viewer, report and auto-calibration use the downsized copy (placement is
+    # in um, so it does not depend on the pixel count). NULL = never.
+    raman_image_max_px = 2000,
+    image_max_mb       = 5,    # downsized image above this as PNG -> JPEG
+    image_copy_max_mb  = 100,  # originals above this are not copied into the run
     # --- FTIR image placement (PerkinElmer "Average Abs" PNG / Bruker) ---
     # Physical extent of the WHOLE exported image (including any border or
     # colour bar), in the CSV coordinate frame. Center defaults to width/2,

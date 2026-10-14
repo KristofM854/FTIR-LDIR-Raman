@@ -63,7 +63,8 @@ run_pipeline <- function(config, report = TRUE) {
       src_path = config$ftir_image,
       inputs_dir = inputs_dir,
       instrument = "ftir",
-      max_preview_px = 2000L
+      max_preview_px = 2000L,
+      copy_original_max_mb = config$image_copy_max_mb %||% 100
     )
   }
   if (!is.null(config$raman_image) && nzchar(config$raman_image) && file.exists(config$raman_image)) {
@@ -71,7 +72,10 @@ run_pipeline <- function(config, report = TRUE) {
       src_path = config$raman_image,
       inputs_dir = inputs_dir,
       instrument = "raman",
-      max_preview_px = 2000L
+      max_preview_px = 2000L,
+      max_canonical_px = config$raman_image_max_px,
+      max_canonical_mb = config$image_max_mb %||% 5,
+      copy_original_max_mb = config$image_copy_max_mb %||% 100
     )
   }
   if (!is.null(config$ldir_image) && nzchar(config$ldir_image) && file.exists(config$ldir_image)) {
@@ -79,7 +83,8 @@ run_pipeline <- function(config, report = TRUE) {
       src_path = config$ldir_image,
       inputs_dir = inputs_dir,
       instrument = "ldir",
-      max_preview_px = 2000L
+      max_preview_px = 2000L,
+      copy_original_max_mb = config$image_copy_max_mb %||% 100
     )
     if (!is.null(.ldir_image_info$canonical_path) && file.exists(.ldir_image_info$canonical_path)) {
       log_message("Using canonical PNG for LDIR processing: ", .ldir_image_info$canonical_path)
@@ -164,6 +169,50 @@ run_pipeline <- function(config, report = TRUE) {
   raman_raw <- read_instrument("raman", config)
   write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
 
+  # --- Raman image placement from the WITec placement file -----------------
+  # WITec writes the image's size and top-left corner (stage um) next to the
+  # export (R/measure_raman_placement.R). When present it places the image
+  # exactly, and the auto-calibration below only cross-checks it. Values set
+  # in the config by hand take precedence.
+  .raman_placement_source <- NULL
+  .raman_fit <- NULL
+  if (!is.null(.raman_image_info)) {
+    .witec_file <- find_witec_image_placement(config$raman_image, config)
+    .witec <- if (!is.null(.witec_file)) read_witec_image_placement(.witec_file)
+    .user_set <- all(!vapply(config[c("raman_image_width_um", "raman_image_height_um",
+                                      "raman_image_center_x_um", "raman_image_center_y_um")],
+                             is.null, logical(1)))
+    if (!is.null(.witec) && .user_set) {
+      log_message("Raman image placement: ", basename(.witec_file), " found, but ",
+                  "raman_image_* values are set in the config \u2014 using the config values")
+    } else if (!is.null(.witec)) {
+      log_message(sprintf(paste0(
+        "Raman image placement from %s: %.0f x %.0f um, top-left (%.1f, %.1f) um ",
+        "(stage frame)"), basename(.witec_file), .witec$width_um, .witec$height_um,
+        .witec$x_left_um, .witec$y_top_um))
+      config$raman_image_width_um    <- .witec$width_um
+      config$raman_image_height_um   <- .witec$height_um
+      config$raman_image_center_x_um <- .witec$center_x_um
+      config$raman_image_center_y_um <- .witec$center_y_um
+      config$raman_image_y_frame     <- "stage"
+      .raman_placement_source        <- "metadata"
+      update_manifest_config_snapshot(config$output_dir, list(
+        raman_image_width_um    = .witec$width_um,
+        raman_image_height_um   = .witec$height_um,
+        raman_image_center_x_um = .witec$center_x_um,
+        raman_image_center_y_um = .witec$center_y_um,
+        raman_image_y_frame     = "stage",
+        raman_image_metadata    = .witec$path))
+      .on <- raman_raw$x_um >= .witec$x_left_um &
+             raman_raw$x_um <= .witec$x_left_um + .witec$width_um &
+             raman_raw$y_um <= .witec$y_top_um &
+             raman_raw$y_um >= .witec$y_top_um - .witec$height_um
+      .on_pct <- round(100 * mean(.on, na.rm = TRUE), 1)
+      log_message("  ", .on_pct, "% of the Raman particles lie on the image",
+                  level = if (.on_pct < 95) "WARN" else "INFO")
+    }
+  }
+
   # --- Auto-calibrate Raman image placement ----------------------------------
   # Measure where the exported Raman micrograph actually sits under the
   # particles (the export may be a cropped/zoomed view whose footprint differs
@@ -178,7 +227,28 @@ run_pipeline <- function(config, report = TRUE) {
   # them meant the auto-calibration skipped exactly the runs that needed it:
   # a new dataset with no WITec values entered fell straight through to
   # particle-bbox placement, which is visibly offset on sparse scans.
-  if (!is.null(.raman_image_info)) {
+  if (!is.null(.raman_image_info) && identical(.raman_placement_source, "metadata")) {
+    # Cross-check only: the placement file is the instrument's own record.
+    .raman_cal_img <- .raman_image_info$canonical_path %||% config$raman_image
+    .raman_fit <- tryCatch(
+      measure_raman_image_placement(.raman_cal_img, raman_raw$x_um, raman_raw$y_um,
+                                    config$raman_image_width_um, config$raman_image_height_um),
+      error = function(e) NULL)
+    if (is.null(.raman_fit) || isTRUE(.raman_fit$mirrored)) {
+      log_message("  Raman auto-calibration cross-check: no confident fit (placement ",
+                  "file used as is)")
+    } else {
+      .dc <- sqrt((.raman_fit$center_x_um - config$raman_image_center_x_um)^2 +
+                  (.raman_fit$center_y_um - config$raman_image_center_y_um)^2)
+      .ds <- .raman_fit$width_um / config$raman_image_width_um
+      .agree <- .dc <= 0.02 * config$raman_image_width_um && abs(.ds - 1) <= 0.03
+      log_message(sprintf(paste0("  Raman auto-calibration cross-check: centre %.0f um ",
+                                 "from the placement file, size x%.3f%s"), .dc, .ds,
+                          if (.agree) " (agrees)" else
+                            " \u2014 DISAGREES: was the image cropped after export?"),
+                  level = if (.agree) "INFO" else "WARN")
+    }
+  } else if (!is.null(.raman_image_info)) {
     .raman_cal_img <- if (!is.null(.raman_image_info$canonical_path) &&
                           file.exists(.raman_image_info$canonical_path))
       .raman_image_info$canonical_path else config$raman_image
@@ -232,7 +302,8 @@ run_pipeline <- function(config, report = TRUE) {
       "raman", config$raman_image,
       .raman_image_info$orig_width, .raman_image_info$orig_height,
       c(xmin = .cx - .w / 2, xmax = .cx + .w / 2, ymin = .cy - .h / 2, ymax = .cy + .h / 2),
-      provenance = if (!is.null(.raman_fit) && !isTRUE(.raman_fit$mirrored))
+      provenance = if (identical(.raman_placement_source, "metadata")) "metadata"
+        else if (!is.null(.raman_fit) && !isTRUE(.raman_fit$mirrored))
         "registration" else "config"),
       error = function(e) NULL)
   }
