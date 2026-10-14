@@ -67,6 +67,38 @@ and how the placement was obtained (`provenance`):
 
 Each run writes its image objects to `00_manifest/images.json`.
 
+### Raman image: WITec placement file and large images
+
+WITec writes a text file next to an exported image:
+
+```
+Width: 13000
+Height: 13000
+X: -6011.3134765625
+Y: 12824.1048088074
+Z: 18.0499992370605
+Rotation: 0
+```
+
+Width and Height are the image size in µm; X, Y its **top-left corner** in the
+stage frame (Y up), the frame of the particle export. The pipeline looks for
+`<image name>.txt` next to the selected image (also with a trailing `_small`
+removed) and, when found, places the image exactly from it (provenance
+`metadata`); the auto-calibration then only cross-checks it. A rotated image
+(Rotation ≠ 0) is not supported and the file is ignored. Values entered by hand
+(`raman_image_width_um` ...) take precedence; `raman_image_metadata` names the
+file explicitly, or `NA` switches it off. Checked on sample Faanui SW1L R4 B
+(14,562 particles): read this way all particles lie on the image and the
+brightness at the particle positions peaks at zero offset and scale 1.00.
+
+Select the full-size Raman image: images larger than `raman_image_max_px`
+(default 2000 px on the long side) are downsized for the run, as PNG, or as
+JPEG of decreasing quality when the PNG would exceed `image_max_mb` (5 MB). The
+viewer, report and auto-calibration use the downsized copy; the placement is
+in µm, so it does not depend on the pixel count. Originals larger than
+`image_copy_max_mb` (100 MB) are not copied into the run folder; the manifest
+records their path and MD5.
+
 ## Column-mapping reader
 
 To read a table in another layout, give the role a column mapping, as an R

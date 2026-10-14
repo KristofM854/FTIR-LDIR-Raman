@@ -17,10 +17,11 @@ Bruker if available):
 - [ ] Parameter sensitivity (gate, landmark tier on/off, landmark size,
       Raman size filter, TPS, RANSAC inlier distance): `tools/validation.R`;
       dataset A below. Quality-cutoff sweep still to add.
-- [ ] LDIR join check against Raman: `ldir_join_check()` (family agreement and
-      LDIR-table vs Raman size correlation, against randomly re-assigned LDIR
-      rows). Dataset A below. Still to decide: replace the scan-order log line
-      with it in the pipeline itself?
+- [x] LDIR join check against Raman: `ldir_join_check()` (R/ldir_join_check.R;
+      family agreement and LDIR-table vs Raman size correlation, against
+      randomly re-assigned LDIR rows). Logged by every run (WARN when no better
+      than random), written to 07_diagnostics/ldir_join_check.csv and
+      ldir_join_pairs.csv; replaces the scan-order test. Dataset A below.
 - [x] Actual scales on dataset A (all four instruments): FTIR→Raman 0.9965,
       Bruker→Raman 1.0021, LDIR→Raman 1.0381; the ICP clamp never engaged, so
       the 0.8-1.25 band stays for every pair. Re-check on the other datasets.
@@ -58,10 +59,17 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
   0.28; p < 0.001; biased upward by the matcher's size term). Family
   agreement is uninformative here (single-polymer sample: random join 91%).
 
+- [x] WITec image placement file (sample Faanui SW1L R4 B): X/Y = top-left
+      corner, stage frame; 100% of 14,562 particles on the image, brightness
+      peak at zero offset and scale 1.00. Used automatically when found.
+      The current auto-calibration found no confident fit on this sample.
+
 ## Waiting for a decision
 
 - [x] ICP / alignment scale band (audit Q6): keep 0.8-1.25 for every pair
       (dataset A, see above).
+- [x] FTIR<->Raman keeps a fitted scale (not fixed to 1): dataset A scales
+      0.9965 / 1.0021.
 - [x] Spectral-library index (audit Q7): option (a), use it and disclose;
       internal use for now. The run records whether it was used.
 - [x] "Acrylate" family (incl. polyacrylonitrile): Synthetic.
@@ -97,7 +105,22 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
       and config only.
 - [x] M16 FTIR "size" is the Major dim, Raman's is Feret max: stated in
       docs/input_format.md.
-- Python detector has no unit tests (Phase 3).
+- [x] Python detector unit tests (inst/python/test_particle_detector.py).
+- [ ] Scan-circle radius: detect_scan_circle() overestimates the radius ~12% on
+      a synthetic disk (blurred halo counted as disk; 80th-percentile
+      threshold also limits it to disks covering < 20% of the frame). On an
+      optical LDIR image the radius sets um/px. Needs a real optical export
+      with a visible scan circle to confirm and fix.
+
+## Fixed during Phase 3
+
+- Coarse RANSAC dropped scale 1 from its candidates when the clouds' span
+  ratio came out just below 1 (a few particles outside the shared field,
+  e.g. 0.962), and then aligned 4% off scale: synthetic test with 4 of 104
+  FTIR particles 20 mm away matched 4 instead of 100 pairs. Scale 1 is now
+  always a candidate (R/04_ransac.R). Dataset A unchanged.
+- PNG files written by the run carried their write time (tIME chunk), so two
+  identical runs differed byte-wise; now written without it.
 
 ## Decided
 

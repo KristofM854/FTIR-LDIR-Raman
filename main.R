@@ -123,7 +123,7 @@ if (input_mode == "explicit") {
 
   raman_file        <- .pick_file("Raman \u2014 data file (.csv/.xlsx) [REQUIRED]",
                                    required = TRUE, filter = DATA_FILTER)
-  raman_image       <- .pick_file("Raman \u2014 microscope image (optional)",
+  raman_image       <- .pick_file("Raman \u2014 microscope image, full size is fine (optional)",
                                    required = FALSE, filter = IMAGE_FILTER)
 
   ldir_file         <- .pick_file("LDIR \u2014 data file (.csv/.xlsx) (optional)",

@@ -42,6 +42,7 @@ pipeline_modules <- c(
   "10_alignment_diagnostics.R",
   "10_export.R",
   "align_and_match.R",
+  "ldir_join_check.R",
   "ldir_stage.R",
   "run_pipeline.R"
 )

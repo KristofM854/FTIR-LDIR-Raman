@@ -241,3 +241,81 @@ update_manifest_config_snapshot <- function(run_dir, updates) {
     TRUE
   }, error = function(e) FALSE)
 }
+
+
+# ---------------------------------------------------------------------------
+# WITec image placement file
+# ---------------------------------------------------------------------------
+# WITec writes, next to an exported image, a text file with its placement in
+# stage micrometres:
+#
+#   Width: 13000
+#   Height: 13000
+#   X: -6011.3134765625      <- LEFT edge
+#   Y: 12824.1048088074      <- TOP edge (stage frame, Y up)
+#   Z: 18.0499992370605
+#   Rotation: 0
+#
+# Verified on sample Faanui SW1L R4 B (14,562 particles, 1500 x 1500 px
+# downsized image): read as top-left corner with Y up, 100% of the particles
+# fall on the image and the brightness at the particle positions peaks at
+# zero offset and exactly scale 1.00 (it halves at +/-1 px or +/-1% scale);
+# every other reading (centre, or Y down) puts 0-22% of particles on the image.
+# The placement is in micrometres, so it holds for any downsized copy.
+
+#' Read a WITec image placement file.
+#'
+#' @param path The .txt file
+#' @return list(width_um, height_um, x_left_um, y_top_um, z_um, rotation_deg,
+#'   center_x_um, center_y_um, path), or NULL (with a WARN) when the file is
+#'   not one, or describes a rotated image
+read_witec_image_placement <- function(path) {
+  lines <- tryCatch(readLines(path, warn = FALSE), error = function(e) character(0))
+  kv <- regmatches(lines, regexec("^\\s*([A-Za-z]+)\\s*:\\s*(\\S+)\\s*$", lines))
+  kv <- kv[lengths(kv) == 3]
+  vals <- stats::setNames(as_number(vapply(kv, `[`, "", 3)), tolower(vapply(kv, `[`, "", 2)))
+  need <- c("width", "height", "x", "y")
+  if (!all(need %in% names(vals)) || any(!is.finite(vals[need])) ||
+      vals[["width"]] <= 0 || vals[["height"]] <= 0) {
+    log_message("  ", basename(path), ": not a WITec image placement file ",
+                "(needs Width, Height, X, Y) — ignored", level = "WARN")
+    return(NULL)
+  }
+  rot <- if ("rotation" %in% names(vals)) vals[["rotation"]] else 0
+  if (is.finite(rot) && abs(rot) > 1e-6) {
+    log_message("  ", basename(path), ": image rotated by ", rot, " deg — ",
+                "rotated placement is not supported; ignored", level = "WARN")
+    return(NULL)
+  }
+  w <- vals[["width"]]; h <- vals[["height"]]
+  list(width_um = w, height_um = h, x_left_um = vals[["x"]], y_top_um = vals[["y"]],
+       z_um = if ("z" %in% names(vals)) vals[["z"]] else NA_real_, rotation_deg = rot,
+       center_x_um = vals[["x"]] + w / 2, center_y_um = vals[["y"]] - h / 2,
+       path = normalizePath(path, mustWork = FALSE))
+}
+
+
+#' Find the WITec placement file of a Raman image.
+#'
+#' config$raman_image_metadata: a path, NA (off), or NULL (default: look next
+#' to the image for <stem>.txt, also with a trailing _small / _resized /
+#' _downsized removed from the stem).
+#'
+#' @return Path or NULL
+find_witec_image_placement <- function(image_path, config = NULL) {
+  explicit <- config[["raman_image_metadata"]]
+  if (length(explicit) == 1 && is.na(explicit)) return(NULL)
+  if (!is.null(explicit)) {
+    if (!file.exists(explicit)) {
+      log_message("  raman_image_metadata not found: ", explicit, level = "WARN")
+      return(NULL)
+    }
+    return(explicit)
+  }
+  if (is.null(image_path) || !nzchar(image_path)) return(NULL)
+  stem <- tools::file_path_sans_ext(basename(image_path))
+  stems <- unique(c(stem, sub("[_ -](small|resized|downsized)$", "", stem, ignore.case = TRUE)))
+  cands <- file.path(dirname(image_path), paste0(stems, ".txt"))
+  hit <- cands[file.exists(cands)]
+  if (length(hit)) hit[1] else NULL
+}
