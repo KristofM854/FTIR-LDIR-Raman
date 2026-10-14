@@ -2116,9 +2116,11 @@ server <- function(input, output, session) {
       cy_um <- mean(y_vals)
       half_w <- w_px * um_per_px / 2
       half_h <- h_px * um_per_px / 2
+      # Scale known, position guessed (centred on the particles): approximate
       return(list(raster = raw,
                   xmin = cx_um - half_w + ox, xmax = cx_um + half_w + ox,
-                  ymin = cy_um - half_h + oy, ymax = cy_um + half_h + oy))
+                  ymin = cy_um - half_h + oy, ymax = cy_um + half_h + oy,
+                  approximate = TRUE))
     }
 
     # --- Priority 3: Fallback — aspect-ratio-preserving bounds from particles ---
@@ -2126,7 +2128,8 @@ server <- function(input, output, session) {
     b <- compute_image_bounds(raw, x_vals, y_vals, padding_um = 300)
     list(raster = raw,
          xmin = b$xmin + ox, xmax = b$xmax + ox,
-         ymin = b$ymin + oy, ymax = b$ymax + oy)
+         ymin = b$ymin + oy, ymax = b$ymax + oy,
+         approximate = TRUE)                     # fitted to the particles
   })
 
   # Overlay tab: Raman microscope image placed at Raman particle extent in
@@ -2229,7 +2232,8 @@ server <- function(input, output, session) {
     }
     list(raster = raw,
          xmin = -half_um + ox, xmax = half_um + ox,
-         ymin = -half_um + oy, ymax = half_um + oy)
+         ymin = -half_um + oy, ymax = half_um + oy,
+         approximate = TRUE)                     # no calibration recorded
   })
 
   # Write overlay contract JSONs whenever image info or particles change.

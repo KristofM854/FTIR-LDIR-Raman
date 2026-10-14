@@ -187,10 +187,19 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR") {
     distance  = nn$nn.dists[inlier_mask, 1]
   )
 
+  # One-to-one landmark pairs: each Raman landmark used once. The NN inlier
+  # count above can count one Raman landmark for several FTIR landmarks, which
+  # a near-symmetric landmark set can exploit.
+  n_one_to_one <- align_one_to_one(transformed$x_transformed, transformed$y_transformed,
+                                   raman_lm$x_norm, raman_lm$y_norm, inlier_dist)
+  min_pairs <- cfg_value(config, "landmark_min_pairs")
+  log_message("  One-to-one landmark pairs: ", n_one_to_one, " (need >= ", min_pairs, ")")
+
   # Confidence check
   confident <- (inlier_ratio >= config$landmark_confidence_min_inlier_ratio) &&
     (!is.na(mean_residual) && mean_residual <= config$landmark_confidence_max_residual_um) &&
-    (n_inliers >= config$landmark_min_count)
+    (n_inliers >= config$landmark_min_count) &&
+    (n_one_to_one >= min_pairs)
 
   if (confident) {
     log_message("  >>> Landmark alignment CONFIDENT — Tier 1 succeeded!")
@@ -204,6 +213,9 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR") {
                                    round(mean_residual, 1), " µm)"))
     if (n_inliers < config$landmark_min_count)
       reasons <- c(reasons, paste0("too few inliers (", n_inliers, ")"))
+    if (n_one_to_one < min_pairs)
+      reasons <- c(reasons, paste0("too few one-to-one landmark pairs (", n_one_to_one,
+                                   " < ", min_pairs, ")"))
     log_message("  Landmark alignment not confident: ", paste(reasons, collapse = "; "))
   }
 
@@ -217,6 +229,7 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR") {
     n_ftir_landmarks  = n_ftir_lm,
     n_raman_landmarks = n_raman_lm,
     n_inliers         = n_inliers,
+    n_one_to_one      = n_one_to_one,
     inlier_ratio      = inlier_ratio,
     mean_residual     = mean_residual,
     inlier_pairs      = inlier_pairs

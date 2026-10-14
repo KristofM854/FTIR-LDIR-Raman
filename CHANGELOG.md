@@ -49,6 +49,15 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - The LDIR coordinate-swap file is found under any name containing
   coord/cord and swap.
 
+- **(results on other data)** The landmark tier is trusted only with at
+  least 8 one-to-one landmark pairs (`landmark_min_pairs`); the race between
+  RANSAC and global registration is decided on one-to-one pairs. Dataset A
+  unchanged.
+- **(results)** Composite (1:many) matches no longer share a Raman fragment.
+- Triplets carry `direct_ldir_ftir_match`; approximate image placements are
+  labelled in the viewer and report; debug trace IDs no longer default to
+  dataset A's particles.
+
 ### Fixed
 - **(results)** Images read through magick had scrambled pixels (wrong array
   layout), which misplaced the FTIR background image.

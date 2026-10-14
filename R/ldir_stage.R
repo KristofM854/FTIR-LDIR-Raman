@@ -141,7 +141,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
 
     # Debug traces
     if (isTRUE(config$debug)) {
-      trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+      trace_ids <- config$debug_trace_ids %||% character(0)
       dump_particle(ldir_raw, trace_ids, "after_ingest", config$debug_dir)
       dump_particle(ldir_with_coords, trace_ids, "after_coords_join", config$debug_dir)
       trace_particle_snapshot(ldir_raw, "after_ingest", config)
@@ -201,7 +201,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
 
     # Step 5: dump traced particles after normalization
     if (isTRUE(config$debug)) {
-      trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+      trace_ids <- config$debug_trace_ids %||% character(0)
       dump_particle(ldir_with_coords, trace_ids, "after_normalization", config$debug_dir)
       trace_particle_snapshot(ldir_with_coords, "after_normalization", config)
     }
@@ -212,7 +212,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
 
     # Step 1: dump traced particles after coords join (before normalization)
     if (isTRUE(config$debug)) {
-      trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+      trace_ids <- config$debug_trace_ids %||% character(0)
       dump_particle(ldir_with_coords, trace_ids, "after_coords_join", config$debug_dir)
     }
 
@@ -365,15 +365,18 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
               log_message("  LDIR global registration failed: ",
                           e$message, level = "WARN"); NULL })
           if (!is.null(ldir_global)) {
-            r_in <- if (!is.null(ldir_ransac)) ldir_ransac$n_inliers else -1
-            if (ldir_global$n_inliers > r_in) {
+            # Both scored as one-to-one pairs on the same anchors (tier2_pairs)
+            r_in <- tier2_pairs(ldir_ransac$transform, ldir_for_align, raman_norm_align,
+                                .ldir_align_cfg)
+            g_in <- tier2_pairs(ldir_global$transform, ldir_for_align, raman_norm_align,
+                                .ldir_align_cfg)
+            if (g_in > r_in) {
               log_message("  LDIR alignment: using global registration (",
-                          ldir_global$n_inliers, " inliers vs RANSAC ",
-                          max(r_in, 0), ")")
+                          g_in, " one-to-one pairs vs RANSAC ", max(r_in, 0), ")")
               ldir_ransac <- ldir_global
             } else {
               log_message("  LDIR alignment: keeping RANSAC (", r_in,
-                          " inliers vs global ", ldir_global$n_inliers, ")")
+                          " one-to-one pairs vs global ", g_in, ")")
             }
           }
         }
@@ -641,7 +644,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
 
       # Step 5: dump traced particles + full snapshot after alignment
       if (isTRUE(config$debug)) {
-        trace_ids <- config$debug_trace_ids %||% c("A3", "MP_11")
+        trace_ids <- config$debug_trace_ids %||% character(0)
         dump_particle(ldir_aligned, trace_ids, "after_alignment", config$debug_dir)
         trace_particle_snapshot(ldir_aligned, "after_alignment", config)
       }
@@ -720,7 +723,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
 
       # 12j. Three-way triplets (FTIR<->Raman and LDIR<->Raman sharing a Raman
       # particle), scored with the agreement quality gate
-      triplets <- build_triplets(match_result, ldir_raman_match, raman_for_match, config)
+      triplets <- build_triplets(match_result, ldir_raman_match, raman_for_match, config,
+                                 ldir_ftir_match = ldir_ftir_match)
 
     } else {
       log_message("  LDIR spatial alignment failed \u2014 ",

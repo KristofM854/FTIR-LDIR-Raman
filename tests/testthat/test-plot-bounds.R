@@ -98,3 +98,18 @@ test_that("the guarded limits actually render where the raw ones abort", {
   expect_false(suppressWarnings(draw(zero_width)))              # reproduces it
   expect_true(suppressWarnings(draw(env$sanitize_bounds(zero_width))))
 })
+
+test_that("an approximate image placement is labelled on the plot", {
+  src <- readLines(file.path(REPO_ROOT, "shiny_app", "global.R"), warn = FALSE)
+  i <- grep("^add_image_bg <- function", src)[1]
+  j <- i + which(src[(i + 1):length(src)] == "}")[1]
+  env <- new.env(parent = asNamespace("ggplot2"))
+  eval(parse(text = paste(src[i:j], collapse = "\n")), envir = env)
+  img <- list(raster = matrix(0.5, 2, 2), xmin = 0, xmax = 10, ymin = 0, ymax = 10)
+  p0 <- ggplot2::ggplot()
+  exact  <- env$add_image_bg(p0, img)
+  approx <- env$add_image_bg(p0, c(img, approximate = TRUE))
+  expect_equal(length(approx$layers), length(exact$layers) + 1)
+  expect_equal(approx$layers[[length(approx$layers)]]$aes_params$label,
+               "approximate image placement")
+})

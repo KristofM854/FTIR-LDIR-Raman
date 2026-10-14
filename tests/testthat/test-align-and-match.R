@@ -143,3 +143,54 @@ test_that("load.R lists every pipeline module, and each exists", {
                     "particle_contract.R", "01_readers.R") %in% e$pipeline_modules))
   expect_false(anyDuplicated(e$pipeline_modules) > 0)
 })
+
+test_that("landmarks are trusted only with enough one-to-one landmark pairs", {
+  p <- .synthetic_pair()
+  cfg <- .cfg()
+  ref <- suppressMessages(prepare_raman_reference(p$raman, cfg))
+  src <- apply_normalization(prefilter_ftir(p$ftir, 0, 0),
+                             c(mean(p$ftir$x_um), mean(p$ftir$y_um)))
+  lm <- suppressMessages(landmark_align(src, ref$for_transform, cfg, src_label = "FTIR"))
+  expect_true(lm$confident)
+  expect_gte(lm$n_one_to_one, cfg$landmark_min_pairs)
+  cfg$landmark_min_pairs <- lm$n_one_to_one + 1
+  lm2 <- suppressMessages(landmark_align(src, ref$for_transform, cfg, src_label = "FTIR"))
+  expect_false(lm2$confident)
+})
+
+test_that("the Tier 2 race is scored on one-to-one pairs", {
+  a <- data.frame(x_norm = c(0, 100, 200), y_norm = 0)
+  b <- data.frame(x_norm = c(0, 100), y_norm = 0)
+  I <- diag(3)
+  cfg <- list(ransac_inlier_dist_um = 10)
+  expect_equal(tier2_pairs(I, a, b, cfg), 2)         # the third point has no partner
+  collapse <- I; collapse[1, 1] <- collapse[2, 2] <- 0   # every point onto (0, 0)
+  expect_equal(tier2_pairs(collapse, a, b, cfg), 1)  # many-to-one would count 3
+  expect_equal(tier2_pairs(NULL, a, b, cfg), -1)
+})
+
+test_that("triplets flag LDIR and FTIR particles that are not each other's direct match", {
+  fm <- list(matched = data.frame(raman_particle_id = c("r1", "r2"), ftir_particle_id = c("f1", "f2"),
+                                  ftir_material = "PET", ftir_quality = 0.9, match_distance = 5))
+  lm <- list(matched = data.frame(raman_particle_id = c("r1", "r2"), ldir_particle_id = c("l1", "l2"),
+                                  ldir_material = "PET", ldir_quality = 0.95, match_distance = 5))
+  raman <- data.frame(particle_id = c("r1", "r2"), material = "PET", quality = 90)
+  direct <- list(matched = data.frame(ldir_particle_id = c("l1", "l2"), ftir_particle_id = c("f1", "f9")))
+  t <- suppressMessages(build_triplets(fm, lm, raman, make_config(), ldir_ftir_match = direct))
+  t <- t[order(t$raman_particle_id), ]
+  expect_equal(t$direct_ldir_ftir_match, c(TRUE, FALSE))
+  expect_false("direct_ldir_ftir_match" %in%
+               names(suppressMessages(build_triplets(fm, lm, raman, make_config()))))
+})
+
+test_that("composite matches never share a reference fragment", {
+  # Two adjacent source particles whose search circles both cover fragments R1-R3
+  src <- data.frame(particle_id = c("S_big", "S_small"), x_aligned = c(0, 30), y_aligned = 0,
+                    major_um = c(200, 120), area_um2 = c(3000, 1500))
+  ref <- data.frame(particle_id = paste0("R", 1:5), x_norm = c(10, 20, 30, 60, 70), y_norm = 0,
+                    area_um2 = 600)
+  cm <- suppressMessages(find_composite_matches(src, ref, make_config()))
+  ids <- unlist(strsplit(cm$ref_ids, ";"))
+  expect_false(anyDuplicated(ids) > 0)
+  expect_equal(cm$src_particle_id[1], "S_big")       # source order kept
+})

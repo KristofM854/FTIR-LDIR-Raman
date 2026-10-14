@@ -1916,10 +1916,19 @@ plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", col
 
 add_image_bg <- function(p, img_info, alpha = 0.4) {
   if (is.null(img_info)) return(p)
-  p + annotation_raster(img_info$raster,
+  p <- p + annotation_raster(img_info$raster,
         xmin = img_info$xmin, xmax = img_info$xmax,
         ymin = img_info$ymin, ymax = img_info$ymax,
         interpolate = TRUE)
+  # A placement without instrument metadata, calibration or registration
+  # (fitted to the particles, or centred on them) is marked on the image itself,
+  # so a screenshot or report page carries the warning too.
+  if (isTRUE(img_info$approximate))
+    p <- p + annotate("label", x = img_info$xmin, y = img_info$ymin,
+                      label = "approximate image placement", hjust = 0, vjust = 0,
+                      size = 3, colour = "grey20", fill = "white", alpha = 0.8,
+                      label.size = 0)
+  p
 }
 
 breaks_adaptive <- function(rng) {

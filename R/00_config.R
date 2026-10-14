@@ -75,9 +75,11 @@ make_config <- function(ftir_path  = NULL,
     ldir_scan_diameter_um  = 13000, # 13mm filter diameter
     ldir_flip_y_for_alignment = FALSE, # the LDIR image mapping already inverts y;
                                        # Raman y is also upward — no second flip needed
-    ldir_rotate_deg_for_alignment = -90, # clockwise rotation applied before alignment;
-                                          # corrects instrument export convention vs Raman.
-                                          # must be one of: 0, 90, -90, 180
+    ldir_rotate_deg_for_alignment = -90, # rotation applied before alignment: the
+                                          # Agilent 8700 export is rotated by 90 deg
+                                          # relative to the stage (Raman) frame. Only
+                                          # the aligner's starting pose: it still finds
+                                          # any rotation. One of 0, 90, -90, 180.
     ldir_image_width_um = NULL,    # physical width (µm) of the LDIR image export.
                                    # NULL = assume the image spans the full scan
                                    # circle (ldir_scan_diameter_um). SET THIS when
@@ -425,8 +427,8 @@ make_config <- function(ftir_path  = NULL,
     # transform (do not let ICP override it). ICP still runs for diagnostics.
     ldir_procrustes_lock = TRUE,
 
-    # Particle IDs to trace stage-by-stage in debug mode
-    debug_trace_ids = c("A3", "MP_11"),
+    # Particle IDs to trace stage-by-stage in debug mode, e.g. c("A3", "MP_11")
+    debug_trace_ids = character(0),
 
     # --- Debug mode ---
     debug = FALSE,  # set TRUE for debug artifacts
@@ -449,6 +451,9 @@ make_config <- function(ftir_path  = NULL,
     landmark_min_size_floor_um  = 30,
     landmark_confidence_min_inlier_ratio = 0.5,
     landmark_confidence_max_residual_um  = 50,
+    # Landmarks are trusted (Tier 2 skipped) only with at least this many
+    # one-to-one landmark pairs; otherwise Tier 2 runs as well.
+    landmark_min_pairs                   = 8,
     landmark_skip_full_ransac  = TRUE,
 
     # --- Determinism ---
