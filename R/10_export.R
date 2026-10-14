@@ -289,6 +289,13 @@ export_ldir_results <- function(ldir_results, dirs) {
                 nrow(ldir_results$ldir_raman_match$unmatched_ldir))
   }
 
+  if (!is.null(ldir_results$join_check)) {
+    write.csv(ldir_results$join_check$summary,
+              file.path(dirs$diagnostics, "ldir_join_check.csv"), row.names = FALSE)
+    write.csv(ldir_results$join_check$pairs,
+              file.path(dirs$diagnostics, "ldir_join_pairs.csv"), row.names = FALSE)
+    log_message("    LDIR join check: ldir_join_check.csv, ldir_join_pairs.csv")
+  }
   if (!is.null(ldir_results$triplets) && nrow(ldir_results$triplets) > 0) {
     write.csv(ldir_results$triplets,
               file.path(dirs$matches, "triplets_3way.csv"), row.names = FALSE)

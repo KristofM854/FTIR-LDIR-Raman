@@ -5,6 +5,7 @@
 local({
   for (m in c("08b_material_map.R", "08_agreement.R"))
     sys.source(file.path(REPO_ROOT, "R", m), envir = globalenv())
+  sys.source(file.path(REPO_ROOT, "R", "ldir_join_check.R"), envir = globalenv())
   sys.source(file.path(REPO_ROOT, "tools", "validation.R"), envir = globalenv())
 })
 
@@ -64,11 +65,11 @@ test_that("LDIR join check: correct join is significant, scrambled join is not",
   n <- 60
   fam <- sample(c("PET", "PP", "PE", "PS"), n, replace = TRUE)
   size <- round(stats::runif(n, 25, 300))
-  mk <- function(ldir_idx) list(ldir = list(ldir_raman_match = list(matched = data.frame(
+  mk <- function(ldir_idx) data.frame(
     ldir_particle_id = paste0("L", ldir_idx), raman_particle_id = paste0("R", seq_len(n)),
     match_distance = 5, ldir_material = fam[ldir_idx], raman_material = fam,
     ldir_feret_max_um = size[ldir_idx] * stats::runif(n, 0.9, 1.1), raman_feret_max_um = size,
-    stringsAsFactors = FALSE))))
+    stringsAsFactors = FALSE)
   good <- ldir_join_check(mk(seq_len(n)), n_iter = 200)$summary
   expect_true(all(good$p_value < 0.01))
   expect_true(good$informative[good$statistic == "family_agreement"])
@@ -78,4 +79,23 @@ test_that("LDIR join check: correct join is significant, scrambled join is not",
   fam[] <- "PET"
   one <- ldir_join_check(mk(seq_len(n)), n_iter = 50)$summary
   expect_false(one$informative[one$statistic == "family_agreement"])
+})
+
+test_that("log_ldir_join_check warns when the join looks random", {
+  set.seed(8)
+  n <- 40
+  m <- data.frame(ldir_particle_id = paste0("L", 1:n), raman_particle_id = paste0("R", 1:n),
+                  match_distance = 5, ldir_material = "PET", raman_material = "PET",
+                  ldir_feret_max_um = stats::runif(n, 25, 300),
+                  raman_feret_max_um = stats::runif(n, 25, 300))
+  chk <- ldir_join_check(m, n_iter = 200)
+  expect_message(log_ldir_join_check(chk), "no better than a random join")
+  m$raman_feret_max_um <- m$ldir_feret_max_um * stats::runif(n, 0.9, 1.1)
+  msgs <- character(0)
+  withCallingHandlers(log_ldir_join_check(ldir_join_check(m, n_iter = 200)),
+                      message = function(e) { msgs <<- c(msgs, conditionMessage(e))
+                                              invokeRestart("muffleMessage") })
+  expect_false(any(grepl("WARN", msgs)))
+  expect_true(any(grepl("not informative for this sample", msgs)))
+  expect_message(log_ldir_join_check(NULL), "not run")
 })

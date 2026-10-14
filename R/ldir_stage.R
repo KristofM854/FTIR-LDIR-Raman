@@ -13,8 +13,9 @@
 #        landmarks, Tier 2 material (or descriptor) RANSAC vs global
 #        registration with reflection forbidden; ICP accepted only if it does
 #        not lose one-to-one pairs
-#   12g  matches to Raman (optional TPS refinement), scores agreement, matches
-#        to FTIR (PerkinElmer), and builds three-way triplets
+#   12g  matches to Raman (optional TPS refinement), scores agreement, checks
+#        the join against Raman (R/ldir_join_check.R), matches to FTIR
+#        (PerkinElmer), and builds three-way triplets
 # =============================================================================
 
 
@@ -43,6 +44,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
   .ldir_circle_info    <- NULL
   ldir_landmark_result <- NULL
   use_ldir_landmark    <- FALSE
+  join_check           <- NULL
 
   log_message(strrep("-", 50))
   log_message("LDIR Spatial Pipeline")
@@ -135,9 +137,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     ldir_with_coords <- apply_ldir_coord_swaps(ldir_with_coords, config)
     write.csv(ldir_with_coords, file.path(.out_dirs$joined, "ldir_joined_raw.csv"), row.names = FALSE)
 
-    # Validate join quality via scan-order correlation
-    scan_order <- validate_ldir_scan_order(ldir_with_coords)
-    log_message("  Scan order validation: ", scan_order$message)
+    # The join itself is checked against Raman after alignment (12h-bis).
 
     # Debug traces
     if (isTRUE(config$debug)) {
@@ -700,6 +700,12 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
         instrument_a = "LDIR", instrument_b = "Raman"
       )
 
+      # 12h-bis. Was the table attached to the right image positions? LDIR
+      # table values vs the Raman partner, against a random join.
+      join_check <- try_or(ldir_join_check(ldir_raman_match$matched),
+                           default = NULL, what = "LDIR join check")
+      log_ldir_join_check(join_check)
+
       # 12i. LDIR<->FTIR matching (both already in Raman coordinate frame)
       # Set up aligned FTIR as reference: matcher expects ref with x_norm/y_norm
       ftir_as_ref <- ftir_aligned
@@ -745,7 +751,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     triplets             = triplets,
     has_coords           = has_ldir_coords,
     ldir_material_dist   = ldir_mats,
-    ldir_image_extracted = ldir_image_extracted
+    ldir_image_extracted = ldir_image_extracted,
+    join_check           = join_check
   )
 
   # --- Debug: Branch A/B comparison + residual vectors ---

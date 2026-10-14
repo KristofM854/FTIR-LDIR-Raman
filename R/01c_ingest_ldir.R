@@ -2026,48 +2026,6 @@ load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
   pairs
 }
 
-
-#' Validate LDIR coordinate join by checking scan-order correlation
-#'
-#' If LDIR IDs follow a raster scan order, the ID sequence should correlate
-#' with the spatial position of joined coordinates.
-#'
-#' @param df Data frame with particle_id and x_um, y_um (joined)
-#' @return List with tau correlation coefficient and assessment
-validate_ldir_scan_order <- function(df) {
-  # Only use particles with valid coordinates
-  valid <- !is.na(df$x_um) & !is.na(df$y_um)
-  if (sum(valid) < 10) {
-    return(list(tau = NA_real_, scan_order_consistent = NA,
-                message = "Too few coordinated particles to test"))
-  }
-
-  df_valid <- df[valid, ]
-
-  # Extract numeric part of ID for ordering
-  id_num <- as.numeric(gsub("[^0-9]", "", df_valid$particle_id))
-  if (all(is.na(id_num))) {
-    return(list(tau = NA_real_, scan_order_consistent = NA,
-                message = "Non-numeric IDs — cannot test scan order"))
-  }
-
-  # Test raster-scan correlation: sort by (y descending, x ascending)
-  spatial_rank <- rank(-df_valid$y_um * 1e6 + df_valid$x_um)
-  id_rank <- rank(id_num, na.last = "keep")
-
-  tau <- cor(spatial_rank, id_rank, method = "kendall", use = "complete.obs")
-
-  list(
-    tau = tau,
-    scan_order_consistent = !is.na(tau) && abs(tau) > 0.5,
-    message = if (!is.na(tau)) {
-      paste0("Kendall tau = ", round(tau, 3),
-             if (abs(tau) > 0.7) " (strong)" else if (abs(tau) > 0.5) " (moderate)" else " (weak)")
-    } else "Could not compute"
-  )
-}
-
-
 #' Pre-filter LDIR particle data
 #'
 #' @param df Data frame from ingest_ldir()

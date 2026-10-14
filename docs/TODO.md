@@ -17,10 +17,11 @@ Bruker if available):
 - [ ] Parameter sensitivity (gate, landmark tier on/off, landmark size,
       Raman size filter, TPS, RANSAC inlier distance): `tools/validation.R`;
       dataset A below. Quality-cutoff sweep still to add.
-- [ ] LDIR join check against Raman: `ldir_join_check()` (family agreement and
-      LDIR-table vs Raman size correlation, against randomly re-assigned LDIR
-      rows). Dataset A below. Still to decide: replace the scan-order log line
-      with it in the pipeline itself?
+- [x] LDIR join check against Raman: `ldir_join_check()` (R/ldir_join_check.R;
+      family agreement and LDIR-table vs Raman size correlation, against
+      randomly re-assigned LDIR rows). Logged by every run (WARN when no better
+      than random), written to 07_diagnostics/ldir_join_check.csv and
+      ldir_join_pairs.csv; replaces the scan-order test. Dataset A below.
 - [x] Actual scales on dataset A (all four instruments): FTIR→Raman 0.9965,
       Bruker→Raman 1.0021, LDIR→Raman 1.0381; the ICP clamp never engaged, so
       the 0.8-1.25 band stays for every pair. Re-check on the other datasets.
@@ -62,6 +63,8 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
 
 - [x] ICP / alignment scale band (audit Q6): keep 0.8-1.25 for every pair
       (dataset A, see above).
+- [x] FTIR<->Raman keeps a fitted scale (not fixed to 1): dataset A scales
+      0.9965 / 1.0021.
 - [x] Spectral-library index (audit Q7): option (a), use it and disclose;
       internal use for now. The run records whether it was used.
 - [x] "Acrylate" family (incl. polyacrylonitrile): Synthetic.
