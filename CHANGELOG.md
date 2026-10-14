@@ -48,7 +48,6 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   in `DESCRIPTION` and `inst/python/requirements.txt`.
 - The LDIR coordinate-swap file is found under any name containing
   coord/cord and swap.
-
 - **(results on other data)** The landmark tier is trusted only with at
   least 8 one-to-one landmark pairs (`landmark_min_pairs`); the race between
   RANSAC and global registration is decided on one-to-one pairs. Dataset A
