@@ -105,7 +105,22 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
       and config only.
 - [x] M16 FTIR "size" is the Major dim, Raman's is Feret max: stated in
       docs/input_format.md.
-- Python detector has no unit tests (Phase 3).
+- [x] Python detector unit tests (inst/python/test_particle_detector.py).
+- [ ] Scan-circle radius: detect_scan_circle() overestimates the radius ~12% on
+      a synthetic disk (blurred halo counted as disk; 80th-percentile
+      threshold also limits it to disks covering < 20% of the frame). On an
+      optical LDIR image the radius sets um/px. Needs a real optical export
+      with a visible scan circle to confirm and fix.
+
+## Fixed during Phase 3
+
+- Coarse RANSAC dropped scale 1 from its candidates when the clouds' span
+  ratio came out just below 1 (a few particles outside the shared field,
+  e.g. 0.962), and then aligned 4% off scale: synthetic test with 4 of 104
+  FTIR particles 20 mm away matched 4 instead of 100 pairs. Scale 1 is now
+  always a candidate (R/04_ransac.R). Dataset A unchanged.
+- PNG files written by the run carried their write time (tIME chunk), so two
+  identical runs differed byte-wise; now written without it.
 
 ## Decided
 

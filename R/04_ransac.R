@@ -82,9 +82,13 @@ ransac_align <- function(ftir_df, raman_df, config, src_label = NULL) {
   span_ratio <- (rspan(raman_x) + rspan(raman_y)) / (rspan(ftir_x) + rspan(ftir_y))
   scale_cands <- c(1, span_ratio * c(0.85, 1, 1.15))
   scale_cands <- sort(unique(round(scale_cands[scale_cands > 0.05], 3)))
-  # Merge candidates within 10% of each other
+  # Merge candidates within 10% of each other, but always keep scale 1: both
+  # instruments report micrometres, so 1 is the physical prior. The merge kept
+  # the lower of two close candidates, which dropped 1 whenever the span ratio
+  # came out just below it -- e.g. 0.962 when a few particles lie far outside
+  # the shared field -- and the coarse search then ran 4% off scale only.
   keep <- c(TRUE, diff(scale_cands) / head(scale_cands, -1) > 0.1)
-  scale_cands <- scale_cands[keep]
+  scale_cands <- sort(unique(c(1, scale_cands[keep])))
   log_message("  Phase 0: scale candidates = ",
               paste(scale_cands, collapse = ", "),
               " (robust span ratio = ", round(span_ratio, 3), ")")

@@ -562,6 +562,14 @@ assert_not_tiled_montage <- function(img_rgb, tag, strict = FALSE) {
 }
 
 
+# PNG without the write-time chunks (tIME / date): magick stamps them by
+# default, so the same image written twice gave different bytes and the run
+# folder was not byte-reproducible.
+.write_png_stable <- function(img, path) {
+  magick::image_write(img, path = path, format = "png",
+                      defines = c("png:exclude-chunks" = "date,time"))
+}
+
 #' Canonicalize an LDIR image to PNG and create a preview
 #'
 #' Canonicalize an instrument image: copy original, write lossless PNG, generate preview.
@@ -692,7 +700,7 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.png"))
     if (downsize) {
       img_mg <- magick::image_resize(img_mg, paste0(max_canonical_px, "x", max_canonical_px))
-      magick::image_write(img_mg, path = canon_path, format = "png")
+      .write_png_stable(img_mg, canon_path)
       if (file.info(canon_path)$size / 1024^2 > max_canonical_mb) {
         unlink(canon_path)
         canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.jpg"))
@@ -714,7 +722,7 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
       # Lossless: byte-identical copy avoids magick re-encode / colour-management drift
       file.copy(src_path, canon_path, overwrite = TRUE)
     } else {
-      magick::image_write(img_mg, path = canon_path, format = "png")
+      .write_png_stable(img_mg, canon_path)
     }
     canon_info <- magick::image_info(magick::image_read(canon_path))
     result$canonical_path   <- canon_path
@@ -733,7 +741,7 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
       prev_mg   <- img_mg
     }
     prev_path <- file.path(inputs_dir, paste0(inst, "_image_preview.png"))
-    magick::image_write(prev_mg, path = prev_path, format = "png")
+    .write_png_stable(prev_mg, prev_path)
     prev_info <- magick::image_info(prev_mg)
     result$preview_path   <- prev_path
     result$preview_width  <- prev_info$width
