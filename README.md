@@ -1,18 +1,21 @@
 # Multi-Instrument Microplastic Particle Matching Pipeline
 
-Spatial alignment and material cross-validation of microplastic particles detected by **FTIR**, **Raman**, and **LDIR** microspectroscopy on the same filter sample.
+Spatial alignment and material cross-validation of microplastic particles detected by **FTIR** (PerkinElmer Spotlight, Bruker LUMOS), **Raman** (WITec) and **LDIR** (Agilent 8700) microspectroscopy on the same filter sample.
+
+Version 1.0.0 · [Changelog](CHANGELOG.md) · [Validation](docs/validation.md) · [Input format](docs/input_format.md) · [How to cite](#citation)
 
 ## What it does
 
 When the same filter is analysed by multiple instruments, each produces its own particle list with coordinates, sizes, and material identifications. This pipeline:
 
-1. **Ingests** tabular data and companion images from all three instruments
+1. **Ingests** tabular data and companion images from up to four instruments (two FTIR, Raman, LDIR) into one checked particle table per instrument; any other instrument's table can be read through a column mapping
 2. **Extracts spatial coordinates** for LDIR via a Python-based image processing backend (scipy/numpy sigma-clipping + auto-tuned threshold)
 3. **Aligns** coordinate systems using a tiered approach (Landmark → RANSAC → ICP)
-4. **Matches** particles spatially across all three instrument pairs (FTIR↔Raman, LDIR↔Raman, LDIR↔FTIR)
-5. **Identifies triplets** — particles detected by all three instruments simultaneously, with material-agreement quality scoring
+4. **Matches** particles one-to-one across instrument pairs (each instrument ↔ Raman, plus LDIR↔FTIR and Bruker↔PerkinElmer / LDIR)
+5. **Identifies triplets** — particles detected by FTIR (PerkinElmer), Raman and LDIR together, with material-agreement quality scoring
 6. **Compares** material identifications: family agreement (primary) and exact-polymer agreement (secondary), counting only identifications each instrument trusts; unresolvable name pairs are flagged for inspection
-7. **Exports** matched pairs, agreement statistics, diagnostic plots, and a Shiny viewer
+7. **Checks** itself: chance-match estimates, the LDIR image join against Raman, full provenance of every run
+8. **Exports** matched pairs, agreement statistics, diagnostic plots, a PDF/HTML report and a Shiny viewer
 
 ## Pipeline overview
 
@@ -133,7 +136,7 @@ R/
   particle_contract.R           # Canonical particle table / image object + validators
   01_readers.R                  # read_instrument(): reader per role, column-mapping reader, material tables
   01_ingest.R                   # FTIR + Raman CSV/Excel parsing
-  01b_ingest_image.R            # Image-based particle extraction (FTIR)
+  01b_ingest_image.R            # Connected-component helpers for image segmentation
   01c_ingest_ldir.R             # LDIR Excel parsing + image coordinate extraction
   02_prefilter.R                # Quality/size pre-filtering
   03_normalize.R                # Coordinate centering
@@ -146,6 +149,9 @@ R/
   08b_material_map.R            # Polymer family classification & equivalence mapping
   09_diagnostics.R              # Overlay plots, histograms, confusion matrix
   10_export.R                   # CSV/PDF/TXT export
+  load.R                        # load_pipeline(): packages + modules
+  ldir_join_check.R             # LDIR image join checked against Raman
+  measure_raman_placement.R     # Raman image placement (WITec file, auto-calibration)
   align_and_match.R             # Raman reference frame; align + match + agreement per pair; triplets
   ldir_stage.R                  # LDIR: image coordinates, alignment, matching
   run_pipeline.R                # run_pipeline(config): the whole run as one function
@@ -153,11 +159,18 @@ R/
   utils_python.R                # Reticulate bridge for Python LDIR detector
 inst/
   python/
-    particle_detector.py        # Python LDIR particle detection backend
+    particle_detector.py        # Python LDIR particle detection backend (+ its tests)
   materials/                    # Per-instrument material tables (user-extendable)
 shiny_app/
   app.R                         # Interactive viewer
   global.R                      # Data loading for Shiny
+tools/
+  validation.R                  # Null model, sensitivity sweeps (docs/validation.md)
+  material_vocabulary.R         # How each material label of a run was classified
+  regression_fingerprint.R      # Compact summary of a run (regression test)
+examples/
+  dataset_A/                    # One filter, all four instruments
+  run_example_A.R, validate_example_A.R
 ```
 
 ### Alignment strategy (FTIR ↔ Raman)
@@ -193,9 +206,19 @@ is therefore 100 % by construction and says nothing about join correctness.
 
 When the LDIR software's processed overlay (`<image>_analyzed.<ext>`) is
 present, its coloured blobs are segmented in R instead (the machine's own
-segmentation); Python is still required for the scan-circle detection.
+segmentation), and its scale is calibrated so the blob areas sum to the Excel
+areas. Python is required for every LDIR image run.
 
-After detection, image pixel centroids are mapped to physical µm coordinates using the configured scan diameter. An optional scan-order validation (Kendall τ correlation) checks that particle IDs follow the expected raster pattern.
+Pixel centroids are mapped to µm with the image's placement (scan circle =
+scan diameter, or the calibrated overlay), recorded per run in
+`00_manifest/images.json`. Manual corrections of the join can be given in a
+`*coord*swap*.csv` file next to the LDIR Excel.
+
+**Join check.** After alignment, each run compares what the LDIR table says
+about each particle (size, family) with what Raman found at the same place,
+against a random re-assignment of the LDIR rows, and logs the result (WARN
+when it is no better than random; `07_diagnostics/ldir_join_check.csv`).
+On a single-polymer sample only the size statistic is informative.
 
 ### Raman particle filtering by pipeline step
 
@@ -210,47 +233,35 @@ After detection, image pixel centroids are mapped to physical µm coordinates us
 
 Particles matched by all three instruments are identified by finding the intersection of FTIR↔Raman pairs and LDIR↔Raman pairs that share the same Raman particle ID. Each triplet includes:
 
-- `n_instrument_agreement`: count of pairwise family agreements (0–3)
-- `material_consensus`: human-readable agreement level ("Full agreement", "FTIR+Raman agree", etc.)
-- `ftir_family`, `raman_family`, `ldir_family`: polymer family classifications for each instrument
+- `n_instruments_scored`: sides that pass their agreement quality cutoff and have an identification (0–3)
+- `n_instrument_agreement`: count of pairwise family agreements among scored sides (0–3)
+- `material_consensus`: "Full agreement", "FTIR+Raman agree", ..., "No agreement", or "Not scored" when fewer than two sides are scored
+- `ftir_family`, `raman_family`, `ldir_family` and each side's quality
 
 ## Output files
 
-Each run creates a timestamped folder (e.g., `output/2026-02-19_1/`) containing:
+Each run creates a folder under `output/` (e.g. `output/2026-02-19_1/`).
+Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 
-| File | Description |
-|------|-------------|
-| `matched_particles.csv` | All matched FTIR↔Raman pairs with coordinates, materials, distances |
-| `unmatched_ftir.csv` | FTIR particles with no Raman match |
-| `unmatched_raman.csv` | Raman particles with no FTIR match |
-| `unmatched_ldir.csv` | LDIR particles with no Raman match |
-| `agreement_summary.csv` | Per-material agreement rates (Exact / Family / Disagree) |
-| `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored matched pair: tier, exact polymers, families, LDIR join warning |
-| `06_agreement/agreement_by_material_<pair>.csv` | Counts and rates per material |
-| `ldir_raman_matched.csv` | LDIR↔Raman matched pairs |
-| `ldir_ftir_matched.csv` | LDIR↔FTIR matched pairs |
-| `ldir_raman_agreement.csv` | LDIR↔Raman material agreement |
-| `triplets_3way.csv` | Particles matched across all 3 instruments with material consensus |
-| `ldir_image_extracted.csv` | Raw image-extracted LDIR coordinates (before Excel join) |
-| `ldir_coord_quality.csv` | Join quality metrics and scan-order validation |
-| `composite_matches.csv` | 1:many FTIR→Raman composite matches (fragmented particles) |
-| `transform_params.txt` | FTIR→Raman 3×3 transform matrix + ICP stats |
-| `ldir_transform_params.txt` | LDIR→Raman transform + ICP stats |
-| `match_statistics.txt` | Summary statistics |
-| `tps_assessment.txt` | Thin-plate spline distortion assessment |
-| `triage_top_pairs.csv` | Highest-confidence matches for manual review |
-| `plots/overlay.png` | Spatial overlay of aligned FTIR + Raman |
-| `plots/ldir_overlay.png` | Spatial overlay of aligned LDIR + Raman |
-| `plots/confusion.png` | FTIR↔Raman material confusion matrix |
-| `plots/ldir_confusion.png` | LDIR↔Raman material confusion matrix |
-| `plots/distance_hist.png` | Match distance distribution |
-| `plots/icp_convergence.png` | ICP RMS history |
-| `plots/residual_scatter.png` | Spatial residuals per particle |
-| `plots/residual_vectors.png` | Residual vector field |
-| `plots/size_comparison.png` | Matched pair size comparison |
-| `plots/tiered_agreement.png` | Tiered agreement bar chart |
-| `plots/ambiguity.png` | Ambiguity score distribution |
-| `plots/all_diagnostics.pdf` | Combined PDF of all plots |
+| Folder / file | Content |
+|---|---|
+| `00_manifest/manifest.json` | Run ID, git commit, input files with MD5, image assets, stage |
+| `00_manifest/config_full.json`, `session_info.txt` | Every parameter as run; R and package versions |
+| `00_manifest/images.json` | Placement of every image (pixel size, origin, extent, how it was obtained) |
+| `01_ingested/<instrument>_ingested.csv` | Canonical particle table per instrument, as read |
+| `02_joined/ldir_joined_raw.csv`, `ldir_image_extracted.csv`, `ldir_coord_quality.csv` | LDIR: image blobs, the joined table, per-particle join cost |
+| `03_prefiltered/<instrument>_prefiltered.csv` | After the coordinate / size / quality prefilter |
+| `04_alignment/transform_params_<pair>.txt` | Transform to the Raman frame (scale, rotation, translation, 3×3 matrix, ICP) |
+| `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns and the distance |
+| `05_matches/unmatched_<a>_vs_<b>.csv` | Particles without a partner |
+| `05_matches/triplets_3way.csv`, `composite_matches.csv` | Three-way matches; 1:many FTIR→Raman fragments |
+| `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored pair: tier, exact polymers, families, LDIR join warning |
+| `06_agreement/agreement_by_material_<pair>.csv`, `agreement_by_category.csv`, `agreement_summary.csv` | Counts and rates per material / category |
+| `07_diagnostics/match_statistics.txt`, `triage_top_pairs.csv`, `tps_*` | Match statistics, pairs to review first, distortion check |
+| `07_diagnostics/ldir_join_check.csv`, `ldir_join_pairs.csv` | LDIR join check |
+| `07_diagnostics/plots/` | Overlays, confusion matrices, distance histogram, ICP convergence, residuals; `all_diagnostics.pdf` |
+| `inputs/` | The run's images (copied; downsized above `raman_image_max_px`), previews |
+| `particle_report.pdf`, `particle_report.html` | Report (same pages as the viewer's) |
 
 ## Shiny viewer
 
@@ -308,7 +319,8 @@ LaTeX needed.
 
 ## Configuration
 
-All parameters are in `R/00_config.R`. Key settings:
+All parameters are in `R/00_config.R` (`make_config()`); every run records the
+full set in `00_manifest/config_full.json`. Key settings:
 
 ```r
 # Alignment anchors — a HINT, not a requirement. Alignment is geometric; these
@@ -324,7 +336,9 @@ align_raman_min_size_um   = 20     # Raman particles below this are excluded fro
 
 # Quality thresholds
 raman_hqi_threshold       = 70     # HQI cutoff for material agreement scoring
-ldir_quality_threshold    = 0.6    # Agilent quality score threshold
+ftir_agreement_min_quality = 0.70  # FTIR AAU cutoff for agreement scoring
+ldir_hqi_unknown_threshold = 0.85  # LDIR quality below this -> "unknown"
+ldir_quality_threshold    = 0      # LDIR prefilter (0 = keep all)
 
 # LDIR scan geometry — CRITICAL: must match actual scan area
 ldir_scan_diameter_um     = 13000  # Physical extent of the LDIR scan area (µm)
@@ -342,10 +356,11 @@ landmark_min_size_floor_um = 30    # ...but never anything below this
 
 # Matching
 match_dist_threshold_um   = 100    # Max distance for a valid spatial match (µm)
+match_dist_threshold_ldir_um = 150 # ... for any pair involving LDIR
 
 # RANSAC
 ransac_inlier_dist_um     = 200    # Inlier distance threshold (µm)
-ransac_allow_mirror        = TRUE  # Search reflections (needed for 180° rotations)
+ransac_allow_mirror        = TRUE  # Also search mirrored poses (FTIR; LDIR never)
 ftir_use_global_register  = TRUE   # Tier 2 also runs global registration
                                    # (rotation x scale sweep + translation
                                    # voting); the transform pairing more
@@ -414,7 +429,33 @@ to switch the index off).
 
 - **"Polyamide (naturally occurring)" from LDIR**: This LDIR material name refers to biological polyamides (silk, protein-like), not synthetic nylon (PA6, PA12). It is classified into the "Natural" polymer family (not "PA") to avoid false material-agreement matches between synthetic and biological materials.
 
+- **LDIR scan-circle radius**: on optical LDIR images without the analyzed overlay, the scan-circle detector overestimates the radius (~12% on a synthetic disk) and needs the circle to cover < 20% of the image; the radius sets the µm-per-pixel scale. Untested on real data with a visible circle. Prefer exporting the analyzed overlay (`<image>_analyzed.png`).
+
+- **Raman image placement**: the WITec placement file (`<image>.txt`) is used when present; rotated images are not supported.
+
+- **Validation so far**: one real filter with all four instruments (dataset A, mostly PET) plus synthetic data; see [docs/validation.md](docs/validation.md).
+
 - **Single-filter assumption**: The pipeline assumes all instruments analysed the same physical filter. If scan areas differ significantly, the alignment may fail or produce a poor transform.
+
+## Validation
+
+[docs/validation.md](docs/validation.md): chance-match estimates, parameter
+sensitivity, the LDIR join check and the synthetic end-to-end tests, with the
+numbers for the example dataset. Re-run them with
+`Rscript examples/validate_example_A.R`. The test suite (`Rscript run_tests.R`)
+is described in [tests/README.md](tests/README.md).
+
+## Citation
+
+If you use this software, please cite it; see [CITATION.cff](CITATION.cff)
+(GitHub shows a "Cite this repository" button) and the Zenodo record.
+
+## Use of AI assistance
+
+Much of the code, tests and documentation were written with an AI coding
+assistant (Anthropic's Claude, via Claude Code) under the author's direction;
+the scientific choices and their validation are the author's. Where and how is
+listed in [docs/ai_assistance.md](docs/ai_assistance.md).
 
 ## License
 

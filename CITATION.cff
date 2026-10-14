@@ -1,0 +1,27 @@
+# To complete before the release (docs/TODO.md): ORCID, affiliation,
+# co-authors, date-released, and the Zenodo DOI (add an "identifiers" entry
+# and, once published, "preferred-citation" for the method paper).
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "FTIR-LDIR-Raman: multi-instrument microplastic particle matching pipeline"
+abstract: >-
+  Aligns and matches microplastic particles measured on the same filter by
+  FTIR (PerkinElmer Spotlight, Bruker LUMOS), Raman (WITec) and LDIR (Agilent
+  8700) microspectroscopy, and compares the instruments' material
+  identifications at family and exact-polymer level. R pipeline with a Python
+  LDIR image backend and a Shiny viewer.
+authors:
+  - family-names: Moeller
+    given-names: Kristof
+version: 1.0.0
+license: MIT
+repository-code: "https://github.com/KristofM854/FTIR-LDIR-Raman"
+keywords:
+  - microplastics
+  - FTIR
+  - Raman
+  - LDIR
+  - microspectroscopy
+  - point set registration
+  - particle matching
