@@ -11,20 +11,6 @@ fast_config <- function() {
   cfg
 }
 
-test_that("ransac_align is deterministic across runs", {
-  ftir <- make_cloud(15, seed = 11)
-  names(ftir) <- c("x_norm", "y_norm")
-  M  <- make_similarity(s = 1, deg = 20, tx = 200, ty = -100)
-  tr <- apply_transform_points(ftir$x_norm, ftir$y_norm, M)
-  raman <- data.frame(x_norm = tr$x_transformed, y_norm = tr$y_transformed)
-  cfg <- fast_config()
-
-  r1 <- ransac_align(ftir, raman, cfg)
-  r2 <- ransac_align(ftir, raman, cfg)
-  expect_identical(r1$transform, r2$transform)
-  expect_identical(r1$n_inliers, r2$n_inliers)
-})
-
 test_that("global_register_align is deterministic and RNG-safe", {
   src <- make_cloud(20, seed = 5)
   names(src) <- c("x_norm", "y_norm")

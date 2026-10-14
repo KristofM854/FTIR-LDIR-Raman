@@ -2149,7 +2149,7 @@ server <- function(input, output, session) {
 
     # Exact placement when WITec metadata is available: overlay coordinates
     # are Raman stage coordinates minus the Raman centroid (pure translation,
-    # normalize_coordinates() applies no scale/rotation to Raman), so the
+    # the Raman frame applies no scale/rotation to Raman), so the
     # stage-frame extent maps into overlay space by subtracting that same
     # centroid — recovered per-row as (x_orig - x), constant across particles.
     cfg <- tryCatch(active_manifest()$config_snapshot, error = function(e) list())

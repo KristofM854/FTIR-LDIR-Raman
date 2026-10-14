@@ -101,6 +101,12 @@ test_that("match_aligned_pair matches two aligned tables, NULL when one is missi
   b <- a; b$particle_id <- c("b1", "b2"); b$x_aligned <- b$x_aligned + 3
   m <- suppressMessages(match_aligned_pair(a, b, make_config(), "ftir_bruker", "ftir_perkin"))
   expect_equal(m$match_stats$n_matched, 2)
+  # LDIR on the reference side also gets the LDIR gate (150 um): 130 um apart
+  b$x_aligned <- a$x_aligned + 130
+  expect_equal(suppressMessages(match_aligned_pair(a, b, make_config(), "ftir_bruker",
+                                                   "ftir_perkin"))$match_stats$n_matched, 0)
+  expect_equal(suppressMessages(match_aligned_pair(a, b, make_config(), "ftir_bruker",
+                                                   "ldir"))$match_stats$n_matched, 2)
   expect_null(match_aligned_pair(a, NULL, make_config(), "ftir_bruker", "ldir"))
   expect_null(match_aligned_pair(a, a[0, ], make_config(), "ftir_bruker", "ldir"))
 })
