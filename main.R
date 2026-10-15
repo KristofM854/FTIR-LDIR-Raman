@@ -107,9 +107,8 @@ if (input_mode == "explicit") {
   IMAGE_FILTER <- "Image files|*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp|All files|*.*"
 
   message("=== File Input: one dialog per instrument slot ===")
-  message("Press Cancel on any optional slot to skip it.")
-  message("Raman is required; to abort the whole run, press Cancel twice ",
-          "in a row on that dialog.\n")
+  message("Press Cancel on a slot to skip it. Any two or more instruments can be ",
+          "combined (data file each; images optional).\n")
 
   ftir_file         <- .pick_file("FTIR (PerkinElmer) \u2014 data file (.csv/.xlsx)",
                                    required = FALSE, filter = DATA_FILTER)
@@ -121,8 +120,8 @@ if (input_mode == "explicit") {
   ftir_bruker_image <- .pick_file("FTIR Bruker (Lumos) \u2014 microscope image (optional)",
                                    required = FALSE, filter = IMAGE_FILTER)
 
-  raman_file        <- .pick_file("Raman \u2014 data file (.csv/.xlsx) [REQUIRED]",
-                                   required = TRUE, filter = DATA_FILTER)
+  raman_file        <- .pick_file("Raman \u2014 data file (.csv/.xlsx) (optional)",
+                                   required = FALSE, filter = DATA_FILTER)
   raman_image       <- .pick_file("Raman \u2014 microscope image, full size is fine (optional)",
                                    required = FALSE, filter = IMAGE_FILTER)
 
@@ -137,6 +136,11 @@ if (input_mode == "explicit") {
     val <- get(nm)
     message(sprintf("  %-24s %s", nm, if (is.null(val)) "(skipped)" else val))
   }
+  .n_data <- sum(!vapply(list(ftir_file, ftir_bruker_file, raman_file, ldir_file),
+                         is.null, logical(1)))
+  if (.n_data < 2)
+    .cancel_pipeline(paste0(.n_data, " instrument data file(s) selected; at least two ",
+                            "are needed"))
 
 } else if (input_mode == "interactive") {
   # ------ [LEGACY] Pattern-based auto-detection ------

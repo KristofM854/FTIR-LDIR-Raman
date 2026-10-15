@@ -6,8 +6,12 @@
 #   config$ldir_path <- ...            # optional instruments and images
 #   result <- run_pipeline(config)
 #
+# Any two or more of Raman, FTIR (PerkinElmer), FTIR (Bruker) and LDIR. The
+# reference frame is Raman when present, else FTIR (PerkinElmer), else FTIR
+# (Bruker) (choose_reference()); every other instrument is aligned into it.
+#
 # Stages: run folder + provenance; ingest (read_instrument, R/01_readers.R);
-# image placement; Raman reference frame and FTIR (PerkinElmer / Bruker)
+# image placement; reference frame and FTIR (PerkinElmer / Bruker)
 # alignment + matching + agreement (R/align_and_match.R); LDIR
 # (R/ldir_stage.R); cross-instrument matches; diagnostics; export; report.
 # Everything is written to a new run folder under config$output_dir.
@@ -16,16 +20,24 @@
 
 #' Run the pipeline.
 #'
-#' @param config Pipeline config (make_config() plus input paths:
-#'   ftir_path, raman_path, and optionally ftir_bruker_path, ldir_path,
-#'   ftir_image, ftir_bruker_image, raman_image, ldir_image)
+#' @param config Pipeline config (make_config() plus at least two of the
+#'   input paths raman_path, ftir_path, ftir_bruker_path, ldir_path, and
+#'   optionally the images ftir_image, ftir_bruker_image, raman_image,
+#'   ldir_image)
 #' @param report Also write the PDF / HTML report
-#' @return Invisibly, a list: config (as run, incl. output_dir), raw (the
-#'   canonical particle tables as read), raman (the
-#'   reference frame), ftir, ftir_bruker (align_and_match() results), ldir
-#'   (LDIR stage results), cross (Bruker<->PerkinElmer, Bruker<->LDIR matches),
+#' @return Invisibly, a list: config (as run, incl. output_dir), roles (the
+#'   instruments of the run), reference (the reference role), raw (the
+#'   canonical particle tables as read), ref (the reference frame), raman
+#'   (the same when Raman is the reference, else NULL), ftir, ftir_bruker
+#'   (align_and_match() results, NULL for the reference), ldir (LDIR stage
+#'   results), pairs (every source -> reference pair: src, match, icp, method,
+#'   labels), cross (matches between two aligned non-reference instruments),
 #'   composites, tps_assessment
 run_pipeline <- function(config, report = TRUE) {
+
+  # Which instruments, and which one is the frame (fails with fewer than two)
+  roles <- present_roles(config)
+  ref_role <- choose_reference(roles)
 
   # Spectral-library index for material classification (R/08b_material_map.R).
   # Load it now so the log states up front whether trade names / synonyms from
@@ -67,7 +79,11 @@ run_pipeline <- function(config, report = TRUE) {
       copy_original_max_mb = config$image_copy_max_mb %||% 100
     )
   }
-  if (!is.null(config$raman_image) && nzchar(config$raman_image) && file.exists(config$raman_image)) {
+  if (!is.null(config$raman_image) && nzchar(config$raman_image) &&
+      !"raman" %in% roles)
+    log_message("Raman image given without Raman data \u2014 ignored", level = "WARN")
+  if ("raman" %in% roles &&
+      !is.null(config$raman_image) && nzchar(config$raman_image) && file.exists(config$raman_image)) {
     .raman_image_info <- canonicalize_instrument_image(
       src_path = config$raman_image,
       inputs_dir = inputs_dir,
@@ -161,13 +177,19 @@ run_pipeline <- function(config, report = TRUE) {
   # 00_manifest/images.json at the end.
   .image_objects <- list()
 
-  # --- FTIR ---
-  ftir_raw  <- read_instrument("ftir", config)
-  write.csv(ftir_raw, file.path(.out_dirs$ingested, "ftir_perkin_ingested.csv"), row.names = FALSE)
+  log_message("Instruments: ", paste(ROLE_NAME[roles], collapse = ", "),
+              " \u2014 reference frame: ", ROLE_NAME[[ref_role]])
 
-  # --- Raman ---
-  raman_raw <- read_instrument("raman", config)
-  write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
+  # --- FTIR (PerkinElmer), Raman ---
+  ftir_raw <- raman_raw <- NULL
+  if ("ftir" %in% roles) {
+    ftir_raw <- read_instrument("ftir", config)
+    write.csv(ftir_raw, file.path(.out_dirs$ingested, "ftir_perkin_ingested.csv"), row.names = FALSE)
+  }
+  if ("raman" %in% roles) {
+    raman_raw <- read_instrument("raman", config)
+    write.csv(raman_raw, file.path(.out_dirs$ingested, "raman_ingested.csv"), row.names = FALSE)
+  }
 
   # --- Raman image placement from the WITec placement file -----------------
   # WITec writes the image's size and top-left corner (stage um) next to the
@@ -310,7 +332,7 @@ run_pipeline <- function(config, report = TRUE) {
 
   # --- LDIR (optional) ---
   ldir_raw <- NULL
-  has_ldir <- !is.null(config$ldir_path) && nzchar(config$ldir_path)
+  has_ldir <- "ldir" %in% roles
   if (has_ldir) {
     # Low-HQI identifications are relabelled "unknown" (kept, not dropped) to
     # mirror the LDIR software; see read_instrument().
@@ -331,7 +353,7 @@ run_pipeline <- function(config, report = TRUE) {
 
   # --- FTIR Bruker (optional) ---
   ftir_bruker_raw <- NULL
-  has_ftir_bruker <- !is.null(config$ftir_bruker_path) && nzchar(config$ftir_bruker_path)
+  has_ftir_bruker <- "ftir_bruker" %in% roles
   if (has_ftir_bruker) {
     ftir_bruker_raw <- read_instrument("ftir_bruker", config)
     write.csv(ftir_bruker_raw, file.path(.out_dirs$ingested, "ftir_bruker_ingested.csv"), row.names = FALSE)
@@ -410,82 +432,95 @@ run_pipeline <- function(config, report = TRUE) {
                                     "ftir_bruker_image", "ftir_bruker", "FTIR (Bruker)"))
 
   # ---------------------------------------------------------------------------
-  # 3-9. Raman reference frame; FTIR (PerkinElmer) alignment, matching, agreement
+  # 3-9. Reference frame; FTIR (PerkinElmer) alignment, matching, agreement
   #
-  # Raman is the reference frame. Every spatial step runs on the FULL particle
-  # sets; quality filters apply only in the agreement analysis.
+  # The reference (Raman, else FTIR PerkinElmer, else FTIR Bruker) is the
+  # frame. Every spatial step runs on the FULL particle sets; quality filters
+  # apply only in the agreement analysis.
   # ---------------------------------------------------------------------------
 
-  ref <- prepare_raman_reference(raman_raw, config)
-  write.csv(ref$prefiltered, file.path(.out_dirs$prefiltered, "raman_prefiltered.csv"), row.names = FALSE)
+  raw <- list(ftir = ftir_raw, ftir_bruker = ftir_bruker_raw, raman = raman_raw,
+              ldir = ldir_raw)
+  ref <- prepare_reference(raw[[ref_role]], config, ref_role)
+  write.csv(ref$prefiltered,
+            file.path(.out_dirs$prefiltered, paste0(ROLE_FILE[[ref_role]], "_prefiltered.csv")),
+            row.names = FALSE)
 
-  ftir_pair <- align_and_match(ftir_raw, ref, config, "FTIR (PerkinElmer)")
-  write.csv(ftir_pair$prefiltered, file.path(.out_dirs$prefiltered, "ftir_perkin_prefiltered.csv"), row.names = FALSE)
-  if (isTRUE(ftir_pair$skipped))
-    stop("FTIR (PerkinElmer): too few particles to align to Raman.", call. = FALSE)
-
-  raman_clean      <- ref$clean
-  raman_for_match  <- ref$for_match
-  match_result     <- ftir_pair$match
-  agreement        <- ftir_pair$agreement
-  icp_result       <- ftir_pair$icp
-  norm_result      <- ftir_pair$norm
-  ftir_aligned     <- ftir_pair$aligned
-  ftir_aligned_all <- ftir_pair$aligned_all
-
-
-  # ---------------------------------------------------------------------------
-  # 10. TPS assessment (systematic distortion check)
-  # ---------------------------------------------------------------------------
-
-  tps_assessment <- assess_tps_need(match_result)
-  log_message("TPS assessment: ", tps_assessment$message)
-  if (isTRUE(tps_assessment$recommend_tps)) {
-    log_message("  RECOMMENDATION: Consider thin-plate spline warp for improved alignment",
-                level = "WARN")
+  # One FTIR-type instrument -> reference (NULL when it is absent or is the
+  # reference). A table too small to align is reported and left unpaired.
+  .ftir_type_pair <- function(role) {
+    if (!role %in% roles || identical(role, ref_role)) return(NULL)
+    pair <- align_and_match(raw[[role]], ref, config, ROLE_NAME[[role]], role)
+    write.csv(pair$prefiltered,
+              file.path(.out_dirs$prefiltered, paste0(ROLE_FILE[[role]], "_prefiltered.csv")),
+              row.names = FALSE)
+    pair$src_name <- c(ftir = "FTIR_perkin", ftir_bruker = "FTIR_bruker")[[role]]
+    pair$ref_name <- ref$name
+    pair$raw <- raw[[role]]
+    pair
   }
+  .usable <- function(pair) !is.null(pair) && !isTRUE(pair$skipped)
 
-  # ---------------------------------------------------------------------------
-  # 11. Composite matching (1:many) for unmatched FTIR
-  # ---------------------------------------------------------------------------
-
-  composites <- data.frame()
-  if (nrow(match_result$unmatched_ftir) > 0 && nrow(match_result$unmatched_raman) > 0) {
-    # Ensure unmatched FTIR particles have aligned coordinates
-    unmatched_ftir_src <- match_result$unmatched_ftir
-    if (!"x_aligned" %in% names(unmatched_ftir_src)) {
-      unmatched_ftir_src <- apply_normalization(unmatched_ftir_src,
-                                                norm_result$ftir_centroid,
-                                                norm_result$ftir_scale)
-      tf <- apply_transform_points(unmatched_ftir_src$x_norm,
-                                   unmatched_ftir_src$y_norm,
-                                   icp_result$transform)
-      unmatched_ftir_src$x_aligned <- tf$x_transformed
-      unmatched_ftir_src$y_aligned <- tf$y_transformed
-    }
-
-    composites <- find_composite_matches(
-      unmatched_ftir_src, match_result$unmatched_raman, config
-    )
-
-    if (nrow(composites) > 0) {
-      log_message("Composite matches found: ", nrow(composites),
-                  " FTIR particles matched to multiple Raman fragments")
-    }
-  }
+  ftir_pair <- .ftir_type_pair("ftir")
+  if (!is.null(ftir_pair)) ftir_pair$scan_bounds <- ftir_scan_bounds
 
   # ---------------------------------------------------------------------------
   # 5b. FTIR (Bruker): the same alignment, matching and agreement
   # ---------------------------------------------------------------------------
 
-  bruker_pair <- NULL
-  if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
-    bruker_pair <- align_and_match(ftir_bruker_raw, ref, config, "FTIR (Bruker)")
-    write.csv(bruker_pair$prefiltered,
-              file.path(.out_dirs$prefiltered, "ftir_bruker_prefiltered.csv"),
-              row.names = FALSE)
+  bruker_pair <- .ftir_type_pair("ftir_bruker")
+  bruker_aligned <- if (.usable(bruker_pair)) bruker_pair$aligned
+
+  # The pair the TPS check, composites and the main diagnostics are run on
+  .main_ftir_pair <- if (.usable(ftir_pair)) ftir_pair else if (.usable(bruker_pair)) bruker_pair
+
+  # ---------------------------------------------------------------------------
+  # 10. TPS assessment (systematic distortion check)
+  # ---------------------------------------------------------------------------
+
+  tps_assessment <- NULL
+  composites <- data.frame()
+  if (!is.null(.main_ftir_pair)) {
+    match_result <- .main_ftir_pair$match
+    lb <- .main_ftir_pair$labels
+    tps_assessment <- assess_tps_need(.as_ftir_raman_columns(match_result,
+                                                             c(lb$src_prefix, lb$ref_prefix)))
+    log_message("TPS assessment: ", tps_assessment$message)
+    if (isTRUE(tps_assessment$recommend_tps)) {
+      log_message("  RECOMMENDATION: Consider thin-plate spline warp for improved alignment",
+                  level = "WARN")
+    }
+
+    # -------------------------------------------------------------------------
+    # 11. Composite matching (1:many) for unmatched FTIR
+    # -------------------------------------------------------------------------
+
+    if (nrow(match_result$unmatched_src) > 0 && nrow(match_result$unmatched_ref) > 0) {
+      # Ensure unmatched FTIR particles have aligned coordinates
+      unmatched_ftir_src <- match_result$unmatched_src
+      if (!"x_aligned" %in% names(unmatched_ftir_src)) {
+        norm_result <- .main_ftir_pair$norm
+        unmatched_ftir_src <- apply_normalization(unmatched_ftir_src,
+                                                  norm_result$ftir_centroid,
+                                                  norm_result$ftir_scale)
+        tf <- apply_transform_points(unmatched_ftir_src$x_norm,
+                                     unmatched_ftir_src$y_norm,
+                                     .main_ftir_pair$icp$transform)
+        unmatched_ftir_src$x_aligned <- tf$x_transformed
+        unmatched_ftir_src$y_aligned <- tf$y_transformed
+      }
+
+      composites <- find_composite_matches(
+        unmatched_ftir_src, match_result$unmatched_ref, config
+      )
+
+      if (nrow(composites) > 0) {
+        log_message("Composite matches found: ", nrow(composites), " ",
+                    .main_ftir_pair$label, " particles matched to multiple ",
+                    ref$name, " fragments")
+      }
+    }
   }
-  bruker_aligned <- if (!isTRUE(bruker_pair$skipped)) bruker_pair$aligned
 
   # ---------------------------------------------------------------------------
   # 12. LDIR (image -> coordinates -> alignment -> matching), R/ldir_stage.R
@@ -497,13 +532,16 @@ run_pipeline <- function(config, report = TRUE) {
     ldir_results <- .ldir_stage$results
     .image_objects$ldir <- .ldir_stage$image
   }
+  .ldir_usable <- !is.null(ldir_results$ldir_aligned) && !is.null(ldir_results$ldir_ref_match)
 
   # ---------------------------------------------------------------------------
-  # 12b. Cross-instrument pairwise matches (non-Raman pairs)
+  # 12b. Cross-instrument pairwise matches (pairs without the reference)
   # ---------------------------------------------------------------------------
-  # Every instrument is aligned into the Raman frame, so any pair can be matched
-  # directly. Perkin<->LDIR is matched in the LDIR stage.
-  bruker_perkin_match <- match_aligned_pair(bruker_aligned, ftir_aligned, config,
+  # Every instrument is aligned into the reference frame, so any pair can be
+  # matched directly. Perkin<->LDIR (Raman reference) is matched in the LDIR
+  # stage. A pair whose side is the reference is its source -> reference
+  # match, so it is not repeated here.
+  bruker_perkin_match <- match_aligned_pair(bruker_aligned, ftir_pair$aligned, config,
                                             "ftir_bruker", "ftir_perkin")
   if (!is.null(bruker_perkin_match))
     log_message("FTIR (Bruker) <-> FTIR (PerkinElmer): ",
@@ -514,20 +552,49 @@ run_pipeline <- function(config, report = TRUE) {
     log_message("FTIR (Bruker) <-> LDIR: ",
                 bruker_ldir_match$match_stats$n_matched, " matched")
 
+  # Every source -> reference pair of the run
+  pairs <- list()
+  for (p in list(ftir_pair, bruker_pair)) if (.usable(p))
+    pairs[[p$labels$stem]] <- list(src = p$aligned, match = p$match, icp = p$icp,
+                                   method = p$method, landmark = p$landmark,
+                                   ransac = p$ransac, labels = p$labels)
+  if (.ldir_usable)
+    pairs[[ldir_results$labels$stem]] <- list(
+      src = ldir_results$ldir_aligned, match = ldir_results$ldir_ref_match,
+      icp = ldir_results$ldir_icp, method = ldir_results$ldir_aligned$align_method[1],
+      labels = ldir_results$labels)
+  if (length(pairs) == 0)
+    stop("No instrument could be aligned to ", ref$name, " (too few particles, or no ",
+         "LDIR coordinates); nothing to match.", call. = FALSE)
+
+  # The primary pair: FTIR (PerkinElmer), else FTIR (Bruker), else LDIR ->
+  # reference. Its statistics, agreement summary, triage and diagnostics are
+  # the run-level ones.
+  primary <- if (!is.null(.main_ftir_pair))
+    list(match = .main_ftir_pair$match, agreement = .main_ftir_pair$agreement,
+         labels = .main_ftir_pair$labels, aligned_all = .main_ftir_pair$aligned_all,
+         icp = .main_ftir_pair$icp, name = .main_ftir_pair$label)
+  else
+    list(match = ldir_results$ldir_ref_match, agreement = ldir_results$ldir_ref_agreement,
+         labels = ldir_results$labels, aligned_all = ldir_results$ldir_aligned,
+         icp = ldir_results$ldir_icp, name = "LDIR")
+  .ldir_is_primary <- is.null(.main_ftir_pair)
 
   # ---------------------------------------------------------------------------
   # 13. Diagnostics (use full datasets for overlay, matched pairs for detail)
   # ---------------------------------------------------------------------------
 
   diagnostics <- generate_diagnostics(
-    ftir_aligned_all, raman_clean,
-    match_result, icp_result, agreement,
-    config
+    primary$aligned_all, ref$clean,
+    primary$match, primary$icp, primary$agreement,
+    config,
+    names = c(if (identical(primary$name, "FTIR (PerkinElmer)")) "FTIR" else primary$name,
+              if (identical(ref_role, "raman")) "Raman" else ref$name),
+    prefixes = c(primary$labels$src_prefix, primary$labels$ref_prefix)
   )
 
   # Add LDIR diagnostics if spatial matching was performed
-  if (!is.null(ldir_results) && !is.null(ldir_results$ldir_aligned) &&
-      !is.null(ldir_results$ldir_raman_match)) {
+  if (.ldir_usable && !.ldir_is_primary) {
 
     # Step 4: Assert LDIR overlay uses aligned coordinates
     ldir_plot_df <- ldir_results$ldir_aligned
@@ -553,8 +620,8 @@ run_pipeline <- function(config, report = TRUE) {
     }
 
     ldir_diag <- generate_ldir_diagnostics(
-      ldir_plot_df, raman_clean,
-      ldir_results$ldir_raman_match, ldir_results$ldir_raman_agreement,
+      ldir_plot_df, ref$clean,
+      ldir_results$ldir_ref_match, ldir_results$ldir_ref_agreement,
       debug_subtitle = if (isTRUE(config$debug)) {
         # Build per-particle subtitle for A3 etc.
         parts <- character(0)
@@ -568,7 +635,8 @@ run_pipeline <- function(config, report = TRUE) {
           }
         }
         if (length(parts) > 0) paste(parts, collapse = "  ") else NULL
-      } else NULL
+      } else NULL,
+      ref_prefix = ldir_results$labels$ref_prefix, ref_name = ref$name
     )
     diagnostics <- c(diagnostics, ldir_diag)
     log_message("  Added ", length(ldir_diag), " LDIR diagnostic plots")
@@ -578,11 +646,23 @@ run_pipeline <- function(config, report = TRUE) {
   # 14. Export
   # ---------------------------------------------------------------------------
 
+  # Every instrument in the shared frame, for the viewer
+  .ref_aligned <- ref$clean
+  .ref_aligned$x_aligned <- .ref_aligned$x_norm
+  .ref_aligned$y_aligned <- .ref_aligned$y_norm
+  .aligned <- list()
+  .aligned[[ROLE_FILE[[ref_role]]]] <- .ref_aligned
+  if (.usable(ftir_pair))   .aligned$ftir_perkin <- ftir_pair$aligned_all
+  if (.usable(bruker_pair)) .aligned$ftir_bruker <- bruker_pair$aligned_all
+  if (.ldir_usable)         .aligned$ldir        <- ldir_results$ldir_aligned
+
   export_results(
-    match_result, agreement, diagnostics,
-    icp_result, norm_result, config,
-    ftir_scan_bounds = ftir_scan_bounds,
-    ldir_results     = ldir_results,
+    pairs        = Filter(Negate(is.null), list(ftir_pair, bruker_pair)),
+    primary      = primary,
+    diagnostics  = diagnostics,
+    config       = config,
+    ldir_results = ldir_results,
+    aligned      = .aligned,
     input_paths      = .run_input_paths,
     ldir_image_info  = .ldir_image_info,
     image_infos      = list(
@@ -594,36 +674,6 @@ run_pipeline <- function(config, report = TRUE) {
 
   # Use stage-based output directories for remaining exports
   .export_dirs <- get_output_dirs(config$output_dir)
-
-  # Export FTIR Bruker results
-  if (!is.null(bruker_pair) && !isTRUE(bruker_pair$skipped)) {
-    bm <- bruker_pair$match
-    if (nrow(bm$matched) > 0) {
-      write.csv(bm$matched, file.path(.export_dirs$matches, "matched_ftir_bruker_raman.csv"),
-                row.names = FALSE)
-      log_message("  Wrote matched_ftir_bruker_raman.csv (", nrow(bm$matched), " pairs)")
-    }
-    if (nrow(bm$unmatched_ftir) > 0) {
-      write.csv(bm$unmatched_ftir,
-                file.path(.export_dirs$matches, "unmatched_ftir_bruker_vs_raman.csv"),
-                row.names = FALSE)
-      log_message("  Wrote unmatched_ftir_bruker_vs_raman.csv (",
-                  nrow(bm$unmatched_ftir), " particles)")
-    }
-    write_transform_params(bruker_pair,
-                           file.path(.export_dirs$alignment, "transform_params_ftir_bruker_raman.txt"),
-                           "FTIR_bruker")
-    if (!is.null(bruker_pair$agreement)) {
-      write_agreement_tables(bruker_pair$agreement, .export_dirs$agreement, "ftir_bruker_raman")
-      log_message("  Wrote agreement tables (ftir_bruker_raman)")
-    }
-  } else if (has_ftir_bruker && !is.null(ftir_bruker_raw) && nrow(ftir_bruker_raw) > 0) {
-    # Alignment skipped (too few particles)
-    write.csv(ftir_bruker_raw,
-              file.path(.export_dirs$matches, "unmatched_ftir_bruker.csv"),
-              row.names = FALSE)
-    log_message("  Wrote unmatched_ftir_bruker.csv (", nrow(ftir_bruker_raw), " particles)")
-  }
 
   # Export cross-instrument matches (Bruker<->Perkin, Bruker<->LDIR). Perkin<->LDIR
   # is written by export_ldir_results() as matched_ldir_ftir_perkin.csv.
@@ -675,35 +725,44 @@ run_pipeline <- function(config, report = TRUE) {
   log_message(strrep("=", 60))
   log_message("Pipeline complete!")
   log_message(strrep("=", 60))
-  log_message("  Alignment method:  ", ftir_pair$method,
-              if (ftir_pair$method == "landmark")
-                paste0(" (", ftir_pair$landmark$n_inliers, " landmark inliers, ",
-                       round(ftir_pair$landmark$mean_residual, 1), " \u00b5m mean residual)")
-              else "")
-  log_message("  FTIR landmarks:    ", ftir_pair$landmark$n_ftir_landmarks,
-              " (confident: ", ftir_pair$landmark$confident, ")")
-  log_message("  FTIR plastic anchors (alignment): ", nrow(ftir_pair$for_align))
-  log_message("  Raman targets (alignment):       ", nrow(ref$for_align))
-  log_message("  FTIR particles (matching):       ", nrow(ftir_pair$for_match))
-  log_message("  Raman particles (matching):      ", nrow(raman_for_match))
-  log_message("  Matched pairs:      ", match_result$match_stats$n_matched)
-  log_message("  Unmatched FTIR:     ", match_result$match_stats$n_unmatched_ftir)
-  log_message("  Unmatched Raman:    ", match_result$match_stats$n_unmatched_raman)
-  log_message("  FTIR match rate:    ",
-              round(match_result$match_stats$match_rate_ftir * 100, 1), "%")
-  if (!is.na(agreement$agreement_rate)) {
-    log_message("  Material agreement: ", round(agreement$agreement_rate * 100, 1), "%")
-  }
-  if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
-    tr <- agreement$tiered_rates
-    log_message("  Agreement:         Family ", tr$family_or_better_pct, "% (primary), Exact ",
-                tr$exact_pct, "%, Filler/pigment ", tr$filler_pct, "% of ", tr$n_resolved,
-                " resolved pairs; ", tr$n_unresolved, " unresolved")
+  log_message("  Instruments:       ", paste(ROLE_NAME[roles], collapse = ", "))
+  log_message("  Reference frame:   ", ref$name)
+  log_message("  ", ref$name, " targets (alignment): ", nrow(ref$for_align))
+  log_message("  ", ref$name, " particles (matching): ", nrow(ref$for_match))
+  for (p in list(ftir_pair, bruker_pair)) {
+    if (is.null(p)) next
+    log_message("  --- ", p$label, " ---")
+    if (isTRUE(p$skipped)) {
+      log_message("  Not aligned (too few particles)")
+      next
+    }
+    log_message("  Alignment method:  ", p$method,
+                if (p$method == "landmark")
+                  paste0(" (", p$landmark$n_inliers, " landmark inliers, ",
+                         round(p$landmark$mean_residual, 1), " µm mean residual)")
+                else "")
+    log_message("  Landmarks:         ", p$landmark$n_ftir_landmarks,
+                " (confident: ", p$landmark$confident, ")")
+    log_message("  Anchors (alignment): ", nrow(p$for_align))
+    log_message("  Particles (matching): ", nrow(p$for_match))
+    ms <- p$match$match_stats
+    log_message("  Matched pairs:      ", ms$n_matched)
+    log_message("  Unmatched ", p$label, ": ", ms$n_unmatched_src)
+    log_message("  Unmatched ", ref$name, ": ", ms$n_unmatched_ref)
+    log_message("  Match rate:         ", round(ms$match_rate_src * 100, 1), "%")
+    ag <- p$agreement
+    if (!is.null(ag$tiered_rates) && ag$tiered_rates$n_total > 0) {
+      tr <- ag$tiered_rates
+      log_message("  Agreement:         Family ", tr$family_or_better_pct, "% (primary), Exact ",
+                  tr$exact_pct, "%, Filler/pigment ", tr$filler_pct, "% of ", tr$n_resolved,
+                  " resolved pairs; ", tr$n_unresolved, " unresolved")
+    }
   }
   if (nrow(composites) > 0) {
     log_message("  Composite matches: ", nrow(composites))
   }
-  log_message("  TPS assessment:    ", tps_assessment$message)
+  if (!is.null(tps_assessment))
+    log_message("  TPS assessment:    ", tps_assessment$message)
   if (has_ldir && !is.null(ldir_results)) {
     log_message("  --- LDIR ---")
     log_message("  LDIR particles:    ", nrow(ldir_results$ldir_clean))
@@ -714,9 +773,9 @@ run_pipeline <- function(config, report = TRUE) {
                   " (landmarks: ", ldir_results$ldir_landmark$n_ftir_landmarks,
                   ", confident: ", ldir_results$ldir_landmark$confident, ")")
     }
-    if (!is.null(ldir_results$ldir_raman_match)) {
-      log_message("  LDIR-Raman matched: ",
-                  ldir_results$ldir_raman_match$match_stats$n_matched)
+    if (!is.null(ldir_results$ldir_ref_match)) {
+      log_message("  LDIR-", ref$name, " matched: ",
+                  ldir_results$ldir_ref_match$match_stats$n_matched)
     }
     if (!is.null(ldir_results$ldir_ftir_match)) {
       log_message("  LDIR-FTIR matched:  ",
@@ -725,11 +784,11 @@ run_pipeline <- function(config, report = TRUE) {
     if (nrow(ldir_results$triplets) > 0) {
       log_message("  Three-way triplets: ", nrow(ldir_results$triplets))
     }
-    if (!is.null(ldir_results$ldir_raman_agreement) &&
-        !is.null(ldir_results$ldir_raman_agreement$tiered_rates) &&
-        ldir_results$ldir_raman_agreement$tiered_rates$n_total > 0) {
-      ltr <- ldir_results$ldir_raman_agreement$tiered_rates
-      log_message("  LDIR-Raman agreement: Family ", ltr$family_or_better_pct,
+    if (!is.null(ldir_results$ldir_ref_agreement) &&
+        !is.null(ldir_results$ldir_ref_agreement$tiered_rates) &&
+        ldir_results$ldir_ref_agreement$tiered_rates$n_total > 0) {
+      ltr <- ldir_results$ldir_ref_agreement$tiered_rates
+      log_message("  LDIR-", ref$name, " agreement: Family ", ltr$family_or_better_pct,
                   "% (primary), Exact ", ltr$exact_pct, "%, Filler/pigment ",
                   ltr$filler_pct, "% of ", ltr$n_resolved, " resolved pairs; ",
                   ltr$n_unresolved, " unresolved, ", ltr$n_join_warning,
@@ -744,11 +803,11 @@ run_pipeline <- function(config, report = TRUE) {
 
   if (isTRUE(report)) write_pipeline_report(config)
 
-  invisible(list(config = config,
-                 raw = list(ftir = ftir_raw, ftir_bruker = ftir_bruker_raw,
-                            raman = raman_raw, ldir = ldir_raw),
-                 raman = ref, ftir = ftir_pair, ftir_bruker = bruker_pair,
-                 ldir = ldir_results,
+  invisible(list(config = config, roles = roles, reference = ref_role,
+                 raw = raw,
+                 ref = ref, raman = if (identical(ref_role, "raman")) ref,
+                 ftir = ftir_pair, ftir_bruker = bruker_pair,
+                 ldir = ldir_results, pairs = pairs,
                  cross = list(ftir_bruker_ftir_perkin = bruker_perkin_match,
                               ftir_bruker_ldir = bruker_ldir_match),
                  composites = composites, tps_assessment = tps_assessment))

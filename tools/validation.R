@@ -39,20 +39,14 @@
 #' @param result run_pipeline() result
 #' @return Named list of list(src, ref, src_label, ref_label, matched)
 validation_pairs <- function(result) {
-  raman <- result$raman$for_match
+  ref <- result$ref$for_match
   pairs <- list()
-  add <- function(name, src, ref, sl, rl, match) {
-    if (is.data.frame(src) && nrow(src) > 0 && !is.null(match))
-      pairs[[name]] <<- list(src = src, ref = ref, src_label = sl, ref_label = rl,
-                             matched = match$matched)
+  for (nm in names(result$pairs)) {
+    p <- result$pairs[[nm]]
+    if (is.data.frame(p$src) && nrow(p$src) > 0 && !is.null(p$match))
+      pairs[[nm]] <- list(src = p$src, ref = ref, src_label = p$labels$src_prefix,
+                          ref_label = p$labels$ref_prefix, matched = p$match$matched)
   }
-  add("ftir_perkin_raman", result$ftir$aligned, raman, "ftir", "raman", result$ftir$match)
-  if (!isTRUE(result$ftir_bruker$skipped))
-    add("ftir_bruker_raman", result$ftir_bruker$aligned, raman, "ftir", "raman",
-        result$ftir_bruker$match)
-  if (!is.null(result$ldir$ldir_aligned))
-    add("ldir_raman", result$ldir$ldir_aligned, raman, "ldir", "raman",
-        result$ldir$ldir_raman_match)
   pairs
 }
 
@@ -199,17 +193,22 @@ sensitivity_alignment <- function(result, sweep = default_alignment_sweep, base 
     cfg <- utils::modifyList(config, base); cfg[[key]] <- val
     cfg$output_dir <- tempfile("validation_"); dir.create(cfg$output_dir)
     out_dirs <- get_output_dirs(cfg$output_dir)
-    ref <- .quietly(prepare_raman_reference(result$raw$raman, cfg))
+    ref_role <- result$reference %||% "raman"
+    ref <- .quietly(prepare_reference(result$raw[[ref_role]], cfg, ref_role))
     runs <- list()
-    if ("ftir_perkin_raman" %in% names(baseline))
-      runs$ftir_perkin_raman <- .quietly(align_and_match(result$raw$ftir, ref, cfg, "FTIR (PerkinElmer)"))
-    if ("ftir_bruker_raman" %in% names(baseline))
-      runs$ftir_bruker_raman <- .quietly(align_and_match(result$raw$ftir_bruker, ref, cfg, "FTIR (Bruker)"))
-    if ("ldir_raman" %in% names(baseline)) {
-      st <- .quietly(run_ldir_stage(result$ldir$ldir_clean, ref,
-                                    runs$ftir_perkin_raman, cfg, out_dirs))
-      runs$ldir_raman <- list(icp = st$results$ldir_icp, match = st$results$ldir_raman_match,
-                              method = st$results$ldir_aligned$align_method[1])
+    ftir_run <- NULL
+    for (role in c("ftir", "ftir_bruker")) {
+      if (identical(role, ref_role) || is.null(result$raw[[role]])) next
+      nm <- pair_labels(role, ref_role)$stem
+      if (!nm %in% names(baseline)) next
+      runs[[nm]] <- .quietly(align_and_match(result$raw[[role]], ref, cfg, ROLE_NAME[[role]], role))
+      if (role == "ftir") ftir_run <- runs[[nm]]
+    }
+    nm <- pair_labels("ldir", ref_role)$stem
+    if (nm %in% names(baseline)) {
+      st <- .quietly(run_ldir_stage(result$ldir$ldir_clean, ref, ftir_run, cfg, out_dirs))
+      runs[[nm]] <- list(icp = st$results$ldir_icp, match = st$results$ldir_ref_match,
+                         method = st$results$ldir_aligned$align_method[1])
     }
     for (nm in names(runs)) {
       r <- runs[[nm]]; b <- baseline[[nm]]
@@ -260,7 +259,8 @@ validate_run <- function(result, out_dir = NULL, n_iter = 200, alignment = TRUE)
           sensitivity_alignment(result, tier2_alignment_sweep,
                                 base = list(landmark_skip_full_ransac = FALSE)))
   join <- result$ldir$join_check %||%
-    .quietly(ldir_join_check(result$ldir$ldir_raman_match$matched))
+    .quietly(ldir_join_check(result$ldir$ldir_ref_match$matched,
+                             ref_prefix = result$ldir$labels$ref_prefix %||% "raman"))
   v <- list(null_model = null, gate = gate, alignment = align, ldir_join = join)
   if (!is.null(out_dir)) {
     dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)

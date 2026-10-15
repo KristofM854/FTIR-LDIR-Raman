@@ -4,23 +4,28 @@
 
 #' Export all pipeline outputs
 #'
-#' @param match_result Result from match_particles()
-#' @param agreement Result from analyze_agreement()
+#' @param pairs Named list of align_and_match() results (FTIR-type source ->
+#'   reference), each with $src_name (transform header, "FTIR_perkin") and
+#'   optionally $scan_bounds; skipped pairs write their raw table as
+#'   unmatched_<src>.csv
+#' @param primary The run's primary pair, list(match, agreement, labels): the
+#'   first of FTIR (PerkinElmer), FTIR (Bruker), LDIR -> reference. Its
+#'   reference-side unmatched particles, match statistics, agreement summary
+#'   and triage list are written; NULL when nothing was matched.
 #' @param diagnostics List of ggplot objects from generate_diagnostics()
-#' @param icp_result Result from icp_refine()
-#' @param norm_result Normalisation of the pair (align_and_match()$norm)
 #' @param config Configuration list
-#' @param ftir_scan_bounds Optional scan bounds
 #' @param ldir_results Optional list of LDIR pipeline results
+#' @param aligned Named list (by file name: "raman", "ftir_perkin", ...) of
+#'   every instrument's particles in the shared frame (x_aligned, y_aligned),
+#'   written as 04_alignment/aligned_<name>.csv
 #' @param input_paths Named list of input file paths used in this run
 #'   (e.g. list(ftir = "...", raman = "...", ldir = "...", ldir_image = "..."))
 #' @param ldir_image_info Result from canonicalize_ldir_image() or NULL
 #' @param image_infos Named list of instrument image info objects
 #' @return Invisible NULL
-export_results <- function(match_result, agreement, diagnostics,
-                           icp_result, norm_result, config,
-                           ftir_scan_bounds = NULL,
+export_results <- function(pairs, primary, diagnostics, config,
                            ldir_results = NULL,
+                           aligned = list(),
                            input_paths = list(),
                            ldir_image_info = NULL,
                            image_infos = list()) {
@@ -57,96 +62,22 @@ export_results <- function(match_result, agreement, diagnostics,
     log_message("  Could not write/update manifest: ", e$message, level = "WARN")
   })
 
-  # --- 1. Matched particle table ---
-  if (nrow(match_result$matched) > 0) {
-    write.csv(match_result$matched,
-              file.path(dirs$matches, "matched_ftir_perkin_raman.csv"),
-              row.names = FALSE)
-    log_message("  Wrote matched_ftir_perkin_raman.csv (", nrow(match_result$matched), " pairs)")
-  }
+  # --- 1-3. FTIR-type pairs: matches, transform, agreement tables ---
+  for (pair in pairs) export_pair(pair, dirs)
 
-  # --- 2. Unmatched particles ---
-  if (nrow(match_result$unmatched_ftir) > 0) {
-    write.csv(match_result$unmatched_ftir,
-              file.path(dirs$matches, "unmatched_ftir_perkin_vs_raman.csv"),
-              row.names = FALSE)
-  }
-  if (nrow(match_result$unmatched_raman) > 0) {
-    write.csv(match_result$unmatched_raman,
-              file.path(dirs$matches, "unmatched_raman_vs_ftir_perkin.csv"),
-              row.names = FALSE)
-  }
-
-  # --- 3. Transform parameters ---
-  write_transform_params(list(icp = icp_result, norm = norm_result),
-                         file.path(dirs$alignment, "transform_params_ftir_perkin_raman.txt"),
-                         "FTIR_perkin", scan_bounds = ftir_scan_bounds)
-
-  # --- 4. Agreement summary (tiered) ---
-  if (!is.null(agreement) && !is.null(agreement$agreement_detail) &&
-      nrow(agreement$agreement_detail) > 0) {
-    write.csv(agreement$agreement_detail,
-              file.path(dirs$agreement, "agreement_summary.csv"),
-              row.names = FALSE)
-    write_agreement_tables(agreement, dirs$agreement, "ftir_perkin_raman")
-    log_message("  Wrote agreement CSVs")
-  }
-
-  # Category summary
-  if (!is.null(agreement$category_summary) && nrow(agreement$category_summary) > 0) {
-    write.csv(agreement$category_summary,
-              file.path(dirs$agreement, "agreement_by_category.csv"),
-              row.names = FALSE)
-    log_message("  Wrote agreement_by_category.csv")
-  }
-
-  # --- 5. Match statistics ---
-  stats <- match_result$match_stats
-  stats_lines <- c(
-    "# Match Statistics",
-    paste0("# Generated: ", Sys.time()),
-    "",
-    paste0("n_ftir:            ", stats$n_ftir),
-    paste0("n_raman:           ", stats$n_raman),
-    paste0("n_matched:         ", stats$n_matched),
-    paste0("n_unmatched_ftir:  ", stats$n_unmatched_ftir),
-    paste0("n_unmatched_raman: ", stats$n_unmatched_raman),
-    paste0("match_rate_ftir:   ", round(stats$match_rate_ftir * 100, 1), "%"),
-    paste0("match_rate_raman:  ", round(stats$match_rate_raman * 100, 1), "%"),
-    paste0("mean_distance_um:  ", round(stats$mean_distance, 3)),
-    paste0("median_distance_um:", round(stats$median_distance, 3)),
-    paste0("max_distance_um:   ", round(stats$max_distance, 3))
-  )
-
-  # Tiered agreement rates
-  if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
-    tr <- agreement$tiered_rates
-    stats_lines <- c(stats_lines, "",
-      "# Agreement (rates over resolved pairs)",
-      paste0("agreement_pairs_matched:        ", tr$n_pairs_matched),
-      paste0("agreement_excluded_quality:     ", tr$n_excluded_quality_a + tr$n_excluded_quality_b),
-      paste0("agreement_excluded_unidentified:", tr$n_excluded_unidentified),
-      paste0("agreement_n_scored:             ", tr$n_total),
-      paste0("agreement_n_unresolved:         ", tr$n_unresolved),
-      paste0("agreement_n_resolved:           ", tr$n_resolved),
-      paste0("agreement_family_pct_PRIMARY:   ", tr$family_or_better_pct, "%"),
-      paste0("agreement_exact_pct_SECONDARY:  ", tr$exact_pct, "%"),
-      paste0("agreement_family_only_pct:      ", tr$family_pct, "%"),
-      paste0("agreement_filler_pigment_pct:   ", tr$filler_pct, "%"),
-      paste0("agreement_disagree_pct:         ", tr$disagree_pct, "%")
-    )
-  }
-
-  writeLines(stats_lines,
-             file.path(dirs$diagnostics, "match_statistics.txt"))
-  log_message("  Wrote match_statistics.txt")
-
-  # --- 6. Triage export: top mismatched/high-risk pairs ---
-  export_triage(match_result, agreement, dirs$diagnostics)
+  # --- 4-6. The primary pair: statistics, agreement summary, triage ---
+  if (!is.null(primary)) export_primary_pair(primary, dirs)
 
   # --- 7. LDIR results ---
   if (!is.null(ldir_results)) {
     export_ldir_results(ldir_results, dirs)
+  }
+
+  # Every instrument in the shared frame (the viewer draws these)
+  for (nm in names(aligned)) {
+    d <- aligned[[nm]]
+    if (is.data.frame(d) && nrow(d) > 0 && all(c("x_aligned", "y_aligned") %in% names(d)))
+      write.csv(d, file.path(dirs$alignment, paste0("aligned_", nm, ".csv")), row.names = FALSE)
   }
 
   # --- 8. Diagnostic plots ---
@@ -185,6 +116,129 @@ export_results <- function(match_result, agreement, diagnostics,
   }
 
   log_message("Export complete.")
+  invisible(NULL)
+}
+
+
+#' Write one FTIR-type -> reference pair: matched_<stem>.csv,
+#' unmatched_<src>_vs_<ref>.csv, transform_params_<stem>.txt and the
+#' agreement tables. A skipped pair (too few particles to align) writes its
+#' table as unmatched_<src>.csv.
+#'
+#' @param pair align_and_match() result with $labels, $src_name and
+#'   optionally $scan_bounds and $raw (the table, for a skipped pair)
+#' @param dirs get_output_dirs() of the run
+export_pair <- function(pair, dirs) {
+  lb <- pair$labels
+  src_file <- lb$src_file; ref_file <- lb$ref_file
+  if (isTRUE(pair$skipped)) {
+    if (is.data.frame(pair$raw) && nrow(pair$raw) > 0) {
+      write.csv(pair$raw, file.path(dirs$matches, paste0("unmatched_", src_file, ".csv")),
+                row.names = FALSE)
+      log_message("  Wrote unmatched_", src_file, ".csv (", nrow(pair$raw), " particles)")
+    }
+    return(invisible(NULL))
+  }
+  m <- pair$match
+  if (nrow(m$matched) > 0) {
+    write.csv(m$matched, file.path(dirs$matches, paste0("matched_", lb$stem, ".csv")),
+              row.names = FALSE)
+    log_message("  Wrote matched_", lb$stem, ".csv (", nrow(m$matched), " pairs)")
+  }
+  if (nrow(m$unmatched_src) > 0) {
+    f <- paste0("unmatched_", src_file, "_vs_", ref_file, ".csv")
+    write.csv(m$unmatched_src, file.path(dirs$matches, f), row.names = FALSE)
+    log_message("  Wrote ", f, " (", nrow(m$unmatched_src), " particles)")
+  }
+  write_transform_params(pair, file.path(dirs$alignment, paste0("transform_params_", lb$stem, ".txt")),
+                         pair$src_name, scan_bounds = pair$scan_bounds,
+                         ref_name = pair$ref_name %||% "Raman")
+  if (!is.null(pair$agreement)) {
+    write_agreement_tables(pair$agreement, dirs$agreement, lb$stem)
+    log_message("  Wrote agreement tables (", lb$stem, ")")
+  }
+  invisible(NULL)
+}
+
+
+#' The primary pair's run-level outputs: the reference particles it left
+#' unmatched (unmatched_<ref>_vs_<src>.csv), agreement_summary.csv,
+#' agreement_by_category.csv, match_statistics.txt and triage_top_pairs.csv.
+#'
+#' @param primary list(match, agreement, labels)
+#' @param dirs get_output_dirs() of the run
+export_primary_pair <- function(primary, dirs) {
+  match_result <- primary$match
+  agreement <- primary$agreement
+  lb <- primary$labels
+  if (nrow(match_result$unmatched_ref) > 0)
+    write.csv(match_result$unmatched_ref,
+              file.path(dirs$matches, paste0("unmatched_", lb$ref_file, "_vs_", lb$src_file, ".csv")),
+              row.names = FALSE)
+
+  # Agreement summary (tiered)
+  if (!is.null(agreement) && !is.null(agreement$agreement_detail) &&
+      nrow(agreement$agreement_detail) > 0) {
+    write.csv(agreement$agreement_detail,
+              file.path(dirs$agreement, "agreement_summary.csv"),
+              row.names = FALSE)
+    log_message("  Wrote agreement CSVs")
+  }
+
+  # Category summary
+  if (!is.null(agreement$category_summary) && nrow(agreement$category_summary) > 0) {
+    write.csv(agreement$category_summary,
+              file.path(dirs$agreement, "agreement_by_category.csv"),
+              row.names = FALSE)
+    log_message("  Wrote agreement_by_category.csv")
+  }
+
+  # Match statistics
+  stats <- match_result$match_stats
+  a <- lb$src_prefix; b <- lb$ref_prefix
+  line <- function(key, value) paste0(sprintf("%-19s", paste0(key, ":")), value)
+  stats_lines <- c(
+    "# Match Statistics",
+    paste0("# Generated: ", Sys.time()),
+    paste0("# Pair: ", lb$stem),
+    "",
+    line(paste0("n_", a), stats$n_src),
+    line(paste0("n_", b), stats$n_ref),
+    line("n_matched", stats$n_matched),
+    line(paste0("n_unmatched_", a), stats$n_unmatched_src),
+    line(paste0("n_unmatched_", b), stats$n_unmatched_ref),
+    line(paste0("match_rate_", a), paste0(round(stats$match_rate_src * 100, 1), "%")),
+    line(paste0("match_rate_", b), paste0(round(stats$match_rate_ref * 100, 1), "%")),
+    line("mean_distance_um", round(stats$mean_distance, 3)),
+    line("median_distance_um", round(stats$median_distance, 3)),
+    line("max_distance_um", round(stats$max_distance, 3))
+  )
+
+  # Tiered agreement rates
+  if (!is.null(agreement$tiered_rates) && agreement$tiered_rates$n_total > 0) {
+    tr <- agreement$tiered_rates
+    stats_lines <- c(stats_lines, "",
+      "# Agreement (rates over resolved pairs)",
+      paste0("agreement_pairs_matched:        ", tr$n_pairs_matched),
+      paste0("agreement_excluded_quality:     ", tr$n_excluded_quality_a + tr$n_excluded_quality_b),
+      paste0("agreement_excluded_unidentified:", tr$n_excluded_unidentified),
+      paste0("agreement_n_scored:             ", tr$n_total),
+      paste0("agreement_n_unresolved:         ", tr$n_unresolved),
+      paste0("agreement_n_resolved:           ", tr$n_resolved),
+      paste0("agreement_family_pct_PRIMARY:   ", tr$family_or_better_pct, "%"),
+      paste0("agreement_exact_pct_SECONDARY:  ", tr$exact_pct, "%"),
+      paste0("agreement_family_only_pct:      ", tr$family_pct, "%"),
+      paste0("agreement_filler_pigment_pct:   ", tr$filler_pct, "%"),
+      paste0("agreement_disagree_pct:         ", tr$disagree_pct, "%")
+    )
+  }
+
+  writeLines(stats_lines,
+             file.path(dirs$diagnostics, "match_statistics.txt"))
+  log_message("  Wrote match_statistics.txt")
+
+  # Triage export: top mismatched/high-risk pairs
+  export_triage(.as_ftir_raman_columns(match_result, c(a, b)), agreement, dirs$diagnostics)
   invisible(NULL)
 }
 
@@ -265,12 +319,17 @@ export_triage <- function(match_result, agreement, out_dir, n_top = 50) {
 #' @param dirs Named list of stage directories from get_output_dirs()
 export_ldir_results <- function(ldir_results, dirs) {
   log_message("  Exporting LDIR results")
+  # LDIR -> reference: ldir_raman, else ldir_ftir_perkin / ldir_ftir_bruker
+  stem <- ldir_results$labels$stem %||% "ldir_raman"
+  ref_file <- ldir_results$labels$ref_file %||% "raman"
+  ref_name <- c(raman = "Raman", ftir_perkin = "FTIR (PerkinElmer)",
+                ftir_bruker = "FTIR (Bruker)")[[ref_file]]
+  lm <- ldir_results$ldir_ref_match
 
-  if (!is.null(ldir_results$ldir_raman_match) &&
-      nrow(ldir_results$ldir_raman_match$matched) > 0) {
-    write.csv(ldir_results$ldir_raman_match$matched,
-              file.path(dirs$matches, "matched_ldir_raman.csv"), row.names = FALSE)
-    log_message("    LDIR-Raman matched: ", nrow(ldir_results$ldir_raman_match$matched))
+  if (!is.null(lm) && nrow(lm$matched) > 0) {
+    write.csv(lm$matched,
+              file.path(dirs$matches, paste0("matched_", stem, ".csv")), row.names = FALSE)
+    log_message("    LDIR-", ref_name, " matched: ", nrow(lm$matched))
   }
 
   if (!is.null(ldir_results$ldir_ftir_match) &&
@@ -280,13 +339,12 @@ export_ldir_results <- function(ldir_results, dirs) {
     log_message("    LDIR-FTIR matched: ", nrow(ldir_results$ldir_ftir_match$matched))
   }
 
-  # Unmatched LDIR particles (from LDIR-Raman match)
-  if (!is.null(ldir_results$ldir_raman_match$unmatched_ldir) &&
-      nrow(ldir_results$ldir_raman_match$unmatched_ldir) > 0) {
-    write.csv(ldir_results$ldir_raman_match$unmatched_ldir,
-              file.path(dirs$matches, "unmatched_ldir_vs_raman.csv"), row.names = FALSE)
-    log_message("    Unmatched LDIR: ",
-                nrow(ldir_results$ldir_raman_match$unmatched_ldir))
+  # Unmatched LDIR particles (from the LDIR-reference match)
+  if (!is.null(lm$unmatched_src) && nrow(lm$unmatched_src) > 0) {
+    write.csv(lm$unmatched_src,
+              file.path(dirs$matches, paste0("unmatched_ldir_vs_", ref_file, ".csv")),
+              row.names = FALSE)
+    log_message("    Unmatched LDIR: ", nrow(lm$unmatched_src))
   }
 
   if (!is.null(ldir_results$join_check)) {
@@ -305,7 +363,7 @@ export_ldir_results <- function(ldir_results, dirs) {
   if (!is.null(ldir_results$ldir_icp)) {
     lp <- ldir_results$ldir_icp$params
     writeLines(c(
-      "# LDIR-to-Raman Transform Parameters",
+      paste0("# LDIR-to-", ref_name, " Transform Parameters"),
       paste0("scale:        ", round(lp$scale, 6)),
       paste0("rotation_deg: ", round(lp$rotation_deg, 4)),
       paste0("tx:           ", round(lp$tx, 4)),
@@ -314,10 +372,10 @@ export_ldir_results <- function(ldir_results, dirs) {
       paste0("icp_converged:  ", ldir_results$ldir_icp$converged),
       paste0("icp_final_rms:  ",
              round(tail(ldir_results$ldir_icp$rms_history, 1), 4), " um")
-    ), file.path(dirs$alignment, "transform_params_ldir_raman.txt"))
+    ), file.path(dirs$alignment, paste0("transform_params_", stem, ".txt")))
   }
 
-  write_agreement_tables(ldir_results$ldir_raman_agreement, dirs$agreement, "ldir_raman")
+  write_agreement_tables(ldir_results$ldir_ref_agreement, dirs$agreement, stem)
 
   if (!is.null(ldir_results$ldir_clean)) {
     ldir_df <- data.frame(

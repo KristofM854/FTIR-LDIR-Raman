@@ -1,5 +1,6 @@
 # =============================================================================
-# ldir_stage.R — LDIR: coordinates from the image, alignment to Raman, matching
+# ldir_stage.R — LDIR: coordinates from the image, alignment to the reference
+#                (Raman, else FTIR), matching
 # =============================================================================
 #
 # The LDIR export has no particle coordinates (unless a column-mapping reader
@@ -9,35 +10,47 @@
 #        to the table by size (join_ldir_coords) plus manual swaps
 #   12b  prefilters
 #   12c  normalises (normalize_coords_ldir)
-#   12d  aligns to Raman: Tier 0 Procrustes from a landmark map, Tier 1
+#   12d  aligns to the reference (below "Raman"; FTIR when the run has no
+#        Raman): Tier 0 Procrustes from a landmark map, Tier 1
 #        landmarks, Tier 2 material (or descriptor) RANSAC vs global
 #        registration with reflection forbidden; ICP accepted only if it does
 #        not lose one-to-one pairs
-#   12g  matches to Raman (optional TPS refinement), scores agreement, checks
-#        the join against Raman (R/ldir_join_check.R), matches to FTIR
-#        (PerkinElmer), and builds three-way triplets
+#   12g  matches to the reference (optional TPS refinement), scores
+#        agreement, checks the join against the reference
+#        (R/ldir_join_check.R); with a Raman reference also matches to FTIR
+#        (PerkinElmer) and builds three-way triplets
 # =============================================================================
 
 
 #' Run the LDIR stage.
 #'
 #' @param ldir_raw Canonical LDIR particle table (read_instrument("ldir", ...))
-#' @param ref Raman frame (prepare_raman_reference())
-#' @param ftir_pair FTIR (PerkinElmer) result of align_and_match(): its aligned
-#'   particles are the LDIR<->FTIR reference, its matches build the triplets
+#' @param ref Reference frame (prepare_reference())
+#' @param ftir_pair FTIR (PerkinElmer) result of align_and_match() when it is
+#'   aligned to a Raman reference, else NULL: its aligned particles are the
+#'   LDIR<->FTIR partner, its matches build the triplets
 #' @param config Pipeline config
 #' @param out_dirs get_output_dirs() of the run
 #' @return list(results = the ldir_results list consumed by export and the
-#'   viewer, image = the LDIR image object or NULL)
+#'   viewer, image = the LDIR image object or NULL). results$ldir_ref_match /
+#'   ldir_ref_agreement are LDIR -> reference; results$labels the pair's
+#'   pair_labels().
 run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
   raman_clean         <- ref$clean
   raman_for_transform <- ref$for_transform
   raman_norm_align    <- ref$norm_align
   raman_for_match     <- ref$for_match
+  ref_role            <- ref$role %||% "raman"
+  ref_name            <- ref$name %||% "Raman"
+  labels              <- pair_labels("ldir", ref_role)
+  ref_lbl             <- labels$ref_prefix
+  if (isTRUE(ftir_pair$skipped)) ftir_pair <- NULL
   ftir_aligned        <- ftir_pair$aligned
   match_result        <- ftir_pair$match
   icp_result          <- ftir_pair$icp
-  norm_result         <- ftir_pair$norm
+  # The LDIR alignment diagnostics report the reference normalisation
+  norm_result         <- ftir_pair$norm %||%
+    list(raman_centroid = ref$centroid, raman_scale = ref$scale)
   .out_dirs           <- out_dirs
   ldir_image_object    <- NULL
   ldir_image_extracted <- NULL
@@ -216,7 +229,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       dump_particle(ldir_with_coords, trace_ids, "after_coords_join", config$debug_dir)
     }
 
-    # 12d. Tiered LDIR->Raman alignment
+    # 12d. Tiered LDIR->reference alignment
     #
     # Tier 0 (Step 3): Explicit Procrustes -- if config$ldir_landmark_map is set,
     #   use named LDIR<->Raman correspondences to fit via SVD. This guarantees
@@ -268,7 +281,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     }
 
     ldir_landmark_result <- tryCatch({
-      landmark_align(ldir_valid, raman_for_transform, config, src_label = "LDIR")
+      landmark_align(ldir_valid, raman_for_transform, config, src_label = "LDIR",
+                     ref_label = ref_name)
     }, error = function(e) {
       log_message("  LDIR landmark alignment failed: ", e$message, level = "WARN")
       list(success = FALSE, confident = FALSE,
@@ -649,10 +663,10 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
         trace_particle_snapshot(ldir_aligned, "after_alignment", config)
       }
 
-      # 12g. LDIR<->Raman matching
+      # 12g. LDIR<->reference matching
       ldir_raman_match <- match_particles(
         ldir_aligned, raman_for_match, config,
-        src_label = "ldir", ref_label = "raman"
+        src_label = "ldir", ref_label = ref_lbl
       )
 
       # 12g-bis. TPS local refinement: a single global similarity can't overlay
@@ -670,7 +684,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
         mm <- ldir_raman_match$matched
         warp <- tryCatch(
           tps_fit_warp(mm$ldir_x_aligned, mm$ldir_y_aligned,
-                       mm$raman_x_norm,   mm$raman_y_norm,
+                       mm[[paste0(ref_lbl, "_x_norm")]], mm[[paste0(ref_lbl, "_y_norm")]],
                        lambda = config$ldir_tps_lambda %||% 0.5),
           error = function(e) { log_message("  TPS fit failed: ",
                                             e$message, level = "WARN"); NULL })
@@ -680,7 +694,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
           ldir_tps$x_aligned <- w$x; ldir_tps$y_aligned <- w$y
           match2 <- try_or(
             match_particles(ldir_tps, raman_for_match, config,
-                            src_label = "ldir", ref_label = "raman"),
+                            src_label = "ldir", ref_label = ref_lbl),
             default = NULL, what = "LDIR TPS re-match")
           n0 <- ldir_raman_match$match_stats$n_matched
           n1 <- if (!is.null(match2)) match2$match_stats$n_matched else -1L
@@ -697,34 +711,33 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
         }
       }
 
-      # 12h. LDIR<->Raman agreement analysis
+      # 12h. LDIR<->reference agreement analysis
       ldir_raman_agreement <- analyze_agreement(
         ldir_raman_match, config,
-        instrument_a = "LDIR", instrument_b = "Raman"
+        instrument_a = "LDIR", instrument_b = .agreement_name(ref_lbl),
+        prefix_a = "ldir", prefix_b = ref_lbl
       )
 
       # 12h-bis. Was the table attached to the right image positions? LDIR
-      # table values vs the Raman partner, against a random join.
-      join_check <- try_or(ldir_join_check(ldir_raman_match$matched),
+      # table values vs the reference partner, against a random join.
+      join_check <- try_or(ldir_join_check(ldir_raman_match$matched, ref_prefix = ref_lbl),
                            default = NULL, what = "LDIR join check")
-      log_ldir_join_check(join_check)
+      log_ldir_join_check(join_check, ref_name)
 
-      # 12i. LDIR<->FTIR matching (both already in Raman coordinate frame)
-      # Set up aligned FTIR as reference: matcher expects ref with x_norm/y_norm
-      ftir_as_ref <- ftir_aligned
-      ftir_as_ref$x_norm <- ftir_as_ref$x_aligned
-      ftir_as_ref$y_norm <- ftir_as_ref$y_aligned
-      ldir_ftir_match <- match_particles(
-        ldir_aligned, ftir_as_ref, config,
-        src_label = "ldir", ref_label = "ftir"
-      )
-      log_message("  LDIR-FTIR direct matching: ",
-                  ldir_ftir_match$match_stats$n_matched, " pairs")
+      # 12i. LDIR<->FTIR (PerkinElmer) matching, both already in the Raman
+      # frame (with an FTIR reference, 12g is this match)
+      if (!is.null(ftir_aligned) && nrow(ftir_aligned) > 0) {
+        ldir_ftir_match <- match_aligned_pair(ldir_aligned, ftir_aligned, config,
+                                              "ldir", "ftir")
+        log_message("  LDIR-FTIR direct matching: ",
+                    ldir_ftir_match$match_stats$n_matched, " pairs")
+      }
 
       # 12j. Three-way triplets (FTIR<->Raman and LDIR<->Raman sharing a Raman
       # particle), scored with the agreement quality gate
-      triplets <- build_triplets(match_result, ldir_raman_match, raman_for_match, config,
-                                 ldir_ftir_match = ldir_ftir_match)
+      if (identical(ref_role, "raman") && !is.null(match_result))
+        triplets <- build_triplets(match_result, ldir_raman_match, raman_for_match, config,
+                                   ldir_ftir_match = ldir_ftir_match)
 
     } else {
       log_message("  LDIR spatial alignment failed \u2014 ",
@@ -746,9 +759,11 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     ldir_clean           = ldir_clean,
     ldir_with_coords     = ldir_with_coords,
     ldir_aligned         = ldir_aligned,
-    ldir_raman_match     = ldir_raman_match,
+    ldir_ref_match       = ldir_raman_match,
     ldir_ftir_match      = ldir_ftir_match,
-    ldir_raman_agreement = ldir_raman_agreement,
+    ldir_ref_agreement   = ldir_raman_agreement,
+    ref_role             = ref_role,
+    labels               = labels,
     ldir_icp             = ldir_icp,
     ldir_landmark        = ldir_landmark_result,
     ldir_alignment_method = if (isTRUE(use_ldir_landmark)) "landmark" else "ransac",

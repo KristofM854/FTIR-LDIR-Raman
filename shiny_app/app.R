@@ -1462,7 +1462,7 @@ server <- function(input, output, session) {
     # Only instruments that actually have data get a page; the plot reactives
     # are the very objects the tabs render.
     coord_lbl <- function(id) if (identical(input[[id]], "aligned"))
-      "Raman-aligned frame" else "native frame"
+      "shared aligned frame" else "native frame"
 
     if (!is.null(ftir_df_full()) && nrow(ftir_df_full()) > 0)
       pages <- c(pages, list(report_figure_page(
@@ -1501,7 +1501,7 @@ server <- function(input, output, session) {
 
     # --- 4. Overlay -------------------------------------------------------
     pages <- c(pages, list(report_figure_page(
-      overlay_plot_obj(), "Overlay \u2014 all instruments in the shared Raman frame",
+      overlay_plot_obj(), "Overlay \u2014 all instruments in the shared frame",
       paste0("Instruments shown: ", .or_none(input$overlay_instruments),
              ". Relationships: ", .or_none(input$overlay_relationships), "."))))
 
@@ -1765,7 +1765,11 @@ server <- function(input, output, session) {
     !is.null(d$ldir_raman_matched) ||
     !is.null(d$unmatched_ldir)     ||
     !is.null(d$unmatched_ftir_bruker) ||
-    !is.null(d$matched_ftir_bruker)
+    !is.null(d$matched_ftir_bruker) ||
+    # Runs of any instrument combination
+    any(!vapply(d[c("aligned_ftir", "aligned_raman", "aligned_ldir", "aligned_ftir_bruker",
+                    "matched_bruker_perkin", "matched_bruker_ldir", "matched_perkin_ldir",
+                    "matched_ldir_bruker")], is.null, logical(1)))
   })
 
   instrument_dfs <- reactive({
@@ -1797,6 +1801,17 @@ server <- function(input, output, session) {
     else                hideTab("main_tabs", "FTIR (Bruker)")
     if (sum(unlist(hd)) >= 2) showTab("main_tabs", "Overlay")
     else                      hideTab("main_tabs", "Overlay")
+  })
+
+  # Overlay instrument choices: only the instruments the run has
+  observeEvent(has_device(), {
+    hd <- has_device()
+    all_choices <- c("FTIR (PerkinElmer)" = "ftir_pe", "FTIR (Bruker)" = "ftir_bruker",
+                     "Raman" = "raman", "LDIR" = "ldir")
+    present <- all_choices[unlist(hd[c("ftir", "ftir_bruker", "raman", "ldir")])]
+    if (length(present) == 0) present <- all_choices
+    updateCheckboxGroupInput(session, "overlay_instruments", choices = present,
+                             selected = unname(present))
   })
 
   # Click-to-select state: accumulated particle IDs per instrument
@@ -2529,7 +2544,8 @@ server <- function(input, output, session) {
         updateSliderInput(session, "ldir_score_range",
                           min = 0, max = score_max, value = c(0, score_max))
       }
-      cost_max <- if ("coord_match_cost" %in% names(ldir)) {
+      cost_max <- if ("coord_match_cost" %in% names(ldir) &&
+                      any(is.finite(ldir$coord_match_cost))) {
         ceiling(max(ldir$coord_match_cost, na.rm = TRUE) * 20) / 20
       } else NA_real_
       if (is.finite(cost_max) && cost_max > 0) {
@@ -3039,7 +3055,9 @@ server <- function(input, output, session) {
 
   # Overlay: select / deselect all instruments
   observeEvent(input$overlay_toggle_all, {
-    all_inst <- c("ftir_pe", "ftir_bruker", "raman", "ldir")
+    hd <- has_device()
+    all_inst <- c("ftir_pe", "ftir_bruker", "raman", "ldir")[
+      unlist(hd[c("ftir", "ftir_bruker", "raman", "ldir")])]
     current  <- input$overlay_instruments
     if (length(current) == length(all_inst)) {
       updateCheckboxGroupInput(session, "overlay_instruments", selected = character(0))
@@ -3290,7 +3308,7 @@ server <- function(input, output, session) {
       return(add_image_bg(p, img))
     }
 
-    title_suffix <- if (aligned) " (Raman-aligned frame)" else .view_tf_suffix(vt)
+    title_suffix <- if (aligned) " (shared aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir))
@@ -3941,7 +3959,7 @@ server <- function(input, output, session) {
               panel.background=element_rect(fill="grey98", colour=NA)))
     }
 
-    title_suffix <- if (aligned) " (Raman-aligned frame)" else .view_tf_suffix(vt)
+    title_suffix <- if (aligned) " (shared aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_bruker_highlight_particle
     hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir_bruker))
@@ -4191,7 +4209,17 @@ server <- function(input, output, session) {
          b = list(inst="ftir_pe", x="ftir_x_aligned", y="ftir_y_aligned",
                   id="ftir_particle_id", feret="ftir_feret_max_um",
                   fam="ftir_material_family", matinput="overlay_ftir_material",
-                  label="FTIR"))
+                  label="FTIR")),
+    # LDIR -> FTIR (Bruker): runs whose reference is FTIR (Bruker)
+    list(table = "matched_ldir_bruker",
+         a = list(inst="ldir", x="ldir_x_aligned", y="ldir_y_aligned",
+                  id="ldir_particle_id", feret="ldir_feret_max_um",
+                  fam="ldir_material_family", matinput="overlay_ldir_material",
+                  label="LDIR"),
+         b = list(inst="ftir_bruker", x="ftir_bruker_x_aligned", y="ftir_bruker_y_aligned",
+                  id="ftir_bruker_particle_id", feret="ftir_bruker_feret_max_um",
+                  fam="ftir_bruker_material_family", matinput="overlay_ftir_bruker_material",
+                  label="FTIR (Bruker)"))
   )
 
   # Material-filtered match table for a cross-pair spec, or NULL when either
@@ -4252,7 +4280,7 @@ server <- function(input, output, session) {
         list(x = c(img_info$xmin - pad, img_info$xmax + pad),
              y = c(img_info$ymin - pad, img_info$ymax + pad))
       } else {
-        compute_bounds(dfs_full$ftir, dfs_full$raman)
+        compute_bounds(dfs_full$ftir, dfs_full$raman, dfs_full$ldir, dfs_full$ftir_bruker)
       }
     }
     bounds <- sanitize_bounds(bounds)
@@ -4543,7 +4571,9 @@ server <- function(input, output, session) {
     bm      <- overlay_bruker_matched()
     dfs     <- overlay_dfs()
     triplets <- overlay_triplets()
-    if (nrow(m) == 0 && is.null(dfs$ftir) && nrow(bm) == 0) return("No pipeline data loaded")
+    if (nrow(m) == 0 && nrow(bm) == 0 &&
+        all(vapply(dfs, function(d) is.null(d) || nrow(d) == 0, logical(1))))
+      return("No pipeline data loaded")
     n_um_f    <- if (!is.null(dfs$ftir))        sum(dfs$ftir$match_status == "unmatched")        else 0
     n_um_r    <- if (!is.null(dfs$raman))       sum(dfs$raman$match_status == "unmatched")       else 0
     n_um_fb   <- if (!is.null(dfs$ftir_bruker)) sum(dfs$ftir_bruker$match_status == "unmatched") else 0
@@ -4572,15 +4602,20 @@ server <- function(input, output, session) {
       cross_bits <- c(cross_bits, paste0(.cross_n("matched_bruker_ldir"), " Bruker\u2194LDIR pairs"))
     if (!is.null(gd$matched_perkin_ldir))
       cross_bits <- c(cross_bits, paste0(.cross_n("matched_perkin_ldir"), " FTIR\u2194LDIR pairs"))
+    if (!is.null(gd$matched_ldir_bruker))
+      cross_bits <- c(cross_bits, paste0(.cross_n("matched_ldir_bruker"), " LDIR\u2194Bruker pairs"))
     cross_lbl <- if (length(cross_bits) > 0) paste0(" | ", paste(cross_bits, collapse = " | ")) else ""
-    paste0(nrow(m),  " FTIR\u2194Raman pairs | ",
-           n_um_f,   " FTIR unmatched | ",
-           n_um_r,   " Raman unmatched | ",
-           nrow(bm), " Bruker\u2194Raman pairs | ",
-           n_um_fb,  " Bruker unmatched | ",
-           ldir_lbl, " | ",
-           n_trip,   " triple matches",
-           cross_lbl)
+    # Only the pairs and instruments this run has
+    hd <- has_device()
+    bits <- c(
+      if (!is.null(gd$matched))             paste0(nrow(m), " FTIR\u2194Raman pairs"),
+      if (hd$ftir)                          paste0(n_um_f, " FTIR unmatched"),
+      if (hd$raman)                         paste0(n_um_r, " Raman unmatched"),
+      if (!is.null(gd$matched_ftir_bruker)) paste0(nrow(bm), " Bruker\u2194Raman pairs"),
+      if (hd$ftir_bruker)                   paste0(n_um_fb, " Bruker unmatched"),
+      if (!is.null(lrm))                    ldir_lbl,
+      if (n_trip > 0)                       paste0(n_trip, " triple matches"))
+    paste0(paste(bits, collapse = " | "), cross_lbl)
   })
 
   # ==================================================================

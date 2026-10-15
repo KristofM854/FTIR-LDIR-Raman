@@ -136,7 +136,7 @@ test_that("synthetic four-instrument run recovers the known transforms, pairs an
   mb <- r$ftir_bruker$match$matched
   expect_equal(nrow(mb), 100)
   expect_true(all(.pair_ok(mb, "ftir", "raman")))
-  ml <- r$ldir$ldir_raman_match$matched
+  ml <- r$ldir$ldir_ref_match$matched
   expect_equal(nrow(ml), 100)
   expect_true(all(.pair_ok(ml, "ldir", "raman")))
   bp <- r$cross$ftir_bruker_ftir_perkin$matched
@@ -195,4 +195,76 @@ test_that("the same run twice gives byte-identical outputs", {
   }
   # PDFs embed their creation time; everything else must match
   expect_identical(setdiff(differ, grep("\\.pdf$", files, value = TRUE)), character(0))
+})
+
+test_that("every combination of two to four instruments runs and pairs correctly", {
+  dir <- withr::local_tempdir()
+  .write_inputs(dir)
+  path_key <- c(raman = "raman_path", ftir = "ftir_path",
+                ftir_bruker = "ftir_bruker_path", ldir = "ldir_path")
+  # Shared particles of each pair (k ranges in .write_inputs)
+  k <- list(raman = 1:120, ftir = 1:100, ftir_bruker = 11:110, ldir = 21:120)
+  roles <- names(path_key)
+  combos <- unlist(lapply(2:4, function(n) combn(roles, n, simplify = FALSE)),
+                   recursive = FALSE)
+  expect_length(combos, 11)
+  # The viewer's loaders (the report reads the run the same way)
+  viewer <- new.env(parent = globalenv())
+  withr::with_dir(REPO_ROOT, suppressWarnings(
+    source(file.path("shiny_app", "global.R"), local = viewer, encoding = "UTF-8")))
+  for (cmb in combos) {
+    what <- paste(cmb, collapse = "+")
+    out <- withr::local_tempdir()
+    cfg <- .config(dir, out)
+    for (r in setdiff(roles, cmb)) cfg[path_key[[r]]] <- list(NULL)
+    r <- withCallingHandlers(
+      suppressMessages(run_pipeline(cfg, report = FALSE)),
+      warning = function(w) if (grepl("conversion failure", conditionMessage(w)))
+        invokeRestart("muffleWarning"))
+    ref <- REFERENCE_ORDER[REFERENCE_ORDER %in% cmb][1]
+    expect_identical(r$reference, ref, info = what)
+    # Every other instrument is paired with the reference, every pair true
+    expect_setequal(names(r$pairs),
+                    vapply(setdiff(cmb, ref), function(s) pair_labels(s, ref)$stem, ""))
+    for (p in r$pairs) {
+      m <- p$match$matched
+      src <- names(ROLE_FILE)[ROLE_FILE == p$labels$src_file]
+      # Every true pair found. Particles of one instrument outside the other's
+      # field can make a chance pair (LDIR, 150 um gate, without Raman: about
+      # one expected at this density)
+      n_true <- length(intersect(k[[src]], k[[ref]]))
+      ok <- .pair_ok(m, p$labels$src_prefix, p$labels$ref_prefix)
+      expect_equal(sum(ok), n_true, info = paste(what, p$labels$stem))
+      expect_lte(sum(!ok), 2, label = paste(what, p$labels$stem, "chance pairs"))
+      expect_true(file.exists(file.path(r$config$output_dir, "05_matches",
+                                        paste0("matched_", p$labels$stem, ".csv"))),
+                  info = paste(what, p$labels$stem))
+    }
+    # Every instrument in the shared frame for the viewer
+    for (s in cmb)
+      expect_true(file.exists(file.path(r$config$output_dir, "04_alignment",
+                                        paste0("aligned_", ROLE_FILE[[s]], ".csv"))),
+                  info = paste(what, s))
+    expect_true(file.exists(file.path(r$config$output_dir, "07_diagnostics",
+                                      "match_statistics.txt")), info = what)
+    # The viewer finds the run and shows exactly these instruments, all
+    # particles of each
+    expect_true(viewer$is_run_dir(r$config$output_dir), info = what)
+    dfs <- viewer$build_instrument_dfs(
+      viewer$load_run_data(list(dir = r$config$output_dir, format = "subdir")))
+    for (s in roles) {
+      n <- if (is.null(dfs[[s]])) 0L else nrow(dfs[[s]])
+      n_expected <- if (s %in% cmb) length(k[[s]]) + if (s == "ftir") 4L else 0L else 0L
+      expect_equal(n, n_expected, info = paste(what, "viewer", s))
+    }
+  }
+})
+
+test_that("fewer than two instruments is an error before anything is written", {
+  out <- withr::local_tempdir()
+  cfg <- make_config(raman_path = "raman.csv", output_dir = out)
+  expect_error(run_pipeline(cfg, report = FALSE), "At least two instruments")
+  expect_length(list.files(out), 0)
+  expect_error(choose_reference("ldir"), "At least two")
+  expect_error(choose_reference(character(0)), "none")
 })

@@ -72,6 +72,15 @@ source(file.path(.pipeline_r_dir, "read_bmp.R"), local = TRUE)
 source(file.path(.pipeline_r_dir, "ftir_image_placement.R"), local = TRUE)
 
 # ---------------------------------------------------------------------------
+# A pipeline run folder: staged (any 05_matches/matched_*.csv, whatever the
+# instrument combination) or legacy flat (matched_particles.csv).
+# ---------------------------------------------------------------------------
+is_run_dir <- function(run_dir) {
+  length(list.files(file.path(run_dir, "05_matches"), pattern = "^matched_.*\\.csv$")) > 0 ||
+    file.exists(file.path(run_dir, "matched_particles.csv"))
+}
+
+# ---------------------------------------------------------------------------
 # List ALL available runs in the output directory (newest first).
 # Returns a named character vector suitable for selectInput choices:
 #   names = display labels (run_id + git short + timestamp)
@@ -82,9 +91,7 @@ list_all_runs <- function(output_dir = file.path("..", "output")) {
 
   # Subdirectory runs: detect both staged (05_matches/) and legacy (flat) layouts
   runs <- list.dirs(output_dir, recursive = FALSE, full.names = TRUE)
-  has_staged <- file.exists(file.path(runs, "05_matches", "matched_ftir_perkin_raman.csv"))
-  has_legacy <- file.exists(file.path(runs, "matched_particles.csv"))
-  runs <- runs[has_staged | has_legacy]
+  runs <- runs[vapply(runs, is_run_dir, logical(1))]
 
   if (length(runs) == 0) return(character(0))
 
@@ -274,9 +281,7 @@ find_latest_run <- function(output_dir = file.path("..", "output")) {
 
   # --- Try subdirectory format first (staged or legacy) ---
   runs <- list.dirs(output_dir, recursive = FALSE, full.names = TRUE)
-  has_staged <- file.exists(file.path(runs, "05_matches", "matched_ftir_perkin_raman.csv"))
-  has_legacy <- file.exists(file.path(runs, "matched_particles.csv"))
-  runs <- runs[has_staged | has_legacy]
+  runs <- runs[vapply(runs, is_run_dir, logical(1))]
   if (length(runs) > 0) {
     runs <- runs[order(file.mtime(runs), decreasing = TRUE)]
     return(list(dir = runs[1], format = "subdir"))
@@ -310,6 +315,7 @@ load_run_data <- function(run_info) {
         fp <- file.path(rd, staged_rel)
         if (file.exists(fp)) return(fp)
       }
+      if (!nzchar(legacy_rel)) return(NULL)
       fp2 <- file.path(rd, legacy_rel)
       if (file.exists(fp2)) return(fp2)
       NULL
@@ -335,7 +341,17 @@ load_run_data <- function(run_info) {
       matched_bruker_ldir   = c("05_matches/matched_ftir_bruker_ldir.csv",
                                  "matched_ftir_bruker_ldir.csv"),
       matched_perkin_ldir   = c("05_matches/matched_ldir_ftir_perkin.csv",
-                                 "matched_ldir_ftir_perkin.csv")
+                                 "matched_ldir_ftir_perkin.csv"),
+      # LDIR -> FTIR (Bruker): a run whose reference is FTIR (Bruker)
+      matched_ldir_bruker   = c("05_matches/matched_ldir_ftir_bruker.csv",
+                                 "matched_ldir_ftir_bruker.csv"),
+      # Every instrument in the run's shared frame (pipeline >= 1.0.0); the
+      # instrument frames below fall back to these when a run has no
+      # Raman-pair files for an instrument
+      aligned_ftir          = c("04_alignment/aligned_ftir_perkin.csv", ""),
+      aligned_raman         = c("04_alignment/aligned_raman.csv", ""),
+      aligned_ldir          = c("04_alignment/aligned_ldir.csv", ""),
+      aligned_ftir_bruker   = c("04_alignment/aligned_ftir_bruker.csv", "")
     )
     for (nm in names(file_map)) {
       fp <- resolve(file_map[[nm]][1], file_map[[nm]][2])
@@ -400,8 +416,22 @@ load_run_data <- function(run_info) {
   }
 
   data <- annotate_ldir_gate(data, run_info$dir)
-  enrich_material_family(data)
+  data <- enrich_material_family(data)
+  # An explicit NULL for every table the run does not have: `$` on a list
+  # partial-matches, so without it data$matched would return
+  # matched_ftir_bruker and data$unmatched_ftir unmatched_ftir_bruker in a run
+  # without the FTIR (PerkinElmer) files.
+  for (k in RUN_DATA_TABLES) if (!k %in% names(data)) data[k] <- list(NULL)
+  data
 }
+
+# Every table load_run_data() can return (see the NULL entries above)
+RUN_DATA_TABLES <- c(
+  "matched", "unmatched_ftir", "unmatched_raman", "agreement", "matched_ftir_bruker",
+  "unmatched_ftir_bruker", "matched_bruker_perkin", "matched_bruker_ldir",
+  "matched_perkin_ldir", "matched_ldir_bruker", "aligned_ftir", "aligned_raman",
+  "aligned_ldir", "aligned_ftir_bruker", "transform", "ldir_raman_matched",
+  "unmatched_ldir", "triplets", "ldir_image_extracted")
 
 # ---------------------------------------------------------------------------
 # LDIR<->Raman acceptance gate + genuine-match classification
@@ -485,7 +515,7 @@ isTRUE_vec <- function(x) !is.na(x) & x
 enrich_material_family <- function(data) {
   match_tables <- c("matched", "matched_ftir_bruker", "ldir_raman_matched",
                     "matched_bruker_perkin", "matched_bruker_ldir",
-                    "matched_perkin_ldir")
+                    "matched_perkin_ldir", "matched_ldir_bruker")
   for (tbl in match_tables) {
     d <- data[[tbl]]
     if (is.null(d) || nrow(d) == 0) next
@@ -779,7 +809,66 @@ build_instrument_dfs <- function(data) {
   if (!is.null(result$ftir_bruker))
     result$ftir_bruker$material_family <- classify_family_vec(result$ftir_bruker$material)
 
+  # Instruments without Raman-pair files (a run without Raman, or Raman
+  # without FTIR PerkinElmer): every particle from the shared-frame file
+  for (inst in names(INSTRUMENT_PAIR_COLUMNS)) {
+    if (!is.null(result[[inst]]) && nrow(result[[inst]]) > 0) next
+    d <- instrument_df_from_aligned(data, inst)
+    if (!is.null(d)) result[[inst]] <- d
+  }
+
+  # An explicit NULL for an absent instrument: result$ftir would otherwise
+  # partial-match ftir_bruker
+  for (k in c("ftir", "raman", "ldir", "ftir_bruker"))
+    if (!k %in% names(result)) result[k] <- list(NULL)
   result
+}
+
+
+# Match tables of a run and, per instrument, its column prefix in each
+# (the prefixes are fixed per file, whichever instrument was the reference).
+INSTRUMENT_PAIR_COLUMNS <- list(
+  ftir        = c(matched = "ftir", matched_perkin_ldir = "ftir",
+                  matched_bruker_perkin = "ftir_perkin"),
+  raman       = c(matched = "raman", matched_ftir_bruker = "raman",
+                  ldir_raman_matched = "raman"),
+  ldir        = c(ldir_raman_matched = "ldir", matched_perkin_ldir = "ldir",
+                  matched_bruker_ldir = "ldir", matched_ldir_bruker = "ldir"),
+  ftir_bruker = c(matched_ftir_bruker = "ftir", matched_bruker_perkin = "ftir_bruker",
+                  matched_bruker_ldir = "ftir_bruker", matched_ldir_bruker = "ftir_bruker"))
+
+# One instrument's frame from 04_alignment/aligned_<instrument>.csv: every
+# particle at x_aligned / y_aligned, "matched" when any match table pairs it.
+# matched_to_<other instrument> flags which partner. NULL without the file.
+instrument_df_from_aligned <- function(data, inst) {
+  a <- data[[paste0("aligned_", inst)]]
+  if (is.null(a) || nrow(a) == 0) return(NULL)
+  col <- function(k, default = NA) if (k %in% names(a)) a[[k]] else rep(default, nrow(a))
+  d <- data.frame(
+    particle_id = as.character(a$particle_id),
+    x = a$x_aligned, y = a$y_aligned,
+    x_orig = col("x_um"), y_orig = col("y_um"),
+    area_um2 = col("area_um2"), major_um = col("major_um"), minor_um = col("minor_um"),
+    feret_max = col("feret_max_um"), material = col("material", NA_character_),
+    quality = col("quality"), stringsAsFactors = FALSE)
+  any_match <- rep(FALSE, nrow(d))
+  for (other in setdiff(names(INSTRUMENT_PAIR_COLUMNS), inst)) {
+    hit <- rep(FALSE, nrow(d))
+    for (tbl in intersect(names(INSTRUMENT_PAIR_COLUMNS[[inst]]),
+                          names(INSTRUMENT_PAIR_COLUMNS[[other]]))) {
+      m <- data[[tbl]]
+      id_col <- paste0(INSTRUMENT_PAIR_COLUMNS[[inst]][[tbl]], "_particle_id")
+      if (is.null(m) || nrow(m) == 0 || !id_col %in% names(m)) next
+      if (identical(tbl, "ldir_raman_matched")) m <- ldir_genuine_pairs(m)
+      hit <- hit | d$particle_id %in% as.character(m[[id_col]])
+    }
+    d[[paste0("matched_to_", if (other == "ftir") "ftir_perkin" else other)]] <- hit
+    any_match <- any_match | hit
+  }
+  d$match_status <- ifelse(any_match, "matched", "unmatched")
+  d$match_id <- NA_integer_
+  d$material_family <- classify_family_vec(d$material)
+  d
 }
 
 
@@ -2711,7 +2800,7 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
   # --- 10. Overlay ----------------------------------------------------------
   pages <- c(pages, list(report_figure_page(
     build_overlay_plot(dfs),
-    "Overlay \u2014 all instruments in the shared Raman frame",
+    "Overlay \u2014 all instruments in the shared frame",
     paste0("All instruments in aligned (Raman) coordinates. ",
            "One colour per instrument."))))
 
@@ -2720,7 +2809,8 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
   pages
 }
 
-# Overlay: every instrument's aligned coordinates in the shared Raman frame.
+# Overlay: every instrument's aligned coordinates in the run's shared frame
+# (Raman, else FTIR PerkinElmer, else FTIR Bruker).
 build_overlay_plot <- function(dfs) {
   spec <- list(
     list(key = "ftir",        lbl = "FTIR (PerkinElmer)", col = "#2ca02c"),

@@ -38,87 +38,178 @@ cloud_normalization <- function(df, normalize_scale = FALSE, what = "particle cl
 }
 
 
-#' Raman particle sets in the shared (Raman-normalised) frame.
-#'
-#' @param raman_raw Canonical Raman particle table
-#' @param config Pipeline config
-#' @return list with
-#'   prefiltered    Raman after the coordinate prefilter, before normalisation
-#'   clean          the same, normalised (x_norm, y_norm): the full cloud
-#'   norm_align     material/size/HQI anchors for the coarse aligners
-#'   for_transform  particles >= align_raman_min_size_um, for landmarks and ICP
-#'   for_match      all particles >= min_particle_size_um, for matching
-#'   centroid, scale  the frame's normalisation
-prepare_raman_reference <- function(raman_raw, config) {
-  anchor_min <- config$align_min_anchor_count %||% 4
-  clean <- prefilter_raman(raman_raw, min_hqi = 0, min_size_um = 0)
+#' Instrument roles, in the order the reference frame is chosen from.
+#' LDIR is never the reference: its coordinates usually come from its image.
+INSTRUMENT_ROLES <- c("raman", "ftir", "ftir_bruker", "ldir")
+REFERENCE_ORDER  <- c("raman", "ftir", "ftir_bruker")
 
-  # Alignment anchors: material, then size, then HQI. Each filter is honoured
-  # only while it leaves enough anchors: three filters that are individually
-  # reasonable can intersect to nothing.
-  for_align <- select_material_anchors(clean, config$align_raman_materials,
-                                       anchor_min, "Raman")
-  min_size <- config$align_raman_min_size_um
+#' Display name, file name and match-column prefix of each role. The file name
+#' is used in output file names (matched_<a>_<b>.csv); the prefix is the
+#' column prefix of the role in a match table with the reference.
+ROLE_NAME   <- c(raman = "Raman", ftir = "FTIR (PerkinElmer)",
+                 ftir_bruker = "FTIR (Bruker)", ldir = "LDIR")
+ROLE_FILE   <- c(raman = "raman", ftir = "ftir_perkin",
+                 ftir_bruker = "ftir_bruker", ldir = "ldir")
+
+#' The instruments a config provides (input path set), in INSTRUMENT_ROLES order.
+present_roles <- function(config) {
+  key <- c(raman = "raman_path", ftir = "ftir_path",
+           ftir_bruker = "ftir_bruker_path", ldir = "ldir_path")
+  has <- vapply(INSTRUMENT_ROLES, function(r) {
+    v <- config[[key[[r]]]]
+    !is.null(v) && length(v) == 1 && !is.na(v) && nzchar(v)
+  }, logical(1))
+  INSTRUMENT_ROLES[has]
+}
+
+#' The reference frame of a run: Raman if present, else FTIR (PerkinElmer),
+#' else FTIR (Bruker). Needs at least two instruments.
+choose_reference <- function(roles) {
+  if (length(roles) < 2)
+    stop("At least two instruments are needed; got ",
+         if (length(roles)) paste(ROLE_NAME[roles], collapse = ", ") else "none",
+         ". Set two or more of raman_path, ftir_path, ftir_bruker_path, ldir_path.",
+         call. = FALSE)
+  ref <- REFERENCE_ORDER[REFERENCE_ORDER %in% roles][1]
+  if (is.na(ref))
+    stop("LDIR alone cannot be paired: add Raman or FTIR data.", call. = FALSE)
+  ref
+}
+
+#' Column prefixes and output file stem of a pair source -> reference.
+#'
+#' Each output file always has the same column prefixes, whichever instrument
+#' is the run's reference, so the viewer reads every file one way. The
+#' prefixes are those of the original Raman-reference runs (FTIR types are
+#' "ftir" against Raman, LDIR -> FTIR (PerkinElmer) uses "ldir" / "ftir", the
+#' FTIR (Bruker) <-> FTIR (PerkinElmer) file "ftir_bruker" / "ftir_perkin").
+#' @return list(src_prefix, ref_prefix, stem, src_file, ref_file)
+pair_labels <- function(src_role, ref_role) {
+  stem <- paste0(ROLE_FILE[[src_role]], "_", ROLE_FILE[[ref_role]])
+  pfx <- switch(paste(src_role, ref_role),
+    "ftir raman"        = c("ftir", "raman"),
+    "ftir_bruker raman" = c("ftir", "raman"),
+    "ldir raman"        = c("ldir", "raman"),
+    "ldir ftir"         = c("ldir", "ftir"),
+    "ftir_bruker ftir"  = c("ftir_bruker", "ftir_perkin"),
+    c(ROLE_FILE[[src_role]], ROLE_FILE[[ref_role]]))
+  list(src_prefix = pfx[1], ref_prefix = pfx[2], stem = stem,
+       src_file = ROLE_FILE[[src_role]], ref_file = ROLE_FILE[[ref_role]])
+}
+
+
+#' Reference particle sets in the shared (reference-normalised) frame.
+#'
+#' The reference instrument's coordinates minus its full-cloud centroid are
+#' the frame every other instrument is aligned into.
+#'
+#' @param raw Canonical particle table of the reference instrument
+#' @param config Pipeline config
+#' @param role Reference role: "raman", "ftir" or "ftir_bruker"
+#' @return list with
+#'   prefiltered    after the coordinate prefilter, before normalisation
+#'   clean          the same, normalised (x_norm, y_norm): the full cloud
+#'   norm_align     material (and for Raman size / HQI) anchors for the
+#'                  coarse aligners
+#'   for_transform  the landmark and ICP target (Raman: particles >=
+#'                  align_raman_min_size_um; FTIR: all)
+#'   for_match      the particles matched against (>= min_particle_size_um)
+#'   centroid, scale  the frame's normalisation
+#'   role, name     the reference instrument
+#'   An FTIR reference's sets also carry x_aligned / y_aligned (= x_norm /
+#'   y_norm), the columns an FTIR table has when it is aligned to Raman, so
+#'   its match tables have the same columns whichever instrument is the
+#'   reference.
+prepare_reference <- function(raw, config, role = "raman") {
+  name <- ROLE_NAME[[role]]
+  is_raman <- identical(role, "raman")
+  anchor_min <- config$align_min_anchor_count %||% 4
+  prefilter <- if (is_raman) prefilter_raman else prefilter_ftir
+  clean <- prefilter(raw, 0, 0)
+
+  # Alignment anchors: material, then (Raman) size, then HQI. Each filter is
+  # honoured only while it leaves enough anchors: three filters that are
+  # individually reasonable can intersect to nothing.
+  materials <- if (is_raman) config$align_raman_materials else config$align_ftir_materials
+  for_align <- select_material_anchors(clean, materials, anchor_min, name)
+  min_size <- if (is_raman) config$align_raman_min_size_um else NULL
   if (!is.null(min_size) && min_size > 0 && any(!is.na(for_align$feret_max_um))) {
     size_mask <- is.na(for_align$feret_max_um) | for_align$feret_max_um >= min_size
     if (sum(size_mask) >= anchor_min) {
       n_before <- nrow(for_align)
       for_align <- for_align[size_mask, ]
-      log_message("Raman alignment: removed ", n_before - nrow(for_align),
+      log_message(name, " alignment: removed ", n_before - nrow(for_align),
                   " particles < ", min_size, " um")
     } else {
-      log_message("Raman alignment: size filter (>= ", min_size, " um) would ",
+      log_message(name, " alignment: size filter (>= ", min_size, " um) would ",
                   "leave only ", sum(size_mask), " anchors \u2014 skipping it",
                   level = "WARN")
     }
   }
   # Only reliably identified particles should drive material-based alignment
-  hqi <- config$raman_hqi_threshold
+  hqi <- if (is_raman) config$raman_hqi_threshold else NULL
   if (!is.null(hqi) && hqi > 0 && any(!is.na(for_align$quality))) {
     hqi_mask <- !is.na(for_align$quality) & for_align$quality >= hqi
     if (sum(hqi_mask) >= anchor_min) {
       n_before <- nrow(for_align)
       for_align <- for_align[hqi_mask, ]
-      log_message("Raman alignment: HQI filter (>= ", hqi, "): kept ",
+      log_message(name, " alignment: HQI filter (>= ", hqi, "): kept ",
                   nrow(for_align), " of ", n_before)
     } else {
-      log_message("Raman alignment: HQI filter (>= ", hqi, ") would leave only ",
+      log_message(name, " alignment: HQI filter (>= ", hqi, ") would leave only ",
                   sum(hqi_mask), " anchors \u2014 skipping it", level = "WARN")
     }
   }
-  log_message("Raman alignment target particles: ", nrow(for_align),
-              " (material + >= ", min_size, " um + HQI >= ", hqi, ")")
+  if (is_raman)
+    log_message("Raman alignment target particles: ", nrow(for_align),
+                " (material + >= ", min_size, " um + HQI >= ", hqi, ")")
+  else
+    log_message(name, " alignment target particles: ", nrow(for_align))
 
-  # All particles for spatial matching (no HQI filter: HQI is applied only in
-  # the agreement analysis, so matching has full coverage).
-  for_match <- prefilter_raman(raman_raw, min_hqi = 0,
-                               min_size_um = config$min_particle_size_um)
-  log_message("Raman for matching: ", nrow(for_match),
-              " particles (all HQI, spatial only; HQI filter applied in agreement)")
+  # All particles for spatial matching. Raman: no HQI filter (HQI is applied
+  # only in the agreement analysis, so matching has full coverage). FTIR: the
+  # same filter as when it is aligned to another reference.
+  for_match <- prefilter(raw, if (is_raman) 0 else config$ftir_quality_threshold,
+                         config$min_particle_size_um)
+  if (is_raman)
+    log_message("Raman for matching: ", nrow(for_match),
+                " particles (all HQI, spatial only; HQI filter applied in agreement)")
+  else
+    log_message(name, " for matching: ", nrow(for_match), " particles")
 
   # The frame: centroid of the FULL cleaned cloud, not of an anchor subset (a
   # subset centroid depends on which particles each instrument detected, and
   # would start the aligners from a biased translation).
-  log_message("Normalizing coordinates (Raman reference frame)")
-  nm <- cloud_normalization(clean, config$normalize_scale, "Raman")
-  norm <- function(df) apply_normalization(df, nm$centroid, nm$scale)
+  log_message("Normalizing coordinates (", name, " reference frame)")
+  nm <- cloud_normalization(clean, config$normalize_scale, name)
+  norm <- function(df) {
+    df <- apply_normalization(df, nm$centroid, nm$scale)
+    if (!is_raman) { df$x_aligned <- df$x_norm; df$y_aligned <- df$y_norm }
+    df
+  }
   clean_n <- norm(clean)
 
-  # Landmark / ICP set: Raman particles large enough to be visible to every
-  # instrument; only size matters for geometry.
+  # Landmark / ICP set: reference particles large enough to be visible to
+  # every instrument; only size matters for geometry.
   for_transform <- clean_n
   if (!is.null(min_size) && min_size > 0 && any(!is.na(clean_n$feret_max_um)))
     for_transform <- clean_n[is.na(clean_n$feret_max_um) | clean_n$feret_max_um >= min_size, ]
-  log_message("Raman for spatial transform (>= ", min_size, " um): ",
-              nrow(for_transform), " particles")
+  if (is_raman)
+    log_message("Raman for spatial transform (>= ", min_size, " um): ",
+                nrow(for_transform), " particles")
 
   list(prefiltered = clean, clean = clean_n, norm_align = norm(for_align),
        for_align = for_align, for_transform = for_transform,
-       for_match = norm(for_match), centroid = nm$centroid, scale = nm$scale)
+       for_match = norm(for_match), centroid = nm$centroid, scale = nm$scale,
+       role = role, name = name)
 }
 
+#' The Raman reference frame (prepare_reference() with role "raman").
+prepare_raman_reference <- function(raman_raw, config)
+  prepare_reference(raman_raw, config, "raman")
 
-#' Align an FTIR-type particle table to the Raman frame, match and score.
+
+#' Align an FTIR-type particle table to the reference frame, match and score.
 #'
 #' Tiered alignment, then matching and agreement:
 #'   Tier 1  landmark alignment on large particles and fibres; used when
@@ -128,15 +219,21 @@ prepare_raman_reference <- function(raman_raw, config) {
 #'   ICP     always, to polish the transform
 #'
 #' @param src_raw Canonical particle table (ftir or ftir_bruker role)
-#' @param ref Result of prepare_raman_reference()
+#' @param ref Result of prepare_reference()
 #' @param config Pipeline config
 #' @param label Instrument label for messages ("FTIR (PerkinElmer)")
+#' @param src_role Role of the source ("ftir", "ftir_bruker"); sets the match
+#'   column prefixes and file stem with pair_labels()
 #' @return list: prefiltered, clean, for_align, for_match, aligned, aligned_all,
-#'   landmark, ransac, method, icp, match, agreement, norm. With too few
-#'   particles to align (warned) only label, prefiltered and skipped = TRUE.
-align_and_match <- function(src_raw, ref, config, label) {
+#'   landmark, ransac, method, icp, match, agreement, norm, labels
+#'   (pair_labels()). With too few particles to align (warned) only label,
+#'   prefiltered and skipped = TRUE.
+align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
+  ref_role <- ref$role %||% "raman"
+  ref_name <- ref$name %||% "Raman"
+  labels <- pair_labels(src_role, ref_role)
   log_message(strrep("-", 50))
-  log_message(label, " \u2194 Raman: alignment and matching")
+  log_message(label, " \u2194 ", ref_name, ": alignment and matching")
   anchor_min <- config$align_min_anchor_count %||% 4
 
   prefiltered <- prefilter_ftir(src_raw, min_quality = 0, min_size_um = 0)
@@ -149,7 +246,8 @@ align_and_match <- function(src_raw, ref, config, label) {
   if (nrow(for_align) < 3) {
     log_message(label, ": too few particles (", nrow(for_align),
                 ") for alignment \u2014 skipping", level = "WARN")
-    return(list(label = label, prefiltered = prefiltered, skipped = TRUE))
+    return(list(label = label, prefiltered = prefiltered, skipped = TRUE,
+                labels = labels))
   }
 
   # Normalisation: the source's full-cloud centroid; anchor and match subsets
@@ -161,7 +259,8 @@ align_and_match <- function(src_raw, ref, config, label) {
   for_match <- norm(for_match)
 
   # Tier 1: landmarks
-  landmark <- landmark_align(clean, ref$for_transform, config, src_label = label)
+  landmark <- landmark_align(clean, ref$for_transform, config, src_label = label,
+                             ref_label = ref_name)
   ransac <- NULL
   if (landmark$confident && config$landmark_skip_full_ransac) {
     log_message("Using landmark transform (Tier 1) \u2014 skipping full RANSAC")
@@ -212,20 +311,32 @@ align_and_match <- function(src_raw, ref, config, label) {
   aligned     <- apply_ftir_transform(for_match, icp$transform)
   aligned_all <- apply_ftir_transform(clean, icp$transform)
 
-  match <- match_particles(aligned, ref$for_match, config)
+  match <- match_particles(aligned, ref$for_match, config,
+                           src_label = labels$src_prefix, ref_label = labels$ref_prefix)
   ms <- match$match_stats
-  log_message(label, " \u2194 Raman: ", ms$n_matched, " matched, ", ms$n_unmatched_ftir,
-              " unmatched ", label, ", ", ms$n_unmatched_raman, " unmatched Raman")
-  agreement <- analyze_agreement(match, config)
+  log_message(label, " \u2194 ", ref_name, ": ", ms$n_matched, " matched, ",
+              ms$n_unmatched_src, " unmatched ", label, ", ", ms$n_unmatched_ref,
+              " unmatched ", ref_name)
+  agreement <- analyze_agreement(match, config,
+                                 instrument_a = .agreement_name(labels$src_prefix),
+                                 instrument_b = .agreement_name(labels$ref_prefix),
+                                 prefix_a = labels$src_prefix, prefix_b = labels$ref_prefix)
 
   list(label = label, prefiltered = prefiltered, skipped = FALSE, clean = clean,
        for_align = for_align, for_match = for_match,
        aligned = aligned, aligned_all = aligned_all,
        landmark = landmark, ransac = ransac, method = method, icp = icp,
-       match = match, agreement = agreement,
+       match = match, agreement = agreement, labels = labels,
        norm = list(ftir_centroid = nm$centroid, ftir_scale = nm$scale,
                    raman_centroid = ref$centroid, raman_scale = ref$scale))
 }
+
+
+#' Instrument name in agreement tables and plots for a match-column prefix
+#' ("ftir" -> "FTIR", "ftir_bruker" -> "FTIR (Bruker)").
+.agreement_name <- function(prefix)
+  switch(prefix, ftir = "FTIR", raman = "Raman", ldir = "LDIR",
+         ftir_perkin = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)", prefix)
 
 
 #' Score a Tier 2 candidate transform: one-to-one pairs between the
@@ -358,17 +469,22 @@ build_triplets <- function(ftir_match, ldir_match, raman_for_match, config,
 }
 
 
-#' Write an FTIR-type -> Raman transform to a text file.
+#' Write a source -> reference transform to a text file.
 #'
-#' @param pair Result of align_and_match()
+#' The ftir_* / raman_* keys are the source's and the reference's
+#' normalisation, whatever the instruments (the viewer reads these keys).
+#'
+#' @param pair Result of align_and_match() (or list(icp, norm))
 #' @param path Output file
 #' @param src_name Name in the header ("FTIR_perkin", "FTIR_bruker")
+#' @param ref_name Name of the reference in the header
 #' @param scan_bounds Optional list(x_min, x_max, y_min, y_max) of the
 #'   instrument's background image
-write_transform_params <- function(pair, path, src_name, scan_bounds = NULL) {
+write_transform_params <- function(pair, path, src_name, scan_bounds = NULL,
+                                   ref_name = "Raman") {
   p <- pair$icp$params; nr <- pair$norm; M <- pair$icp$transform
   lines <- c(
-    paste0("# ", src_name, "-to-Raman Transform Parameters"),
+    paste0("# ", src_name, "-to-", ref_name, " Transform Parameters"),
     paste0("# Generated: ", Sys.time()),
     "",
     paste0("scale:        ", round(p$scale, 6)),
@@ -399,7 +515,7 @@ write_transform_params <- function(pair, path, src_name, scan_bounds = NULL) {
       paste0("ftir_scan_ymax:   ", scan_bounds$y_max),
       "")
   lines <- c(lines,
-    paste0("# 3x3 Transform matrix (homogeneous, ", src_name, "_norm -> Raman_norm)"),
+    paste0("# 3x3 Transform matrix (homogeneous, ", src_name, "_norm -> ", ref_name, "_norm)"),
     paste0("matrix_row1: ", paste(round(M[1, ], 8), collapse = ", ")),
     paste0("matrix_row2: ", paste(round(M[2, ], 8), collapse = ", ")),
     paste0("matrix_row3: ", paste(round(M[3, ], 8), collapse = ", ")))
