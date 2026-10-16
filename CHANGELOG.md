@@ -67,6 +67,16 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   dataset A's particles.
 
 ### Fixed
+- Optimal matching built one dense n × n cost matrix (n = the larger
+  particle set): 1.7 GB and most of the run time for a 14,500-particle
+  Raman field sample. It now solves each group of particles that can pair
+  within the gate on its own; the result is identical (same pairs and
+  scores; checked against the dense solve), matching takes seconds.
+- Viewer: the "Highlight particle" lists sent every particle ID to the
+  browser, which froze it on field samples; they now load on demand
+  (type to search).
+- Viewer: the instrument tabs said "matched to Raman / FTIR" whatever the
+  run's instruments; they name the run's partners.
 - Viewer: a missing table was silently replaced by another one whose name
   starts the same (`$` partial matching on R lists): e.g. with no unmatched
   FTIR (PerkinElmer) particles, `unmatched_ftir` returned the unmatched FTIR

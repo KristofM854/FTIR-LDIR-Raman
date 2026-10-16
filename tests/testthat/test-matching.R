@@ -95,3 +95,38 @@ test_that("force_complete would instead force the orphan onto a spurious partner
   orphan <- res$matched[res$matched$ldir_particle_id == "S_orphan", ]
   expect_gt(orphan$match_distance, 1000)
 })
+
+test_that("matching per group of nearby particles equals one dense assignment", {
+  # The matcher solves each connected group of candidate pairs on its own; the
+  # optimum must be the one of a single dense problem (BIG = no pair).
+  set.seed(11)
+  for (it in 1:15) {
+    ns <- sample(5:120, 1); nr <- sample(5:150, 1); W <- sample(c(400, 1500), 1)
+    mk <- function(n) data.frame(particle_id = paste0("p", seq_len(n)),
+                                 x = runif(n, 0, W), y = runif(n, 0, W),
+                                 feret_max_um = runif(n, 10, 200), area_um2 = runif(n, 50, 5000),
+                                 major_um = runif(n, 10, 200), minor_um = runif(n, 5, 50))
+    a <- mk(ns); b <- mk(nr)
+    a$x_aligned <- a$x; a$y_aligned <- a$y; b$x_norm <- b$x; b$y_norm <- b$y
+    cfg <- make_config()
+    m <- suppressMessages(match_particles(a, b, cfg))$matched
+    # Dense reference: the same cost as the matcher, BIG outside the gate
+    n <- max(ns, nr); C <- matrix(1e12, n, n)
+    asp <- function(d, i) d$major_um[i] / max(d$minor_um[i], 1)
+    for (i in seq_len(ns)) for (j in seq_len(nr)) {
+      d <- sqrt((a$x[i] - b$x[j])^2 + (a$y[i] - b$y[j])^2)
+      thr <- max(cfg$match_dist_threshold_um,
+                 cfg_value(cfg, "match_adaptive_dist_factor") * a$major_um[i])
+      if (d > thr || sum(sqrt((b$x - a$x[i])^2 + (b$y - a$y[i])^2) < d) >= 20) next
+      sa <- asp(a, i); sb <- asp(b, j)
+      C[i, j] <- d + 0.3 * abs(log(a$area_um2[i] / b$area_um2[j])) +
+        0.3 * abs(log(a$feret_max_um[i] / b$feret_max_um[j])) +
+        0.1 * abs(sa - sb) / max(sa, sb, 1)
+    }
+    s <- as.integer(clue::solve_LSAP(C))
+    ok <- seq_len(ns)[s[seq_len(ns)] <= nr & C[cbind(seq_len(ns), s[seq_len(ns)])] < 1e12]
+    expect_equal(nrow(m), length(ok), info = paste("problem", it))
+    expect_equal(sum(m$match_score), sum(C[cbind(ok, s[ok])]), tolerance = 1e-9,
+                 info = paste("problem", it))
+  }
+})

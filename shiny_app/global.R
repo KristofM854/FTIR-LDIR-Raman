@@ -868,7 +868,24 @@ instrument_df_from_aligned <- function(data, inst) {
   d$match_status <- ifelse(any_match, "matched", "unmatched")
   d$match_id <- NA_integer_
   d$material_family <- classify_family_vec(d$material)
+  # Which instruments "matched" refers to here (the viewer's labels)
+  flags <- grep("^matched_to_", names(d), value = TRUE)
+  attr(d, "match_partners") <- unname(INSTRUMENT_DISPLAY[
+    sub("^matched_to_", "", flags[vapply(flags, function(f) any(d[[f]]), logical(1))])])
   d
+}
+
+INSTRUMENT_DISPLAY <- c(raman = "Raman", ftir_perkin = "FTIR", ldir = "LDIR",
+                        ftir_bruker = "FTIR (Bruker)")
+
+#' The partner(s) an instrument frame's "matched" status refers to: those
+#' recorded by instrument_df_from_aligned(), else the frame's classic Raman
+#' (or, for Raman, FTIR PerkinElmer) pairing.
+match_partner_label <- function(df, default) {
+  p <- attr(df, "match_partners")
+  if (is.null(p)) default
+  else if (length(p) == 0) "another instrument"
+  else paste(p, collapse = " / ")
 }
 
 
