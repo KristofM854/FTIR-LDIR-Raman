@@ -10,15 +10,21 @@
 #' @param icp_result Result from icp_refine()
 #' @param agreement Result from analyze_agreement()
 #' @param config Configuration list
+#' @param names Display names of the source and the reference instrument
+#' @param prefixes Their column prefixes in match_result$matched (the plots
+#'   read ftir_* / raman_* columns; other prefixes are renamed to those)
 #' @return List of ggplot objects
 generate_diagnostics <- function(ftir_df, raman_df, match_result,
-                                 icp_result, agreement, config) {
-  log_message("Generating diagnostic plots")
+                                 icp_result, agreement, config,
+                                 names = c("FTIR", "Raman"),
+                                 prefixes = c("ftir", "raman")) {
+  log_message("Generating diagnostic plots (", names[1], " vs ", names[2], ")")
+  match_result <- .as_ftir_raman_columns(match_result, prefixes)
 
   plots <- list()
 
   # 1. Overlay plot: FTIR vs Raman in aligned coordinate frame
-  plots$overlay <- plot_overlay(ftir_df, raman_df, match_result)
+  plots$overlay <- plot_overlay(ftir_df, raman_df, match_result, names = names)
 
   # 2. Match distance distribution
   plots$distance_hist <- plot_distance_distribution(match_result)
@@ -27,7 +33,8 @@ generate_diagnostics <- function(ftir_df, raman_df, match_result,
   plots$icp_convergence <- plot_icp_convergence(icp_result)
 
   # 4. Residual scatter
-  plots$residual_scatter <- plot_residual_scatter(ftir_df, raman_df, match_result)
+  plots$residual_scatter <- plot_residual_scatter(ftir_df, raman_df, match_result,
+                                                  names = names)
 
   # 5. Residual vector field (spatial pattern of offsets)
   plots$residual_vectors <- plot_residual_vectors(match_result)
@@ -39,7 +46,7 @@ generate_diagnostics <- function(ftir_df, raman_df, match_result,
 
   # 7. Size comparison for matched pairs
   if (nrow(match_result$matched) > 0) {
-    plots$size_comparison <- plot_size_comparison(match_result)
+    plots$size_comparison <- plot_size_comparison(match_result, names = names)
   }
 
   # 8. Ambiguity distribution
@@ -58,10 +65,34 @@ generate_diagnostics <- function(ftir_df, raman_df, match_result,
 }
 
 
+#' Match columns renamed from the pair's prefixes to ftir_* (source) and
+#' raman_* (reference), the columns the diagnostic plots read.
+.as_ftir_raman_columns <- function(match_result, prefixes) {
+  m <- match_result$matched
+  if (identical(prefixes, c("ftir", "raman")) || is.null(m) || nrow(m) == 0)
+    return(match_result)
+  to <- c("ftir_", "raman_")
+  p <- paste0(prefixes, "_")
+  ord <- order(-nchar(p))            # longer prefix first (ftir_bruker_ before ftir_)
+  nm <- names(m)
+  new <- nm
+  done <- rep(FALSE, length(nm))
+  for (i in ord) {
+    hit <- !done & startsWith(nm, p[i])
+    new[hit] <- paste0(to[i], substring(nm[hit], nchar(p[i]) + 1))
+    done <- done | hit
+  }
+  names(m) <- new
+  match_result$matched <- m
+  match_result
+}
+
+
 #' Overlay plot of aligned particles from two instruments
 plot_overlay <- function(ftir_df, raman_df, match_result,
                          ftir_color = "tomato", raman_color = "steelblue",
-                         src_label = "ftir") {
+                         src_label = "ftir", ref_label = "raman",
+                         names = c("FTIR", "Raman")) {
   matched <- match_result$matched
 
   p <- ggplot2::ggplot() +
@@ -80,8 +111,8 @@ plot_overlay <- function(ftir_df, raman_df, match_result,
   if (nrow(matched) > 0) {
     src_x_col <- paste0(src_label, "_x_aligned")
     src_y_col <- paste0(src_label, "_y_aligned")
-    ref_x_col <- "raman_x_norm"
-    ref_y_col <- "raman_y_norm"
+    ref_x_col <- paste0(ref_label, "_x_norm")
+    ref_y_col <- paste0(ref_label, "_y_norm")
     if (all(c(src_x_col, src_y_col, ref_x_col, ref_y_col) %in% names(matched))) {
       segments_df <- data.frame(
         x    = matched[[src_x_col]],
@@ -100,8 +131,8 @@ plot_overlay <- function(ftir_df, raman_df, match_result,
   p <- p +
     ggplot2::coord_equal() +
     ggplot2::labs(
-      title = "FTIR\u2013Raman Particle Overlay (aligned coordinates)",
-      subtitle = paste0("Red triangles = FTIR, Blue circles = Raman, ",
+      title = paste0(names[1], "\u2013", names[2], " Particle Overlay (aligned coordinates)"),
+      subtitle = paste0("Red triangles = ", names[1], ", Blue circles = ", names[2], ", ",
                         "Lines = matched pairs"),
       x = "X (\u00b5m, normalized)", y = "Y (\u00b5m, normalized)"
     ) +
@@ -171,7 +202,8 @@ plot_icp_convergence <- function(icp_result) {
 
 
 #' Residual scatter: distance and direction of match offsets
-plot_residual_scatter <- function(ftir_df, raman_df, match_result) {
+plot_residual_scatter <- function(ftir_df, raman_df, match_result,
+                                  names = c("FTIR", "Raman")) {
   matched <- match_result$matched
 
   if (nrow(matched) == 0) {
@@ -192,7 +224,8 @@ plot_residual_scatter <- function(ftir_df, raman_df, match_result) {
     ggplot2::coord_equal() +
     ggplot2::labs(
       title = "Alignment Residuals",
-      subtitle = "Offset from FTIR (transformed) to Raman (nearest match)",
+      subtitle = paste0("Offset from ", names[1], " (transformed) to ", names[2],
+                        " (nearest match)"),
       x = "dX (\u00b5m)", y = "dY (\u00b5m)"
     ) +
     ggplot2::theme_minimal()
@@ -343,7 +376,7 @@ plot_confusion_matrix <- function(agreement) {
 
 
 #' Scatter plot comparing particle sizes between instruments
-plot_size_comparison <- function(match_result) {
+plot_size_comparison <- function(match_result, names = c("FTIR", "Raman")) {
   matched <- match_result$matched
 
   ftir_size  <- matched$ftir_feret_max_um
@@ -365,7 +398,7 @@ plot_size_comparison <- function(match_result) {
                          color = "tomato") +
     ggplot2::labs(
       title = "Particle Size Comparison (matched pairs)",
-      x = "FTIR Feret max (\u00b5m)", y = "Raman Feret max (\u00b5m)"
+      x = paste(names[1], "Feret max (\u00b5m)"), y = paste(names[2], "Feret max (\u00b5m)")
     ) +
     ggplot2::theme_minimal()
 
@@ -442,10 +475,12 @@ plot_tiered_agreement <- function(agreement) {
 #' @param raman_df Raman data frame with x_norm, y_norm
 #' @param ldir_raman_match Match result for LDIR-Raman
 #' @param ldir_agreement Agreement result for LDIR-Raman
+#' @param ref_prefix,ref_name Column prefix and name of the reference
 #' @return List of ggplot objects
 generate_ldir_diagnostics <- function(ldir_aligned, raman_df,
                                       ldir_raman_match, ldir_agreement,
-                                      debug_subtitle = NULL) {
+                                      debug_subtitle = NULL,
+                                      ref_prefix = "raman", ref_name = "Raman") {
   plots <- list()
 
   # LDIR-Raman overlay
@@ -454,11 +489,12 @@ generate_ldir_diagnostics <- function(ldir_aligned, raman_df,
     plots$ldir_overlay <- plot_overlay(
       ldir_aligned, raman_df, ldir_raman_match,
       ftir_color = "darkgreen", raman_color = "steelblue",
-      src_label = "ldir"
+      src_label = "ldir", ref_label = ref_prefix
     )
 
     # Build subtitle: always say which columns are used, append debug info when present
-    base_sub <- "Green triangles = LDIR (x_aligned/y_aligned), Blue circles = Raman (x_norm/y_norm)"
+    base_sub <- paste0("Green triangles = LDIR (x_aligned/y_aligned), Blue circles = ",
+                       ref_name, " (x_norm/y_norm)")
     sub_text  <- if (!is.null(debug_subtitle) && nzchar(debug_subtitle)) {
       paste0(base_sub, "\n", debug_subtitle)
     } else {
@@ -467,7 +503,7 @@ generate_ldir_diagnostics <- function(ldir_aligned, raman_df,
 
     plots$ldir_overlay <- plots$ldir_overlay +
       ggplot2::labs(
-        title    = "LDIR\u2013Raman Particle Overlay (aligned coordinates)",
+        title    = paste0("LDIR\u2013", ref_name, " Particle Overlay (aligned coordinates)"),
         subtitle = sub_text
       )
   }

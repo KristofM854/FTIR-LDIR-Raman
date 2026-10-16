@@ -359,10 +359,14 @@ match_particles <- function(src_df, ref_df, config,
               round(match_stats$mean_distance, 2), " µm")
 
   # Unmatched particles under each side's label (unmatched_ftir and
-  # unmatched_raman for the default FTIR -> Raman labels)
+  # unmatched_raman for the default FTIR -> Raman labels), and as
+  # unmatched_src / unmatched_ref whatever the labels
   result <- list(
     matched         = matched,
-    match_stats     = match_stats
+    match_stats     = match_stats,
+    labels          = c(src = src_label, ref = ref_label),
+    unmatched_src   = unmatched_src,
+    unmatched_ref   = unmatched_ref
   )
   result[[paste0("unmatched_", src_label)]] <- unmatched_src
   result[[paste0("unmatched_", ref_label)]] <- unmatched_ref

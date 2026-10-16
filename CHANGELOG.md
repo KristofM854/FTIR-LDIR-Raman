@@ -8,6 +8,13 @@ change results on existing data are marked **(results)**.
 Pre-release audit and portability refactor (branch `audit/pre-release`).
 
 ### Added
+- **Any combination of two to four instruments**: the shared frame is Raman
+  when present, else FTIR (PerkinElmer), else FTIR (Bruker); every other
+  instrument is aligned into it and every pair is matched. Output files keep
+  their names and columns (`matched_<a>_<b>.csv`; new: `matched_ldir_ftir_bruker.csv`).
+  `04_alignment/aligned_<instrument>.csv` holds every instrument in the shared
+  frame; the viewer and the report show any combination. The file picker
+  requires no particular instrument, only two data files.
 - **Data contract**: every reader returns one canonical particle table
   (`R/particle_contract.R`), checked by `validate_particles()`; images are
   placed by one pixel ↔ µm mapping, recorded per run in
@@ -60,6 +67,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   dataset A's particles.
 
 ### Fixed
+- Viewer: a missing table was silently replaced by another one whose name
+  starts the same (`$` partial matching on R lists): e.g. with no unmatched
+  FTIR (PerkinElmer) particles, `unmatched_ftir` returned the unmatched FTIR
+  (Bruker) particles, shown as PerkinElmer ones. Every table now has an
+  explicit entry.
 - **(results)** Images read through magick had scrambled pixels (wrong array
   layout), which misplaced the FTIR background image.
 - **(results)** Coarse RANSAC could drop scale 1 from its candidates when a

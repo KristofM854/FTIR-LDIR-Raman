@@ -107,9 +107,10 @@ select_landmarks <- function(df, config, label = "") {
 #'   inlier_ratio  — fraction of landmarks that are inliers
 #'   mean_residual — mean distance of inlier pairs (µm)
 #'   inlier_pairs  — data frame of matched landmark pairs
-landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR") {
+landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
+                           ref_label = "Raman") {
   log_message(strrep("-", 50))
-  log_message("Tier 1: Landmark-based alignment (", src_label, " → Raman)")
+  log_message("Tier 1: Landmark-based alignment (", src_label, " → ", ref_label, ")")
 
   # --- Select landmarks ---
   ftir_lm_mask  <- select_landmarks(ftir_df, config, src_label)

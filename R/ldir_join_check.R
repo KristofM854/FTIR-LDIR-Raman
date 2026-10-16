@@ -28,18 +28,21 @@
 #' @param m Matched LDIR->Raman pairs (match_particles()$matched)
 #' @param n_iter Permutations
 #' @param seed RNG seed (the caller's RNG state is restored)
+#' @param ref_prefix Column prefix of the partner in m ("raman"; "ftir" or
+#'   "ftir_bruker" in a run without Raman)
 #' @return list(summary = data.frame, pairs = per-pair table), or NULL with
 #'   fewer than 5 pairs
-ldir_join_check <- function(m, n_iter = 1000, seed = 2026) {
+ldir_join_check <- function(m, n_iter = 1000, seed = 2026, ref_prefix = "raman") {
   if (is.null(m) || nrow(m) < 5) return(NULL)
   if (exists(".Random.seed", envir = globalenv())) {
     old <- get(".Random.seed", envir = globalenv())
     on.exit(assign(".Random.seed", old, envir = globalenv()), add = TRUE)
   }
   set.seed(seed)
-  fam_l <- classify_family_vec(m$ldir_material); fam_r <- classify_family_vec(m$raman_material)
-  size_l <- m$ldir_feret_max_um; size_r <- m$raman_feret_max_um
-  ok_f <- !is_unidentified(m$ldir_material) & !is_unidentified(m$raman_material) &
+  r <- function(k) m[[paste0(ref_prefix, "_", k)]]
+  fam_l <- classify_family_vec(m$ldir_material); fam_r <- classify_family_vec(r("material"))
+  size_l <- m$ldir_feret_max_um; size_r <- r("feret_max_um")
+  ok_f <- !is_unidentified(m$ldir_material) & !is_unidentified(r("material")) &
           !fam_l %in% unresolved_families & !fam_r %in% unresolved_families
   ok_s <- is.finite(size_l) & is.finite(size_r)
   fam_stat  <- function(fl) mean(fl[ok_f] == fam_r[ok_f])
@@ -61,22 +64,23 @@ ldir_join_check <- function(m, n_iter = 1000, seed = 2026) {
     p_value = signif(c(p_val(obs_f, null_f), p_val(obs_s, null_s)), 3),
     informative = c(mean(null_f, na.rm = TRUE) < 0.9, TRUE))
   pairs <- data.frame(
-    ldir_particle_id = m$ldir_particle_id, raman_particle_id = m$raman_particle_id,
+    ldir_particle_id = m$ldir_particle_id, ref_particle_id = r("particle_id"),
     match_distance_um = m$match_distance,
-    ldir_family = fam_l, raman_family = fam_r,
+    ldir_family = fam_l, ref_family = fam_r,
     family_agrees = ifelse(ok_f, fam_l == fam_r, NA),
-    ldir_feret_max_um = size_l, raman_feret_max_um = size_r,
+    ldir_feret_max_um = size_l, ref_feret_max_um = size_r,
     size_ratio = round(size_l / size_r, 2),
     coord_join_warning = if ("ldir_coord_join_warning" %in% names(m)) m$ldir_coord_join_warning else NA,
     stringsAsFactors = FALSE)
+  names(pairs) <- sub("^ref_", paste0(ref_prefix, "_"), names(pairs))
   list(summary = summary, pairs = pairs)
 }
 
 
 #' Log the join check in one or two lines; WARN when the join looks random.
-log_ldir_join_check <- function(chk) {
+log_ldir_join_check <- function(chk, ref_name = "Raman") {
   if (is.null(chk)) {
-    log_message("  LDIR join check: fewer than 5 LDIR-Raman pairs \u2014 not run")
+    log_message("  LDIR join check: fewer than 5 LDIR-", ref_name, " pairs \u2014 not run")
     return(invisible(NULL))
   }
   s <- chk$summary
@@ -84,15 +88,15 @@ log_ldir_join_check <- function(chk) {
   fm <- s[s$statistic == "family_agreement", ]
   p_txt <- function(p) if (is.na(p)) "NA" else if (p < 0.001) "< 0.001" else format(signif(p, 2))
   log_message(sprintf(paste0(
-    "  LDIR join check (LDIR table vs Raman partner, %d pairs): size Spearman %.2f ",
+    "  LDIR join check (LDIR table vs %s partner, %d pairs): size Spearman %.2f ",
     "(random join %.2f, 95%% %.2f, p %s); family agreement %.0f%% (random join %.0f%%%s)"),
-    sz$n, sz$observed, sz$null_mean, sz$null_q95, p_txt(sz$p_value),
+    ref_name, sz$n, sz$observed, sz$null_mean, sz$null_q95, p_txt(sz$p_value),
     100 * fm$observed, 100 * fm$null_mean,
     if (isTRUE(fm$informative)) paste0(", p ", p_txt(fm$p_value))
     else ": not informative for this sample"))
   sig <- function(r) isTRUE(r$p_value < 0.05)
   if (!sig(sz) && !(isTRUE(fm$informative) && sig(fm)))
-    log_message("  LDIR join check: the LDIR table values agree with Raman no better ",
+    log_message("  LDIR join check: the LDIR table values agree with ", ref_name, " no better ",
                 "than a random join \u2014 check the image join (ldir_joined_raw.csv, ",
                 "07_diagnostics/ldir_join_pairs.csv) before interpreting LDIR results",
                 level = "WARN")

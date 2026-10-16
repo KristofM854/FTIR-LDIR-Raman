@@ -75,9 +75,15 @@ renv::restore()
 
 ### Running the pipeline
 
+**Any two or more instruments** can be combined (Raman, FTIR PerkinElmer,
+FTIR Bruker, LDIR). The shared frame is Raman when it is present, else FTIR
+(PerkinElmer), else FTIR (Bruker); every other instrument is aligned into it
+and every pair of instruments is matched. LDIR is never the frame (its
+coordinates usually come from its image), so LDIR needs Raman or an FTIR.
+
 **Option A — File pickers** (default): `source("main.R")` opens one file
-dialog per instrument slot (Raman is required; cancel optional slots to skip
-them).
+dialog per instrument slot; cancel a slot to skip it. At least two data files
+are needed.
 
 **Option B — Paths in a script** (non-interactive):
 
@@ -92,6 +98,7 @@ config_overrides <- list(match_dist_threshold_um = 80)            # optional
 source("main.R")
 ```
 
+Leave out any instrument (`raman_file <- NULL`, …) as long as two remain.
 `examples/run_example_A.R` is a complete example of this.
 
 **Option C — As a function**:
@@ -152,7 +159,7 @@ R/
   load.R                        # load_pipeline(): packages + modules
   ldir_join_check.R             # LDIR image join checked against Raman
   measure_raman_placement.R     # Raman image placement (WITec file, auto-calibration)
-  align_and_match.R             # Raman reference frame; align + match + agreement per pair; triplets
+  align_and_match.R             # Reference frame (Raman, else FTIR); align + match + agreement per pair; triplets
   ldir_stage.R                  # LDIR: image coordinates, alignment, matching
   run_pipeline.R                # run_pipeline(config): the whole run as one function
   utils.R                       # Logging, geometry, transform utilities
@@ -186,6 +193,9 @@ Alignment is **geometric** — it uses position, size, and shape, never material
 3. **ICP refinement**: Iterative Closest Point polishes the transform using all particles ≥ 20 µm, with reciprocal nearest-neighbour filtering and 10% trimming of worst pairs.
 
 The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**.
+Without Raman the same steps align every instrument to FTIR (PerkinElmer),
+else FTIR (Bruker); the Raman-only alignment filters (`align_raman_min_size_um`,
+the HQI filter on anchors) then do not apply.
 
 `align_ftir_materials` / `align_raman_materials` / `align_ldir_materials` can narrow the Tier 2 anchor set to polymers both instruments identify reliably (e.g. PET and PP on spiked lab samples). They are **off by default** (`NULL`): alignment is then purely geometric and does not depend on the identifications it is later used to compare. When set, a filter is honoured only while it leaves at least `align_min_anchor_count` particles.
 
@@ -249,6 +259,8 @@ Particles matched by all three instruments are identified by finding the interse
 - `ftir_family`, `raman_family`, `ldir_family` and each side's quality
 - `direct_ldir_ftir_match`: whether the triplet's LDIR and FTIR particles are also each other's direct match (FALSE flags a triplet linked only through the Raman particle)
 
+Triplets need Raman, FTIR (PerkinElmer) and LDIR in the run.
+
 ## Output files
 
 Each run creates a folder under `output/` (e.g. `output/2026-02-19_1/`).
@@ -262,13 +274,14 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `01_ingested/<instrument>_ingested.csv` | Canonical particle table per instrument, as read |
 | `02_joined/ldir_joined_raw.csv`, `ldir_image_extracted.csv`, `ldir_coord_quality.csv` | LDIR: image blobs, the joined table, per-particle join cost |
 | `03_prefiltered/<instrument>_prefiltered.csv` | After the coordinate / size / quality prefilter |
-| `04_alignment/transform_params_<pair>.txt` | Transform to the Raman frame (scale, rotation, translation, 3×3 matrix, ICP) |
+| `04_alignment/transform_params_<pair>.txt` | Transform into the shared frame (scale, rotation, translation, 3×3 matrix, ICP) |
+| `04_alignment/aligned_<instrument>.csv` | Every particle of the instrument in the shared frame (`x_aligned`, `y_aligned`) |
 | `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns and the distance |
 | `05_matches/unmatched_<a>_vs_<b>.csv` | Particles without a partner |
 | `05_matches/triplets_3way.csv`, `composite_matches.csv` | Three-way matches; 1:many FTIR→Raman fragments |
 | `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored pair: tier, exact polymers, families, LDIR join warning |
 | `06_agreement/agreement_by_material_<pair>.csv`, `agreement_by_category.csv`, `agreement_summary.csv` | Counts and rates per material / category |
-| `07_diagnostics/match_statistics.txt`, `triage_top_pairs.csv`, `tps_*` | Match statistics, pairs to review first, distortion check |
+| `07_diagnostics/match_statistics.txt`, `triage_top_pairs.csv`, `tps_*` | Match statistics, pairs to review first, distortion check — for the run's main pair: FTIR (PerkinElmer), else FTIR (Bruker), else LDIR, with the reference |
 | `07_diagnostics/ldir_join_check.csv`, `ldir_join_pairs.csv` | LDIR join check |
 | `07_diagnostics/plots/` | Overlays, confusion matrices, distance histogram, ICP convergence, residuals; `all_diagnostics.pdf` |
 | `inputs/` | The run's images (copied; downsized above `raman_image_max_px`), previews |
@@ -285,7 +298,7 @@ The viewer includes:
 - **FTIR tab**: Native coordinate view with chemical absorption image overlay
 - **Raman tab**: Native coordinate view
 - **LDIR tab**: Native coordinate view with raw / processed / extracted-points image layers
-- **Overlay tab**: All instruments in the shared Raman coordinate frame, with layers for individual instruments, matched pairs, and triple matches (gold rings)
+- **Overlay tab**: All instruments in the shared coordinate frame, with layers for individual instruments, matched pairs, and triple matches (gold rings). The Raman image is the background when the run has Raman; runs without Raman have no overlay background yet
 
 ### PDF report
 
@@ -301,7 +314,7 @@ multi-page PDF containing:
 | 5 | Size distributions per instrument |
 | 6 | Size statistics table |
 | 7+ | Each instrument view — image with its particles overlaid (FTIR PerkinElmer, FTIR Bruker, Raman, LDIR) |
-| last | Overlay — all instruments in the shared Raman frame |
+| last | Overlay — all instruments in the shared frame |
 
 The report is a **snapshot of what the viewer is currently showing**: the
 Summary tab's scope toggle, the quality / size / material / match filters set on

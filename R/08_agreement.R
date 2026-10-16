@@ -26,6 +26,7 @@
 #'   raman: HQI >= raman_hqi_threshold
 #'   ldir : quality >= ldir_hqi_unknown_threshold (the Agilent "unknown" rule)
 .agreement_quality_cutoff <- function(prefix, config) {
+  if (startsWith(prefix, "ftir")) prefix <- "ftir"   # ftir_perkin, ftir_bruker
   key <- switch(prefix,
                 ftir  = "ftir_agreement_min_quality",
                 raman = "raman_hqi_threshold",
@@ -74,15 +75,17 @@
 #' @param config Configuration list (quality cutoffs; NULL = defaults)
 #' @param instrument_a Label for the first instrument (default "FTIR")
 #' @param instrument_b Label for the second instrument (default "Raman")
+#' @param prefix_a,prefix_b Match-column prefixes of the two instruments
+#'   (default: the lowercased labels)
 #' @return List with agreement metrics, tiered scoring, and summaries
 analyze_agreement <- function(match_result, config = NULL,
                               instrument_a = "FTIR",
-                              instrument_b = "Raman") {
+                              instrument_b = "Raman",
+                              prefix_a = tolower(instrument_a),
+                              prefix_b = tolower(instrument_b)) {
   log_message("Analyzing material agreement (", instrument_a, " vs ", instrument_b, ")")
 
   matched <- match_result$matched
-  prefix_a <- tolower(instrument_a)
-  prefix_b <- tolower(instrument_b)
 
   if (is.null(matched) || nrow(matched) == 0) {
     log_message("  No matched pairs to analyze.")

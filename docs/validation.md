@@ -16,7 +16,9 @@ synthetic data with known answers, and the Raman file of a field sample
 
 Every instrument is aligned into the Raman frame by a similarity transform
 (rotation, uniform scale, translation): landmarks (large particles and
-fibres), else RANSAC / global registration, then ICP.
+fibres), else RANSAC / global registration, then ICP. (Without Raman the frame
+is FTIR (PerkinElmer), else FTIR (Bruker); the numbers below are all for the
+Raman frame.)
 
 **Dataset A**
 
@@ -50,6 +52,15 @@ millimetres, with 4 particles 20 mm outside the field; FTIR (Bruker) rotated
 3° with image-style (downward) y; LDIR rotated −90° and scaled 1.03. Recovered:
 rotations within 0.2°, scales within 0.2% (LDIR 0.5%); every matched pair is a
 true correspondence (100 of 100 per instrument).
+
+**Every instrument combination** (`test-pipeline-synthetic.R`): the same
+synthetic filter run with each of the 11 combinations of two to four
+instruments. In every run each instrument is paired with the reference and
+every true correspondence is found. Without Raman, LDIR particles outside the
+reference instrument's field can pair by chance at the 150 µm LDIR gate: one
+chance pair in each of the three runs where LDIR is aligned to an FTIR, as
+expected at this density. Raman covers the whole synthetic field, so with
+Raman there are no such particles.
 
 ## 2. Matching and chance matches
 
