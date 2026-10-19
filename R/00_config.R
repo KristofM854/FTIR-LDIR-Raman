@@ -133,6 +133,9 @@ make_config <- function(ftir_path  = NULL,
     # viewer, report and auto-calibration use the downsized copy (placement is
     # in um, so it does not depend on the pixel count). NULL = never.
     raman_image_max_px = 2000,
+    # With a WITec placement file: also run the image auto-calibration, only
+    # to log whether it agrees (slow on field samples; placement unchanged)
+    raman_placement_cross_check = FALSE,
     image_max_mb       = 5,    # downsized image above this as PNG -> JPEG
     image_copy_max_mb  = 100,  # originals above this are not copied into the run
     # --- FTIR image placement (PerkinElmer "Average Abs" PNG / Bruker) ---

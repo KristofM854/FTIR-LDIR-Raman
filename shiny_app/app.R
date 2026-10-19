@@ -2146,7 +2146,7 @@ server <- function(input, output, session) {
     if (!is.null(um_per_px) && length(x_vals) > 0) {
       # um_per_px refers to the ORIGINAL file; if the raster was downsized
       # after upload (downsample_raster), rescale it to the reduced raster.
-      orig_w <- attr(raw, "orig_width_px")
+      orig_w <- attr(raw, "orig_width_px") %||% attr(raw, "resized_from_px")[1]
       if (!is.null(orig_w) && is.numeric(orig_w) && orig_w > 0)
         um_per_px <- um_per_px * orig_w / w_px
       cx_um <- mean(x_vals)
@@ -2305,11 +2305,11 @@ server <- function(input, output, session) {
     m   <- load_run_manifest(run_dir)
     img <- get_run_image_paths(m, run_dir)
 
-    # Load run-directory images at full resolution. (An earlier downsample here
-    # for render speed block-averaged the raster, washing out crisp instrument
-    # images — reverted; correctness of the background wins over the render
-    # speed-up. Uploaded images are still downsized in handle_image_upload.)
-    load_bg <- function(path) load_image_raster(path)
+    # Run images up to RUN_IMAGE_MAX_DIM px on the long side; larger ones are
+    # resized by ImageMagick (Lanczos) before they enter R. (A block-average
+    # downsample once used here washed out crisp images; full resolution in
+    # turn took many GB for field-sample micrographs.)
+    load_bg <- function(path) load_image_raster(path, max_dim = RUN_IMAGE_MAX_DIM)
 
     if (!is.null(img$ftir)) {
       raw <- load_bg(img$ftir)
@@ -3557,6 +3557,8 @@ server <- function(input, output, session) {
           # Normalize to 0-1 for display
           mx_val <- max(corr)
           if (mx_val > 0) corr <- corr / mx_val
+          # Display size, as for every run image (see RUN_IMAGE_MAX_DIM)
+          corr <- downsample_raster(corr, max_dim = RUN_IMAGE_MAX_DIM)
           # Convert to 3-channel green-tinted visualization
           h <- nrow(corr); w <- ncol(corr)
           out <- array(0.05, dim = c(h, w, 3))
@@ -5371,7 +5373,7 @@ server <- function(input, output, session) {
           bg_path <- file.path(d$dir, bgf)
       }
       if (!is.null(bg_path)) {
-        raw <- tryCatch(load_image_raster(bg_path), error = function(e) NULL)
+        raw <- tryCatch(load_image_raster(bg_path, max_dim = RUN_IMAGE_MAX_DIM), error = function(e) NULL)
         if (!is.null(raw)) {
           # NOTE: rotation is applied LAST, to the finished (native-frame)
           # placement — not here. Calibration-based placement (WITec extent,
