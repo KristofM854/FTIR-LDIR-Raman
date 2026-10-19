@@ -823,11 +823,21 @@ build_instrument_dfs <- function(data) {
     result$ftir_bruker$material_family <- classify_family_vec(result$ftir_bruker$material)
 
   # Instruments without Raman-pair files (a run without Raman, or Raman
-  # without FTIR PerkinElmer): every particle from the shared-frame file
+  # without FTIR PerkinElmer): every particle from the shared-frame file.
+  # With pair files: add the particles they do not list -- those below the
+  # quality cutoff, which are not matched (match_quality_filter) but are
+  # still shown.
   for (inst in names(INSTRUMENT_PAIR_COLUMNS)) {
-    if (!is.null(result[[inst]]) && nrow(result[[inst]]) > 0) next
     d <- instrument_df_from_aligned(data, inst)
-    if (!is.null(d)) result[[inst]] <- d
+    if (is.null(d)) next
+    cur <- result[[inst]]
+    if (is.null(cur) || nrow(cur) == 0) { result[[inst]] <- d; next }
+    extra <- d[!d$particle_id %in% as.character(cur$particle_id), , drop = FALSE]
+    if (nrow(extra) == 0) next
+    for (k in setdiff(names(cur), names(extra)))
+      extra[[k]] <- if (is.logical(cur[[k]])) FALSE else NA
+    extra$match_status <- "unmatched"
+    result[[inst]] <- rbind(cur, extra[, names(cur), drop = FALSE])
   }
 
   # An explicit NULL for an absent instrument: result$ftir would otherwise

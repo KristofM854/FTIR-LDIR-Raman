@@ -269,7 +269,7 @@ update_manifest_config_snapshot <- function(run_dir, updates) {
 #' @return list(width_um, height_um, x_left_um, y_top_um, z_um, rotation_deg,
 #'   center_x_um, center_y_um, path), or NULL (with a WARN) when the file is
 #'   not one, or describes a rotated image
-read_witec_image_placement <- function(path) {
+read_witec_image_placement <- function(path, quiet = FALSE) {
   lines <- tryCatch(readLines(path, warn = FALSE), error = function(e) character(0))
   kv <- regmatches(lines, regexec("^\\s*([A-Za-z]+)\\s*:\\s*(\\S+)\\s*$", lines))
   kv <- kv[lengths(kv) == 3]
@@ -277,7 +277,7 @@ read_witec_image_placement <- function(path) {
   need <- c("width", "height", "x", "y")
   if (!all(need %in% names(vals)) || any(!is.finite(vals[need])) ||
       vals[["width"]] <= 0 || vals[["height"]] <= 0) {
-    log_message("  ", basename(path), ": not a WITec image placement file ",
+    if (!quiet) log_message("  ", basename(path), ": not a WITec image placement file ",
                 "(needs Width, Height, X, Y) — ignored", level = "WARN")
     return(NULL)
   }
@@ -299,10 +299,14 @@ read_witec_image_placement <- function(path) {
 #'
 #' config$raman_image_metadata: a path, NA (off), or NULL (default: look next
 #' to the image for <stem>.txt, also with a trailing _small / _resized /
-#' _downsized removed from the stem).
+#' _downsized removed from the stem; else any .txt in the image's folder whose
+#' content is a WITec placement (Width, Height, X, Y). Of several such files,
+#' the one that puts the most Raman particles on the image).
 #'
+#' @param particles Raman particle table (x_um, y_um), to choose between
+#'   several placement files
 #' @return Path or NULL
-find_witec_image_placement <- function(image_path, config = NULL) {
+find_witec_image_placement <- function(image_path, config = NULL, particles = NULL) {
   explicit <- config[["raman_image_metadata"]]
   if (length(explicit) == 1 && is.na(explicit)) return(NULL)
   if (!is.null(explicit)) {
@@ -317,5 +321,30 @@ find_witec_image_placement <- function(image_path, config = NULL) {
   stems <- unique(c(stem, sub("[_ -](small|resized|downsized)$", "", stem, ignore.case = TRUE)))
   cands <- file.path(dirname(image_path), paste0(stems, ".txt"))
   hit <- cands[file.exists(cands)]
-  if (length(hit)) hit[1] else NULL
+  if (length(hit)) return(hit[1])
+
+  # By content: every .txt in the folder that parses as a placement file
+  txts <- list.files(dirname(image_path), pattern = "\\.txt$", ignore.case = TRUE,
+                     full.names = TRUE)
+  parsed <- lapply(txts, read_witec_image_placement, quiet = TRUE)
+  ok <- !vapply(parsed, is.null, logical(1))
+  txts <- txts[ok]; parsed <- parsed[ok]
+  if (length(txts) == 0) return(NULL)
+  if (length(txts) > 1) {
+    on_img <- vapply(parsed, function(w) {
+      if (is.null(particles) || nrow(particles) == 0) return(NA_real_)
+      mean(particles$x_um >= w$x_left_um & particles$x_um <= w$x_left_um + w$width_um &
+           particles$y_um <= w$y_top_um & particles$y_um >= w$y_top_um - w$height_um,
+           na.rm = TRUE)
+    }, numeric(1))
+    best <- if (all(is.na(on_img))) 1L else which.max(on_img)
+    log_message("  ", length(txts), " WITec placement files next to the Raman image (",
+                paste(basename(txts), collapse = ", "), "); using ", basename(txts[best]),
+                if (!is.na(on_img[best]))
+                  paste0(" (", round(100 * on_img[best]), "% of the particles on the image)"),
+                level = "WARN")
+    return(txts[best])
+  }
+  log_message("  Raman image placement file found by its content: ", basename(txts))
+  txts
 }

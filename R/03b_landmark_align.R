@@ -196,8 +196,21 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
   min_pairs <- cfg_value(config, "landmark_min_pairs")
   log_message("  One-to-one landmark pairs: ", n_one_to_one, " (need >= ", min_pairs, ")")
 
-  # Confidence check
-  confident <- (inlier_ratio >= config$landmark_confidence_min_inlier_ratio) &&
+  # Chance level: one-to-one pairs a random arrangement of the landmarks
+  # would give at this landmark density (dense field samples). Far more pairs
+  # than chance make the pose significant even when under half of the
+  # landmarks pair (each instrument finds landmarks the other does not).
+  # p is for the best of ~40 000 pose hypotheses, hence the strict default.
+  lam <- n_landmarks * chance_partner_rate(raman_lm$x_norm, raman_lm$y_norm, inlier_dist)$p
+  p_chance <- if (is.finite(lam) && lam > 0)
+    stats::ppois(n_one_to_one - 1, lam, lower.tail = FALSE) else NA_real_
+  p_max <- cfg_value(config, "landmark_significance_p")
+  significant <- isTRUE(p_chance < p_max)
+  log_message("  Landmark pairs expected by chance: ", round(lam, 2),
+              " (observed ", n_one_to_one, ", p = ", signif(p_chance, 2), ")")
+
+  # Confidence check: enough of the landmarks pair, or far more than chance
+  confident <- (inlier_ratio >= config$landmark_confidence_min_inlier_ratio || significant) &&
     (!is.na(mean_residual) && mean_residual <= config$landmark_confidence_max_residual_um) &&
     (n_inliers >= config$landmark_min_count) &&
     (n_one_to_one >= min_pairs)
@@ -206,7 +219,7 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
     log_message("  >>> Landmark alignment CONFIDENT — Tier 1 succeeded!")
   } else {
     reasons <- character()
-    if (inlier_ratio < config$landmark_confidence_min_inlier_ratio)
+    if (inlier_ratio < config$landmark_confidence_min_inlier_ratio && !significant)
       reasons <- c(reasons, paste0("inlier ratio too low (",
                                    round(inlier_ratio * 100, 1), "%)"))
     if (!is.na(mean_residual) && mean_residual > config$landmark_confidence_max_residual_um)
@@ -232,6 +245,7 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
     n_inliers         = n_inliers,
     n_one_to_one      = n_one_to_one,
     inlier_ratio      = inlier_ratio,
+    p_chance          = p_chance,
     mean_residual     = mean_residual,
     inlier_pairs      = inlier_pairs
   )

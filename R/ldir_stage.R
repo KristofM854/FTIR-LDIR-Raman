@@ -331,19 +331,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       if (!isTRUE(config$ldir_use_descriptor_ransac)) {
         log_message("  LDIR Tier 2: Material-based RANSAC alignment")
         ldir_for_align <- ldir_with_coords[!is.na(ldir_with_coords$x_um), ]
-        if (!is.null(config$align_ldir_materials)) {
-          ldir_mat_mask <- grepl(
-            paste(config$align_ldir_materials, collapse = "|"),
-            ldir_for_align$material, ignore.case = TRUE
-          )
-          if (sum(ldir_mat_mask) >= 4) {
-            ldir_for_align <- ldir_for_align[ldir_mat_mask, ]
-          } else {
-            log_message("  Insufficient LDIR anchor materials (",
-                        sum(ldir_mat_mask),
-                        ") \u2014 using all LDIR particles for alignment")
-          }
-        }
+        ldir_for_align <- select_alignment_anchors(ldir_for_align, config$align_ldir_materials,
+                                                   "ldir", config, "LDIR")
         log_message("  LDIR alignment anchors: ", nrow(ldir_for_align), " particles")
 
         # LDIR and Raman image the same filter from the same side, so there is
@@ -665,7 +654,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
 
       # 12g. LDIR<->reference matching
       ldir_raman_match <- match_particles(
-        ldir_aligned, raman_for_match, config,
+        .match_quality_subset(ldir_aligned, "ldir", config, "LDIR"), raman_for_match, config,
         src_label = "ldir", ref_label = ref_lbl
       )
 
@@ -693,7 +682,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
           ldir_tps <- ldir_aligned
           ldir_tps$x_aligned <- w$x; ldir_tps$y_aligned <- w$y
           match2 <- try_or(
-            match_particles(ldir_tps, raman_for_match, config,
+            match_particles(.match_quality_subset(ldir_tps, "ldir", config, quiet = TRUE),
+                            raman_for_match, config,
                             src_label = "ldir", ref_label = ref_lbl),
             default = NULL, what = "LDIR TPS re-match")
           n0 <- ldir_raman_match$match_stats$n_matched

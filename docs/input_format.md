@@ -83,8 +83,12 @@ Rotation: 0
 Width and Height are the image size in µm; X, Y its **top-left corner** in the
 stage frame (Y up), the frame of the particle export. The pipeline looks for
 `<image name>.txt` next to the selected image (also with a trailing `_small`
-removed) and, when found, places the image exactly from it (provenance
-`metadata`); the auto-calibration then only cross-checks it. A rotated image
+removed), else for any `.txt` in the image's folder whose content has this
+form (other text files are ignored; of several placement files, the one that
+puts the most Raman particles on the image is used, with a warning). When
+found, it places the image exactly (provenance `metadata`) and the
+auto-calibration is skipped (`raman_placement_cross_check = TRUE` runs it as
+a cross-check). A rotated image
 (Rotation ≠ 0) is not supported and the file is ignored. Values entered by hand
 (`raman_image_width_um` ...) take precedence; `raman_image_metadata` names the
 file explicitly, or `NA` switches it off. Checked on sample Faanui SW1L R4 B

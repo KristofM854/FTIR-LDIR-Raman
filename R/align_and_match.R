@@ -131,7 +131,7 @@ prepare_reference <- function(raw, config, role = "raman") {
   # honoured only while it leaves enough anchors: three filters that are
   # individually reasonable can intersect to nothing.
   materials <- if (is_raman) config$align_raman_materials else config$align_ftir_materials
-  for_align <- select_material_anchors(clean, materials, anchor_min, name)
+  for_align <- select_alignment_anchors(clean, materials, role, config, name)
   min_size <- if (is_raman) config$align_raman_min_size_um else NULL
   if (!is.null(min_size) && min_size > 0 && any(!is.na(for_align$feret_max_um))) {
     size_mask <- is.na(for_align$feret_max_um) | for_align$feret_max_um >= min_size
@@ -166,16 +166,14 @@ prepare_reference <- function(raw, config, role = "raman") {
   else
     log_message(name, " alignment target particles: ", nrow(for_align))
 
-  # All particles for spatial matching. Raman: no HQI filter (HQI is applied
-  # only in the agreement analysis, so matching has full coverage). FTIR: the
-  # same filter as when it is aligned to another reference.
+  # The particles matched against: those passing the instrument's quality
+  # cutoff (match_quality_filter), the same set the agreement scores.
   for_match <- prefilter(raw, if (is_raman) 0 else config$ftir_quality_threshold,
                          config$min_particle_size_um)
-  if (is_raman)
-    log_message("Raman for matching: ", nrow(for_match),
-                " particles (all HQI, spatial only; HQI filter applied in agreement)")
-  else
-    log_message(name, " for matching: ", nrow(for_match), " particles")
+  for_match <- .match_quality_subset(for_match, role, config, name)
+  log_message(name, " for matching: ", nrow(for_match), " particles",
+              if (isTRUE(cfg_value(config, "match_quality_filter")))
+                " (passing the quality cutoff)" else "")
 
   # The frame: centroid of the FULL cleaned cloud, not of an anchor subset (a
   # subset centroid depends on which particles each instrument detected, and
@@ -239,10 +237,11 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
   prefiltered <- prefilter_ftir(src_raw, min_quality = 0, min_size_um = 0)
   # Material anchors for the coarse aligners; select_material_anchors() falls
   # back to the full cloud when too few carry an anchor material.
-  for_align <- select_material_anchors(prefiltered, config$align_ftir_materials,
-                                       anchor_min, label)
+  for_align <- select_alignment_anchors(prefiltered, config$align_ftir_materials,
+                                        src_role, config, label)
   for_match <- prefilter_ftir(src_raw, min_quality = config$ftir_quality_threshold,
                               min_size_um = config$min_particle_size_um)
+  for_match <- .match_quality_subset(for_match, src_role, config, label)
   if (nrow(for_align) < 3) {
     log_message(label, ": too few particles (", nrow(for_align),
                 ") for alignment \u2014 skipping", level = "WARN")
@@ -339,6 +338,20 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
          ftir_perkin = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)", prefix)
 
 
+#' The particles that take part in matching: with match_quality_filter, those
+#' passing the instrument's agreement quality cutoff (quality_passes()).
+.match_quality_subset <- function(df, prefix, config, label = prefix, quiet = FALSE) {
+  if (!isTRUE(cfg_value(config, "match_quality_filter")) || is.null(df) || nrow(df) == 0)
+    return(df)
+  keep <- quality_passes(df, prefix, config)
+  if (!quiet && !all(keep))
+    log_message("  ", label, " for matching: ", sum(keep), " of ", nrow(df),
+                " particles pass the quality cutoff (", .agreement_quality_cutoff(prefix, config),
+                ")")
+  df[keep, , drop = FALSE]
+}
+
+
 #' Score a Tier 2 candidate transform: one-to-one pairs between the
 #' transformed source anchors and the reference anchors within
 #' ransac_inlier_dist_um. The aligners' own inlier counts are not comparable
@@ -365,6 +378,9 @@ tier2_pairs <- function(M, src, ref, config) {
 match_aligned_pair <- function(src_aligned, ref_aligned, config, src_label, ref_label) {
   ok <- function(d) is.data.frame(d) && nrow(d) > 0 &&
     all(c("x_aligned", "y_aligned") %in% names(d))
+  if (!ok(src_aligned) || !ok(ref_aligned)) return(NULL)
+  src_aligned <- .match_quality_subset(src_aligned, src_label, config, src_label, quiet = TRUE)
+  ref_aligned <- .match_quality_subset(ref_aligned, ref_label, config, ref_label, quiet = TRUE)
   if (!ok(src_aligned) || !ok(ref_aligned)) return(NULL)
   ref_aligned$x_norm <- ref_aligned$x_aligned
   ref_aligned$y_norm <- ref_aligned$y_aligned

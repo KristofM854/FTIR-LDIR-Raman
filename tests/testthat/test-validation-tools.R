@@ -30,6 +30,7 @@ local({
 
 test_that("null model: sparse field -> chance far below observed; dense field -> near Poisson", {
   cfg <- make_config()
+  cfg$match_dist_threshold_um <- 100   # the gate the expectations below assume
   sparse <- .pair_from_field(.field(60, 5000, 1))
   nm <- suppressMessages(null_model_matches(sparse, cfg, n_iter = 40))
   expect_equal(nm$observed, 60)

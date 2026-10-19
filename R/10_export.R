@@ -211,7 +211,9 @@ export_primary_pair <- function(primary, dirs) {
     line(paste0("match_rate_", b), paste0(round(stats$match_rate_ref * 100, 1), "%")),
     line("mean_distance_um", round(stats$mean_distance, 3)),
     line("median_distance_um", round(stats$median_distance, 3)),
-    line("max_distance_um", round(stats$max_distance, 3))
+    line("max_distance_um", round(stats$max_distance, 3)),
+    line("chance_expected", round(stats$chance_expected %||% NA, 1)),
+    line("chance_share", round(stats$chance_share %||% NA, 3))
   )
 
   # Tiered agreement rates
