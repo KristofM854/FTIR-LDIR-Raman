@@ -75,6 +75,17 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   Raman field sample. It now solves each group of particles that can pair
   within the gate on its own; the result is identical (same pairs and
   scores; checked against the dense solve), matching takes seconds.
+- Viewer: run images were read at full resolution; a field-sample
+  micrograph (or the original file, when the run's downsized copy could not
+  be found) took ~10 GB of memory per 400 MB image and minutes to draw.
+  Images are now resized by ImageMagick to at most 3000 px before they are
+  read into R (same placement); a moved run folder uses its own `inputs/`
+  copy before the original. Sample B (12000 px): 11 GB -> 2 GB, viewer ready
+  in 16 s instead of 96 s.
+- Viewer: "Ignoring unknown parameters: label.size" with ggplot2 >= 3.5.
+- The Raman image auto-calibration cross-check (with a WITec placement file)
+  is off by default (`raman_placement_cross_check`): 7 min on a field sample,
+  and it does not change the placement.
 - Viewer: the "Highlight particle" lists sent every particle ID to the
   browser, which froze it on field samples; they now load on demand
   (type to search).

@@ -41,3 +41,21 @@ test_that("the preview downscaler keeps orientation", {
   expect_gt(mean(prev[1:8, 1:16, 1]), 200)                # red block stays top-left
   expect_lt(mean(prev[1:8, 1:16, 3]), 60)
 })
+
+test_that("the viewer reads large run images at display size, keeping the orientation", {
+  skip_if_not_installed("magick")
+  env <- new.env(parent = globalenv())
+  withr::with_dir(file.path(REPO_ROOT, "shiny_app"), suppressWarnings(suppressMessages(
+    source("global.R", local = env, encoding = "UTF-8"))))
+  t <- .test_png()                                     # 30 x 50, red block top-left
+  big <- suppressMessages(env$load_image_raster(t$path, max_dim = 25))
+  expect_identical(dim(big)[1:2], c(15L, 25L))         # aspect kept
+  expect_equal(attr(big, "resized_from_px"), c(50, 30))
+  expect_gt(big[1, 1, 1], 0.8); expect_lt(big[1, 1, 2], 0.2)   # still red top-left
+  # Placement code sees the original size and full coverage
+  cov <- .raster_coverage(big)
+  expect_equal(c(cov$orig_w, cov$orig_h, cov$fx, cov$fy), c(50, 30, 1, 1))
+  # Small enough: read as before
+  expect_identical(dim(suppressMessages(env$load_image_raster(t$path, max_dim = 100)))[1:2],
+                   c(30L, 50L))
+})

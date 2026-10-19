@@ -33,6 +33,14 @@ options(shiny.maxRequestSize = 50 * 1024^2)   # 50 MB
 # membrane/micrograph while keeping annotation_raster() rendering fast.
 BG_IMAGE_MAX_DIM <- 2000L
 
+# Longest edge (px) of a run's images as the viewer holds them. A field-sample
+# micrograph can be 12000+ px a side: read at full size it takes several GB as
+# an R array (RGBA doubles), more while plotting, for a plot panel ~1000 px
+# wide. Larger images are resized by ImageMagick (Lanczos, so edges stay
+# crisp) before they enter R; the image's extent, and so its placement under
+# the particles, does not depend on its pixel size.
+RUN_IMAGE_MAX_DIM <- 3000L
+
 # Default lower bound (um) for every instrument's Feret Max filter, in the
 # viewer's sliders AND in the generated report. Particles below this are
 # display/reporting noise. The slider minimum stays 0 so an operator can still
@@ -164,14 +172,15 @@ load_run_manifest <- function(run_dir) {
 
 
 # Resolve a manifest image asset path (preview/canonical/original) for an instrument.
-manifest_image_path <- function(manifest, input_name, preferred = c("preview", "canonical", "original")) {
+manifest_image_path <- function(manifest, input_name, preferred = c("preview", "canonical", "original"),
+                                allow_original = TRUE) {
   preferred <- match.arg(preferred)
   if (is.null(manifest$image_assets) || is.null(manifest$image_assets[[input_name]])) return(NULL)
   asset <- manifest$image_assets[[input_name]]
   node <- asset[[preferred]]
   if (!is.null(node$path) && file.exists(node$path)) return(node$path)
   # Fallback order
-  for (alt in c("preview", "canonical", "original")) {
+  for (alt in c("preview", "canonical", if (allow_original) "original")) {
     node_alt <- asset[[alt]]
     if (!is.null(node_alt$path) && file.exists(node_alt$path)) return(node_alt$path)
   }
@@ -238,7 +247,11 @@ get_run_image_paths <- function(manifest, run_dir) {
   # match out$ftir_bruker and cross-wire the two instruments' images.
   for (nm in c("ftir", "raman", "ldir")) {
     if (is.null(out[[nm]])) {
-      mp <- manifest_image_path(manifest, paste0(nm, "_image"), preferred = "canonical")
+      # Not the original here: when a run folder has been moved, the recorded
+      # canonical path is stale and the original (possibly GBs) would be
+      # picked before the run's own inputs/ copy below.
+      mp <- manifest_image_path(manifest, paste0(nm, "_image"), preferred = "canonical",
+                                allow_original = FALSE)
       if (!is.null(mp)) out[[nm]] <- mp
     }
   }
@@ -972,7 +985,7 @@ sniff_image_type <- function(path) {
 # already have row 1 = top of the visual image, which corresponds to max-Y
 # in Cartesian / stage coordinates.  So NO vertical flip is needed.
 # ---------------------------------------------------------------------------
-load_image_raster <- function(path) {
+load_image_raster <- function(path, max_dim = NULL) {
   # fileInput(multiple = TRUE) delivers a vector of datapaths; the scalar
   # conditions below would then error ("condition has length > 1") and the
   # calling observer would die without ever setting the image.
@@ -984,6 +997,26 @@ load_image_raster <- function(path) {
   if (is.null(path) || !nzchar(path) || !file.exists(path)) return(NULL)
 
   typ <- sniff_image_type(path)
+
+  # Large images: resize in ImageMagick first, so the full-size pixels never
+  # become an R array
+  if (!is.null(max_dim) && requireNamespace("magick", quietly = TRUE)) {
+    arr <- tryCatch({
+      img_mg <- magick::image_read(path)
+      if (length(img_mg) > 1) img_mg <- img_mg[1]
+      info <- magick::image_info(img_mg)
+      if (max(info$width, info$height) <= max_dim) NULL else {
+        img_mg <- magick::image_resize(img_mg, paste0(max_dim, "x", max_dim))
+        img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
+        out <- magick_bitmap_array(magick::image_data(img_rgb, channels = "rgba")) / 255
+        message("[Particle Viewer] ", basename(path), ": ", info$width, " x ", info$height,
+                " px shown at ", ncol(out), " x ", nrow(out), " px")
+        attr(out, "resized_from_px") <- c(info$width, info$height)
+        out
+      }
+    }, error = function(e) NULL)
+    if (!is.null(arr)) return(arr)
+  }
 
   # PNG: always use png::readPNG -- avoids magick's image_data() producing
   # tiled/colour-distorted arrays for RGBA PNGs (e.g. FTIR false-colour images).
@@ -1263,7 +1296,9 @@ place_image_raman_umpx <- function(meta, x, y, raw, bg_path = NULL) {
   x <- x[is.finite(x)]; y <- y[is.finite(y)]
   if (length(x) == 0 || length(y) == 0) return(NULL)
   cx <- mean(x); cy <- mean(y)
-  hw <- ncol(raw) * upp / 2; hh <- nrow(raw) * upp / 2
+  # upp refers to the original file's pixels (the raster may be resized)
+  k <- (attr(raw, "orig_width_px") %||% attr(raw, "resized_from_px")[1] %||% ncol(raw)) / ncol(raw)
+  hw <- ncol(raw) * k * upp / 2; hh <- nrow(raw) * k * upp / 2
   list(xmin = cx - hw, xmax = cx + hw, ymin = cy - hh, ymax = cy + hh)
 }
 
@@ -2030,10 +2065,12 @@ add_image_bg <- function(p, img_info, alpha = 0.4) {
   # (fitted to the particles, or centred on them) is marked on the image itself,
   # so a screenshot or report page carries the warning too.
   if (isTRUE(img_info$approximate))
-    p <- p + annotate("label", x = img_info$xmin, y = img_info$ymin,
+    p <- p + do.call(annotate, c(list("label", x = img_info$xmin, y = img_info$ymin,
                       label = "approximate image placement", hjust = 0, vjust = 0,
-                      size = 3, colour = "grey20", fill = "white", alpha = 0.8,
-                      label.size = 0)
+                      size = 3, colour = "grey20", fill = "white", alpha = 0.8),
+                      # no border: ggplot2 >= 3.5 names it linewidth, older label.size
+                      if (utils::packageVersion("ggplot2") >= "3.5.0") list(linewidth = 0)
+                      else list(label.size = 0)))
   p
 }
 
@@ -2654,7 +2691,7 @@ build_material_barplot_gg <- function(device_counts,
 report_instrument_image <- function(key, df, meta, bg_path, native = TRUE,
                                     registration = NULL, place_df = df) {
   if (is.null(bg_path) || !nzchar(bg_path) || !file.exists(bg_path)) return(NULL)
-  raw <- tryCatch(load_image_raster(bg_path), error = function(e) NULL)
+  raw <- tryCatch(load_image_raster(bg_path, max_dim = RUN_IMAGE_MAX_DIM), error = function(e) NULL)
   if (is.null(raw)) return(NULL)
   if (key %in% c("ftir_perkin", "ftir_bruker")) {
     pd <- if (is.null(place_df) || nrow(place_df) == 0) df else place_df

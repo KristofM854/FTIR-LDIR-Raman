@@ -249,8 +249,14 @@ run_pipeline <- function(config, report = TRUE) {
   # them meant the auto-calibration skipped exactly the runs that needed it:
   # a new dataset with no WITec values entered fell straight through to
   # particle-bbox placement, which is visibly offset on sparse scans.
-  if (!is.null(.raman_image_info) && identical(.raman_placement_source, "metadata")) {
+  if (!is.null(.raman_image_info) && identical(.raman_placement_source, "metadata") &&
+      !isTRUE(config$raman_placement_cross_check)) {
+    log_message("  Raman auto-calibration cross-check: skipped (the placement file is ",
+                "used; set raman_placement_cross_check = TRUE to run it)")
+  } else if (!is.null(.raman_image_info) && identical(.raman_placement_source, "metadata")) {
     # Cross-check only: the placement file is the instrument's own record.
+    # Off by default: it adds minutes on field samples (7 min for 14,562
+    # particles on a 12000 px image) and does not change the placement.
     .raman_cal_img <- .raman_image_info$canonical_path %||% config$raman_image
     .raman_fit <- tryCatch(
       measure_raman_image_placement(.raman_cal_img, raman_raw$x_um, raman_raw$y_um,

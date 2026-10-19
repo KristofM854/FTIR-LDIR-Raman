@@ -416,6 +416,9 @@ ftir_extent_from_config <- function(cfg, prefix = "ftir_image") {
 #' original size and the fraction of it the raster still covers.
 .raster_coverage <- function(raw) {
   w <- ncol(raw); h <- nrow(raw)
+  # Resized as a whole (the viewer's large-image read): covers the full image
+  rs <- attr(raw, "resized_from_px")
+  if (!is.null(rs)) return(list(orig_w = rs[1], orig_h = rs[2], fx = 1, fy = 1))
   ow <- attr(raw, "orig_width_px") %||% w
   oh <- attr(raw, "orig_height_px") %||% h
   k <- max(1, round(ow / w))
