@@ -87,12 +87,15 @@ test_that("material tables translate labels, keep the raw label, and reject dupl
     data.frame(label = c("a", "A"), material = c("x", "y")))), "lists a label twice")
   expect_error(load_material_table("raman", list(raman_material_table =
     data.frame(name = "a", material = "x"))), "'label' and 'material'")
-  # The shipped tables exist for every role and are empty
+  # The shipped tables exist for every role; ftir carries the PerkinElmer
+  # library spelling "PolyEthylen"
   for (role in names(instrument_roles)) {
     t <- load_material_table(role, list())
     expect_named(t, c("label", "material"))
-    expect_equal(nrow(t), 0)
+    expect_equal(nrow(t), if (role == "ftir") 1 else 0)
   }
+  expect_equal(classify_family_vec(suppressMessages(
+    translate_materials("PolyEthylen", load_material_table("ftir", list())))), "PE")
   # A user CSV with comment lines
   f <- tempfile(fileext = ".csv")
   writeLines(c("# my table", "label,material", "Hostalen GM 7040,Polyethylene"), f)

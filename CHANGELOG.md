@@ -83,6 +83,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - An Excel export whose sheet is not called `Long_Table` failed ("Sheet
   'Long_Table' not found"); a workbook with a single sheet is now read from
   it, and with several sheets the error lists them.
+- **(results)** The PerkinElmer library label "PolyEthylen" was classified
+  "Other polymer"; `inst/materials/ftir.csv` now translates it to
+  polyethylene (PE).
 - Viewer: a missing table was silently replaced by another one whose name
   starts the same (`$` partial matching on R lists): e.g. with no unmatched
   FTIR (PerkinElmer) particles, `unmatched_ftir` returned the unmatched FTIR
