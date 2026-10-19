@@ -998,6 +998,21 @@ load_image_raster <- function(path, max_dim = NULL) {
 
   typ <- sniff_image_type(path)
 
+  # Large BMP (WITec micrographs): downsize strip by strip from disk; neither
+  # R nor ImageMagick then holds the full image (ImageMagick refuses 1-2 GB
+  # files under its default resource limits)
+  if (!is.null(max_dim) && typ == "BMP") {
+    d <- bmp_dimensions(path)
+    if (!is.null(d) && max(d) > max_dim) {
+      arr <- tryCatch(read_bmp_downsized(path, max_dim = max_dim), error = function(e) NULL)
+      if (!is.null(arr)) {
+        message("[Particle Viewer] ", basename(path), ": ", d[[1]], " x ", d[[2]],
+                " px shown at ", ncol(arr), " x ", nrow(arr), " px")
+        return(arr)
+      }
+    }
+  }
+
   # Large images: resize in ImageMagick first, so the full-size pixels never
   # become an R array
   if (!is.null(max_dim) && requireNamespace("magick", quietly = TRUE)) {

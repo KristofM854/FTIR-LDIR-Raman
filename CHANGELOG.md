@@ -82,6 +82,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   read into R (same placement); a moved run folder uses its own `inputs/`
   copy before the original. Sample B (12000 px): 11 GB -> 2 GB, viewer ready
   in 16 s instead of 96 s.
+- Raman images of 1-2 GB were not downsized: ImageMagick refused them under
+  its default resource limits ("cache resources exhausted"), the run went on
+  with only a WARN, and the viewer then loaded the original. Large BMPs are
+  now downsized strip by strip from disk (`read_bmp_downsized()`, < 1 GB of
+  memory, ~30 s for 1.4 GB), in the pipeline and in the viewer.
 - Viewer: "Ignoring unknown parameters: label.size" with ggplot2 >= 3.5.
 - The Raman image auto-calibration cross-check (with a WITec placement file)
   is off by default (`raman_placement_cross_check`): 7 min on a field sample,

@@ -616,6 +616,64 @@ canonicalize_instrument_image <- function(src_path, inputs_dir, instrument,
     md5              = file_md5(src_path)
   )
 
+  # A large BMP (WITec micrographs: 1-2 GB) is downsized strip by strip from
+  # disk: ImageMagick needs several GB for such a file and refuses it under
+  # its default resource limits ("cache resources exhausted"), which left the
+  # run without a downsized copy -- and the viewer with the original.
+  dims <- if (identical(detected, "BMP") && !is.null(max_canonical_px))
+    bmp_dimensions(src_path)
+  if (!is.null(dims) && max(dims) > max_canonical_px) {
+    ok <- tryCatch({
+      a <- read_bmp_downsized(src_path, max_dim = max_canonical_px)
+      if (is.null(a)) stop("unsupported BMP variant")
+      result$orig_width <- dims[["width"]]; result$orig_height <- dims[["height"]]
+      src_mb <- file.info(src_path)$size / 1024^2
+      if (is.finite(src_mb) && src_mb > copy_original_max_mb) {
+        log_message("  [", instrument, "] Original ", round(src_mb), " MB: not copied ",
+                    "into the run (recorded by path and MD5)")
+      } else {
+        orig_dest <- file.path(inputs_dir, paste0(inst, "_image_original.", tolower(ext_orig)))
+        file.copy(src_path, orig_dest, overwrite = TRUE)
+        result$orig_dest <- normalizePath(orig_dest, mustWork = FALSE)
+      }
+      canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.png"))
+      png::writePNG(a, canon_path)
+      if (file.info(canon_path)$size / 1024^2 > max_canonical_mb &&
+          requireNamespace("jpeg", quietly = TRUE)) {
+        unlink(canon_path)
+        canon_path <- file.path(inputs_dir, paste0(inst, "_image_canonical.jpg"))
+        quality <- 95
+        repeat {
+          jpeg::writeJPEG(a, canon_path, quality = quality / 100)
+          if (file.info(canon_path)$size / 1024^2 <= max_canonical_mb || quality <= 40) break
+          quality <- quality - 5
+        }
+        result$canonical_jpeg_quality <- quality
+      }
+      result$canonical_downsized <- TRUE
+      result$canonical_path   <- canon_path
+      result$canonical_width  <- ncol(a)
+      result$canonical_height <- nrow(a)
+      log_message("  [", instrument, "] Image ", dims[["width"]], "x", dims[["height"]],
+                  " px downsized for the run (", ncol(a), "x", nrow(a), " px, read in ",
+                  "strips; ", round(file.info(canon_path)$size / 1024^2, 2), " MB)")
+      prev <- if (max(dim(a)[1:2]) > max_preview_px)
+        read_bmp_downsized(src_path, max_dim = max_preview_px) else a
+      prev_path <- file.path(inputs_dir, paste0(inst, "_image_preview.png"))
+      png::writePNG(prev, prev_path)
+      result$preview_path   <- prev_path
+      result$preview_width  <- ncol(prev)
+      result$preview_height <- nrow(prev)
+      result$preview_scale  <- ncol(prev) / dims[["width"]]
+      TRUE
+    }, error = function(e) {
+      log_message("  [", instrument, "] strip-wise BMP downsizing failed (",
+                  conditionMessage(e), "); trying ImageMagick", level = "WARN")
+      FALSE
+    })
+    if (isTRUE(ok)) return(result)
+  }
+
   # Without magick, canonicalize with the native readers instead of skipping:
   # a skipped instrument gets no entry in manifest$image_assets and no PNGs in
   # inputs/, so the Shiny viewer never shows its image.  read_image_canonical()
