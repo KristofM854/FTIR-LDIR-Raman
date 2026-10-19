@@ -120,8 +120,12 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       ),
       # Particle highlight: selectInput for single choice, plus text pattern box
       div(id = paste0(id_prefix, "_tour_highlight"),
-        selectInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
-                    choices = c("None"), selected = "None"),
+        # Server-side selectize: a field sample has thousands of particles,
+        # and sending them all to the browser as <option>s freezes it. Type
+        # to search; the list shows the first 200 hits.
+        selectizeInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
+                       choices = c("None"), selected = "None",
+                       options = list(maxOptions = 200, placeholder = "Type a particle ID")),
         fluidRow(
           column(8, textInput(paste0(id_prefix, "_highlight_pattern"), NULL,
                               placeholder = "IDs: 1-10, MP_*, or MP_1,MP_5")),
@@ -307,8 +311,9 @@ ui <- fluidPage(
                       min = 0, max = 20, value = c(0, 20), step = 0.1),
           sliderInput("ldir_coord_cost_range", "Coord Match Cost (image\u2194Excel)",
                       min = 0, max = 10, value = c(0, 10), step = 0.05),
-          selectInput("ldir_highlight_particle", "Highlight Particle",
-                      choices = c("None"), selected = "None"),
+          selectizeInput("ldir_highlight_particle", "Highlight Particle",
+                         choices = c("None"), selected = "None",
+                         options = list(maxOptions = 200, placeholder = "Type a particle ID")),
           hr(),
           h4("Coordinate System"),
           radioButtons("ldir_coord_mode", NULL,
@@ -1803,6 +1808,23 @@ server <- function(input, output, session) {
     else                      hideTab("main_tabs", "Overlay")
   })
 
+  # What "matched" means on each instrument tab: the run's partners
+  partner_lbl <- reactive(list(
+    ftir        = match_partner_label(ftir_df_full(),        "Raman"),
+    raman       = match_partner_label(raman_df_full(),       "FTIR"),
+    ldir        = match_partner_label(ldir_df_full(),        "Raman"),
+    ftir_bruker = match_partner_label(ftir_bruker_df_full(), "Raman")))
+  observeEvent(partner_lbl(), {
+    pl <- partner_lbl()
+    for (k in names(pl)) {
+      id <- paste0(k, "_match_filter")
+      updateCheckboxGroupInput(session, id,
+        choiceNames  = c(paste0("Matched \u2194 ", pl[[k]]), paste0("Unmatched (vs ", pl[[k]], ")")),
+        choiceValues = c("matched", "unmatched"),
+        selected = isolate(input[[id]]) %||% c("matched", "unmatched"), inline = TRUE)
+    }
+  })
+
   # Overlay instrument choices: only the instruments the run has
   observeEvent(has_device(), {
     hd <- has_device()
@@ -2464,8 +2486,8 @@ server <- function(input, output, session) {
 
       # Individual tab
       update_material_choices("ftir_material_filter", ftir_mats)
-      updateSelectInput(session, "ftir_highlight_particle",
-                        choices = c("None", ftir_ids))
+      updateSelectizeInput(session, "ftir_highlight_particle",
+                           choices = c("None", ftir_ids), selected = "None", server = TRUE)
       updateSliderInput(session, "ftir_quality_range",
                         min = 0, max = 1,
                         value = c(0.7, 1))
@@ -2475,7 +2497,7 @@ server <- function(input, output, session) {
       # Overlay per-instrument
       update_material_choices("overlay_ftir_material", ftir_mats)
       updateSelectizeInput(session, "overlay_ftir_particles",
-                           choices = ftir_ids, selected = character(0))
+                           choices = ftir_ids, selected = character(0), server = TRUE)
       # Match the single-instrument tabs: fixed scale and fixed default,
       # not the observed data range. Deriving min/max/value from the data
       # reset these to full range on every load, wiping the default.
@@ -2495,8 +2517,8 @@ server <- function(input, output, session) {
 
       # Individual tab
       update_material_choices("raman_material_filter", raman_mats)
-      updateSelectInput(session, "raman_highlight_particle",
-                        choices = c("None", raman_ids))
+      updateSelectizeInput(session, "raman_highlight_particle",
+                           choices = c("None", raman_ids), selected = "None", server = TRUE)
       updateSliderInput(session, "raman_quality_range",
                         min = 0, max = 100,
                         value = c(70, 100))
@@ -2506,7 +2528,7 @@ server <- function(input, output, session) {
       # Overlay per-instrument
       update_material_choices("overlay_raman_material", raman_mats)
       updateSelectizeInput(session, "overlay_raman_particles",
-                           choices = raman_ids, selected = character(0))
+                           choices = raman_ids, selected = character(0), server = TRUE)
       # Match the single-instrument tabs: fixed scale and fixed default,
       # not the observed data range. Deriving min/max/value from the data
       # reset these to full range on every load, wiping the default.
@@ -2526,8 +2548,8 @@ server <- function(input, output, session) {
 
       # Individual tab
       update_material_choices("ldir_material_filter", ldir_mats)
-      updateSelectInput(session, "ldir_highlight_particle",
-                        choices = c("None", ldir_ids))
+      updateSelectizeInput(session, "ldir_highlight_particle",
+                           choices = c("None", ldir_ids), selected = "None", server = TRUE)
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ldir_quality_range",
                           min = 0, max = 1,
@@ -2556,7 +2578,7 @@ server <- function(input, output, session) {
       # Overlay per-instrument
       update_material_choices("overlay_ldir_material", ldir_mats)
       updateSelectizeInput(session, "overlay_ldir_particles",
-                           choices = ldir_ids, selected = character(0))
+                           choices = ldir_ids, selected = character(0), server = TRUE)
       if (all(is.finite(q_range))) {
         # Match the single-instrument tabs: fixed scale and fixed default,
         # not the observed data range. Deriving min/max/value from the data
@@ -2578,8 +2600,8 @@ server <- function(input, output, session) {
       q_range  <- range(ftir_bruker_d$quality, na.rm = TRUE)
       s_max    <- ceiling(max(ftir_bruker_d$feret_max, na.rm = TRUE) / 10) * 10
       update_material_choices("ftir_bruker_material_filter", fb_mats)
-      updateSelectInput(session, "ftir_bruker_highlight_particle",
-                        choices = c("None", fb_ids))
+      updateSelectizeInput(session, "ftir_bruker_highlight_particle",
+                           choices = c("None", fb_ids), selected = "None", server = TRUE)
       if (all(is.finite(q_range))) {
         updateSliderInput(session, "ftir_bruker_quality_range",
                           min = 0, max = 1,
@@ -2593,7 +2615,7 @@ server <- function(input, output, session) {
       # Overlay per-instrument
       update_material_choices("overlay_ftir_bruker_material", fb_mats)
       updateSelectizeInput(session, "overlay_ftir_bruker_particles",
-                           choices = fb_ids, selected = character(0))
+                           choices = fb_ids, selected = character(0), server = TRUE)
       if (all(is.finite(q_range))) {
         # Match the single-instrument tabs: fixed scale and fixed default,
         # not the observed data range. Deriving min/max/value from the data
@@ -2652,7 +2674,8 @@ server <- function(input, output, session) {
     matched_ids <- parse_particle_selection(pat, unique(df$particle_id))
     current <- input$overlay_ftir_particles
     new_sel <- unique(c(current, matched_ids))
-    updateSelectizeInput(session, "overlay_ftir_particles", selected = new_sel)
+    updateSelectizeInput(session, "overlay_ftir_particles", selected = new_sel,
+                         choices = natural_sort_ids(unique(df$particle_id)), server = TRUE)
     updateTextInput(session, "overlay_ftir_pattern", value = "")
   })
 
@@ -2663,7 +2686,8 @@ server <- function(input, output, session) {
     matched_ids <- parse_particle_selection(pat, unique(df$particle_id))
     current <- input$overlay_raman_particles
     new_sel <- unique(c(current, matched_ids))
-    updateSelectizeInput(session, "overlay_raman_particles", selected = new_sel)
+    updateSelectizeInput(session, "overlay_raman_particles", selected = new_sel,
+                         choices = natural_sort_ids(unique(df$particle_id)), server = TRUE)
     updateTextInput(session, "overlay_raman_pattern", value = "")
   })
 
@@ -2674,7 +2698,8 @@ server <- function(input, output, session) {
     matched_ids <- parse_particle_selection(pat, unique(df$particle_id))
     current <- input$overlay_ldir_particles
     new_sel <- unique(c(current, matched_ids))
-    updateSelectizeInput(session, "overlay_ldir_particles", selected = new_sel)
+    updateSelectizeInput(session, "overlay_ldir_particles", selected = new_sel,
+                         choices = natural_sort_ids(unique(df$particle_id)), server = TRUE)
     updateTextInput(session, "overlay_ldir_pattern", value = "")
   })
 
@@ -2685,7 +2710,8 @@ server <- function(input, output, session) {
     matched_ids <- parse_particle_selection(pat, unique(df$particle_id))
     current <- input$overlay_ftir_bruker_particles
     new_sel <- unique(c(current, matched_ids))
-    updateSelectizeInput(session, "overlay_ftir_bruker_particles", selected = new_sel)
+    updateSelectizeInput(session, "overlay_ftir_bruker_particles", selected = new_sel,
+                         choices = natural_sort_ids(unique(df$particle_id)), server = TRUE)
     updateTextInput(session, "overlay_ftir_bruker_pattern", value = "")
   })
 
@@ -3310,14 +3336,14 @@ server <- function(input, output, session) {
 
     title_suffix <- if (aligned) " (shared aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_highlight_particle
-    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+    hl_ids <- if (length(hl_single) == 1 && nzchar(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir))
     } else single_highlight_ids$ftir
 
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR Particles (", nrow(df_disp), " shown)", title_suffix),
                  match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
-                 match_labels  = c(matched = "matched to Raman", unmatched = "unmatched"),
+                 match_labels  = c(matched = paste("matched to", partner_lbl()$ftir), unmatched = "unmatched"),
                  highlight_id  = hl_ids,
                  full_df       = full_ftir,
                  plain         = isTRUE(input$ftir_show_all_detected),
@@ -3344,7 +3370,7 @@ server <- function(input, output, session) {
     df <- ftir_filtered()
     if (nrow(df) == 0) return("No pipeline data loaded")
     paste0(nrow(df), " particles | ",
-           sum(df$match_status == "matched"), " matched to Raman | ",
+           sum(df$match_status == "matched"), " matched to ", partner_lbl()$ftir, " | ",
            length(unique(df$material)), " materials")
   })
 
@@ -3420,7 +3446,7 @@ server <- function(input, output, session) {
       return(add_image_bg(p, img))
     }
     hl_single <- input$raman_highlight_particle
-    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+    hl_ids <- if (length(hl_single) == 1 && nzchar(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$raman))
     } else {
       single_highlight_ids$raman
@@ -3428,7 +3454,7 @@ server <- function(input, output, session) {
     make_scatter(df_disp, img, bounds,
                  paste0("Raman Particles (", nrow(df_disp), " shown)"),
                  match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
-                 match_labels = c(matched = "matched to FTIR", unmatched = "unmatched"),
+                 match_labels = c(matched = paste("matched to", partner_lbl()$raman), unmatched = "unmatched"),
                  highlight_id = hl_ids,
                  full_df = full_raman,
                  plain = isTRUE(input$raman_show_all_detected),
@@ -3449,7 +3475,7 @@ server <- function(input, output, session) {
     df <- raman_filtered()
     if (nrow(df) == 0) return("No pipeline data loaded")
     paste0(nrow(df), " particles | ",
-           sum(df$match_status == "matched"), " matched to FTIR | ",
+           sum(df$match_status == "matched"), " matched to ", partner_lbl()$raman, " | ",
            length(unique(df$material)), " materials")
   })
 
@@ -3778,7 +3804,7 @@ server <- function(input, output, session) {
                               alpha = 0.7) +
           scale_colour_manual(values = c(matched = "#d62728",
                                           unmatched = "#bcbd22"),
-                               labels = c(matched = "matched to Raman",
+                               labels = c(matched = paste("matched to", partner_lbl()$ldir),
                                           unmatched = "unmatched"))
       }
     }
@@ -3795,7 +3821,7 @@ server <- function(input, output, session) {
 
     # Highlight selected particle(s) — always shown even if filtered out
     hl_single <- input$ldir_highlight_particle
-    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+    hl_ids <- if (length(hl_single) == 1 && nzchar(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ldir))
     } else {
       single_highlight_ids$ldir
@@ -3861,7 +3887,7 @@ server <- function(input, output, session) {
     n_ext <- if (!is.null(extracted)) nrow(extracted) else 0
     if (nrow(df) == 0 && n_ext == 0) return("No LDIR data loaded")
     paste0(nrow(df), " shown | ",
-           sum(df$match_status == "matched"), " matched to Raman | ",
+           sum(df$match_status == "matched"), " matched to ", partner_lbl()$ldir, " | ",
            n_ext, " image-extracted | ",
            length(unique(df$material)), " materials")
   })
@@ -3961,14 +3987,14 @@ server <- function(input, output, session) {
 
     title_suffix <- if (aligned) " (shared aligned frame)" else .view_tf_suffix(vt)
     hl_single <- input$ftir_bruker_highlight_particle
-    hl_ids <- if (!is.null(hl_single) && hl_single != "None") {
+    hl_ids <- if (length(hl_single) == 1 && nzchar(hl_single) && hl_single != "None") {
       unique(c(hl_single, single_highlight_ids$ftir_bruker))
     } else single_highlight_ids$ftir_bruker
 
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)", title_suffix),
                  match_colours = c(matched="#9467bd", unmatched="#8c564b"),
-                 match_labels  = c(matched="matched to Raman", unmatched="unmatched"),
+                 match_labels  = c(matched = paste("matched to", partner_lbl()$ftir_bruker), unmatched = "unmatched"),
                  highlight_id  = hl_ids,
                  full_df       = full_fb,
                  plain         = isTRUE(input$ftir_bruker_show_all_detected),
@@ -3992,7 +4018,7 @@ server <- function(input, output, session) {
     if (nrow(df) == 0) return("No FTIR (Bruker) data loaded")
     n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
     if (n_matched > 0) {
-      paste0(nrow(df), " particles | ", n_matched, " matched to Raman | ",
+      paste0(nrow(df), " particles | ", n_matched, " matched to ", partner_lbl()$ftir_bruker, " | ",
              length(unique(df$material)), " materials")
     } else {
       paste0(nrow(df), " particles | ", length(unique(df$material)), " materials")

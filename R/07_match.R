@@ -111,19 +111,18 @@ match_particles <- function(src_df, ref_df, config,
   k <- if (force_complete) n_ref else min(20, n_ref)
   nn <- RANN::nn2(cbind(ref_x, ref_y), cbind(src_x, src_y), k = k)
 
-  # Build sparse cost matrix
-  # force_complete: populate every candidate regardless of distance
+  # Candidate pairs (src i, ref j, cost) within the gate; force_complete:
+  # every candidate regardless of distance
   BIG <- 1e12
-  n_max <- max(n_src, n_ref)
-  cost <- matrix(BIG, nrow = n_max, ncol = n_max)
+  cand <- vector("list", n_src)
 
   for (i in seq_len(n_src)) {
     thr_i <- src_thresh[i]
+    js <- integer(0); cs <- numeric(0)
     for (ki in seq_len(k)) {
       j <- nn$nn.idx[i, ki]
       d <- nn$nn.dists[i, ki]
       if (!force_complete && d > thr_i) next
-
       # Multi-feature cost
       penalty <- 0
 
@@ -152,16 +151,42 @@ match_particles <- function(src_df, ref_df, config,
         }
       }
 
-      total_cost <- d + penalty
-      if (total_cost < cost[i, j]) {
-        cost[i, j] <- total_cost
+      js <- c(js, j); cs <- c(cs, d + penalty)
+    }
+    if (length(js)) cand[[i]] <- list(j = js, c = cs)
+  }
+  ei <- rep(seq_len(n_src), vapply(cand, function(x) length(x$j), integer(1)))
+  ej <- as.integer(unlist(lapply(cand, `[[`, "j")))
+  ec <- unlist(lapply(cand, `[[`, "c"))
+
+  # Solve the assignment. Pairs only exist within the gate, so the problem
+  # splits into independent groups of nearby particles (connected components
+  # of the candidate graph); solving each group on its own gives the same
+  # optimum as one dense n x n problem (which needs n^2 memory and ~n^3 time:
+  # 1.7 GB and most of the run time for a 14,000-particle field sample).
+  # Objective in both: as many pairs as possible (each unpaired particle
+  # costs BIG), then the smallest summed cost.
+  assignment <- rep(NA_integer_, n_src)
+  cost_of <- rep(NA_real_, n_src)
+  if (length(ei) > 0) {
+    comp <- .bipartite_components(ei, ej, n_src, n_ref)
+    for (g in split(seq_along(ei), comp$edge)) {
+      rows <- sort(unique(ei[g])); cols <- sort(unique(ej[g]))
+      m <- matrix(BIG, length(rows), length(cols))
+      ri <- match(ei[g], rows); ci <- match(ej[g], cols)
+      m[cbind(ri, ci)] <- pmin(m[cbind(ri, ci)], ec[g])
+      if (length(rows) <= length(cols)) {
+        a <- as.integer(clue::solve_LSAP(m, maximum = FALSE))
+        pick <- cbind(seq_along(rows), a)
+      } else {
+        a <- as.integer(clue::solve_LSAP(t(m), maximum = FALSE))
+        pick <- cbind(a, seq_along(cols))
       }
+      ok <- m[pick] < BIG
+      assignment[rows[pick[ok, 1]]] <- cols[pick[ok, 2]]
+      cost_of[rows[pick[ok, 1]]] <- m[pick][ok]
     }
   }
-
-  # Solve assignment
-  assignment <- clue::solve_LSAP(cost, maximum = FALSE)
-  assignment <- as.integer(assignment)
 
   # Extract valid matches (cost < BIG means within threshold, or force_complete)
   match_rows <- list()
@@ -170,8 +195,7 @@ match_particles <- function(src_df, ref_df, config,
 
   for (i in seq_len(n_src)) {
     j <- assignment[i]
-    if (j > n_ref) next  # padded dummy column
-    if (!force_complete && cost[i, j] >= BIG) next  # no valid candidate
+    if (is.na(j)) next  # no partner within the gate
 
     # Compute actual distance for this pair
     d_actual <- sqrt((src_x[i] - ref_x[j])^2 + (src_y[i] - ref_y[j])^2)
@@ -183,12 +207,33 @@ match_particles <- function(src_df, ref_df, config,
       src_idx        = i,
       ref_idx        = j,
       match_distance = d_actual,
-      match_score    = cost[i, j]
+      match_score    = cost_of[i]
     )
   }
 
   .assemble_match_result(src_df, ref_df, match_rows, src_taken, ref_taken,
                          src_label, ref_label)
+}
+
+
+#' Connected components of a bipartite candidate graph.
+#'
+#' @param ei,ej Edge endpoints: source row i, reference row j
+#' @param n_src,n_ref Number of source / reference particles
+#' @return list(edge = component id of each edge)
+.bipartite_components <- function(ei, ej, n_src, n_ref) {
+  parent <- seq_len(n_src + n_ref)
+  find <- function(x) {
+    r <- x
+    while (parent[r] != r) r <- parent[r]
+    while (parent[x] != r) { nx <- parent[x]; parent[x] <<- r; x <- nx }
+    r
+  }
+  for (e in seq_along(ei)) {
+    a <- find(ei[e]); b <- find(n_src + ej[e])
+    if (a != b) parent[max(a, b)] <- min(a, b)
+  }
+  list(edge = vapply(ei, find, integer(1)))
 }
 
 
