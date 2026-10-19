@@ -2772,23 +2772,28 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
 
   # --- 6-9. Per-instrument views over the instrument image ------------------
   # Native instrument frame (x_orig/y_orig), as each viewer tab shows it.
+  # "matched to ...": the run's partners, read from the unfiltered frames
+  # (filtering drops the frame's record of them)
+  partner <- function(k, default)
+    paste("matched to", match_partner_label((if (length(place_dfs)) place_dfs else dfs)[[k]],
+                                            default))
   inst_spec <- list(
     list(key = "ftir",        pkey = "ftir_perkin",
          title = "FTIR (PerkinElmer) \u2014 particles over instrument image",
          cols = c(matched = "#2ca02c", unmatched = "#d62728"),
-         labs = c(matched = "matched to Raman", unmatched = "unmatched")),
+         labs = c(matched = partner("ftir", "Raman"), unmatched = "unmatched")),
     list(key = "ftir_bruker", pkey = "ftir_bruker",
          title = "FTIR (Bruker) \u2014 particles over instrument image",
          cols = c(matched = "#9467bd", unmatched = "#d62728"),
-         labs = c(matched = "matched to Raman", unmatched = "unmatched")),
+         labs = c(matched = partner("ftir_bruker", "Raman"), unmatched = "unmatched")),
     list(key = "raman",       pkey = "raman",
          title = "Raman \u2014 particles over instrument image",
          cols = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
-         labs = c(matched = "matched to FTIR", unmatched = "unmatched")),
+         labs = c(matched = partner("raman", "FTIR"), unmatched = "unmatched")),
     list(key = "ldir",        pkey = "ldir",
          title = "LDIR \u2014 particles over instrument image",
          cols = c(matched = "#d62728", unmatched = "#ff7f0e"),
-         labs = c(matched = "matched to Raman", unmatched = "unmatched")))
+         labs = c(matched = partner("ldir", "Raman"), unmatched = "unmatched")))
 
   for (sp in inst_spec) {
     d <- dfs[[sp$key]]

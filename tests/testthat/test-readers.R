@@ -171,3 +171,17 @@ test_that("vendor column names appear only in the instrument readers", {
   }
   expect_identical(hits, character(0))
 })
+
+test_that("an Excel export is read from its only sheet, whatever its name", {
+  skip_if_not_installed("writexl")
+  d <- data.frame(Identifier = c("MP_0", "MP_1"), `Coord. [um]` = c("[100;200]", "[300;400]"),
+                  `Max AAU score` = c(0.9, 0.8), Group = c("PET", "PP"),
+                  `Area on map [um2]` = c(400, 900), `Major dim [um]` = c(30, 40),
+                  `Minor dim [um]` = c(20, 25), check.names = FALSE)
+  f <- tempfile(fileext = ".xlsx")
+  writexl::write_xlsx(list(Data = d), f)                 # not "Long_Table"
+  x <- suppressMessages(read_data_file(f, sheet = "Long_Table"))
+  expect_equal(nrow(x), 2)
+  writexl::write_xlsx(list(Data = d, Other = d), f)      # ambiguous: say which sheets exist
+  expect_error(suppressMessages(read_data_file(f, sheet = "Long_Table")), "'Data', 'Other'")
+})

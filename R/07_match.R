@@ -18,8 +18,8 @@
 #' Match particles between two instruments based on spatial proximity
 #'
 #' Dispatches to Hungarian or greedy matching depending on config$match_method.
-#' Default is "hungarian". Falls back to "greedy" for >2000 particles on the
-#' smaller side or if the clue package is not available.
+#' Default is "hungarian" (optimal, for any number of particles: it is solved
+#' per group of nearby particles); "greedy" only when set explicitly.
 #'
 #' @param src_df Source data frame with x_aligned, y_aligned
 #' @param ref_df Reference data frame with x_norm, y_norm
@@ -38,14 +38,6 @@ match_particles <- function(src_df, ref_df, config,
   if (method == "hungarian" && !requireNamespace("clue", quietly = TRUE))
     stop("match_method = 'hungarian' needs the 'clue' package: install.packages('clue')",
          call. = FALSE)
-
-  # Very large problems switch to greedy (the dense cost matrix is n^2).
-  n_smaller <- min(nrow(src_df), nrow(ref_df))
-  if (method == "hungarian" && n_smaller > 2000) {
-    log_message("  Large problem (", n_smaller, " particles) — using greedy ",
-                "matching instead of Hungarian; results are not optimal", level = "WARN")
-    method <- "greedy"
-  }
 
   force_complete <- isTRUE(config$ldir_force_complete_match) && src_label == "ldir"
 
@@ -170,6 +162,8 @@ match_particles <- function(src_df, ref_df, config,
   cost_of <- rep(NA_real_, n_src)
   if (length(ei) > 0) {
     comp <- .bipartite_components(ei, ej, n_src, n_ref)
+    log_message("  ", length(unique(comp$edge)), " groups of nearby particles, largest ",
+                max(tabulate(match(comp$edge, unique(comp$edge)))), " candidate pairs")
     for (g in split(seq_along(ei), comp$edge)) {
       rows <- sort(unique(ei[g])); cols <- sort(unique(ej[g]))
       m <- matrix(BIG, length(rows), length(cols))
