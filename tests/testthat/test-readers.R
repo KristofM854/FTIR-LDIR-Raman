@@ -87,12 +87,15 @@ test_that("material tables translate labels, keep the raw label, and reject dupl
     data.frame(label = c("a", "A"), material = c("x", "y")))), "lists a label twice")
   expect_error(load_material_table("raman", list(raman_material_table =
     data.frame(name = "a", material = "x"))), "'label' and 'material'")
-  # The shipped tables exist for every role and are empty
+  # The shipped tables exist for every role; ftir carries the PerkinElmer
+  # library spelling "PolyEthylen"
   for (role in names(instrument_roles)) {
     t <- load_material_table(role, list())
     expect_named(t, c("label", "material"))
-    expect_equal(nrow(t), 0)
+    expect_equal(nrow(t), if (role == "ftir") 1 else 0)
   }
+  expect_equal(classify_family_vec(suppressMessages(
+    translate_materials("PolyEthylen", load_material_table("ftir", list())))), "PE")
   # A user CSV with comment lines
   f <- tempfile(fileext = ".csv")
   writeLines(c("# my table", "label,material", "Hostalen GM 7040,Polyethylene"), f)
@@ -170,4 +173,18 @@ test_that("vendor column names appear only in the instrument readers", {
     if (length(i)) hits <- c(hits, sprintf("%s:%d column lookup", basename(f), i))
   }
   expect_identical(hits, character(0))
+})
+
+test_that("an Excel export is read from its only sheet, whatever its name", {
+  skip_if_not_installed("writexl")
+  d <- data.frame(Identifier = c("MP_0", "MP_1"), `Coord. [um]` = c("[100;200]", "[300;400]"),
+                  `Max AAU score` = c(0.9, 0.8), Group = c("PET", "PP"),
+                  `Area on map [um2]` = c(400, 900), `Major dim [um]` = c(30, 40),
+                  `Minor dim [um]` = c(20, 25), check.names = FALSE)
+  f <- tempfile(fileext = ".xlsx")
+  writexl::write_xlsx(list(Data = d), f)                 # not "Long_Table"
+  x <- suppressMessages(read_data_file(f, sheet = "Long_Table"))
+  expect_equal(nrow(x), 2)
+  writexl::write_xlsx(list(Data = d, Other = d), f)      # ambiguous: say which sheets exist
+  expect_error(suppressMessages(read_data_file(f, sheet = "Long_Table")), "'Data', 'Other'")
 })

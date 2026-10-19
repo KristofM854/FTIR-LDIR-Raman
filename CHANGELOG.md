@@ -60,6 +60,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   RANSAC and global registration is decided on one-to-one pairs. Dataset A
   unchanged.
 - **(results)** Composite (1:many) matches no longer share a Raman fragment.
+- **(results on large samples)** Matching is optimal (Hungarian) for any
+  number of particles; it used to switch to greedy above 2,000 particles on
+  the smaller side.
 - Material anchors for Tier 2 alignment are off by default
   (`align_*_materials = NULL`); alignment is purely geometric unless set.
 - Triplets carry `direct_ldir_ftir_match`; approximate image placements are
@@ -75,8 +78,14 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - Viewer: the "Highlight particle" lists sent every particle ID to the
   browser, which froze it on field samples; they now load on demand
   (type to search).
-- Viewer: the instrument tabs said "matched to Raman / FTIR" whatever the
-  run's instruments; they name the run's partners.
+- Viewer and report: the instrument views said "matched to Raman / FTIR"
+  whatever the run's instruments; they name the run's partners.
+- An Excel export whose sheet is not called `Long_Table` failed ("Sheet
+  'Long_Table' not found"); a workbook with a single sheet is now read from
+  it, and with several sheets the error lists them.
+- **(results)** The PerkinElmer library label "PolyEthylen" was classified
+  "Other polymer"; `inst/materials/ftir.csv` now translates it to
+  polyethylene (PE).
 - Viewer: a missing table was silently replaced by another one whose name
   starts the same (`$` partial matching on R lists): e.g. with no unmatched
   FTIR (PerkinElmer) particles, `unmatched_ftir` returned the unmatched FTIR

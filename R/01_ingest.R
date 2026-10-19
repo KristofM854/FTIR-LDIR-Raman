@@ -5,12 +5,25 @@
 #' Read a data file (CSV or Excel) with automatic format detection
 #'
 #' @param filepath Path to data file (.csv, .xlsx, .xls)
-#' @param sheet Sheet name for Excel files (ignored for CSV)
+#' @param sheet Sheet name for Excel files (ignored for CSV). A workbook
+#'   without that sheet but with a single sheet is read from that one.
 #' @return Data frame
 read_data_file <- function(filepath, sheet = "Long_Table") {
   ext <- tolower(tools::file_ext(filepath))
 
   if (ext %in% c("xlsx", "xls")) {
+    sheets <- readxl::excel_sheets(filepath)
+    if (!is.null(sheet) && !sheet %in% sheets) {
+      if (length(sheets) == 1) {
+        log_message("  Sheet '", sheet, "' not found in ", basename(filepath),
+                    "; reading its only sheet '", sheets, "'")
+        sheet <- sheets
+      } else {
+        stop("Sheet '", sheet, "' not found in ", basename(filepath), ". Its sheets: ",
+             paste0("'", sheets, "'", collapse = ", "), ". Set the sheet in the config ",
+             "(ftir_sheet or raman_sheet).", call. = FALSE)
+      }
+    }
     return(readxl::read_excel(filepath, sheet = sheet))
   }
 

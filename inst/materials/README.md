@@ -14,8 +14,9 @@ Hostalen GM 7040,Polyethylene
 - The exported label is kept in the `identification_raw` column; `material`
   holds the translated name, from which `material_polymer` and
   `material_family` are derived (`R/08b_material_map.R`).
-- Labels not in the table are used unchanged. The tables ship empty: the
-  built-in rules recognise the vocabulary of the bundled example dataset.
+- Labels not in the table are used unchanged. The built-in rules recognise
+  the vocabulary of the bundled example dataset; `ftir.csv` adds the
+  PerkinElmer library spelling "PolyEthylen" (field samples, 2026).
 - To use your own table without editing these files, set
   `config$<role>_material_table` to a CSV path (or a data frame), or
   `config$material_table_dir` to a folder holding `<role>.csv` files.
