@@ -95,7 +95,7 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
 ## Deferred audit findings
 
 - [x] M2 Tier 2 race scored on one-to-one pairs (tier2_pairs()).
-- [x] M3 Landmarks trusted only with >= 8 one-to-one landmark pairs
+- [x] M3 Landmarks trusted only with >= 8 (now 5, plus the chance test) one-to-one landmark pairs
       (landmark_min_pairs); dataset A has 18 / 17 / 16.
 - [x] M4 Matching is effectively distance-only: stated in README and
       docs/validation.md (with a Methods sentence for the paper).

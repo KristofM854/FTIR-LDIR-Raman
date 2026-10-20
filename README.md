@@ -186,7 +186,7 @@ The coordinate systems from FTIR and Raman differ in origin, rotation (often ~18
 
 Landmark alignment (Tier 1) is purely **geometric**. The fallback (Tier 2) aligns on the plastics that pass each instrument's quality cutoff: on a field sample (12 000+ Raman particles on one filter) every particle has a chance partner within the inlier distance, so a purely geometric search cannot tell poses apart. Material decides only where the instruments sit relative to each other; which particles are compared, and how they agree, is decided afterwards on all particles that pass the quality cutoff.
 
-1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 8 one-to-one landmark pairs, residual < 50 µm, and either ≥ 50% of the landmarks pair or the pairs are far above chance at the landmark density, Poisson p < 10⁻⁸), Tier 2 is skipped. The chance criterion is for field samples, where each instrument finds many landmarks the other does not.
+1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 5 one-to-one landmark pairs, residual < 50 µm, and either ≥ 50% of the landmarks pair or the pairs are far above chance at the landmark density, Poisson p < 10⁻⁸), Tier 2 is skipped. The chance criterion is for field samples, where each instrument finds many landmarks the other does not.
 
 2. **Tier 2 — RANSAC + global registration**: Two aligners run and the one giving more one-to-one pairs wins. The coarse RANSAC does a rotation grid search (1° steps, including mirror check) and refines a similarity transform. Global registration sweeps rotation × scale and recovers translation by voting over all pairwise offsets, scoring one-to-one — more robust when the two clouds overlap only partially. Scales are searched within 0.8–1.25 only (`align_scale_min/_max`, the band ICP enforces): every instrument reports micrometres.
 
@@ -386,7 +386,7 @@ landmark_adaptive_size    = TRUE   # If < landmark_min_count particles clear the
                                    # relative to the sample, not in absolute µm
 landmark_target_count     = 12     # How many to take in that fallback
 landmark_min_size_floor_um = 30    # ...but never anything below this
-landmark_min_pairs        = 8      # one-to-one landmark pairs needed to skip Tier 2
+landmark_min_pairs        = 5      # one-to-one landmark pairs needed to skip Tier 2
 
 # Matching
 match_dist_threshold_um   = 100    # Max distance for a valid spatial match (µm)

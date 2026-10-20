@@ -65,6 +65,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   Dataset A: transforms unchanged; pairs 32/29/34 -> 31/20/30 (FTIR PE,
   FTIR Bruker, LDIR with Raman), scored pairs 32/21/31 -> 31/20/30, 100%
   agreement; chance share 2-5%.
+- Landmarks need 5 one-to-one pairs (was 8) besides the chance test: 8 rejected
+  7 pairs at p = 2e-13 on a reference filter (Tier 2 then found the same pose).
+- The LDIR "tiled/repeated" image warning compares the quadrants' detail
+  (correlation after removing smooth shading) instead of their mean and SD,
+  which matched on every evenly lit filter image and warned on every run.
 - The WITec placement file is also found by its content (any .txt next to
   the image with Width, Height, X, Y; of several, the one that puts the most
   particles on the image).

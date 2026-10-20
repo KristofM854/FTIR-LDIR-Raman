@@ -465,8 +465,11 @@ make_config <- function(ftir_path  = NULL,
     landmark_confidence_min_inlier_ratio = 0.5,
     landmark_confidence_max_residual_um  = 50,
     # Landmarks are trusted (Tier 2 skipped) only with at least this many
-    # one-to-one landmark pairs; otherwise Tier 2 runs as well.
-    landmark_min_pairs                   = 8,
+    # one-to-one landmark pairs; otherwise Tier 2 runs as well. A floor for a
+    # stable similarity fit (a near-symmetric set of 3-4 points can fit a
+    # mirrored or rotated pose); above it the chance test below decides. Was 8,
+    # which rejected 7 pairs at p = 2e-13 on a reference filter.
+    landmark_min_pairs                   = 5,
     # ... and either >= landmark_confidence_min_inlier_ratio of the landmarks
     # pair, or the one-to-one pairs are far above chance at the landmark
     # density (Poisson upper tail below this p; strict because the pose is the
