@@ -44,6 +44,12 @@ material_filter_ui <- function(input_id, label = "Materials") {
         span(class = "mat-filter-actions",
              actionLink(paste0(input_id, "_all"),  "all"),
              span(class = "mat-filter-sep", "·"),
+             actionLink(paste0(input_id, "_plastics"), "plastics",
+                        title = "Synthetic and semi-synthetic families (as in the Summary tab)"),
+             span(class = "mat-filter-sep", "·"),
+             actionLink(paste0(input_id, "_synthetic"), "synthetic",
+                        title = "Synthetic families only"),
+             span(class = "mat-filter-sep", "·"),
              actionLink(paste0(input_id, "_none"), "none"))),
     div(class = "mat-filter-box",
         checkboxGroupInput(input_id, NULL, choices = character(0),
@@ -2094,6 +2100,10 @@ server <- function(input, output, session) {
     info <- raman_native_image_info(); raw <- raman_image(); df <- raman_df_full()
     if (is.null(info) || is.null(raw) || is.null(df) ||
         !"area_um2" %in% names(df) || nrow(df) == 0) return(NULL)
+    # The scan's own placement file is exact; the area estimate is not (on a
+    # downsized field-sample image the many small particles fall below one
+    # pixel and it reads ~3x too coarse). The check is for typed-in values.
+    if (isTRUE(info$placement_file)) return(NULL)
     placed <- (info$xmax - info$xmin) / ncol(raw)      # µm/px as actually drawn
     est <- image_scale_from_particle_area(raw, df$area_um2)
     if (is.null(est) || !is.finite(placed) || placed <= 0) return(NULL)
@@ -2138,7 +2148,9 @@ server <- function(input, output, session) {
               "; ", round(ext$frac_inside * 100), "% of particles inside).")
       return(list(raster = raw,
                   xmin = ext$xmin + ox, xmax = ext$xmax + ox,
-                  ymin = ext$ymin + oy, ymax = ext$ymax + oy))
+                  ymin = ext$ymin + oy, ymax = ext$ymax + oy,
+                  # read from the scan's own WITec placement file (not typed in)
+                  placement_file = identical(cfg$raman_image_y_frame, "stage")))
     }
     if (!is.null(cfg$raman_image_width_um) &&
         !is.null(cfg$raman_image_center_x_um)) {
@@ -2830,7 +2842,11 @@ server <- function(input, output, session) {
   update_material_choices <- function(input_id, families) {
     families <- sort(unique(as.character(families[!is.na(families)])))
     prev_ch  <- mat_choices[[input_id]]
-    prev_sel <- isolate(input[[input_id]])
+    # Until the browser has reported the group, its selection is what was last
+    # sent (all ticked); reading the input then gives NULL and a second fill
+    # (several data reactives fire on load) unticked everything on screen.
+    prev_sel <- if (isTRUE(isolate(mat_ready[[input_id]])))
+      isolate(input[[input_id]]) else prev_ch
     selected <- if (is.null(prev_ch)) families
                 else union(intersect(prev_sel, families), setdiff(families, prev_ch))
     mat_choices[[input_id]] <- families
@@ -2846,6 +2862,18 @@ server <- function(input, output, session) {
     observeEvent(input[[paste0(id, "_all")]], {
       updateCheckboxGroupInput(session, id, choices = mat_choices[[id]],
                                selected = mat_choices[[id]])
+    })
+    # Plastics presets: the Summary tab's "All plastics" (synthetic +
+    # semi-synthetic) and "Synthetic only".
+    for (.preset in c("plastics", "synthetic")) local({
+      link <- paste0(id, "_", .preset)   # bound now: the event is read lazily
+      fams <- if (.preset == "plastics")
+        c(synthetic_families, semi_synthetic_families) else synthetic_families
+      observeEvent(input[[link]], {
+        mat_ready[[id]] <- TRUE
+        updateCheckboxGroupInput(session, id, choices = mat_choices[[id]],
+                                 selected = intersect(mat_choices[[id]], fams))
+      })
     })
     observeEvent(input[[paste0(id, "_none")]], {
       mat_ready[[id]] <- TRUE

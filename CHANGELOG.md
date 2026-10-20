@@ -70,6 +70,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - The LDIR "tiled/repeated" image warning compares the quadrants' detail
   (correlation after removing smooth shading) instead of their mean and SD,
   which matched on every evenly lit filter image and warned on every run.
+- Viewer: material filters have "plastics" (synthetic + semi-synthetic, as
+  in the Summary tab) and "synthetic" quick selections; the boxes no longer
+  appear unticked on load; no Raman image-scale warning when the image is
+  placed from the scan's own WITec placement file (the particle-area estimate
+  reads ~3x too coarse on a downsized field-sample image).
 - The WITec placement file is also found by its content (any .txt next to
   the image with Width, Height, X, Y; of several, the one that puts the most
   particles on the image).
