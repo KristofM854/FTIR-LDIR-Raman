@@ -183,8 +183,11 @@ make_config <- function(ftir_path  = NULL,
 
     # Transform guardrail thresholds (applied to every alignment path):
     # Scale band each aligner may use (FTIR/Raman/LDIR coordinates are all in
-    # micrometres, so the true scale is near 1). Global registration searches
-    # [align_scale_min, align_scale_max], widened to the clouds' span ratio;
+    # micrometres, so the true scale is near 1). RANSAC and global
+    # registration search [align_scale_min, align_scale_max] only (the clouds'
+    # span ratio is not a scale: an FTIR scan covering a third of a Raman
+    # filter has span ratio ~3, and searching that far gave wrong poses and
+    # most of the run time on field samples);
     # ICP clamps every re-estimate to [icp_scale_min, icp_scale_max] because its
     # nearest-neighbour objective rewards shrinking the source (collapse). The
     # run log says when the ICP clamp binds.
@@ -459,6 +462,12 @@ make_config <- function(ftir_path  = NULL,
     # Landmarks are trusted (Tier 2 skipped) only with at least this many
     # one-to-one landmark pairs; otherwise Tier 2 runs as well.
     landmark_min_pairs                   = 8,
+    # ... and either >= landmark_confidence_min_inlier_ratio of the landmarks
+    # pair, or the one-to-one pairs are far above chance at the landmark
+    # density (Poisson upper tail below this p; strict because the pose is the
+    # best of ~40 000 hypotheses). Dense field samples: each instrument finds
+    # many landmarks the other does not, so the ratio alone rejects good poses.
+    landmark_significance_p              = 1e-8,
     landmark_skip_full_ransac  = TRUE,
 
     # --- Determinism ---
@@ -484,16 +493,41 @@ make_config <- function(ftir_path  = NULL,
     icp_elongation_downweight = TRUE,
     icp_elongation_alpha    = 0.5,
 
+    # --- Alignment anchors (Tier 2) ---
+    # Plastics (synthetic polymer families) that pass their instrument's
+    # agreement quality cutoff: sparse and reliable, so the coarse aligners are
+    # not swamped by a dense field sample (12 000+ Raman particles put a chance
+    # partner within the inlier distance of every particle). Falls back to all
+    # quality-passing particles, then to all, when fewer than
+    # align_min_anchor_count remain. Material decides only where the
+    # instruments sit relative to each other; matching and agreement use all
+    # particles that pass the quality cutoff.
+    align_anchor_plastics = TRUE,
+
     # --- Particle matching ---
+    # Only particles that pass their instrument's agreement quality cutoff
+    # (FTIR AAU >= ftir_agreement_min_quality, Raman HQI >= raman_hqi_threshold,
+    # LDIR >= ldir_hqi_unknown_threshold) are matched: the others are never
+    # scored, and on dense field samples they only add chance partners.
+    # All particles stay in the aligned tables and the viewer.
+    match_quality_filter       = TRUE,
+    # The share of pairs expected by chance (reference density within the
+    # gate) is logged per pair; above this it is a WARN.
+    chance_share_warn          = 0.2,
     match_method               = "hungarian",  # "hungarian" or "greedy"
-    match_dist_threshold_um    = 100,   # FTIR<->Raman gate (fine, dense)
+    # FTIR<->Raman gate. Dataset A (lab standard): 90% of matched pairs within
+    # 21-41 um, max 62 um; halving the former 100 um gate kept >= 93% of pairs.
+    # Field samples are dense: with 2 400 Raman particles of HQI >= 70 on a
+    # 13 mm filter, 43% of particles have a chance partner within 100 um,
+    # 13% within 50 um.
+    match_dist_threshold_um    = 50,
     # Dedicated gate for any pairing that involves LDIR (coarser,
     # image-derived centroids). Dataset A (all four instruments): LDIR<->Raman
     # match distances median 8.5, p90 41, max 113 um; at the former 250 um gate
     # 8.5-13 of 34 matches were expected by chance alone. Measure headroom for
     # a given run with tools/diagnose_matching.R.
     # NULL = fall back to match_dist_threshold_um.
-    match_dist_threshold_ldir_um = 150,
+    match_dist_threshold_ldir_um = 75,
     match_adaptive_dist_factor = 0.15,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",

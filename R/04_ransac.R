@@ -89,6 +89,13 @@ ransac_align <- function(ftir_df, raman_df, config, src_label = NULL) {
   # the shared field -- and the coarse search then ran 4% off scale only.
   keep <- c(TRUE, diff(scale_cands) / head(scale_cands, -1) > 0.1)
   scale_cands <- sort(unique(c(1, scale_cands[keep])))
+  # Only within the configured scale band (the band ICP enforces as well). A
+  # span ratio far from 1 usually means the clouds cover different parts of
+  # the filter (an FTIR scan of a third of a Raman filter: ratio ~3), not a
+  # scale; trying it found wrong poses on dense field samples. Data that does
+  # differ in scale: widen align_scale_min/_max and icp_scale_min/_max.
+  s_lo <- cfg_value(config, "align_scale_min"); s_hi <- cfg_value(config, "align_scale_max")
+  scale_cands <- scale_cands[scale_cands >= s_lo & scale_cands <= s_hi]
   log_message("  Phase 0: scale candidates = ",
               paste(scale_cands, collapse = ", "),
               " (robust span ratio = ", round(span_ratio, 3), ")")
@@ -612,12 +619,11 @@ global_register_align <- function(src_df, ref_df, config,
   # starting pose. Keep the same band ransac_align() enforces, widened only as
   # far as span_ratio actually implies. Override with config$align_scale_min /
   # _max for data where the two frames genuinely differ in scale.
+  # Only [align_scale_min, align_scale_max]: the span ratio is not widened
+  # into (see ransac_align(), Phase 0); span-ratio candidates inside the band
+  # are still tried.
   s_min <- cfg_value(config, "align_scale_min")
   s_max <- cfg_value(config, "align_scale_max")
-  if (is.finite(span_ratio) && span_ratio > 0) {
-    s_min <- min(s_min, span_ratio * 0.75)
-    s_max <- max(s_max, span_ratio * 1.25)
-  }
   scales <- sort(unique(round(c(1, seq(s_min, s_max, by = 0.05),
                                 span_ratio * seq(0.75, 1.25, 0.05)), 3)))
   scales <- scales[scales >= s_min & scales <= s_max & scales > 0.02]

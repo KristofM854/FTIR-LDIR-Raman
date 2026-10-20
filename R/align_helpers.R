@@ -151,3 +151,73 @@ align_transform_inliers <- function(M, src_x, src_y, ref_x, ref_y, tol) {
   align_one_to_one(p$x_transformed[ok], p$y_transformed[ok],
                    ref_x, ref_y, tol)
 }
+
+
+#' Chance of a random partner within r: 1 - exp(-rho * pi * r^2), with rho the
+#' reference density over the area of its convex hull (Poisson, uniform).
+#'
+#' @param ref_x,ref_y Reference particle positions (um)
+#' @param r Distance (um); a vector is allowed
+#' @return list(p = probability per particle, density = particles per um^2,
+#'   area_um2 = hull area, n = reference particles)
+chance_partner_rate <- function(ref_x, ref_y, r) {
+  ok <- is.finite(ref_x) & is.finite(ref_y)
+  x <- ref_x[ok]; y <- ref_y[ok]; n <- length(x)
+  if (n < 3) return(list(p = rep(NA_real_, length(r)), density = NA_real_,
+                         area_um2 = NA_real_, n = n))
+  h <- grDevices::chull(x, y)
+  hx <- x[h]; hy <- y[h]
+  area <- abs(sum(hx * c(hy[-1], hy[1]) - c(hx[-1], hx[1]) * hy)) / 2
+  rho <- if (area > 0) n / area else NA_real_
+  list(p = 1 - exp(-rho * pi * r^2), density = rho, area_um2 = area, n = n)
+}
+
+
+#' Which particles pass their instrument's agreement quality cutoff.
+#'
+#' The cutoff of the agreement scoring (.agreement_quality_cutoff(): FTIR AAU,
+#' Raman HQI, LDIR quality). Without a cutoff, or without quality scores,
+#' every particle passes.
+#' @param df Particle table with `quality`
+#' @param prefix Instrument prefix ("ftir", "ftir_bruker", "raman", "ldir", ...)
+#' @return logical vector
+quality_passes <- function(df, prefix, config) {
+  if (is.null(df) || nrow(df) == 0) return(logical(0))
+  cut <- .agreement_quality_cutoff(prefix, config)
+  q <- suppressWarnings(as.numeric(df$quality))
+  if (is.null(df$quality) || cut <= 0 || all(is.na(q))) return(rep(TRUE, nrow(df)))
+  !is.na(q) & q >= cut
+}
+
+
+#' Tier 2 alignment anchors.
+#'
+#' Explicitly configured anchor materials (align_<role>_materials) win.
+#' Otherwise, with align_anchor_plastics, the plastics (synthetic polymer
+#' families) that pass the instrument's quality cutoff; with fewer than
+#' align_min_anchor_count of those, every quality-passing particle; with
+#' fewer of those, every particle.
+#' @param prefix Instrument prefix for the quality cutoff
+#' @return The anchor rows of df
+select_alignment_anchors <- function(df, patterns, prefix, config, label = "") {
+  min_n <- config$align_min_anchor_count %||% 4
+  if ((!is.null(patterns) && length(patterns) > 0) ||
+      !isTRUE(cfg_value(config, "align_anchor_plastics")))
+    return(select_material_anchors(df, patterns, min_n, label))
+  q_ok <- quality_passes(df, prefix, config)
+  plastic <- classify_category_vec(classify_family_vec(df$material)) == "Synthetic"
+  if (sum(q_ok & plastic) >= min_n) {
+    log_message("  ", label, " anchors: ", sum(q_ok & plastic), " of ", nrow(df),
+                " particles (plastics passing the quality cutoff)")
+    return(df[q_ok & plastic, , drop = FALSE])
+  }
+  if (sum(q_ok) >= min_n) {
+    log_message("  ", label, " anchors: only ", sum(q_ok & plastic), " plastic(s) pass ",
+                "the quality cutoff; using all ", sum(q_ok), " particles that pass it",
+                level = "WARN")
+    return(df[q_ok, , drop = FALSE])
+  }
+  log_message("  ", label, " anchors: fewer than ", min_n, " particles pass the quality ",
+              "cutoff; using all ", nrow(df), " particles", level = "WARN")
+  df
+}

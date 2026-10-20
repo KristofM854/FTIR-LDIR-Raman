@@ -66,7 +66,57 @@ match_particles <- function(src_df, ref_df, config,
                                          config, src_label, ref_label)
   }
 
+  result$match_stats <- c(result$match_stats,
+                          .chance_stats(src_df, ref_df, result$match_stats$n_matched,
+                                        config$match_dist_threshold_um, config,
+                                        src_label, ref_label))
   result
+}
+
+
+# How many of the pairs a random arrangement would also give: each source
+# particle inside the reference field has a chance partner within the gate
+# with p = 1 - exp(-rho * pi * gate^2) (reference density rho over its convex
+# hull). Expected chance pairs = p x source particles inside the field; the
+# chance share is that over the pairs found. A lower bound on chance: the
+# adaptive gate of large particles is wider than the base gate used here.
+.chance_stats <- function(src_df, ref_df, n_matched, gate, config, src_label, ref_label) {
+  cr <- chance_partner_rate(ref_df$x_norm, ref_df$y_norm, gate)
+  sx <- src_df$x_aligned; sy <- src_df$y_aligned
+  n_in <- if (is.finite(cr$area_um2) && length(sx) > 0) {
+    ok <- is.finite(sx) & is.finite(sy)
+    rx <- ref_df$x_norm; ry <- ref_df$y_norm
+    fin <- is.finite(rx) & is.finite(ry)
+    h <- grDevices::chull(rx[fin], ry[fin])
+    sum(.points_in_polygon(sx[ok], sy[ok], rx[fin][h], ry[fin][h]))
+  } else NA_integer_
+  expected <- cr$p * n_in
+  share <- if (isTRUE(n_matched > 0)) min(1, expected / n_matched) else NA_real_
+  lvl <- if (isTRUE(share > cfg_value(config, "chance_share_warn"))) "WARN" else "INFO"
+  log_message(sprintf(paste0("  Chance pairs (%s -> %s, gate %g um, %d reference particles): ",
+                             "%.1f of %d expected at random = %s of the pairs"),
+                      src_label, ref_label, gate, cr$n, expected, n_matched,
+                      if (is.na(share)) "NA" else paste0(round(100 * share), "%")),
+              level = lvl)
+  if (identical(lvl, "WARN"))
+    log_message("  The reference is too dense for this gate to separate true pairs ",
+                "from chance: treat these pairs and their agreement with caution",
+                level = "WARN")
+  list(chance_gate_um = gate, chance_p_partner = cr$p, chance_expected = expected,
+       chance_share = share)
+}
+
+# Ray casting: which points lie inside the polygon (px, py)
+.points_in_polygon <- function(x, y, px, py) {
+  n <- length(px); inside <- logical(length(x))
+  j <- n
+  for (i in seq_len(n)) {
+    cross <- ((py[i] > y) != (py[j] > y)) &
+      (x < (px[j] - px[i]) * (y - py[i]) / (py[j] - py[i] + 1e-300) + px[i])
+    inside <- xor(inside, cross)
+    j <- i
+  }
+  inside
 }
 
 

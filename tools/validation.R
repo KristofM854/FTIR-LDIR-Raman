@@ -43,8 +43,10 @@ validation_pairs <- function(result) {
   pairs <- list()
   for (nm in names(result$pairs)) {
     p <- result$pairs[[nm]]
-    if (is.data.frame(p$src) && nrow(p$src) > 0 && !is.null(p$match))
-      pairs[[nm]] <- list(src = p$src, ref = ref, src_label = p$labels$src_prefix,
+    # The particles the run matched (quality cutoff, match_quality_filter)
+    src <- .match_quality_subset(p$src, p$labels$src_prefix, result$config, quiet = TRUE)
+    if (is.data.frame(src) && nrow(src) > 0 && !is.null(p$match))
+      pairs[[nm]] <- list(src = src, ref = ref, src_label = p$labels$src_prefix,
                           ref_label = p$labels$ref_prefix, matched = p$match$matched)
   }
   pairs

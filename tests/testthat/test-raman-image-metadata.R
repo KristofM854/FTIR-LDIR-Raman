@@ -37,13 +37,30 @@ test_that("placement file is found next to the image, also for a _small copy", {
   file.create(file.path(d, c("Sample_B_IAEA_260928.bmp", "Sample_B_IAEA_260928_small.bmp")))
   expect_equal(find_witec_image_placement(file.path(d, "Sample_B_IAEA_260928.bmp")), txt)
   expect_equal(find_witec_image_placement(file.path(d, "Sample_B_IAEA_260928_small.bmp")), txt)
-  expect_null(find_witec_image_placement(file.path(d, "Other.bmp")))
+  # Another name: found by its content (the only placement file in the folder)
+  expect_equal(suppressMessages(find_witec_image_placement(file.path(d, "Other.bmp"))), txt)
   # NA switches discovery off; an explicit path is used as given
   expect_null(find_witec_image_placement(file.path(d, "Sample_B_IAEA_260928.bmp"),
                                          list(raman_image_metadata = NA)))
   other <- .witec_txt(d, "elsewhere.txt")
   expect_equal(find_witec_image_placement(file.path(d, "x.bmp"),
                                           list(raman_image_metadata = other)), other)
+})
+
+test_that("placement file by content: other .txt files are ignored, the best of several wins", {
+  d <- withr::local_tempdir()
+  .witec_txt(d, "notes.txt", "measured on Tuesday")                       # not a placement
+  .witec_txt(d, "export settings.txt", c("Width: 13000", "Height: 13000", "X: 0"))  # incomplete
+  file.create(file.path(d, "Raman image 1.bmp"))
+  expect_null(suppressMessages(find_witec_image_placement(file.path(d, "Raman image 1.bmp"))))
+  good <- .witec_txt(d, "Sample_A_IAEA.txt")                          # top-left (-6011, 12824)
+  expect_equal(suppressMessages(find_witec_image_placement(file.path(d, "Raman image 1.bmp"))), good)
+  # Two placement files: the one that puts the particles on the image
+  off <- .witec_txt(d, "old export.txt",
+                    c("Width: 13000", "Height: 13000", "X: 50000", "Y: 50000", "Rotation: 0"))
+  parts <- data.frame(x_um = c(0, 100, -2000), y_um = c(6000, 5000, 3000))
+  expect_equal(suppressMessages(find_witec_image_placement(
+    file.path(d, "Raman image 1.bmp"), particles = parts)), good)
 })
 
 test_that("viewer: a stage-frame centre is used as is, never negated", {

@@ -199,7 +199,7 @@ run_pipeline <- function(config, report = TRUE) {
   .raman_placement_source <- NULL
   .raman_fit <- NULL
   if (!is.null(.raman_image_info)) {
-    .witec_file <- find_witec_image_placement(config$raman_image, config)
+    .witec_file <- find_witec_image_placement(config$raman_image, config, raman_raw)
     .witec <- if (!is.null(.witec_file)) read_witec_image_placement(.witec_file)
     .user_set <- all(!vapply(config[c("raman_image_width_um", "raman_image_height_um",
                                       "raman_image_center_x_um", "raman_image_center_y_um")],
@@ -696,6 +696,26 @@ run_pipeline <- function(config, report = TRUE) {
               row.names = FALSE)
     log_message("  Wrote matched_ftir_bruker_ldir.csv (",
                 nrow(bruker_ldir_match$matched), " pairs)")
+  }
+
+  # Chance pairs of every match of the run (07_diagnostics/chance_pairs.csv)
+  .all_matches <- c(
+    lapply(pairs, function(p) p$match),
+    list(ldir_ftir_perkin = ldir_results$ldir_ftir_match,
+         ftir_bruker_ftir_perkin = bruker_perkin_match,
+         ftir_bruker_ldir = bruker_ldir_match))
+  .all_matches <- .all_matches[!vapply(.all_matches, is.null, logical(1))]
+  if (length(.all_matches)) {
+    .chance <- do.call(rbind, lapply(names(.all_matches), function(nm) {
+      ms <- .all_matches[[nm]]$match_stats
+      data.frame(pair = nm, n_matched = ms$n_matched,
+                 gate_um = ms$chance_gate_um %||% NA,
+                 p_chance_partner = round(ms$chance_p_partner %||% NA, 4),
+                 chance_pairs_expected = round(ms$chance_expected %||% NA, 1),
+                 chance_share = round(ms$chance_share %||% NA, 3))
+    }))
+    write.csv(.chance, file.path(.export_dirs$diagnostics, "chance_pairs.csv"), row.names = FALSE)
+    log_message("  Wrote chance_pairs.csv")
   }
 
   # Export composite matches if found

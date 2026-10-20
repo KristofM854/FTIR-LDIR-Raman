@@ -28,12 +28,12 @@ test_that("Hungarian matching pairs coincident particles 1-to-1", {
 })
 
 test_that("LDIR pairing uses the looser LDIR distance gate", {
-  # One pair separated by 130 um: outside the 100 um FTIR gate, inside the
-  # 150 um LDIR gate (config$match_dist_threshold_ldir_um).
+  # One pair separated by 65 um: outside the 50 um FTIR gate, inside the
+  # 75 um LDIR gate (config$match_dist_threshold_ldir_um).
   src <- data.frame(particle_id = "L1", x_aligned = 0, y_aligned = 0,
                     feret_max_um = 30, area_um2 = 900, major_um = 30, minor_um = 25,
                     stringsAsFactors = FALSE)
-  ref <- data.frame(particle_id = "R1", x_norm = 130, y_norm = 0,
+  ref <- data.frame(particle_id = "R1", x_norm = 65, y_norm = 0,
                     feret_max_um = 30, area_um2 = 900, major_um = 30, minor_um = 25,
                     stringsAsFactors = FALSE)
   cfg <- make_config()

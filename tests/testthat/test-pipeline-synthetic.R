@@ -129,12 +129,14 @@ test_that("synthetic four-instrument run recovers the known transforms, pairs an
   ld <- extract_transform_params(r$ldir$ldir_icp$transform)
   expect_equal(ld$scale, 1 / 1.03, tolerance = 5e-3)
 
-  # Pairs: every shared particle found, every pair a true correspondence
+  # Pairs: every shared particle found, every pair a true correspondence.
+  # The Raman particles below HQI 70 (Q_low: k 3, 7, 11) are not matched
+  # (match_quality_filter): FTIR k 1..100 -> 97 pairs, Bruker k 11..110 -> 99.
   m <- r$ftir$match$matched
-  expect_equal(nrow(m), 100)                   # k 1..100; FTIR extras unmatched
+  expect_equal(nrow(m), 100 - length(S$Q_low))   # FTIR extras unmatched
   expect_true(all(.pair_ok(m, "ftir", "raman")))
   mb <- r$ftir_bruker$match$matched
-  expect_equal(nrow(mb), 100)
+  expect_equal(nrow(mb), 100 - sum(S$Q_low >= 11))
   expect_true(all(.pair_ok(mb, "ftir", "raman")))
   ml <- r$ldir$ldir_ref_match$matched
   expect_equal(nrow(ml), 100)
@@ -145,8 +147,9 @@ test_that("synthetic four-instrument run recovers the known transforms, pairs an
 
   # Agreement FTIR (PerkinElmer)-Raman, exactly as designed
   tr <- r$ftir$agreement$tiered_rates
-  expect_equal(tr$n_pairs_matched, 100)
-  expect_equal(tr$n_excluded_quality_b, length(S$Q_low))
+  expect_equal(tr$n_pairs_matched, 100 - length(S$Q_low))
+  expect_equal(tr$n_excluded_quality_b, 0)                # not matched in the first place
+  expect_false(any(m$raman_particle_id %in% paste0("R", S$Q_low)))
   expect_equal(tr$n_excluded_unidentified, length(S$U))
   expect_equal(tr$n_family, length(S$D_family))
   expect_equal(tr$n_disagree, length(S$D_dis))
@@ -232,7 +235,9 @@ test_that("every combination of two to four instruments runs and pairs correctly
       # Every true pair found. Particles of one instrument outside the other's
       # field can make a chance pair (LDIR, 150 um gate, without Raman: about
       # one expected at this density)
-      n_true <- length(intersect(k[[src]], k[[ref]]))
+      # Raman particles below the HQI cutoff are not matched
+      n_true <- length(setdiff(intersect(k[[src]], k[[ref]]),
+                               if (ref == "raman") .sets$Q_low))
       ok <- .pair_ok(m, p$labels$src_prefix, p$labels$ref_prefix)
       expect_equal(sum(ok), n_true, info = paste(what, p$labels$stem))
       expect_lte(sum(!ok), 2, label = paste(what, p$labels$stem, "chance pairs"))

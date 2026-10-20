@@ -42,6 +42,26 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   `CITATION.cff`, `.zenodo.json`, this changelog.
 
 ### Changed
+- **(results) Field-sample quality control** (dense Raman fields: 12 000+
+  particles put a chance partner within 150 um of every LDIR particle):
+  - only particles passing their instrument's quality cutoff are matched
+    (`match_quality_filter`; the agreement cutoffs);
+  - distance gates 50 um (was 100), 75 um with LDIR (was 150);
+  - Tier 2 alignment anchors are the quality-passing plastics
+    (`align_anchor_plastics`);
+  - landmarks are trusted also when their pairs are far above chance
+    (Poisson p < 1e-8, `landmark_significance_p`), not only at >= 50% inliers;
+  - RANSAC and global registration search scales 0.8-1.25 only (the span
+    ratio was read as a scale: up to 3.8 for an FTIR scan of part of a
+    filter, giving wrong poses and most of a field-sample run's time);
+  - every run logs the expected share of chance pairs per instrument pair
+    (`07_diagnostics/chance_pairs.csv`).
+  Dataset A: transforms unchanged; pairs 32/29/34 -> 31/20/30 (FTIR PE,
+  FTIR Bruker, LDIR with Raman), scored pairs 32/21/31 -> 31/20/30, 100%
+  agreement; chance share 2-5%.
+- The WITec placement file is also found by its content (any .txt next to
+  the image with Width, Height, X, Y; of several, the one that puts the most
+  particles on the image).
 - **(results)** Material agreement: family agreement is primary, exact polymer
   secondary; only identifications above each instrument's cutoff (FTIR AAU
   0.70, Raman HQI 70, LDIR 0.85) and not "unknown" are scored; unresolvable
@@ -63,8 +83,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - **(results on large samples)** Matching is optimal (Hungarian) for any
   number of particles; it used to switch to greedy above 2,000 particles on
   the smaller side.
-- Material anchors for Tier 2 alignment are off by default
-  (`align_*_materials = NULL`); alignment is purely geometric unless set.
+- Explicit anchor polymers for Tier 2 alignment (`align_*_materials`) are
+  off by default (`NULL`); see the field-sample quality control above for the
+  default Tier 2 anchors.
 - Triplets carry `direct_ldir_ftir_match`; approximate image placements are
   labelled in the viewer and report; debug trace IDs no longer default to
   dataset A's particles.

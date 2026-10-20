@@ -184,11 +184,11 @@ examples/
 
 The coordinate systems from FTIR and Raman differ in origin, rotation (often ~180°), and sometimes scale. The pipeline finds the spatial transform in three tiers:
 
-Alignment is **geometric** — it uses position, size, and shape, never material identification. (Material is compared only afterwards, in agreement scoring, so the geometry never depends on the identifications it is used to validate.)
+Landmark alignment (Tier 1) is purely **geometric**. The fallback (Tier 2) aligns on the plastics that pass each instrument's quality cutoff: on a field sample (12 000+ Raman particles on one filter) every particle has a chance partner within the inlier distance, so a purely geometric search cannot tell poses apart. Material decides only where the instruments sit relative to each other; which particles are compared, and how they agree, is decided afterwards on all particles that pass the quality cutoff.
 
-1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 8 one-to-one landmark pairs, ≥ 50% inliers, residual < 50 µm), Tier 2 is skipped.
+1. **Tier 1 — Landmarks**: Particles ≥ 100 µm and fibers (aspect ratio ≥ 3) are matched between instruments. If no particle clears 100 µm, the 12 largest (≥ 30 µm) are used instead — landmarks are conspicuous *relative to the sample*, which matters on field samples where nothing is 100 µm. If enough landmarks agree (≥ 8 one-to-one landmark pairs, residual < 50 µm, and either ≥ 50% of the landmarks pair or the pairs are far above chance at the landmark density, Poisson p < 10⁻⁸), Tier 2 is skipped. The chance criterion is for field samples, where each instrument finds many landmarks the other does not.
 
-2. **Tier 2 — RANSAC + global registration**: Two aligners run and the one giving more one-to-one pairs wins. The coarse RANSAC does a rotation grid search (1° steps, including mirror check) and refines a similarity transform. Global registration sweeps rotation × scale and recovers translation by voting over all pairwise offsets, scoring one-to-one — more robust when the two clouds overlap only partially.
+2. **Tier 2 — RANSAC + global registration**: Two aligners run and the one giving more one-to-one pairs wins. The coarse RANSAC does a rotation grid search (1° steps, including mirror check) and refines a similarity transform. Global registration sweeps rotation × scale and recovers translation by voting over all pairwise offsets, scoring one-to-one — more robust when the two clouds overlap only partially. Scales are searched within 0.8–1.25 only (`align_scale_min/_max`, the band ICP enforces): every instrument reports micrometres.
 
 3. **ICP refinement**: Iterative Closest Point polishes the transform using all particles ≥ 20 µm, with reciprocal nearest-neighbour filtering and 10% trimming of worst pairs.
 
@@ -197,17 +197,27 @@ Without Raman the same steps align every instrument to FTIR (PerkinElmer),
 else FTIR (Bruker); the Raman-only alignment filters (`align_raman_min_size_um`,
 the HQI filter on anchors) then do not apply.
 
-`align_ftir_materials` / `align_raman_materials` / `align_ldir_materials` can narrow the Tier 2 anchor set to polymers both instruments identify reliably (e.g. PET and PP on spiked lab samples). They are **off by default** (`NULL`): alignment is then purely geometric and does not depend on the identifications it is later used to compare. When set, a filter is honoured only while it leaves at least `align_min_anchor_count` particles.
+Tier 2 anchors (`align_anchor_plastics = TRUE`): plastics (synthetic polymer families) passing the instrument's quality cutoff; with fewer than `align_min_anchor_count`, all quality-passing particles, then all. `align_ftir_materials` / `align_raman_materials` / `align_ldir_materials` set explicit anchor polymers instead (e.g. PET and PP on spiked lab samples).
 
 ### Matching
 
-Particles are paired one-to-one (Hungarian algorithm) within a distance gate
-(100 µm; 150 µm for pairs involving LDIR), minimising the summed cost. The
+Only particles that pass their instrument's quality cutoff are paired (FTIR
+AAU ≥ 0.70, Raman HQI ≥ 70, LDIR ≥ 0.85, the cutoffs of the agreement
+scoring; `match_quality_filter`). The others are never scored, and on dense
+field samples they only add chance partners; they stay in the aligned tables
+and the viewer. Particles are paired one-to-one (Hungarian algorithm) within
+a distance gate (50 µm; 75 µm for pairs involving LDIR; wider for large
+particles: 0.15 × major axis), minimising the summed cost. The
 cost is the centre-to-centre distance in µm plus small unitless size and
 shape terms, 0.3·|ln(area ratio)| + 0.3·|ln(Feret ratio)| + 0.1·(relative
 aspect-ratio difference). These add less than 1.5 µm even for a tenfold size
 difference, so **matching is effectively by distance**: size and shape only
 decide between candidates whose distances differ by about a micrometre.
+
+Every run estimates, for every instrument pair, how many of its pairs a
+random arrangement would also give (reference density within the gate;
+logged, `07_diagnostics/chance_pairs.csv`, WARN above 20%). On a dense field
+sample this tells whether the pairs can be interpreted at all.
 
 ### LDIR coordinate extraction
 
@@ -453,7 +463,7 @@ to switch the index off).
 
 - **LDIR scan-circle radius**: on optical LDIR images without the analyzed overlay, the scan-circle detector overestimates the radius (~12% on a synthetic disk) and needs the circle to cover < 20% of the image; the radius sets the µm-per-pixel scale. Untested on real data with a visible circle. Prefer exporting the analyzed overlay (`<image>_analyzed.png`).
 
-- **Raman image placement**: the WITec placement file (`<image>.txt`) is used when present; rotated images are not supported.
+- **Raman image placement**: the WITec placement file (a `.txt` with Width, Height, X, Y next to the image, found by name or content) is used when present; rotated images are not supported.
 
 - **Validation so far**: one real filter with all four instruments (dataset A, mostly PET) plus synthetic data; see [docs/validation.md](docs/validation.md).
 
