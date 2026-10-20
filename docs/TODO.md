@@ -76,6 +76,24 @@ Validation (`examples/validate_example_A.R`, 200 displacements per null):
 - [x] Triplet consensus applies the agreement quality gate (build_triplets();
       "Not scored" when fewer than two sides pass).
 
+## To discuss with the plastics group
+
+- [ ] Raman identifications of natural particles (field sample Faanui SW1L
+      R4 A): of the 92 LDIR-Raman pairs within 15 um (true pairs: size
+      Spearman 0.56), LDIR says cellulose / natural polyamide / chitin while
+      Raman (HQI 70-98) says TIN(II) CHLORIDE DIHYDRATE, P-DIAMINOBENZENE,
+      RUTIN and similar. Does the Raman software's library hold cellulose and
+      natural-fibre references? If not, should Raman hits of class "Other
+      compound" count as unresolved rather than as disagreement?
+- [ ] PerkinElmer FTIR calls 8 particles PET on the PC reference filter where
+      Raman and LDIR say PC: check `identification_raw` (our rules count any
+      label containing "POLYESTER" as PET).
+- [ ] FTIR exports for intercomparison must not be pre-filtered to plastics in
+      the instrument software: a short list cannot fix the alignment (field
+      sample A: 15 and 5 particles; both FTIR alignments not determined).
+- [ ] File naming convention across instruments (Raman file of the PC
+      reference filter named "PC D", the others "PC A").
+
 ## Manual steps on your machine
 
 - [ ] Re-snapshot `renv.lock` (it lacks plotly, reticulate, gridExtra,

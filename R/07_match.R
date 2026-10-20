@@ -102,8 +102,49 @@ match_particles <- function(src_df, ref_df, config,
     log_message("  The reference is too dense for this gate to separate true pairs ",
                 "from chance: treat these pairs and their agreement with caution",
                 level = "WARN")
+  pe <- .position_error(sx, sy, ref_df$x_norm, ref_df$y_norm, cr$density,
+                        cfg_value(config, "position_error_window_um"))
+  if (is.finite(pe$sigma)) {
+    lvl <- if (3 * pe$sigma > 1.5 * gate) "WARN" else "INFO"
+    log_message(sprintf(paste0("  Positional error (%s -> %s, fit to %d nearest-neighbour ",
+                               "distances within %g um): sigma = %.1f um; 99%% of true ",
+                               "pairs lie within 3 sigma = %.0f um (gate %g um)"),
+                        src_label, ref_label, pe$n, pe$window, pe$sigma, 3 * pe$sigma, gate),
+                level = lvl)
+    if (identical(lvl, "WARN"))
+      log_message("  The gate is well below 3 sigma: true pairs are lost; check the ",
+                  "alignment or widen the gate", level = "WARN")
+  }
   list(chance_gate_um = gate, chance_p_partner = cr$p, chance_expected = expected,
-       chance_share = share)
+       chance_share = share, position_sigma_um = pe$sigma)
+}
+
+#' Positional error of the aligned source against the reference: each source
+#' particle's nearest reference distance within `window` is either its true
+#' partner, offset by a 2-D normal error (Rayleigh with sigma), or a chance
+#' neighbour of the reference at its density rho (nearest-neighbour law
+#' 2 pi rho r exp(-pi rho r^2)); the mixture is fitted by maximum likelihood.
+#' Fewer than 20 distances, or no density: sigma NA.
+.position_error <- function(sx, sy, rx, ry, rho, window) {
+  out <- list(sigma = NA_real_, n = 0L, window = window)
+  ok <- is.finite(sx) & is.finite(sy); fin <- is.finite(rx) & is.finite(ry)
+  if (is.null(window) || !is.finite(rho) || sum(ok) < 20 || sum(fin) < 3) return(out)
+  r <- RANN::nn2(cbind(rx[fin], ry[fin]), cbind(sx[ok], sy[ok]), k = 1)$nn.dists[, 1]
+  r <- r[r <= window & r > 0]
+  out$n <- length(r)
+  if (length(r) < 20) return(out)
+  W <- window
+  f_chance <- 2 * pi * rho * r * exp(-pi * rho * r^2) / (1 - exp(-pi * rho * W^2))
+  nll <- function(p) {
+    s <- exp(p[1]); w <- stats::plogis(p[2])
+    f_true <- (r / s^2) * exp(-r^2 / (2 * s^2)) / (1 - exp(-W^2 / (2 * s^2)))
+    -sum(log(w * f_true + (1 - w) * f_chance + 1e-300))
+  }
+  fit <- stats::optim(c(log(stats::median(r)), 0), nll)
+  s <- exp(fit$par[1])
+  # A sigma at the window edge means no peak of true pairs was found
+  if (fit$convergence == 0 && s < W / 3) out$sigma <- s
+  out
 }
 
 # Ray casting: which points lie inside the polygon (px, py)

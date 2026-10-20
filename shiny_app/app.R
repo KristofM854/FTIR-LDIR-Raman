@@ -1892,7 +1892,7 @@ server <- function(input, output, session) {
     v <- overlay_ldir_gate_d()
     if (is.null(v) || !is.finite(v) || v <= 0) {
       g <- run_data()$ldir_match_gate_um
-      if (!is.null(g) && is.finite(g)) g else 250
+      if (!is.null(g) && is.finite(g)) g else 20
     } else v
   })
 
@@ -2667,7 +2667,7 @@ server <- function(input, output, session) {
     if (!is.null(lrm) && "match_distance" %in% names(lrm) &&
         any(is.finite(lrm$match_distance))) {
       gate0 <- run_data()$ldir_match_gate_um
-      if (is.null(gate0) || !is.finite(gate0)) gate0 <- 250
+      if (is.null(gate0) || !is.finite(gate0)) gate0 <- 20
       max_g <- max(ceiling(max(lrm$match_distance, na.rm = TRUE)), gate0)
       updateSliderInput(session, "overlay_ldir_dist_gate",
                         min = 0, max = max_g, value = gate0)

@@ -307,6 +307,33 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
               ", rotation = ", round(icp$params$rotation_deg, 2), " deg",
               ", converged = ", icp$converged)
 
+  # Is the pose fixed by the data? Landmarks accepted above chance are; a
+  # Tier 2 pose (after ICP) must pair more anchors within the match gate than
+  # the search would find by chance (pose_significance()). A short particle
+  # list (e.g. one already filtered to plastics) against a dense reference
+  # cannot fix a pose.
+  if (identical(method, "landmark")) {
+    determined <- TRUE; pose_p <- landmark$p_chance %||% NA_real_
+  } else {
+    r_pose <- config$match_dist_threshold_um
+    n_pose <- align_transform_inliers(icp$transform, norm_align$x_norm, norm_align$y_norm,
+                                      ref$norm_align$x_norm, ref$norm_align$y_norm, r_pose)
+    if (is.na(n_pose)) n_pose <- 0L
+    ps <- pose_significance(n_pose, nrow(norm_align), ref$norm_align$x_norm,
+                            ref$norm_align$y_norm, r_pose)
+    pose_p <- ps$p
+    determined <- isTRUE(pose_p < cfg_value(config, "align_determined_p"))
+    log_message(sprintf(paste0("  Pose check: %d anchor pairs of %d anchors at %g um; ",
+                               "%.2f per pose by chance; p over the search = %.2g"),
+                        n_pose, nrow(norm_align), r_pose, ps$expected, pose_p),
+                level = if (determined) "INFO" else "WARN")
+    if (!determined)
+      log_message("  ", label, " \u2192 ", ref_name, ": ALIGNMENT NOT DETERMINED (too few ",
+                  "anchors for this reference density). Its pairs are written for ",
+                  "inspection but not scored, and pairs through it are skipped.",
+                  level = "WARN")
+  }
+
   aligned     <- apply_ftir_transform(for_match, icp$transform)
   aligned_all <- apply_ftir_transform(clean, icp$transform)
 
@@ -316,7 +343,9 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
   log_message(label, " \u2194 ", ref_name, ": ", ms$n_matched, " matched, ",
               ms$n_unmatched_src, " unmatched ", label, ", ", ms$n_unmatched_ref,
               " unmatched ", ref_name)
-  agreement <- analyze_agreement(match, config,
+  scored <- match
+  if (!determined) scored$matched <- match$matched[0, , drop = FALSE]
+  agreement <- analyze_agreement(scored, config,
                                  instrument_a = .agreement_name(labels$src_prefix),
                                  instrument_b = .agreement_name(labels$ref_prefix),
                                  prefix_a = labels$src_prefix, prefix_b = labels$ref_prefix)
@@ -326,6 +355,7 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
        aligned = aligned, aligned_all = aligned_all,
        landmark = landmark, ransac = ransac, method = method, icp = icp,
        match = match, agreement = agreement, labels = labels,
+       alignment_determined = determined, pose_p = pose_p,
        norm = list(ftir_centroid = nm$centroid, ftir_scale = nm$scale,
                    raman_centroid = ref$centroid, raman_scale = ref$scale))
 }
@@ -370,7 +400,7 @@ tier2_pairs <- function(M, src, ref, config) {
 #'
 #' The matcher reads the reference's x_norm / y_norm, so the reference's
 #' aligned coordinates are put there. The acceptance gate follows from the
-#' labels (a pair involving LDIR uses the LDIR gate).
+#' labels; a pair involving LDIR uses the wider of the LDIR and base gates.
 #'
 #' @param src_aligned,ref_aligned Particle tables with x_aligned / y_aligned
 #' @param src_label,ref_label Labels ("ftir_bruker", "ftir_perkin", "ldir", ...)
@@ -384,6 +414,12 @@ match_aligned_pair <- function(src_aligned, ref_aligned, config, src_label, ref_
   if (!ok(src_aligned) || !ok(ref_aligned)) return(NULL)
   ref_aligned$x_norm <- ref_aligned$x_aligned
   ref_aligned$y_norm <- ref_aligned$y_aligned
+  # Both sides carry their own alignment error, so the pair takes the wider of
+  # the two gates (the LDIR gate is set for LDIR against the reference only;
+  # dataset A: FTIR (Bruker) sigma 12 um, LDIR 7 um).
+  if (!is.null(config$match_dist_threshold_ldir_um))
+    config$match_dist_threshold_ldir_um <- max(config$match_dist_threshold_ldir_um,
+                                               config$match_dist_threshold_um)
   match_particles(src_aligned, ref_aligned, config,
                   src_label = src_label, ref_label = ref_label)
 }
