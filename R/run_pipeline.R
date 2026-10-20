@@ -946,7 +946,8 @@ write_pipeline_report <- function(config, app_dir = "shiny_app") {
         quality_note = .quality_note,
         manifest  = .man,
         placements = .ftir_placements,
-        place_dfs  = .dfs_all)
+        place_dfs  = .dfs_all,
+        run_dir    = config$output_dir)
 
       report_file <- file.path(config$output_dir, "particle_report.pdf")
       n_pages <- write_report_pdf(report_pages, report_file)

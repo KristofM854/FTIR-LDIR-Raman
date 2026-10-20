@@ -1772,7 +1772,8 @@ report_plastics_table <- function(devices) {
 # `dfs` is a named list with $ftir / $raman / $ldir (as summary_dfs() returns).
 # Numbers are pre-formatted for display, matching the HTML table's rounding.
 report_size_stats_table <- function(dfs) {
-  labels <- c(FTIR = "ftir", Raman = "raman", LDIR = "ldir")
+  labels <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
+              Raman = "raman", LDIR = "ldir")
   rows <- list()
   for (nm in names(labels)) {
     df <- dfs[[labels[[nm]]]]
@@ -1793,6 +1794,54 @@ report_size_stats_table <- function(dfs) {
   if (length(rows) == 0)
     return(data.frame(Instrument = character(0), stringsAsFactors = FALSE))
   do.call(rbind, c(rows, list(make.row.names = FALSE)))
+}
+
+
+#' Matching quality per instrument pair of a run, from its output files.
+#'
+#' One row per pair: the gate, pairs found, their distances, the pairs a
+#' random arrangement would also give (07_diagnostics/chance_pairs.csv), and
+#' for pairs with agreement tables the scored pairs and family agreement.
+#' @param run_dir Run folder
+#' @return data.frame (zero rows when the run has no chance_pairs.csv)
+report_matching_table <- function(run_dir) {
+  ch_path <- file.path(run_dir, "07_diagnostics", "chance_pairs.csv")
+  if (is.null(run_dir) || !file.exists(ch_path)) return(data.frame())
+  ch <- utils::read.csv(ch_path, stringsAsFactors = FALSE)
+  label <- c(raman = "Raman", ftir_perkin = "FTIR (PE)", ftir_bruker = "FTIR (Bruker)",
+             ldir = "LDIR")
+  pair_name <- function(stem) {
+    for (a in names(label)) if (startsWith(stem, paste0(a, "_")))
+      return(paste0(label[[a]], " \u2013 ", label[[sub(paste0("^", a, "_"), "", stem)]] %||% "?"))
+    stem
+  }
+  rows <- lapply(seq_len(nrow(ch)), function(i) {
+    stem <- ch$pair[i]
+    m <- file.path(run_dir, "05_matches", paste0("matched_", stem, ".csv"))
+    d <- if (file.exists(m)) utils::read.csv(m)$match_distance else numeric(0)
+    ag <- file.path(run_dir, "06_agreement", paste0("agreement_pairwise_", stem, ".csv"))
+    scored <- NA_integer_; fam <- NA_character_
+    if (file.exists(ag)) {
+      t <- utils::read.csv(ag, stringsAsFactors = FALSE)$tier
+      scored <- length(t)
+      res <- t[t != "Unresolved"]
+      fam <- if (length(res)) paste0(round(100 * mean(res %in% c("Exact", "Family"))), "%") else "\u2013"
+    }
+    data.frame(
+      pair = pair_name(stem), gate = ch$gate_um[i], n = ch$n_matched[i],
+      dist = if (length(d))
+        sprintf("%.1f / %.1f", stats::median(d), stats::quantile(d, 0.9)) else "\u2013",
+      chance = sprintf("%.1f (%s)", ch$chance_pairs_expected[i],
+                       if (is.na(ch$chance_share[i])) "\u2013"
+                       else paste0(round(100 * ch$chance_share[i]), "%")),
+      scored = if (is.na(scored)) "\u2013" else as.character(scored),
+      family = if (is.na(fam)) "\u2013" else fam,
+      stringsAsFactors = FALSE)
+  })
+  out <- do.call(rbind, rows)
+  names(out) <- c("Pair", "Gate (um)", "Pairs", "Distance median / p90 (um)",
+                  "By chance", "Scored", "Family agreement")
+  out
 }
 
 
@@ -1888,6 +1937,9 @@ report_input_file_lines <- function(manifest, name_width = 32L) {
 report_text_page <- function(title, lines = character(0), subtitle = NULL) {
   lines <- .report_wrap(lines)
   body  <- if (length(lines)) paste(lines, collapse = "\n") else ""
+  # About 26 lines fit at size 4; longer pages (the title page of a
+  # four-instrument run) get smaller text instead of running off the page
+  body_size <- if (length(lines) > 26) max(2.4, 4 * 26 / length(lines)) else 4
   ggplot2::ggplot() +
     ggplot2::annotate("text", x = 0, y = 1, label = title, hjust = 0, vjust = 1,
                       size = 7, fontface = "bold") +
@@ -1897,7 +1949,7 @@ report_text_page <- function(title, lines = character(0), subtitle = NULL) {
                           hjust = 0, vjust = 1, size = 4.2, colour = "grey35")
       else NULL } +
     ggplot2::annotate("text", x = 0, y = 0.86, label = body, hjust = 0, vjust = 1,
-                      size = 4, family = "mono") +
+                      size = body_size, family = "mono") +
     ggplot2::scale_x_continuous(limits = c(0, 1)) +
     ggplot2::scale_y_continuous(limits = c(0, 1)) +
     ggplot2::theme_void() +
@@ -2755,7 +2807,8 @@ report_instrument_image <- function(key, df, meta, bg_path, native = TRUE,
 build_report_pages <- function(dfs, meta = list(), img_paths = list(),
                                run_label = "unknown", run_id = "unknown",
                                quality_note = NULL, manifest = list(),
-                               placements = list(), place_dfs = list()) {
+                               placements = list(), place_dfs = list(),
+                               run_dir = NULL) {
 
   DEV <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
            "Raman" = "raman", "LDIR" = "ldir")
@@ -2813,6 +2866,10 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
   if (n_of("ftir") > 0)
     size_plots <- c(size_plots,
                     list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
+  if (n_of("ftir_bruker") > 0)
+    size_plots <- c(size_plots,
+                    list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)",
+                                                color_matched = "#9467bd")))
   if (n_of("raman") > 0)
     size_plots <- c(size_plots,
                     list(plot_size_distribution(dfs$raman, "Raman",
@@ -2825,12 +2882,23 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
     size_plots, "Size Distribution by Instrument",
     paste0("Feret Max (\u00b5m) per instrument. Solid bars: matched. ",
            "Outline bars: unmatched."),
-    ncol = min(3, max(1, length(size_plots))))))
+    ncol = if (length(size_plots) == 4) 2 else min(3, max(1, length(size_plots))))))
 
   # --- 5. Size statistics ---------------------------------------------------
   pages <- c(pages, list(report_table_page(
     report_size_stats_table(dfs), "Size Statistics",
     "Feret Max summary statistics per instrument.")))
+
+  # --- Matching quality -------------------------------------------------------
+  mt <- report_matching_table(run_dir)
+  if (nrow(mt) > 0)
+    pages <- c(pages, list(report_table_page(
+      mt, "Matching Quality per Instrument Pair",
+      paste0("Pairs found within the distance gate (particles passing their quality ",
+             "cutoff only). By chance: pairs a random arrangement of the particles would ",
+             "also give, from the reference density within the gate, and their share of ",
+             "the pairs; above ~20% the pairs cannot be told from chance. Family agreement: ",
+             "over the scored, resolved pairs."))))
 
   # --- 6-9. Per-instrument views over the instrument image ------------------
   # Native instrument frame (x_orig/y_orig), as each viewer tab shows it.

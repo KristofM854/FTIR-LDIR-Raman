@@ -109,6 +109,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   now downsized strip by strip from disk (`read_bmp_downsized()`, < 1 GB of
   memory, ~30 s for 1.4 GB), in the pipeline and in the viewer.
 - Viewer: "Ignoring unknown parameters: label.size" with ggplot2 >= 3.5.
+- Report: a "Matching Quality per Instrument Pair" page (gate, pairs,
+  distance median / p90, pairs expected by chance, scored pairs, family
+  agreement); FTIR (Bruker) in the size distributions and statistics; the
+  title page no longer runs off the page; the input-file list fits.
 - The Raman image auto-calibration cross-check (with a WITec placement file)
   is off by default (`raman_placement_cross_check`): 7 min on a field sample,
   and it does not change the placement.

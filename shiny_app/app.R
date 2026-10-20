@@ -1447,6 +1447,9 @@ server <- function(input, output, session) {
     size_plots <- list()
     if (n_of("ftir") > 0)
       size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
+    if (n_of("ftir_bruker") > 0)
+      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)",
+                                                             color_matched = "#9467bd")))
     if (n_of("raman") > 0)
       size_plots <- c(size_plots, list(plot_size_distribution(dfs$raman, "Raman",
                                                              color_matched = "#1f77b4")))
@@ -1457,11 +1460,20 @@ server <- function(input, output, session) {
       size_plots, "Size Distribution by Instrument",
       paste0("Feret Max (um) per instrument. Solid bars: matched. Outline bars: ",
              "unmatched. Scope: ", scope, "."),
-      ncol = min(3, max(1, length(size_plots))))))
+      ncol = if (length(size_plots) == 4) 2 else min(3, max(1, length(size_plots))))))
 
     pages <- c(pages, list(report_table_page(
       summary_size_stats_df(), "Size Statistics",
       paste0("Feret Max summary statistics per instrument. Scope: ", scope, "."))))
+
+    mt <- tryCatch(report_matching_table(selected_run_dir()), error = function(e) data.frame())
+    if (nrow(mt) > 0)
+      pages <- c(pages, list(report_table_page(
+        mt, "Matching Quality per Instrument Pair",
+        paste0("Pairs found within the distance gate (particles passing their quality ",
+               "cutoff only), for the whole run. By chance: pairs a random arrangement ",
+               "would also give, and their share of the pairs; above ~20% the pairs ",
+               "cannot be told from chance."))))
 
     # --- 3. Instrument views ---------------------------------------------
     # Only instruments that actually have data get a page; the plot reactives
