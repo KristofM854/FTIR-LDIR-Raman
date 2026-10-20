@@ -118,6 +118,8 @@ test_that("matching per group of nearby particles equals one dense assignment", 
       thr <- max(cfg$match_dist_threshold_um,
                  cfg_value(cfg, "match_adaptive_dist_factor") * a$major_um[i])
       if (d > thr || sum(sqrt((b$x - a$x[i])^2 + (b$y - a$y[i])^2) < d) >= 20) next
+      fr <- a$feret_max_um[i] / b$feret_max_um[j]
+      if (max(fr, 1 / fr) > cfg$match_max_size_ratio) next
       sa <- asp(a, i); sb <- asp(b, j)
       C[i, j] <- d + 0.3 * abs(log(a$area_um2[i] / b$area_um2[j])) +
         0.3 * abs(log(a$feret_max_um[i] / b$feret_max_um[j])) +
@@ -129,4 +131,25 @@ test_that("matching per group of nearby particles equals one dense assignment", 
     expect_equal(sum(m$match_score), sum(C[cbind(ok, s[ok])]), tolerance = 1e-9,
                  info = paste("problem", it))
   }
+})
+
+test_that("pairs whose sizes differ by more than match_max_size_ratio are not made", {
+  # A 148 um particle next to a 6 um one (the PC reference filter's A5) is no
+  # pair, however close; within the ratio the pair is made.
+  src <- data.frame(particle_id = "S1", x_aligned = 0, y_aligned = 0,
+                    feret_max_um = 148, area_um2 = 9000, major_um = 148, minor_um = 60)
+  ref <- data.frame(particle_id = "R1", x_norm = 5, y_norm = 0,
+                    feret_max_um = 6, area_um2 = 20, major_um = 6, minor_um = 4)
+  cfg <- make_config()
+  for (meth in c("hungarian", "greedy")) {
+    cfg$match_method <- meth
+    expect_equal(suppressMessages(match_particles(src, ref, cfg))$match_stats$n_matched, 0L,
+                 info = meth)
+    ref$feret_max_um <- 40
+    expect_equal(suppressMessages(match_particles(src, ref, cfg))$match_stats$n_matched, 1L,
+                 info = meth)
+    ref$feret_max_um <- 6
+  }
+  cfg$match_max_size_ratio <- Inf
+  expect_equal(suppressMessages(match_particles(src, ref, cfg))$match_stats$n_matched, 1L)
 })

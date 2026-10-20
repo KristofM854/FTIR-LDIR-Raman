@@ -256,7 +256,7 @@ On a single-polymer sample only the size statistic is informative.
 |------|-------------|-----------------|------------|
 | Spatial transform (landmarks, ICP) | ≥ 20 µm | none | none |
 | Tier 2 alignment anchors | ≥ 20 µm | none (optional: e.g. PET / PP if ≥ 4 available) | ≥ 70 if ≥ 4 available, else none |
-| Spatial matching | all | none | none |
+| Spatial matching | ≥ 20 µm; partners differ ≤ 5× in Feret max | none | ≥ 70 |
 | Agreement scoring | all | none | ≥ 70 |
 
 ### Three-way triplets
@@ -455,7 +455,7 @@ to switch the index off).
 
 - **FTIR feret size**: The PerkinElmer Spotlight CSV does not export a dedicated Feret Max column. The pipeline uses `Major dim` as a proxy, which may overestimate actual Feret dimensions for non-convex particles.
 
-- **Raman minimum size**: The Raman instrument detects particles down to ~1 µm, but FTIR resolution is typically ≥ 20 µm. Raman particles below 20 µm have no FTIR counterpart and inflate the "unmatched Raman" count.
+- **Raman minimum size**: The Raman instrument detects particles down to ~1 µm, but FTIR resolution is typically ≥ 20 µm. Raman particles below 20 µm (`min_particle_size_um`) are therefore not matched; they stay in the aligned tables and the viewer.
 
 - **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Translate dataset-specific names in `inst/materials/<role>.csv` (see `tools/material_vocabulary.R` for the labels a run could not classify).
 

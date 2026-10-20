@@ -90,7 +90,7 @@ test_that("size statistics match a hand computation and carry units", {
                                     status = c("matched", "matched", "unmatched", "matched")))
   tbl <- env$report_size_stats_table(dfs)
   expect_equal(nrow(tbl), 1L)
-  expect_equal(tbl$Instrument, "FTIR")
+  expect_equal(tbl$Instrument, "FTIR (PerkinElmer)")
   expect_equal(tbl$Total, 4L)
   expect_equal(tbl$Matched, 3L)
   expect_equal(tbl$Unmatched, 1L)
@@ -108,8 +108,36 @@ test_that("size statistics skip instruments with no data", {
     ftir  = .pdf_particles(rep("PET", 3)),
     raman = NULL,
     ldir  = .pdf_particles(character(0), n = 0)))
-  expect_equal(tbl$Instrument, "FTIR")
+  expect_equal(tbl$Instrument, "FTIR (PerkinElmer)")
   expect_equal(nrow(env$report_size_stats_table(list())), 0L)
+  # FTIR (Bruker) has its own row
+  tbl <- env$report_size_stats_table(list(ftir_bruker = .pdf_particles(rep("PET", 2))))
+  expect_equal(tbl$Instrument, "FTIR (Bruker)")
+})
+
+test_that("matching quality table: one row per pair from the run's files", {
+  env <- .load_report_helpers()
+  run <- withr::local_tempdir()
+  dir.create(file.path(run, "07_diagnostics")); dir.create(file.path(run, "05_matches"))
+  dir.create(file.path(run, "06_agreement"))
+  utils::write.csv(data.frame(pair = c("ldir_raman", "ftir_bruker_ftir_perkin"), n_matched = c(4, 2),
+                              gate_um = c(75, 50), p_chance_partner = 0.05,
+                              chance_pairs_expected = c(1, 0.1), chance_share = c(0.25, 0.05)),
+                   file.path(run, "07_diagnostics", "chance_pairs.csv"), row.names = FALSE)
+  utils::write.csv(data.frame(match_distance = c(2, 4, 6, 8)),
+                   file.path(run, "05_matches", "matched_ldir_raman.csv"), row.names = FALSE)
+  utils::write.csv(data.frame(tier = c("Exact", "Family", "Disagree", "Unresolved")),
+                   file.path(run, "06_agreement", "agreement_pairwise_ldir_raman.csv"),
+                   row.names = FALSE)
+  t <- env$report_matching_table(run)
+  expect_equal(nrow(t), 2)
+  expect_equal(t$Pair, c("LDIR \u2013 Raman", "FTIR (Bruker) \u2013 FTIR (PE)"))
+  expect_equal(t[["Distance median / p90 (um)"]][1], "5.0 / 7.4")
+  expect_equal(t[["By chance"]][1], "1.0 (25%)")
+  expect_equal(t$Scored[1], "4")
+  expect_equal(t[["Family agreement"]][1], "67%")        # 2 of 3 resolved
+  expect_equal(t$Scored[2], "\u2013")                  # no agreement table
+  expect_equal(nrow(env$report_matching_table(withr::local_tempdir())), 0)
 })
 
 # ---- page builders ----------------------------------------------------------

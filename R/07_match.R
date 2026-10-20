@@ -134,6 +134,7 @@ match_particles <- function(src_df, ref_df, config,
   lam_area        <- config$match_lambda_area   %||% 0.3
   lam_feret       <- config$match_lambda_feret  %||% 0.3
   lam_aspect      <- config$match_lambda_aspect %||% 0.1
+  max_ratio       <- cfg_value(config, "match_max_size_ratio")
 
   src_x  <- src_df$x_aligned
   src_y  <- src_df$y_aligned
@@ -165,6 +166,7 @@ match_particles <- function(src_df, ref_df, config,
       j <- nn$nn.idx[i, ki]
       d <- nn$nn.dists[i, ki]
       if (!force_complete && d > thr_i) next
+      if (!.size_ratio_ok(src_df, ref_df, i, j, max_ratio)) next
       # Multi-feature cost
       penalty <- 0
 
@@ -260,6 +262,18 @@ match_particles <- function(src_df, ref_df, config,
 }
 
 
+#' May source particle i and reference particle j pair, by size? Not when their
+#' Feret max differ by more than max_ratio (each instrument sizes a particle
+#' somewhat differently, but a 148 um particle is not a 6 um one). Missing
+#' sizes, or max_ratio NULL / Inf, do not restrict.
+.size_ratio_ok <- function(src_df, ref_df, i, j, max_ratio) {
+  if (is.null(max_ratio) || !is.finite(max_ratio)) return(TRUE)
+  a <- src_df$feret_max_um[i]; b <- ref_df$feret_max_um[j]
+  if (is.null(a) || is.null(b) || is.na(a) || is.na(b) || a <= 0 || b <= 0) return(TRUE)
+  max(a, b) / min(a, b) <= max_ratio
+}
+
+
 #' Connected components of a bipartite candidate graph.
 #'
 #' @param ei,ej Edge endpoints: source row i, reference row j
@@ -292,6 +306,7 @@ match_particles <- function(src_df, ref_df, config,
   adaptive_factor  <- cfg_value(config, "match_adaptive_dist_factor")
   size_weight      <- config$match_size_weight
   size_metric      <- config$match_size_metric
+  max_ratio        <- cfg_value(config, "match_max_size_ratio")
 
   src_x  <- src_df$x_aligned
   src_y  <- src_df$y_aligned
@@ -320,6 +335,7 @@ match_particles <- function(src_df, ref_df, config,
       if (d > thresh_i) next
 
       r_idx <- nn$nn.idx[i, j]
+      if (!.size_ratio_ok(src_df, ref_df, i, r_idx, max_ratio)) next
 
       size_penalty <- 0
       if (size_weight > 0 && size_metric %in% names(src_df) &&
