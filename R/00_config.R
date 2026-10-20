@@ -34,7 +34,12 @@ make_config <- function(ftir_path  = NULL,
     # quality particles still take part in alignment and matching.
     ftir_agreement_min_quality = 0.70,
     ftir_quality_threshold = 0,    # minimum AAU score for FTIR (0 = keep all)
-    min_particle_size_um  = 0,     # minimum Feret size in um (0 = keep all)
+    # Minimum Feret max (um) of the particles that are matched, on every
+    # instrument: the common detection limit (FTIR and LDIR report nothing
+    # smaller; Raman exports can list particles down to a few um, which only
+    # add chance partners). Alignment, the aligned tables and the viewer keep
+    # every particle. 0 = no size limit.
+    min_particle_size_um  = 20,
 
     # --- Coordinate normalization ---
     normalize_scale = FALSE,  # scale both clouds to unit variance (usually not needed)
@@ -514,6 +519,10 @@ make_config <- function(ftir_path  = NULL,
     # The share of pairs expected by chance (reference density within the
     # gate) is logged per pair; above this it is a WARN.
     chance_share_warn          = 0.2,
+    # Pairs whose Feret max differ by more than this factor are not considered
+    # (instruments size a particle somewhat differently; 5x allows for that).
+    # Inf = no limit.
+    match_max_size_ratio       = 5,
     match_method               = "hungarian",  # "hungarian" or "greedy"
     # FTIR<->Raman gate. Dataset A (lab standard): 90% of matched pairs within
     # 21-41 um, max 62 um; halving the former 100 um gate kept >= 93% of pairs.

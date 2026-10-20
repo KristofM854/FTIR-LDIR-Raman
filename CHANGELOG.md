@@ -55,7 +55,13 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
     ratio was read as a scale: up to 3.8 for an FTIR scan of part of a
     filter, giving wrong poses and most of a field-sample run's time);
   - every run logs the expected share of chance pairs per instrument pair
-    (`07_diagnostics/chance_pairs.csv`).
+    (`07_diagnostics/chance_pairs.csv`);
+  - only particles >= 20 um (Feret max) are matched (`min_particle_size_um`,
+    was 0) and a pair whose sizes differ more than 5x is not made
+    (`match_max_size_ratio`). Dataset A: pairs 31/20/30 -> 31/18/29, Bruker
+    with PerkinElmer 17 -> 16, with LDIR 19 -> 18; the five lost pairs are a
+    Bruker particle sized 18 um (110-120 um on the other three) and two
+    Raman particles sized 6-7 um next to a 23 um and a 318 um particle.
   Dataset A: transforms unchanged; pairs 32/29/34 -> 31/20/30 (FTIR PE,
   FTIR Bruker, LDIR with Raman), scored pairs 32/21/31 -> 31/20/30, 100%
   agreement; chance share 2-5%.
