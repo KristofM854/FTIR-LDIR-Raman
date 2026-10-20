@@ -520,42 +520,55 @@ make_preview_image <- function(img_rgb, max_dim = 1200L) {
 
 #' Warn (or stop) when an image appears to be a tiled / repeated montage
 #'
-#' Compares mean and SD of luminance in each quadrant.  If at least two pairs
-#' of quadrants are near-identical the image is likely a repeated mosaic layout
-#' rather than a single continuous scan field.
+#' Correlates the fine detail (particles, edges) of the four quadrants. A
+#' repeated mosaic or a mis-strided read has near-identical quadrants; a real
+#' filter does not, however evenly lit (an earlier check on quadrant mean / SD
+#' fired on every evenly lit filter image). Smooth shading, such as the
+#' brightness gradient across LDIR tiles, is removed before correlating.
 #'
 #' @param img_rgb [H, W, 3] integer array (0-255), or a 2-D grayscale array
 #' @param tag     Short name used in the warning message (e.g. basename)
 #' @param strict  If TRUE, stop() instead of log a warning
+#' @param min_cor Detail correlation above which two quadrants count as copies
 #' @return Invisibly: number of near-identical quadrant pairs found (0-6)
-assert_not_tiled_montage <- function(img_rgb, tag, strict = FALSE) {
+assert_not_tiled_montage <- function(img_rgb, tag, strict = FALSE, min_cor = 0.9) {
   if (is.null(img_rgb) || length(dim(img_rgb)) < 2) return(invisible(0L))
   h <- nrow(img_rgb); w <- ncol(img_rgb)
+  if (h < 16 || w < 16) return(invisible(0L))
 
   lum <- if (length(dim(img_rgb)) == 3) {
     (img_rgb[,,1] + img_rgb[,,2] + img_rgb[,,3]) / 3
   } else {
     img_rgb
   }
+  storage.mode(lum) <- "double"
 
-  quad <- list(
-    lum[seq_len(h %/% 2L),        seq_len(w %/% 2L)],
-    lum[seq_len(h %/% 2L),        seq(w %/% 2L + 1L, w)],
-    lum[seq(h %/% 2L + 1L, h),    seq_len(w %/% 2L)],
-    lum[seq(h %/% 2L + 1L, h),    seq(w %/% 2L + 1L, w)]
-  )
-  stats_q <- lapply(quad, function(q)
-    c(mean(q, na.rm = TRUE), stats::sd(q, na.rm = TRUE)))
+  # Same sample grid in each quadrant (at most 256 x 256)
+  hh <- h %/% 2L; hw <- w %/% 2L
+  ri <- unique(as.integer(round(seq(1, hh, length.out = min(hh, 256L)))))
+  ci <- unique(as.integer(round(seq(1, hw, length.out = min(hw, 256L)))))
+  detail <- function(q) {
+    # High-pass: subtract a 9 x 9 box mean (removes shading, keeps particles)
+    box <- function(m, k) {
+      n <- nrow(m); cs <- apply(m, 2, cumsum); cs <- rbind(0, cs)
+      lo <- pmax(1L, seq_len(n) - k); hi <- pmin(n, seq_len(n) + k)
+      (cs[hi + 1L, , drop = FALSE] - cs[lo, , drop = FALSE]) / (hi - lo + 1L)
+    }
+    q - t(box(t(box(q, 4L)), 4L))
+  }
+  quad <- lapply(list(c(0L, 0L), c(0L, hw), c(hh, 0L), c(hh, hw)), function(o)
+    detail(lum[o[1] + ri, o[2] + ci, drop = FALSE]))
 
   pairs <- utils::combn(4L, 2L, simplify = FALSE)
   n_near <- sum(vapply(pairs, function(ij) {
-    abs(stats_q[[ij[1]]][1] - stats_q[[ij[2]]][1]) < 0.03 * 255 &&
-    abs(stats_q[[ij[1]]][2] - stats_q[[ij[2]]][2]) < 0.03 * 255
+    a <- as.vector(quad[[ij[1]]]); b <- as.vector(quad[[ij[2]]])
+    if (stats::sd(a) < 1e-6 || stats::sd(b) < 1e-6) return(FALSE)
+    isTRUE(stats::cor(a, b) > min_cor)
   }, logical(1L)))
 
   if (n_near >= 2L) {
     msg <- paste0("Image '", tag, "' appears tiled/repeated: ", n_near,
-                  " quadrant pairs are near-identical. Check LDIR image source.")
+                  " quadrant pairs show the same detail. Check LDIR image source.")
     if (strict) stop(msg) else log_message("  WARN: ", msg, level = "WARN")
   }
   invisible(n_near)

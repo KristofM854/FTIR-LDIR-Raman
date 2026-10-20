@@ -90,3 +90,22 @@ test_that("read_bmp_downsized block-averages a BMP strip by strip, like the full
     expect_equal(unname(bmp_dimensions(f)), c(37, 23))
   }
 })
+
+test_that("the tiling check flags repeated images, not evenly lit tiled filters", {
+  # An LDIR mosaic: 4 x 4 tiles with the same brightness gradient and
+  # scattered particles. Quadrant mean and SD are alike (the former check
+  # fired on every such image); the detail differs, so no warning.
+  set.seed(1); n <- 800
+  g  <- outer(seq(0, 1, len = n / 4), seq(0, 1, len = n / 4),
+              function(a, b) 150 + 40 * (a + b) / 2)
+  m  <- do.call(rbind, rep(list(do.call(cbind, rep(list(g), 4))), 4))
+  for (k in 1:300) {
+    x <- sample(5:(n - 5), 1); y <- sample(5:(n - 5), 1)
+    m[(y - 3):(y + 3), (x - 3):(x + 3)] <- 40
+  }
+  expect_equal(suppressMessages(assert_not_tiled_montage(m, "tiles")), 0L)
+  q <- m[1:400, 1:400]
+  rep4 <- rbind(cbind(q, q), cbind(q, q))
+  expect_equal(suppressMessages(assert_not_tiled_montage(rep4, "repeated")), 6L)
+  expect_error(assert_not_tiled_montage(rep4, "repeated", strict = TRUE), "tiled")
+})

@@ -245,7 +245,7 @@ detect_ldir_scan_circle <- function(image_path, config = NULL) {
   .fallback <- function(w, h, brightness = NULL) {
     if (!is.null(brightness) && !identical(export_fmt, "circular") &&
         .is_tiled_mosaic(brightness)) {
-      log_message("  Scan circle: no circle found, image appears tiled -- ",
+      log_message("  Scan circle: none visible (the image is evenly lit edge to edge) -- ",
                   "using full-image bounds")
       return(list(cx_px = w / 2, cy_px = h / 2, radius_px = min(w, h) / 2,
                   width = w, height = h, edge_gap_px = 0,
