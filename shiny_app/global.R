@@ -1843,7 +1843,7 @@ report_size_stats_table <- function(dfs) {
   sprintf("%d B", as.integer(b))
 }
 
-report_input_file_lines <- function(manifest, name_width = 46L) {
+report_input_file_lines <- function(manifest, name_width = 32L) {
   inp <- manifest$inputs
   if (is.null(inp) || length(inp) == 0)
     return(c("Input files:", "  (not recorded in this run's manifest)"))

@@ -928,8 +928,9 @@ write_pipeline_report <- function(config, app_dir = "shiny_app") {
         sprintf("  %-19s Feret Max >= %s um (all instruments)",
                 "", format(.report_min_size)),
         "",
-        "Alignment and matching upstream used ALL particles; the filter",
-        "affects only the figures and tables below.")
+        "Matching used the particles passing these quality cutoffs (all of",
+        "them for landmark alignment); the size filter affects only the",
+        "figures and tables below.")
 
       # Background images, resolved the same way the viewer resolves them.
       .man       <- tryCatch(load_run_manifest(config$output_dir),
