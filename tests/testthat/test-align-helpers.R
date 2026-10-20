@@ -70,3 +70,14 @@ test_that("a coarse pose found on centred clouds maps correctly in the original 
     expect_equal(got$y_transformed, want$y + pose$ty + rc[2], tolerance = 1e-9)
   }
 })
+
+test_that("pose_significance: a few anchors on a dense reference cannot fix a pose", {
+  set.seed(3)
+  rx <- runif(52, -6500, 6500); ry <- runif(52, -6500, 6500)
+  # Field sample A: 9 FTIR anchors, 4 pairs at 50 um -> not determined
+  expect_gt(pose_significance(4, 9, rx, ry, 50)$p, 0.01)
+  expect_equal(pose_significance(3, 5, rx, ry, 50)$p, 1)
+  # 20 of 26 anchors paired: far beyond any search artefact
+  expect_lt(pose_significance(20, 26, rx, ry, 50)$p, 1e-6)
+  expect_equal(pose_significance(2, 30, rx, ry, 50)$p, 1)   # two pairs fix any pose
+})

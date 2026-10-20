@@ -173,6 +173,28 @@ chance_partner_rate <- function(ref_x, ref_y, r) {
 }
 
 
+#' Is a coarse-search pose more than a search artefact? Two pairs fix a
+#' similarity pose, so only pairs beyond two are evidence; each source anchor
+#' finds a chance reference anchor within r with p (chance_partner_rate()),
+#' and a search over correspondence pairs tries about (n_src x n_ref)^2 x 2
+#' (mirror) poses (Bonferroni). Few anchors in a dense reference give p near
+#' 1: the data cannot fix the pose.
+#'
+#' @param n_pairs One-to-one anchor pairs of the chosen pose
+#' @param n_src Source anchors
+#' @param ref_x,ref_y Reference anchors (um)
+#' @param r Pair distance (um)
+#' @return list(p, expected = chance pairs per pose, n_pairs)
+pose_significance <- function(n_pairs, n_src, ref_x, ref_y, r) {
+  cr <- chance_partner_rate(ref_x, ref_y, r)
+  lam <- n_src * cr$p
+  extra <- n_pairs - 2
+  p <- if (!is.finite(lam) || n_pairs < 3) 1 else
+    min(1, (n_src * cr$n)^2 * 2 * stats::ppois(extra - 1, lam, lower.tail = FALSE))
+  list(p = p, expected = lam, n_pairs = n_pairs)
+}
+
+
 #' Which particles pass their instrument's agreement quality cutoff.
 #'
 #' The cutoff of the agreement scoring (.agreement_quality_cutoff(): FTIR AAU,

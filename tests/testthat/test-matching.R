@@ -27,21 +27,25 @@ test_that("Hungarian matching pairs coincident particles 1-to-1", {
   expect_setequal(res$matched$ftir_particle_id, c("S1", "S2", "S3", "S4"))
 })
 
-test_that("LDIR pairing uses the looser LDIR distance gate", {
-  # One pair separated by 65 um: outside the 50 um FTIR gate, inside the
-  # 75 um LDIR gate (config$match_dist_threshold_ldir_um).
+test_that("LDIR pairing uses its own distance gate", {
+  # One pair separated by 35 um: inside the 50 um FTIR gate, outside the
+  # 20 um LDIR gate (config$match_dist_threshold_ldir_um, ~3 sigma of the
+  # LDIR positional error).
   src <- data.frame(particle_id = "L1", x_aligned = 0, y_aligned = 0,
                     feret_max_um = 30, area_um2 = 900, major_um = 30, minor_um = 25,
                     stringsAsFactors = FALSE)
-  ref <- data.frame(particle_id = "R1", x_norm = 65, y_norm = 0,
+  ref <- data.frame(particle_id = "R1", x_norm = 35, y_norm = 0,
                     feret_max_um = 30, area_um2 = 900, major_um = 30, minor_um = 25,
                     stringsAsFactors = FALSE)
   cfg <- make_config()
   cfg$ldir_force_complete_match <- FALSE   # honour the distance gate
 
   ftir_res <- match_particles(src, ref, cfg, src_label = "ftir", ref_label = "raman")
-  expect_equal(ftir_res$match_stats$n_matched, 0L)
+  expect_equal(ftir_res$match_stats$n_matched, 1L)
 
+  ldir_res <- match_particles(src, ref, cfg, src_label = "ldir", ref_label = "raman")
+  expect_equal(ldir_res$match_stats$n_matched, 0L)
+  ref$x_norm <- 15
   ldir_res <- match_particles(src, ref, cfg, src_label = "ldir", ref_label = "raman")
   expect_equal(ldir_res$match_stats$n_matched, 1L)
 })
@@ -152,4 +156,18 @@ test_that("pairs whose sizes differ by more than match_max_size_ratio are not ma
   }
   cfg$match_max_size_ratio <- Inf
   expect_equal(suppressMessages(match_particles(src, ref, cfg))$match_stats$n_matched, 1L)
+})
+
+test_that("the positional error fit recovers sigma among chance neighbours", {
+  set.seed(5)
+  W <- 13000; n_ref <- 2400; n_true <- 100; s <- 7
+  rx <- runif(n_ref, 0, W); ry <- runif(n_ref, 0, W)
+  # 100 true partners offset by N(0, 7 um), 300 sources with no partner
+  sx <- c(rx[1:n_true] + rnorm(n_true, 0, s), runif(300, 0, W))
+  sy <- c(ry[1:n_true] + rnorm(n_true, 0, s), runif(300, 0, W))
+  pe <- .position_error(sx, sy, rx, ry, n_ref / W^2, 75)
+  expect_gt(pe$sigma, 5.5); expect_lt(pe$sigma, 8.5)
+  # No true partners: no peak, no sigma
+  pe0 <- .position_error(runif(400, 0, W), runif(400, 0, W), rx, ry, n_ref / W^2, 75)
+  expect_true(is.na(pe0$sigma) || pe0$sigma > 15)
 })

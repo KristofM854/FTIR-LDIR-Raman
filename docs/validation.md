@@ -68,9 +68,14 @@ Raman there are no such particles.
 Only particles that pass their instrument's quality cutoff are matched (FTIR
 AAU ≥ 0.70, Raman HQI ≥ 70, LDIR ≥ 0.85, the cutoffs of the agreement
 scoring) and whose Feret max is at least 20 µm, the common detection limit;
-a pair whose Feret max differ by more than 5× is not made. Matching is one-to-one (Hungarian) within a distance gate: 50 µm,
-75 µm for pairs involving LDIR (wider for large particles: 0.15 × major
-axis). The cost is the centre distance in µm plus unitless size
+a pair whose Feret max differ by more than 5× is not made. Matching is
+one-to-one (Hungarian) within a distance gate: 50 µm, 20 µm for LDIR against
+the reference (wider for large particles: 0.15 × major axis). The LDIR gate
+is ~3σ of the LDIR positional error, which every run fits to the
+nearest-neighbour distances (a true-pair peak with a 2-D normal error plus
+chance neighbours at the reference density): σ = 7.1 µm on dataset A and
+7.3 µm on field sample A. A pair of two aligned instruments (neither the
+reference) carries both alignment errors and takes the wider gate, 50 µm. The cost is the centre distance in µm plus unitless size
 and shape terms (0.3·|ln area ratio| + 0.3·|ln Feret ratio| + 0.1·relative
 aspect-ratio difference) that add less than 1.5 µm even for a tenfold size
 difference: **matching is effectively by distance**, with size and shape only
@@ -84,8 +89,10 @@ breaking near-ties. For the paper (Methods):
 > passing their instrument's quality threshold (FTIR AAU ≥ 0.70, Raman HQI
 > ≥ 70, LDIR ≥ 0.85) and at least 20 µm in Feret diameter were paired,
 > excluding pairs whose Feret diameters differed by more than a factor of 5, one-to-one with the Hungarian algorithm,
-> minimising the summed centre-to-centre distance within a 50 µm gate (75 µm
-> for pairs involving LDIR). Size and shape enter the cost only as small
+> minimising the summed centre-to-centre distance within a 50 µm gate (20 µm
+> for LDIR, about three times its positional error, σ ≈ 7 µm, fitted per
+> run). An alignment was used only when its anchor pairs exceeded what the
+> pose search finds by chance (p < 0.01). Size and shape enter the cost only as small
 > tie-breaking terms (< 1.5 µm equivalent), so pairing is by position, not by
 > identification. For each instrument pair, the number of pairs expected by
 > chance was estimated from the density of the reference particles within the
@@ -97,10 +104,10 @@ breaking near-ties. For the paper (Methods):
 |---|---|---|
 | FTIR (PerkinElmer)–Raman | 31 | 8.6 / 20.6 / 61.5 |
 | FTIR (Bruker)–Raman | 18 | 16.6 / 34.4 / 43.3 |
-| LDIR–Raman | 29 | 8.1 / 23.8 / 58.4 |
+| LDIR–Raman | 28 | 7.3 / 20.7 / 58.4 |
 | LDIR–FTIR (PerkinElmer) | 31 | 6.6 / 11.1 / 21.9 |
 | FTIR (Bruker)–FTIR (PerkinElmer) | 16 | 20.6 / 32.9 / 49.7 |
-| FTIR (Bruker)–LDIR | 18 | 20.7 / 53.1 / 70.3 |
+| FTIR (Bruker)–LDIR | 14 | 16.9 / 27.7 / 42.1 |
 
 (Maxima above the base gate are large particles: the gate widens to 0.15 ×
 their major axis.) Before the field-sample changes (gates 100 / 150 µm, all
@@ -109,7 +116,9 @@ particles matched) the three Raman pairs were 32 / 29 / 34 pairs with 32 / 21
 the tighter gate one scored pair per instrument. The 20 µm minimum and the
 5× size limit then removed two FTIR (Bruker)–Raman pairs and one LDIR–Raman
 pair (Raman partners of 6–7 µm; a Bruker particle sized 18 µm that the
-other instruments size 98–120 µm).
+other instruments size 98–120 µm). The 20 µm LDIR gate removed one more
+LDIR–Raman pair (28 at every gate from 15 to 40 µm); FTIR (Bruker)–LDIR,
+now at 50 µm instead of 75 µm, has 14.
 
 **How many of these could be chance?** The aligned source cloud is displaced
 so that true correspondences are destroyed while density and overlap are kept,
@@ -122,7 +131,7 @@ n·(1 − e^(−ρπr²)).
 |---|---|---|---|
 | FTIR (PerkinElmer)–Raman, 50 µm | 31 | 0.5 / 0.4 / 0.5 | ≤ 2% |
 | FTIR (Bruker)–Raman, 50 µm | 18 | 0.3 / 0.3 / 0.4 | ≤ 2% |
-| LDIR–Raman, 75 µm | 29 | 1.0 / 0.8 / 1.0 | ≤ 4% |
+| LDIR–Raman, 20 µm | 28 | 0.2 / 0.2 / 0.1 | ≤ 1% |
 
 The chance share is the largest null estimate over the observed count: an
 upper bound on the fraction of pairs that a random arrangement would also
@@ -143,8 +152,8 @@ particle matched to Raman, the LDIR table's size and family are compared with
 the Raman partner's, against the same with the LDIR rows randomly re-assigned
 (1000 permutations).
 
-Dataset A (29 pairs): size Spearman **0.97** (random join 0.01, 95th
-percentile 0.29; p < 0.001; 0.79 with 30 pairs before the 5× size limit
+Dataset A (28 pairs): size Spearman **0.97** (random join 0.00, 95th
+percentile 0.31; p < 0.001; 0.79 with 30 pairs before the 5× size limit
 removed a 318 µm LDIR particle paired with a 6 µm Raman one). The family statistic is not informative here
 (100% vs 91% for a random join — the sample is almost all PET). The size
 statistic is biased upward because the matcher slightly prefers similar sizes;
@@ -164,9 +173,9 @@ Primary = family agreement, secondary = exact polymer.
 |---|---|---|---|---|
 | FTIR (PerkinElmer)–Raman | 31 | 0 | 31 | 31 / 0 / 0 / 0 / 0 |
 | FTIR (Bruker)–Raman | 18 | 0 (16 FTIR particles below 0.70 not matched) | 18 | 18 / 0 / 0 / 0 / 0 |
-| LDIR–Raman | 29 | 0 (8 LDIR particles below 0.85 not matched) | 29 | 29 / 0 / 0 / 0 / 0 |
+| LDIR–Raman | 28 | 0 (8 LDIR particles below 0.85 not matched) | 28 | 28 / 0 / 0 / 0 / 0 |
 
-Triplets (Raman particles matched by FTIR PerkinElmer and LDIR): 29, all
+Triplets (Raman particles matched by FTIR PerkinElmer and LDIR): 28, all
 full agreement.
 
 These rates say little about the method's discrimination: dataset A is one
@@ -193,9 +202,24 @@ pairs, of which 345 (60%) wrong -- the LDIR particles whose true partner is
 below HQI 70 pair with another particle -- and the run's chance estimate said
 61%. Wrong pairs sit at a median 50 µm, true ones at 8 µm: within 25 µm 9%
 of the pairs are wrong, within 15 µm 2%. On field samples the LDIR gate
-therefore has to follow the positional accuracy actually achieved (dataset A
-LDIR: median 8.5 µm, p90 31 µm); the chance estimate says per run whether
-the pairs can be interpreted.
+therefore has to follow the positional accuracy actually achieved; the
+chance estimate says per run whether the pairs can be interpreted.
+
+Field sample A (Faanui SW1L R4 A; 12 513 Raman particles, 2 387 with
+HQI ≥ 70; LDIR 1 409, 463 with quality ≥ 0.85). LDIR landmarks: 26 pairs
+against 0.9 expected by chance (p = 2e-28); ICP residual 10.5 µm. At the
+75 µm gate 170 LDIR–Raman pairs: 68 within 10 µm, 92 within 15 µm, then a
+flat tail. The positional-error fit gives σ = 7.3 µm and ~100 true pairs;
+expected share of wrong pairs 41% at 75 µm, 23% at 50 µm, 5% at 20 µm, 3% at
+15 µm. Hence the 20 µm LDIR gate. Within 15 µm the sizes agree (Spearman
+0.56, tail 0.28) but the identities do not: LDIR says cellulose / natural
+polyamide / chitin, Raman (HQI 70–98) tin(II) chloride, p-diaminobenzene,
+rutin and similar -- a question for the libraries, not the matching.
+Both FTIR exports had been filtered to plastics in the instrument software
+(15 and 5 particles in a 3.5 mm patch); against 2 387 Raman particles that
+cannot fix a pose (PerkinElmer came out mirrored, the two Bruker searches
+disagreed by 140°), and the pose check now reports such an alignment as not
+determined.
 
 ## 6. Images
 
@@ -222,8 +246,8 @@ session, package versions, input files (with MD5) and git commit
 ## Known limitations
 
 - **One real lab dataset**, essentially single-polymer; field samples are
-  dense, and on them the LDIR gate must be matched to the positional accuracy
-  achieved (see Field samples); each run reports its chance-pair share.
+  dense; each run reports its chance-pair share and positional error σ, and
+  warns when the gate is well below 3σ.
 - **LDIR scan circle**: the detector overestimates the circle radius (~12% on
   a synthetic disk) and only works when the circle covers < 20% of the
   image; the radius sets µm/px on optical LDIR images. Dataset A uses the

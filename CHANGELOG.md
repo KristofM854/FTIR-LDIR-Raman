@@ -65,11 +65,30 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   Dataset A: transforms unchanged; pairs 32/29/34 -> 31/20/30 (FTIR PE,
   FTIR Bruker, LDIR with Raman), scored pairs 32/21/31 -> 31/20/30, 100%
   agreement; chance share 2-5%.
-- Landmarks need 5 one-to-one pairs (was 8) besides the chance test: 8 rejected
-  7 pairs at p = 2e-13 on a reference filter (Tier 2 then found the same pose).
+- Landmarks need 5 one-to-one pairs (was 8) and the chance test (p < 1e-8);
+  the share of landmarks that pair (>= 50%) no longer suffices on its own: 5
+  of 6 random landmarks on a dense reference pair (p = 0.02). 8 had rejected
+  7 pairs at p = 2e-13 on a reference filter.
+- **(results)** LDIR gate 20 um (was 75): ~3 sigma of the LDIR positional
+  error, which every run now fits and logs (sigma 7.1 um dataset A, 7.3 um
+  field sample A; `position_error_window_um`, `chance_pairs.csv`, report).
+  On field sample A the 75 um gate gave ~41% wrong pairs, 20 um ~5%. Pairs of
+  two aligned instruments take the wider gate (50 um). Dataset A: LDIR-Raman
+  29 -> 28, FTIR (Bruker)-LDIR 18 -> 14, triplets 29 -> 28.
+- A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
+  anchors pair within the gate than the pose search finds by chance
+  (`align_determined_p` 0.01); its pairs are written but not scored, pairs
+  through it (LDIR-FTIR, triplets, Bruker-PerkinElmer) are skipped, and the
+  report says so. Field sample A: both FTIR exports (pre-filtered to 15 and
+  5 plastics) cannot fix a pose.
 - The LDIR "tiled/repeated" image warning compares the quadrants' detail
   (correlation after removing smooth shading) instead of their mean and SD,
   which matched on every evenly lit filter image and warned on every run.
+- Viewer: material filters have "plastics" (synthetic + semi-synthetic, as
+  in the Summary tab) and "synthetic" quick selections; the boxes no longer
+  appear unticked on load; no Raman image-scale warning when the image is
+  placed from the scan's own WITec placement file (the particle-area estimate
+  reads ~3x too coarse on a downsized field-sample image).
 - The WITec placement file is also found by its content (any .txt next to
   the image with Width, Height, X, Y; of several, the one that puts the most
   particles on the image).

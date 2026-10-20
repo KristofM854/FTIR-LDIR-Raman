@@ -462,7 +462,6 @@ make_config <- function(ftir_path  = NULL,
     landmark_adaptive_size      = TRUE,
     landmark_target_count       = 12,
     landmark_min_size_floor_um  = 30,
-    landmark_confidence_min_inlier_ratio = 0.5,
     landmark_confidence_max_residual_um  = 50,
     # Landmarks are trusted (Tier 2 skipped) only with at least this many
     # one-to-one landmark pairs; otherwise Tier 2 runs as well. A floor for a
@@ -470,11 +469,13 @@ make_config <- function(ftir_path  = NULL,
     # mirrored or rotated pose); above it the chance test below decides. Was 8,
     # which rejected 7 pairs at p = 2e-13 on a reference filter.
     landmark_min_pairs                   = 5,
-    # ... and either >= landmark_confidence_min_inlier_ratio of the landmarks
-    # pair, or the one-to-one pairs are far above chance at the landmark
+    # ... and the one-to-one pairs must be far above chance at the landmark
     # density (Poisson upper tail below this p; strict because the pose is the
-    # best of ~40 000 hypotheses). Dense field samples: each instrument finds
-    # many landmarks the other does not, so the ratio alone rejects good poses.
+    # best of ~40 000 hypotheses). The share of landmarks that pair is not
+    # used: on dense field samples each instrument finds many landmarks the
+    # other does not (good poses pair < 50%), and a handful of landmarks
+    # against a dense reference pair well at random. Known poses: dataset A
+    # p <= 4e-22, PC reference filter 2e-13.
     landmark_significance_p              = 1e-8,
     landmark_skip_full_ransac  = TRUE,
 
@@ -533,13 +534,23 @@ make_config <- function(ftir_path  = NULL,
     # 13 mm filter, 43% of particles have a chance partner within 100 um,
     # 13% within 50 um.
     match_dist_threshold_um    = 50,
-    # Dedicated gate for any pairing that involves LDIR (coarser,
-    # image-derived centroids). Dataset A (all four instruments): LDIR<->Raman
-    # match distances median 8.5, p90 41, max 113 um; at the former 250 um gate
-    # 8.5-13 of 34 matches were expected by chance alone. Measure headroom for
-    # a given run with tools/diagnose_matching.R.
+    # Dedicated gate for any pairing that involves LDIR. The positional error
+    # of LDIR against Raman, fitted per run (position_error_window_um), was
+    # sigma = 7.1 um on dataset A and 7.3 um on a field sample (Faanui SW1L
+    # R4 A); 20 um is ~3 sigma, which holds ~99% of true pairs. On the field
+    # sample the former 75 um gate let in ~41% chance pairs, 20 um ~5%.
+    # Large particles still widen it (match_adaptive_dist_factor).
     # NULL = fall back to match_dist_threshold_um.
-    match_dist_threshold_ldir_um = 75,
+    match_dist_threshold_ldir_um = 20,
+    # Window (um) of nearest-neighbour distances from which every pair's
+    # positional error sigma is fitted and logged (a WARN when 3 sigma exceeds
+    # 1.5x the gate). NULL = no fit.
+    position_error_window_um   = 75,
+    # A Tier 2 (anchor) pose counts as determined only when its anchor pairs
+    # exceed what the pose search finds by chance (pose_significance(),
+    # p below this). Otherwise its pairs are not scored and pairs through
+    # that instrument are skipped.
+    align_determined_p         = 0.01,
     match_adaptive_dist_factor = 0.15,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",

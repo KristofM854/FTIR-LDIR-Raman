@@ -122,7 +122,9 @@ test_that("matching quality table: one row per pair from the run's files", {
   dir.create(file.path(run, "06_agreement"))
   utils::write.csv(data.frame(pair = c("ldir_raman", "ftir_bruker_ftir_perkin"), n_matched = c(4, 2),
                               gate_um = c(75, 50), p_chance_partner = 0.05,
-                              chance_pairs_expected = c(1, 0.1), chance_share = c(0.25, 0.05)),
+                              chance_pairs_expected = c(1, 0.1), chance_share = c(0.25, 0.05),
+                              alignment_determined = c(TRUE, FALSE),
+                              position_sigma_um = c(7.3, NA)),
                    file.path(run, "07_diagnostics", "chance_pairs.csv"), row.names = FALSE)
   utils::write.csv(data.frame(match_distance = c(2, 4, 6, 8)),
                    file.path(run, "05_matches", "matched_ldir_raman.csv"), row.names = FALSE)
@@ -137,6 +139,8 @@ test_that("matching quality table: one row per pair from the run's files", {
   expect_equal(t$Scored[1], "4")
   expect_equal(t[["Family agreement"]][1], "67%")        # 2 of 3 resolved
   expect_equal(t$Scored[2], "\u2013")                  # no agreement table
+  expect_equal(t[["Position error sigma (um)"]], c("7.3", "\u2013"))
+  expect_equal(t[["Family agreement"]][2], "not determined")
   expect_equal(nrow(env$report_matching_table(withr::local_tempdir())), 0)
 })
 

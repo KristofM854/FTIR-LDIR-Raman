@@ -101,12 +101,12 @@ test_that("match_aligned_pair matches two aligned tables, NULL when one is missi
   b <- a; b$particle_id <- c("b1", "b2"); b$x_aligned <- b$x_aligned + 3
   m <- suppressMessages(match_aligned_pair(a, b, make_config(), "ftir_bruker", "ftir_perkin"))
   expect_equal(m$match_stats$n_matched, 2)
-  # LDIR on the reference side also gets the LDIR gate (75 um): 65 um apart
+  # 65 um apart: outside the gate, with or without LDIR (the wider of the
+  # LDIR and base gates, 50 um)
   b$x_aligned <- a$x_aligned + 65
-  expect_equal(suppressMessages(match_aligned_pair(a, b, make_config(), "ftir_bruker",
-                                                   "ftir_perkin"))$match_stats$n_matched, 0)
-  expect_equal(suppressMessages(match_aligned_pair(a, b, make_config(), "ftir_bruker",
-                                                   "ldir"))$match_stats$n_matched, 2)
+  for (other in c("ftir_perkin", "ldir"))
+    expect_equal(suppressMessages(match_aligned_pair(a, b, make_config(), "ftir_bruker",
+                                                     other))$match_stats$n_matched, 0)
   expect_null(match_aligned_pair(a, NULL, make_config(), "ftir_bruker", "ldir"))
   expect_null(match_aligned_pair(a, a[0, ], make_config(), "ftir_bruker", "ldir"))
 })
@@ -193,4 +193,36 @@ test_that("composite matches never share a reference fragment", {
   ids <- unlist(strsplit(cm$ref_ids, ";"))
   expect_false(anyDuplicated(ids) > 0)
   expect_equal(cm$src_particle_id[1], "S_big")       # source order kept
+})
+
+test_that("a pair of two aligned instruments uses the wider of the LDIR and base gates", {
+  a <- data.frame(particle_id = "a", x_aligned = 0, y_aligned = 0, feret_max_um = 50,
+                  area_um2 = 2000, major_um = 50, minor_um = 40, quality = 1)
+  b <- transform(a, particle_id = "b", x_aligned = 35)
+  cfg <- make_config()
+  m <- suppressMessages(match_aligned_pair(a, b, cfg, "ftir_bruker", "ldir"))
+  expect_equal(m$match_stats$n_matched, 1L)          # 35 um: within 50, not 20
+  b$x_norm <- 35; b$y_norm <- 0
+  m2 <- suppressMessages(match_particles(a, b, cfg, src_label = "ldir", ref_label = "raman"))
+  expect_equal(m2$match_stats$n_matched, 0L)         # LDIR -> reference: 20 um
+})
+
+test_that("a pose that a few particles cannot fix is 'not determined' and not scored", {
+  p <- .synthetic_pair()
+  res <- suppressMessages(align_and_match(p$ftir, suppressMessages(
+    prepare_raman_reference(p$raman, .cfg())), .cfg(), "FTIR (test)"))
+  expect_true(res$alignment_determined)
+  # Field sample A: a short FTIR list (plastics only, small patch) against a
+  # dense reference. Six particles with no counterpart.
+  set.seed(9)
+  dense <- p$raman[rep(seq_len(nrow(p$raman)), 10), ]
+  dense$particle_id <- paste0("R", seq_len(nrow(dense)))
+  dense$x_um <- runif(nrow(dense), 0, 4000); dense$y_um <- runif(nrow(dense), 0, 4000)
+  few <- p$ftir[1:6, ]
+  few$x_um <- runif(6, 0, 800); few$y_um <- runif(6, 0, 800)
+  ref <- suppressMessages(prepare_raman_reference(dense, .cfg()))
+  res <- suppressMessages(align_and_match(few, ref, .cfg(), "FTIR (test)"))
+  expect_false(res$alignment_determined)
+  expect_gt(res$pose_p, 0.01)
+  expect_equal(nrow(res$agreement$pairwise %||% data.frame()), 0)
 })

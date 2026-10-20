@@ -458,10 +458,10 @@ RUN_DATA_TABLES <- c(
 # and the hover/tables perfectly consistent -- the image agrees with the table.
 
 # Return the LDIR<->Raman acceptance gate (um) for a run. Read from the run
-# manifest's config snapshot; falls back to the pipeline default (250 um) for
+# manifest's config snapshot; falls back to the pipeline default (20 um) for
 # runs whose manifest predates the gate being recorded.
 ldir_acceptance_gate <- function(run_dir) {
-  default_gate <- 150   # make_config() match_dist_threshold_ldir_um
+  default_gate <- 20    # make_config() match_dist_threshold_ldir_um
   if (is.null(run_dir) || !nzchar(run_dir)) return(default_gate)
   man <- tryCatch(load_run_manifest(run_dir), error = function(e) NULL)
   cs  <- if (!is.null(man)) man$config_snapshot else NULL
@@ -483,8 +483,9 @@ annotate_ldir_gate <- function(data, run_dir) {
   if (is.null(m) || nrow(m) == 0) return(data)
   gate <- ldir_acceptance_gate(run_dir)
   data$ldir_match_gate_um <- gate
+  data$ldir_adaptive_factor <- .ldir_adaptive_factor(run_dir)
   if ("match_distance" %in% names(m)) {
-    m$within_gate <- !is.na(m$match_distance) & m$match_distance <= gate
+    m$within_gate <- .ldir_within_gate(m, gate, data$ldir_adaptive_factor)
   } else {
     # Legacy CSVs without a per-pair distance: preserve prior behaviour
     # (treat all forced pairs as matched) rather than silently dropping them.
@@ -504,10 +505,27 @@ regate_ldir <- function(data, gate) {
   if (is.null(gate) || !is.finite(gate) || gate <= 0) return(data)
   data$ldir_match_gate_um <- gate
   if ("match_distance" %in% names(m)) {
-    m$within_gate <- !is.na(m$match_distance) & m$match_distance <= gate
+    m$within_gate <- .ldir_within_gate(m, gate, data$ldir_adaptive_factor %||% 0.15)
     data$ldir_raman_matched <- m
   }
   data
+}
+
+# The matcher widens the gate for large particles to adaptive_factor x the
+# LDIR particle's major axis (match_adaptive_dist_factor); a 428 um particle
+# matched at 58 um is within its gate although the base gate is 20 um.
+.ldir_within_gate <- function(m, gate, factor) {
+  major <- if ("ldir_major_um" %in% names(m)) suppressWarnings(as.numeric(m$ldir_major_um))
+           else rep(NA_real_, nrow(m))
+  g <- pmax(gate, factor * ifelse(is.na(major), 0, major))
+  !is.na(m$match_distance) & m$match_distance <= g
+}
+
+.ldir_adaptive_factor <- function(run_dir) {
+  man <- if (!is.null(run_dir) && nzchar(run_dir))
+    tryCatch(load_run_manifest(run_dir), error = function(e) NULL)
+  f <- suppressWarnings(as.numeric(unlist(man$config_snapshot$match_adaptive_dist_factor)))
+  if (length(f) && is.finite(f[1]) && f[1] >= 0) f[1] else 0.15
 }
 
 # Subset of an ldir_raman_matched frame that are genuine (within-gate) matches.
@@ -1827,8 +1845,12 @@ report_matching_table <- function(run_dir) {
       res <- t[t != "Unresolved"]
       fam <- if (length(res)) paste0(round(100 * mean(res %in% c("Exact", "Family"))), "%") else "\u2013"
     }
+    undetermined <- isFALSE(as.logical(ch$alignment_determined[i] %||% TRUE))
+    if (undetermined) fam <- "not determined"
+    sig <- ch$position_sigma_um[i] %||% NA
     data.frame(
       pair = pair_name(stem), gate = ch$gate_um[i], n = ch$n_matched[i],
+      sigma = if (is.na(sig)) "\u2013" else sprintf("%.1f", sig),
       dist = if (length(d))
         sprintf("%.1f / %.1f", stats::median(d), stats::quantile(d, 0.9)) else "\u2013",
       chance = sprintf("%.1f (%s)", ch$chance_pairs_expected[i],
@@ -1839,7 +1861,8 @@ report_matching_table <- function(run_dir) {
       stringsAsFactors = FALSE)
   })
   out <- do.call(rbind, rows)
-  names(out) <- c("Pair", "Gate (um)", "Pairs", "Distance median / p90 (um)",
+  names(out) <- c("Pair", "Gate (um)", "Pairs", "Position error sigma (um)",
+                  "Distance median / p90 (um)",
                   "By chance", "Scored", "Family agreement")
   out
 }
@@ -2897,8 +2920,10 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
       paste0("Pairs found within the distance gate (particles passing their quality ",
              "cutoff only). By chance: pairs a random arrangement of the particles would ",
              "also give, from the reference density within the gate, and their share of ",
-             "the pairs; above ~20% the pairs cannot be told from chance. Family agreement: ",
-             "over the scored, resolved pairs."))))
+             "the pairs; above ~20% the pairs cannot be told from chance. Position error: ",
+             "sigma fitted to the nearest-neighbour distances (true pairs lie within ~3 sigma). ",
+             "Family agreement: over the scored, resolved pairs; 'not determined' when too few ",
+             "anchors fixed the alignment (pairs not scored)."))))
 
   # --- 6-9. Per-instrument views over the instrument image ------------------
   # Native instrument frame (x_orig/y_orig), as each viewer tab shows it.

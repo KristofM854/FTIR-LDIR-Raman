@@ -209,8 +209,10 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
   log_message("  Landmark pairs expected by chance: ", round(lam, 2),
               " (observed ", n_one_to_one, ", p = ", signif(p_chance, 2), ")")
 
-  # Confidence check: enough of the landmarks pair, or far more than chance
-  confident <- (inlier_ratio >= config$landmark_confidence_min_inlier_ratio || significant) &&
+  # Confidence check: far more pairs than chance. The share of landmarks that
+  # pair is no evidence on its own: with few landmarks against a dense
+  # reference, 5 of 6 random landmarks pair (p = 0.02 in a test).
+  confident <- significant &&
     (!is.na(mean_residual) && mean_residual <= config$landmark_confidence_max_residual_um) &&
     (n_inliers >= config$landmark_min_count) &&
     (n_one_to_one >= min_pairs)
@@ -219,9 +221,9 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
     log_message("  >>> Landmark alignment CONFIDENT — Tier 1 succeeded!")
   } else {
     reasons <- character()
-    if (inlier_ratio < config$landmark_confidence_min_inlier_ratio && !significant)
-      reasons <- c(reasons, paste0("inlier ratio too low (",
-                                   round(inlier_ratio * 100, 1), "%)"))
+    if (!significant)
+      reasons <- c(reasons, paste0("pairs not far enough above chance (p = ",
+                                   signif(p_chance, 2), ")"))
     if (!is.na(mean_residual) && mean_residual > config$landmark_confidence_max_residual_um)
       reasons <- c(reasons, paste0("mean residual too high (",
                                    round(mean_residual, 1), " µm)"))

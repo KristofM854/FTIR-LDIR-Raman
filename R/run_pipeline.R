@@ -475,7 +475,10 @@ run_pipeline <- function(config, report = TRUE) {
   # ---------------------------------------------------------------------------
 
   bruker_pair <- .ftir_type_pair("ftir_bruker")
-  bruker_aligned <- if (.usable(bruker_pair)) bruker_pair$aligned
+  # Pairs through an instrument whose alignment is not determined (too few
+  # anchors to fix its pose) are skipped: they would be chance pairs.
+  .determined <- function(pair) .usable(pair) && !isFALSE(pair$alignment_determined)
+  bruker_aligned <- if (.determined(bruker_pair)) bruker_pair$aligned
 
   # The pair the TPS check, composites and the main diagnostics are run on
   .main_ftir_pair <- if (.usable(ftir_pair)) ftir_pair else if (.usable(bruker_pair)) bruker_pair
@@ -534,7 +537,11 @@ run_pipeline <- function(config, report = TRUE) {
 
   ldir_results <- NULL
   if (has_ldir && !is.null(ldir_raw)) {
-    .ldir_stage <- run_ldir_stage(ldir_raw, ref, ftir_pair, config, .out_dirs)
+    if (.usable(ftir_pair) && !.determined(ftir_pair))
+      log_message("LDIR \u2194 FTIR (PerkinElmer) and triplets skipped: the FTIR ",
+                  "(PerkinElmer) alignment is not determined", level = "WARN")
+    .ldir_stage <- run_ldir_stage(ldir_raw, ref, if (.determined(ftir_pair)) ftir_pair,
+                                  config, .out_dirs)
     ldir_results <- .ldir_stage$results
     .image_objects$ldir <- .ldir_stage$image
   }
@@ -547,7 +554,8 @@ run_pipeline <- function(config, report = TRUE) {
   # matched directly. Perkin<->LDIR (Raman reference) is matched in the LDIR
   # stage. A pair whose side is the reference is its source -> reference
   # match, so it is not repeated here.
-  bruker_perkin_match <- match_aligned_pair(bruker_aligned, ftir_pair$aligned, config,
+  bruker_perkin_match <- match_aligned_pair(bruker_aligned,
+                                            if (.determined(ftir_pair)) ftir_pair$aligned, config,
                                             "ftir_bruker", "ftir_perkin")
   if (!is.null(bruker_perkin_match))
     log_message("FTIR (Bruker) <-> FTIR (PerkinElmer): ",
@@ -563,7 +571,8 @@ run_pipeline <- function(config, report = TRUE) {
   for (p in list(ftir_pair, bruker_pair)) if (.usable(p))
     pairs[[p$labels$stem]] <- list(src = p$aligned, match = p$match, icp = p$icp,
                                    method = p$method, landmark = p$landmark,
-                                   ransac = p$ransac, labels = p$labels)
+                                   ransac = p$ransac, labels = p$labels,
+                                   determined = !isFALSE(p$alignment_determined))
   if (.ldir_usable)
     pairs[[ldir_results$labels$stem]] <- list(
       src = ldir_results$ldir_aligned, match = ldir_results$ldir_ref_match,
@@ -708,11 +717,13 @@ run_pipeline <- function(config, report = TRUE) {
   if (length(.all_matches)) {
     .chance <- do.call(rbind, lapply(names(.all_matches), function(nm) {
       ms <- .all_matches[[nm]]$match_stats
-      data.frame(pair = nm, n_matched = ms$n_matched,
+      data.frame(pair = nm, alignment_determined = !isFALSE(pairs[[nm]]$determined),
+                 n_matched = ms$n_matched,
                  gate_um = ms$chance_gate_um %||% NA,
                  p_chance_partner = round(ms$chance_p_partner %||% NA, 4),
                  chance_pairs_expected = round(ms$chance_expected %||% NA, 1),
-                 chance_share = round(ms$chance_share %||% NA, 3))
+                 chance_share = round(ms$chance_share %||% NA, 3),
+                 position_sigma_um = round(ms$position_sigma_um %||% NA, 1))
     }))
     write.csv(.chance, file.path(.export_dirs$diagnostics, "chance_pairs.csv"), row.names = FALSE)
     log_message("  Wrote chance_pairs.csv")
