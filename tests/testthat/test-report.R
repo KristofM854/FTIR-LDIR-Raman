@@ -134,14 +134,33 @@ test_that("matching quality table: one row per pair from the run's files", {
   t <- env$report_matching_table(run)
   expect_equal(nrow(t), 2)
   expect_equal(t$Pair, c("LDIR \u2013 Raman", "FTIR (Bruker) \u2013 FTIR (PE)"))
-  expect_equal(t[["Distance median / p90 (um)"]][1], "5.0 / 7.4")
+  expect_equal(t[["Dist. med / p90"]][1], "5.0 / 7.4")
   expect_equal(t[["By chance"]][1], "1.0 (25%)")
   expect_equal(t$Scored[1], "4")
-  expect_equal(t[["Family agreement"]][1], "67%")        # 2 of 3 resolved
+  expect_equal(t[["Family agr. (95% CI)"]][1], "67% (21-94%)")   # 2 of 3 resolved
   expect_equal(t$Scored[2], "\u2013")                  # no agreement table
-  expect_equal(t[["Position error sigma (um)"]], c("7.3", "\u2013"))
-  expect_equal(t[["Family agreement"]][2], "not determined")
+  expect_equal(t[["Sigma (um)"]], c("7.3", "\u2013"))
+  expect_equal(t[["Family agr. (95% CI)"]][2], "not determined")
+  expect_equal(t[["Family agr., p_true>=0.9"]][1], "-")  # no p_true column
   expect_equal(nrow(env$report_matching_table(withr::local_tempdir())), 0)
+})
+
+test_that("detection table: one row per direction, a cell per size class", {
+  env <- .load_report_helpers()
+  run <- withr::local_tempdir()
+  dir.create(file.path(run, "07_diagnostics"))
+  d <- expand.grid(size_class = c("20-50", "all sizes"), group = c("all", "plastics"),
+                   stringsAsFactors = FALSE)
+  d <- rbind(cbind(found_by = "ldir", of = "raman", d), cbind(found_by = "raman", of = "ldir", d))
+  d$n_base <- 10; d$n_found <- c(5, 8, 5, 8, 10, 10, 10, 10)
+  d$rate_pct <- 100 * d$n_found / d$n_base
+  utils::write.csv(d, file.path(run, "07_diagnostics", "detection_rates.csv"), row.names = FALSE)
+  t <- env$report_detection_table(run, "all")
+  expect_equal(t$Direction, c("LDIR finds Raman", "Raman finds LDIR"))
+  expect_equal(t[["20-50 um"]][1], "50% (24-76%) n=10")
+  expect_equal(t[["all sizes"]][2], "100% (72-100%) n=10")
+  expect_equal(length(env$report_detection_pages(run)), 2)
+  expect_equal(nrow(env$report_detection_table(withr::local_tempdir())), 0)
 })
 
 # ---- page builders ----------------------------------------------------------

@@ -143,6 +143,18 @@ re-estimated for denser samples -- every run now does (see Field samples).
 every gate); FTIR (Bruker) 14–21 (78% kept at half the gate: its pairs sit
 further apart, median 16.6 µm).
 
+**Pair confidence and detection rates.** The positional-error fit also gives
+each pair its probability of being the true partner (`p_true`): the 2-D
+normal density at the pair's distance against the chance nearest-neighbour
+density at the reference density, weighted by the fitted share of true pairs.
+On the synthetic field sample (`test-pipeline-field.R`) the expected number of
+wrong pairs, Σ(1 − p_true), was 2.5 against 2 actual. Detection rates
+(`07_diagnostics/detection_rates.csv`) give, per instrument pair and
+direction, the share of one instrument's particles that the other also found,
+by size class, with Wilson 95% intervals; dataset A, all sizes: LDIR finds
+78% (62–88%) of the Raman particles in its area, Raman 90% (75–97%) of the
+LDIR particles.
+
 ## 3. LDIR image join
 
 LDIR exports no coordinates; the pipeline finds the particles in the LDIR

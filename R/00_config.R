@@ -523,6 +523,10 @@ make_config <- function(ftir_path  = NULL,
     # The share of pairs expected by chance (reference density within the
     # gate) is logged per pair; above this it is a WARN.
     chance_share_warn          = 0.2,
+    # Every pair gets p_true, its probability of being the true partner (from
+    # the positional-error fit); agreement is also reported over the pairs at
+    # or above this.
+    pair_confidence_high       = 0.9,
     # Pairs whose Feret max differ by more than this factor are not considered
     # (instruments size a particle somewhat differently; 5x allows for that).
     # Inf = no limit.

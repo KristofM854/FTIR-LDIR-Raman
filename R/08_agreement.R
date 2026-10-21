@@ -47,7 +47,14 @@
   pct <- function(n, d) if (d > 0) round(n / d * 100, 1) else NA_real_
   n_exact <- sum(tier == "Exact"); n_family <- sum(tier == "Family")
   n_filler <- sum(tier == "Filler/pigment"); n_dis <- sum(tier == "Disagree")
+  ci_fam <- wilson_interval(n_exact + n_family, n_resolved)
+  ci_exa <- wilson_interval(n_exact, n_resolved)
   list(n_total = n_scored, n_resolved = n_resolved, n_unresolved = n_unres,
+       # 95% Wilson intervals of the primary and secondary rates (%)
+       family_ci_low_pct  = round(100 * ci_fam$low, 1),
+       family_ci_high_pct = round(100 * ci_fam$high, 1),
+       exact_ci_low_pct   = round(100 * ci_exa$low, 1),
+       exact_ci_high_pct  = round(100 * ci_exa$high, 1),
        n_exact = n_exact, n_family = n_family, n_filler = n_filler,
        n_disagree = n_dis,
        family_or_better_pct = pct(n_exact + n_family, n_resolved),  # PRIMARY
@@ -166,9 +173,10 @@ analyze_agreement <- function(match_result, config = NULL,
 
   log_message("  Agreement (n = ", rates$n_total, " scored, ", rates$n_unresolved,
               " unresolved, ", rates$n_resolved, " resolved):")
-  log_message("    Family agreement (primary): ", rates$family_or_better_pct, "%  ",
-              "[Exact ", rates$n_exact, " + Family ", rates$n_family, "]")
-  log_message("    Exact polymer (secondary):  ", rates$exact_pct, "%")
+  log_message("    Family agreement (primary): ",
+              format_rate_ci(rates$n_exact + rates$n_family, rates$n_resolved), "  ",
+              "[Exact ", rates$n_exact, " + Family ", rates$n_family, "; 95% interval]")
+  log_message("    Exact polymer (secondary):  ", format_rate_ci(rates$n_exact, rates$n_resolved))
   log_message("    Filler/pigment: ", rates$n_filler, " (", rates$filler_pct, "%), ",
               "Disagree: ", rates$n_disagree, " (", rates$disagree_pct, "%)")
   if (rates$n_unresolved > 0)
@@ -177,6 +185,22 @@ analyze_agreement <- function(match_result, config = NULL,
   if (rates$n_join_warning > 0)
     log_message("    ", rates$n_join_warning, " scored pairs use LDIR coordinates ",
                 "from a low-confidence image join (coord_join_warning)", level = "WARN")
+
+  # The same over the pairs that are very likely true partners (p_true from
+  # the positional-error fit, pair_confidence()): on a dense sample, chance
+  # pairs dilute the rate; this one is nearly free of them.
+  p_true <- matched_for_agree$p_true %||% rep(NA_real_, length(tier))
+  hc_min <- cfg_value(config %||% list(), "pair_confidence_high")
+  hc <- !is.na(p_true) & p_true >= hc_min
+  r_hc <- .tier_rates(tier[hc])
+  rates$high_conf_min <- hc_min
+  rates$high_conf_n_resolved <- if (any(!is.na(p_true))) r_hc$n_resolved else NA_integer_
+  rates$high_conf_family_pct <- r_hc$family_or_better_pct
+  rates$high_conf_family_ci_low_pct  <- r_hc$family_ci_low_pct
+  rates$high_conf_family_ci_high_pct <- r_hc$family_ci_high_pct
+  if (any(!is.na(p_true)))
+    log_message("    Pairs with p_true >= ", hc_min, ": ", r_hc$n_resolved, " resolved; ",
+                "family agreement ", format_rate_ci(r_hc$n_exact + r_hc$n_family, r_hc$n_resolved))
 
   # ---- Confusion matrices (exact polymer and family) ----
   conf_mat <- table(setNames(mat_a, NULL), setNames(mat_b, NULL))
@@ -236,6 +260,7 @@ analyze_agreement <- function(match_result, config = NULL,
     agree_exact        = tier == "Exact",
     coord_join_warning = join_warning,
     match_distance     = matched_for_agree$match_distance,
+    p_true             = p_true,
     stringsAsFactors = FALSE
   )
 

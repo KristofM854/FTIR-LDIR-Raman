@@ -91,6 +91,11 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
         checkboxInput(paste0(id_prefix, "_show_all_detected"),
                       "Show all detected (ignore match status)",
                       value = TRUE),
+        conditionalPanel(
+          condition = paste0("!input.", id_prefix, "_show_all_detected"),
+          checkboxInput(paste0(id_prefix, "_colour_confidence"),
+                        "Colour matched particles by pair confidence",
+                        value = FALSE)),
         checkboxInput(paste0(id_prefix, "_show_all_labels"),
                       "Number all particles",
                       value = FALSE),
@@ -302,6 +307,11 @@ ui <- fluidPage(
           checkboxInput("ldir_show_all_detected",
                         "Show all detected (ignore match status)",
                         value = TRUE),
+          conditionalPanel(
+            condition = "!input.ldir_show_all_detected",
+            checkboxInput("ldir_colour_confidence",
+                          "Colour matched particles by pair confidence",
+                          value = FALSE)),
           checkboxInput("ldir_show_all_labels",
                         "Number all particles",
                         value = FALSE),
@@ -681,6 +691,23 @@ ui <- fluidPage(
             hr(),
             h5("Size Statistics"),
             uiOutput("size_stats_table")
+          ),
+          hr(),
+          div(class = "info-box",
+            h4("Detection Rates by Size (whole run)"),
+            p(class = "text-muted",
+              "Of the particles one instrument found (passing its quality cutoff, ",
+              "≥ 20 µm, inside the area the other covered), the share the other ",
+              "instrument also found at the same place, by particle size. Bars: 95% interval. ",
+              "Not affected by the tab filters."),
+            fluidRow(
+              column(5, selectInput("summary_detection_pair", "Instrument pair",
+                                    choices = character(0))),
+              column(7, style = "padding-top: 25px;",
+                radioButtons("summary_detection_group", NULL,
+                             choices = c("All particles" = "all", "Plastics" = "plastics"),
+                             selected = "all", inline = TRUE))),
+            plotly::plotlyOutput("summary_detection_plot", height = "450px")
           )
         )
       )
@@ -1167,6 +1194,58 @@ server <- function(input, output, session) {
               input$summary_bar_display_mode, input$summary_bar_materials_mode,
               input$summary_bar_category_mode)
 
+  # Detection rates by size (07_diagnostics/detection_rates.csv of the run),
+  # one instrument pair at a time (both directions)
+  detection_data <- reactive({
+    d <- tryCatch(read_detection_rates(selected_run_dir()), error = function(e) data.frame())
+    if (nrow(d)) {
+      lab <- function(x) unname(ifelse(x %in% names(DETECTION_INSTRUMENT_LABEL),
+                                       DETECTION_INSTRUMENT_LABEL[x], x))
+      d$direction <- paste(lab(d$found_by), "finds", lab(d$of))
+      d$pair <- ifelse(d$found_by < d$of, paste(lab(d$found_by), "–", lab(d$of)),
+                       paste(lab(d$of), "–", lab(d$found_by)))
+    }
+    d
+  })
+  observeEvent(detection_data(), {
+    pairs <- unique(detection_data()$pair)
+    sel <- isolate(input$summary_detection_pair)
+    updateSelectInput(session, "summary_detection_pair", choices = pairs,
+                      selected = if (!is.null(sel) && sel %in% pairs) sel else pairs[1])
+  })
+  output$summary_detection_plot <- plotly::renderPlotly({
+    d <- detection_data()
+    validate(need(nrow(d) > 0,
+                  "No detection rates in this run (runs from before this version, or one instrument only)."))
+    d <- d[d$pair == (input$summary_detection_pair %||% d$pair[1]) &
+             d$group == (input$summary_detection_group %||% "all") &
+             d$size_class != "all sizes" & d$n_base > 0, , drop = FALSE]
+    validate(need(nrow(d) > 0, "No particles in this group."))
+    lv <- c("20-50", "50-100", "100-200", ">200")
+    d <- d[order(d$direction, match(d$size_class, lv)), ]
+    # Numeric x, the two directions offset so their interval bars do not overlap
+    d$xpos <- match(d$size_class, lv) + ifelse(d$direction == sort(unique(d$direction))[1],
+                                               -0.06, 0.06)
+    d$hover <- sprintf("%s<br>%s µm: %d of %d = %.0f%% (95%%: %.0f–%.0f%%)%s",
+                       d$direction, d$size_class, d$n_found, d$n_base, d$rate_pct,
+                       d$ci_low_pct, d$ci_high_pct,
+                       ifelse(is.na(d$rate_true_pct), "",
+                              sprintf("<br>chance-corrected %.0f%%", d$rate_true_pct)))
+    plotly::plot_ly(d, x = ~xpos, y = ~rate_pct, color = ~direction,
+                    colors = c("#1f77b4", "#d62728"),
+                    type = "scatter", mode = "lines+markers", text = ~hover,
+                    hoverinfo = "text",
+                    error_y = ~list(type = "data", symmetric = FALSE,
+                                    array = ci_high_pct - rate_pct,
+                                    arrayminus = rate_pct - ci_low_pct)) |>
+      plotly::layout(xaxis = list(title = "Feret max of the base particle (µm)",
+                                  tickvals = seq_along(lv), ticktext = lv,
+                                  range = c(0.5, length(lv) + 0.5)),
+                     yaxis = list(title = "Found by the other instrument (%)",
+                                  range = c(0, 105)),
+                     legend = list(orientation = "h", y = -0.25))
+  })
+
   # Static ggplot version of the barplot used exclusively by the PDF report
   # (report_figure_page expects a ggplot, not a plotly widget).
   summary_material_barplot_gg <- reactive({
@@ -1480,6 +1559,8 @@ server <- function(input, output, session) {
                "cutoff only), for the whole run. By chance: pairs a random arrangement ",
                "would also give, and their share of the pairs; above ~20% the pairs ",
                "cannot be told from chance."))))
+    pages <- c(pages, tryCatch(report_detection_pages(selected_run_dir()),
+                               error = function(e) list()))
 
     # --- 3. Instrument views ---------------------------------------------
     # Only instruments that actually have data get a page; the plot reactives
@@ -3389,7 +3470,8 @@ server <- function(input, output, session) {
                  plain         = isTRUE(input$ftir_show_all_detected),
                  show_labels   = isTRUE(input$ftir_show_all_labels),
                  label_size    = input$ftir_label_size %||% 3,
-                 true_size     = isTRUE(input$ftir_true_size))
+                 true_size     = isTRUE(input$ftir_true_size),
+                 colour_by_confidence = isTRUE(input$ftir_colour_confidence))
   })
 
   output$ftir_plot <- renderPlot(ftir_plot_obj()) |> bindCache(
@@ -3402,7 +3484,7 @@ server <- function(input, output, session) {
     input$ftir_view_rotation, input$ftir_view_flip_y,
     input$ftir_highlight_particle, single_highlight_ids$ftir,
     input$ftir_show_all_detected, input$ftir_show_all_labels, input$ftir_label_size, zoom$ftir,
-    input$ftir_true_size,
+    input$ftir_true_size, input$ftir_colour_confidence,
     img_key(ftir_native_image_info()), img_key(overlay_image_info())
   )
 
@@ -3500,7 +3582,8 @@ server <- function(input, output, session) {
                  plain = isTRUE(input$raman_show_all_detected),
                  show_labels = isTRUE(input$raman_show_all_labels),
                  label_size = input$raman_label_size %||% 3,
-                 subtitle = raman_scale_warning())
+                 subtitle = raman_scale_warning(),
+                 colour_by_confidence = isTRUE(input$raman_colour_confidence))
   })
 
   output$raman_plot <- renderPlot(raman_plot_obj()) |> bindCache(
@@ -3508,6 +3591,7 @@ server <- function(input, output, session) {
     raman_filtered(), raman_scale_warning(),
     input$raman_highlight_particle, single_highlight_ids$raman,
     input$raman_show_all_detected, input$raman_show_all_labels, input$raman_label_size, zoom$raman,
+    input$raman_colour_confidence,
     img_key(raman_native_image_info())
   )
 
@@ -3839,6 +3923,17 @@ server <- function(input, output, session) {
         p <- p + geom_point(data = df_disp,
                               aes(x = x, y = y, size = feret_max),
                               colour = "#1f77b4", alpha = 0.7)
+      } else if (isTRUE(input$ldir_colour_confidence) && "p_true" %in% names(df_disp) &&
+                 any(!is.na(df_disp$p_true))) {
+        um <- df_disp$match_status != "matched" | is.na(df_disp$p_true)
+        p <- p +
+          geom_point(data = df_disp[um, , drop = FALSE], aes(x = x, y = y, size = feret_max),
+                     colour = "grey60", alpha = 0.5) +
+          geom_point(data = df_disp[!um, , drop = FALSE],
+                     aes(x = x, y = y, colour = p_true, size = feret_max), alpha = 0.85) +
+          scale_colour_gradientn(colours = c("#d62728", "#ff7f0e", "#2ca02c"),
+                                 values = c(0, 0.5, 1), limits = c(0, 1),
+                                 name = "Pair confidence\n(p_true)")
       } else {
         p <- p + geom_point(data = df_disp,
                               aes(x = x, y = y, colour = match_status,
@@ -3916,7 +4011,8 @@ server <- function(input, output, session) {
     ldir_filtered(), ldir_extracted_pts(), ldir_view_tf(),
     input$ldir_bg_image, input$ldir_coord_mode, input$ldir_hide_unmatched,
     input$ldir_overlay_mode, input$ldir_show_raman_partners,
-    input$ldir_show_all_detected, input$ldir_show_all_labels, input$ldir_label_size,
+    input$ldir_show_all_detected, input$ldir_colour_confidence,
+    input$ldir_show_all_labels, input$ldir_label_size,
     input$ldir_highlight_particle,
     single_highlight_ids$ldir, zoom$ldir,
     img_key(ldir_native_image_info()), img_key(ldir_processed_image_info()),
@@ -4042,7 +4138,8 @@ server <- function(input, output, session) {
                  plain         = isTRUE(input$ftir_bruker_show_all_detected),
                  show_labels   = isTRUE(input$ftir_bruker_show_all_labels),
                  label_size    = input$ftir_bruker_label_size %||% 3,
-                 true_size     = isTRUE(input$ftir_bruker_true_size))
+                 true_size     = isTRUE(input$ftir_bruker_true_size),
+                 colour_by_confidence = isTRUE(input$ftir_bruker_colour_confidence))
   })
 
   output$ftir_bruker_plot <- renderPlot(ftir_bruker_plot_obj()) |> bindCache(
@@ -4051,7 +4148,7 @@ server <- function(input, output, session) {
     input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
     input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
     input$ftir_bruker_show_all_detected, input$ftir_bruker_show_all_labels, input$ftir_bruker_label_size,
-    input$ftir_bruker_true_size,
+    input$ftir_bruker_true_size, input$ftir_bruker_colour_confidence,
     zoom$ftir_bruker,
     img_key(ftir_bruker_native_image_info()), img_key(overlay_image_info())
   )

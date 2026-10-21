@@ -294,6 +294,8 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `06_agreement/agreement_by_material_<pair>.csv`, `agreement_by_category.csv`, `agreement_summary.csv` | Counts and rates per material / category |
 | `07_diagnostics/match_statistics.txt`, `triage_top_pairs.csv`, `tps_*` | Match statistics, pairs to review first, distortion check — for the run's main pair: FTIR (PerkinElmer), else FTIR (Bruker), else LDIR, with the reference |
 | `07_diagnostics/ldir_join_check.csv`, `ldir_join_pairs.csv` | LDIR join check |
+| `07_diagnostics/chance_pairs.csv` | Per pair: chance pairs expected, positional error sigma, whether the alignment is determined |
+| `07_diagnostics/detection_rates.csv` | Per pair and direction: share of one instrument's particles the other also found, by size class, with 95% intervals |
 | `07_diagnostics/plots/` | Overlays, confusion matrices, distance histogram, ICP convergence, residuals; `all_diagnostics.pdf` |
 | `inputs/` | The run's images (copied; downsized above `raman_image_max_px`), previews |
 | `particle_report.pdf`, `particle_report.html` | Report (same pages as the viewer's) |

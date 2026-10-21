@@ -81,3 +81,12 @@ test_that("pose_significance: a few anchors on a dense reference cannot fix a po
   expect_lt(pose_significance(20, 26, rx, ry, 50)$p, 1e-6)
   expect_equal(pose_significance(2, 30, rx, ry, 50)$p, 1)   # two pairs fix any pose
 })
+
+test_that("wilson_interval: inside 0-1, exact for 0% and 100%", {
+  ci <- wilson_interval(c(0, 5, 10), c(10, 10, 10))
+  expect_equal(ci$low[1], 0); expect_equal(ci$high[3], 1)
+  expect_equal(round(100 * ci$low[2]), 24); expect_equal(round(100 * ci$high[2]), 76)
+  expect_true(is.na(wilson_interval(0, 0)$low))
+  expect_equal(format_rate_ci(5, 10), "50% (24-76%)")
+  expect_equal(format_rate_ci(0, 0), "-")
+})
