@@ -490,4 +490,4 @@ listed in [docs/ai_assistance.md](docs/ai_assistance.md).
 
 ## License
 
-Released under the [MIT License](LICENSE) © 2026 Kristof Moeller.
+Code: [MIT License](LICENSE) © 2026 Kristof Moeller. Example data (`examples/dataset_A/`): [CC BY 4.0](examples/dataset_A/LICENSE).

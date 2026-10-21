@@ -23,3 +23,9 @@ results on both).
 Reference results (current code) are recorded in
 `tests/testthat/fixtures/dataset_A_fingerprint.csv`: matched pairs and their
 distances, transforms, and agreement tier counts.
+
+## Licence
+
+The data files in this folder are licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (see `LICENSE`);
+cite the repository when you use them. The code is under the MIT licence.
