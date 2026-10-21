@@ -727,6 +727,18 @@ run_pipeline <- function(config, report = TRUE) {
     }))
     write.csv(.chance, file.path(.export_dirs$diagnostics, "chance_pairs.csv"), row.names = FALSE)
     log_message("  Wrote chance_pairs.csv")
+
+    # Detection rates by size, every pair both ways (07_diagnostics/detection_rates.csv).
+    # Pairs through an alignment that is not determined are left out.
+    .det_matches <- lapply(.all_matches[vapply(names(.all_matches), function(nm)
+      !isFALSE(pairs[[nm]]$determined), logical(1))], function(x) x$matched)
+    .detection <- detection_rates(.aligned, .det_matches, config)
+    if (nrow(.detection)) {
+      write.csv(.detection, file.path(.export_dirs$diagnostics, "detection_rates.csv"),
+                row.names = FALSE)
+      log_message("  Wrote detection_rates.csv")
+      log_detection_rates(.detection)
+    }
   }
 
   # Export composite matches if found
@@ -790,7 +802,8 @@ run_pipeline <- function(config, report = TRUE) {
     ag <- p$agreement
     if (!is.null(ag$tiered_rates) && ag$tiered_rates$n_total > 0) {
       tr <- ag$tiered_rates
-      log_message("  Agreement:         Family ", tr$family_or_better_pct, "% (primary), Exact ",
+      log_message("  Agreement:         Family ", tr$family_or_better_pct, "% (primary; 95% ",
+                  tr$family_ci_low_pct, "-", tr$family_ci_high_pct, "%), Exact ",
                   tr$exact_pct, "%, Filler/pigment ", tr$filler_pct, "% of ", tr$n_resolved,
                   " resolved pairs; ", tr$n_unresolved, " unresolved")
     }
@@ -826,7 +839,8 @@ run_pipeline <- function(config, report = TRUE) {
         ldir_results$ldir_ref_agreement$tiered_rates$n_total > 0) {
       ltr <- ldir_results$ldir_ref_agreement$tiered_rates
       log_message("  LDIR-", ref$name, " agreement: Family ", ltr$family_or_better_pct,
-                  "% (primary), Exact ", ltr$exact_pct, "%, Filler/pigment ",
+                  "% (primary; 95% ", ltr$family_ci_low_pct, "-", ltr$family_ci_high_pct,
+                  "%), Exact ", ltr$exact_pct, "%, Filler/pigment ",
                   ltr$filler_pct, "% of ", ltr$n_resolved, " resolved pairs; ",
                   ltr$n_unresolved, " unresolved, ", ltr$n_join_warning,
                   " with LDIR join warning")

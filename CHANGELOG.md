@@ -75,6 +75,21 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   On field sample A the 75 um gate gave ~41% wrong pairs, 20 um ~5%. Pairs of
   two aligned instruments take the wider gate (50 um). Dataset A: LDIR-Raman
   29 -> 28, FTIR (Bruker)-LDIR 18 -> 14, triplets 29 -> 28.
+- **Pair confidence** `p_true` on every matched pair (matched and agreement
+  files): the probability that the pair is the true partner and not a chance
+  neighbour, from the positional-error fit (larger particles: sigma at least
+  0.05 x major axis). Agreement is also reported over pairs with p_true >= 0.9
+  (`pair_confidence_high`). The viewer can colour matched particles by it.
+  Synthetic field sample: expected wrong pairs 2.5, actual 2.
+- **95% intervals** (Wilson) on every agreement rate: log, match_statistics,
+  report.
+- **Detection rates by size** (`07_diagnostics/detection_rates.csv`, two
+  report pages, a Summary-tab plot): for every instrument pair, both ways, the
+  share of one instrument's particles (quality-passing, >= 20 um, inside the
+  other's covered area) that the other also found, per size class 20-50,
+  50-100, 100-200, > 200 um, all particles and plastics, with 95% intervals
+  and a chance-corrected rate (sum of p_true).
+- Test: synthetic dense field sample end to end (`test-pipeline-field.R`).
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
   anchors pair within the gate than the pose search finds by chance
   (`align_determined_p` 0.01); its pairs are written but not scored, pairs

@@ -89,6 +89,21 @@ test_that("a dense field sample: LDIR pairs are right, sigma is recovered, a sho
   expect_lt(l$chance_share, 0.1)
   expect_gt(l$position_sigma_um, 4.5); expect_lt(l$position_sigma_um, 8.5)
 
+  # Pair confidence: the true pairs score high, and the expected number of
+  # wrong pairs (sum of 1 - p_true) is close to the actual number
+  expect_gt(stats::median(m$p_true[ok]), 0.95)
+  expect_lt(abs(sum(1 - m$p_true) - sum(!ok)), 3)
+
+  # Detection rates: LDIR finds most of the Raman particles that pass the
+  # quality cutoff where LDIR looked -- but LDIR measured only 1 400 of the
+  # >= 20 um particles, so not all of them
+  det <- utils::read.csv(file.path(run, "07_diagnostics", "detection_rates.csv"))
+  r_all <- det[det$found_by == "raman" & det$of == "ldir" & det$group == "all" &
+                 det$size_class == "all sizes", ]
+  expect_equal(r_all$n_found, nrow(m))
+  expect_true(r_all$ci_low_pct <= r_all$rate_pct && r_all$rate_pct <= r_all$ci_high_pct)
+  expect_false(any(det$found_by == "ftir_bruker" | det$of == "ftir_bruker"))
+
   # FTIR (Bruker): five unrelated particles cannot fix a pose
   expect_false(r$ftir_bruker$alignment_determined)
   expect_false(ch$alignment_determined[ch$pair == "ftir_bruker_raman"])

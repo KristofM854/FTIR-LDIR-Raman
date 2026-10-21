@@ -70,6 +70,9 @@ DEFAULT_MIN_SIZE_UM <- 20
 # (classify_family_vec, classify_category, classify_category_vec, etc.)
 source(file.path(.pipeline_r_dir, "08b_material_map.R"), local = TRUE)
 
+# Wilson intervals for agreement and detection rates (wilson_interval)
+source(file.path(.pipeline_r_dir, "rate_intervals.R"), local = TRUE)
+
 # Dependency-free BMP reader (read_bmp_raster) -- lets load_image_raster()
 # handle instrument BMP exports even when magick is not installed.
 source(file.path(.pipeline_r_dir, "read_bmp.R"), local = TRUE)
@@ -856,6 +859,23 @@ build_instrument_dfs <- function(data) {
       extra[[k]] <- if (is.logical(cur[[k]])) FALSE else NA
     extra$match_status <- "unmatched"
     result[[inst]] <- rbind(cur, extra[, names(cur), drop = FALSE])
+  }
+
+  # Pair confidence: the highest p_true of any pair the particle is in (runs
+  # before p_true existed: NA)
+  for (inst in names(INSTRUMENT_PAIR_COLUMNS)) {
+    d <- result[[inst]]
+    if (is.null(d) || nrow(d) == 0) next
+    best <- rep(NA_real_, nrow(d))
+    for (tbl in names(INSTRUMENT_PAIR_COLUMNS[[inst]])) {
+      m <- data[[tbl]]
+      id_col <- paste0(INSTRUMENT_PAIR_COLUMNS[[inst]][[tbl]], "_particle_id")
+      if (is.null(m) || nrow(m) == 0 || !"p_true" %in% names(m) || !id_col %in% names(m)) next
+      if (identical(tbl, "ldir_raman_matched")) m <- ldir_genuine_pairs(m)
+      p <- m$p_true[match(as.character(d$particle_id), as.character(m[[id_col]]))]
+      best <- pmax(best, p, na.rm = TRUE)
+    }
+    result[[inst]]$p_true <- ifelse(d$match_status == "matched", best, NA_real_)
   }
 
   # An explicit NULL for an absent instrument: result$ftir would otherwise
@@ -1833,20 +1853,32 @@ report_matching_table <- function(run_dir) {
       return(paste0(label[[a]], " \u2013 ", label[[sub(paste0("^", a, "_"), "", stem)]] %||% "?"))
     stem
   }
+  # The run's high-confidence threshold (config pair_confidence_high)
+  hc_min <- suppressWarnings(as.numeric(unlist(tryCatch(
+    load_run_manifest(run_dir)$config_snapshot$pair_confidence_high,
+    error = function(e) NULL))))
+  hc_min <- if (length(hc_min) && is.finite(hc_min[1])) hc_min[1] else 0.9
   rows <- lapply(seq_len(nrow(ch)), function(i) {
     stem <- ch$pair[i]
     m <- file.path(run_dir, "05_matches", paste0("matched_", stem, ".csv"))
     d <- if (file.exists(m)) utils::read.csv(m)$match_distance else numeric(0)
     ag <- file.path(run_dir, "06_agreement", paste0("agreement_pairwise_", stem, ".csv"))
-    scored <- NA_integer_; fam <- NA_character_
+    scored <- NA_integer_; fam <- NA_character_; fam_hc <- "-"
     if (file.exists(ag)) {
-      t <- utils::read.csv(ag, stringsAsFactors = FALSE)$tier
+      pw <- utils::read.csv(ag, stringsAsFactors = FALSE)
+      t <- pw$tier
       scored <- length(t)
-      res <- t[t != "Unresolved"]
-      fam <- if (length(res)) paste0(round(100 * mean(res %in% c("Exact", "Family"))), "%") else "\u2013"
+      res <- t != "Unresolved"
+      agree <- t %in% c("Exact", "Family")
+      fam <- format_rate_ci(sum(agree & res), sum(res))
+      # Over the pairs that are very likely true partners
+      if (!is.null(pw$p_true) && any(!is.na(pw$p_true))) {
+        hc <- res & !is.na(pw$p_true) & pw$p_true >= hc_min
+        fam_hc <- format_rate_ci(sum(agree & hc), sum(hc))
+      }
     }
     undetermined <- isFALSE(as.logical(ch$alignment_determined[i] %||% TRUE))
-    if (undetermined) fam <- "not determined"
+    if (undetermined) fam <- fam_hc <- "not determined"
     sig <- ch$position_sigma_um[i] %||% NA
     data.frame(
       pair = pair_name(stem), gate = ch$gate_um[i], n = ch$n_matched[i],
@@ -1858,13 +1890,72 @@ report_matching_table <- function(run_dir) {
                        else paste0(round(100 * ch$chance_share[i]), "%")),
       scored = if (is.na(scored)) "\u2013" else as.character(scored),
       family = if (is.na(fam)) "\u2013" else fam,
+      family_hc = fam_hc,
       stringsAsFactors = FALSE)
   })
   out <- do.call(rbind, rows)
-  names(out) <- c("Pair", "Gate (um)", "Pairs", "Position error sigma (um)",
-                  "Distance median / p90 (um)",
-                  "By chance", "Scored", "Family agreement")
+  # Short headers: nine columns must fit a landscape page
+  names(out) <- c("Pair", "Gate (um)", "Pairs", "Sigma (um)", "Dist. med / p90",
+                  "By chance", "Scored", "Family agr. (95% CI)",
+                  paste0("Family agr., p_true>=", hc_min))
   out
+}
+
+# Detection rates of a run (07_diagnostics/detection_rates.csv, written by
+# R/detection_rates.R), read as a data frame; empty when the run has none.
+read_detection_rates <- function(run_dir) {
+  p <- if (!is.null(run_dir)) file.path(run_dir, "07_diagnostics", "detection_rates.csv")
+  if (is.null(p) || !file.exists(p)) return(data.frame())
+  utils::read.csv(p, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+DETECTION_INSTRUMENT_LABEL <- c(raman = "Raman", ftir_perkin = "FTIR (PE)",
+                                ftir_bruker = "FTIR (Bruker)", ldir = "LDIR")
+
+# Detection rates as a report table: one row per direction ("LDIR finds Raman
+# particles"), one column per size class of the base particle; each cell
+# "rate (95% interval) n".
+report_detection_table <- function(run_dir, group = "all") {
+  d <- read_detection_rates(run_dir)
+  if (nrow(d) == 0) return(data.frame())
+  d <- d[d$group == group, , drop = FALSE]
+  if (nrow(d) == 0) return(data.frame())
+  lab <- function(x) unname(ifelse(x %in% names(DETECTION_INSTRUMENT_LABEL),
+                                   DETECTION_INSTRUMENT_LABEL[x], x))
+  d$direction <- paste(lab(d$found_by), "finds", lab(d$of))
+  classes <- unique(d$size_class)
+  cell <- function(r) if (r$n_base == 0) "-" else
+    paste0(format_rate_ci(r$n_found, r$n_base), " n=", r$n_base)
+  dirs <- unique(d$direction)
+  out <- data.frame(Direction = dirs, stringsAsFactors = FALSE)
+  for (sc in classes)
+    out[[paste0(sc, if (sc != "all sizes") " um" else "")]] <- vapply(dirs, function(dd) {
+      r <- d[d$direction == dd & d$size_class == sc, , drop = FALSE]
+      if (nrow(r)) cell(r[1, ]) else "-"
+    }, character(1))
+  out
+}
+
+# Report pages with the detection rates (all particles; plastics), shared by
+# the pipeline report and the viewer's report download.
+report_detection_pages <- function(run_dir) {
+  cap <- paste0(
+    "Of the particles one instrument found (passing its quality cutoff, >= 20 um, inside ",
+    "the area the other instrument covered), the share the other instrument also found at ",
+    "the same place, by size of the particle, with the 95% interval and the number of ",
+    "particles. Found = paired with a particle passing the other's quality cutoff. ",
+    "07_diagnostics/detection_rates.csv also gives a chance-corrected rate.")
+  pages <- list()
+  for (g in c("all", "plastics")) {
+    t <- report_detection_table(run_dir, g)
+    if (nrow(t) > 0)
+      pages <- c(pages, list(report_table_page(
+        t, if (g == "all") "Detection Rates by Size (all particles)"
+           else "Detection Rates by Size (plastics)",
+        if (g == "all") cap else paste0("As before, for the particles the base instrument ",
+                                        "identified as plastic (synthetic or semi-synthetic)."))))
+  }
+  pages
 }
 
 
@@ -2244,7 +2335,11 @@ make_scatter <- function(df, img_info, bounds, title,
                           match_colours = NULL, highlight_id = NULL,
                           full_df = NULL, match_labels = NULL,
                           plain = FALSE, show_labels = FALSE, label_size = 3,
-                          subtitle = NULL, true_size = FALSE) {
+                          subtitle = NULL, true_size = FALSE,
+                          colour_by_confidence = FALSE) {
+
+  by_conf <- isTRUE(colour_by_confidence) && "p_true" %in% names(df) &&
+    "match_status" %in% names(df) && any(!is.na(df$p_true))
 
   p <- ggplot(df, aes(x = x, y = y))
 
@@ -2278,6 +2373,17 @@ make_scatter <- function(df, img_info, bounds, title,
   # single colour with no matched/unmatched distinction or legend.
     p <- p + geom_point(aes(size = feret_max), colour = "#1f77b4",
                         alpha = 0.7)
+  } else if (by_conf) {
+  # Matched particles coloured by their pair confidence (p_true), others grey
+    um <- df$match_status != "matched" | is.na(df$p_true)
+    p <- p +
+      geom_point(data = df[um, , drop = FALSE], aes(size = feret_max),
+                 colour = "grey60", alpha = 0.5) +
+      geom_point(data = df[!um, , drop = FALSE], aes(colour = p_true, size = feret_max),
+                 alpha = 0.85) +
+      scale_colour_gradientn(colours = c("#d62728", "#ff7f0e", "#2ca02c"),
+                             values = c(0, 0.5, 1), limits = c(0, 1),
+                             name = "Pair confidence\n(p_true)")
   } else {
     p <- p + geom_point(aes(colour = match_status, size = feret_max),
                         alpha = 0.7)
@@ -2920,10 +3026,12 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
       paste0("Pairs found within the distance gate (particles passing their quality ",
              "cutoff only). By chance: pairs a random arrangement of the particles would ",
              "also give, from the reference density within the gate, and their share of ",
-             "the pairs; above ~20% the pairs cannot be told from chance. Position error: ",
-             "sigma fitted to the nearest-neighbour distances (true pairs lie within ~3 sigma). ",
-             "Family agreement: over the scored, resolved pairs; 'not determined' when too few ",
-             "anchors fixed the alignment (pairs not scored)."))))
+             "the pairs; above ~20% the pairs cannot be told from chance. Sigma: positional ",
+             "error fitted to the nearest-neighbour distances (true pairs lie within ~3 sigma). ",
+             "Dist.: pair distance (um). Family agreement: over the scored, resolved pairs, ",
+             "with the 95% interval; then over the pairs very likely true (p_true); 'not ",
+             "determined' when too few anchors fixed the alignment (pairs not scored)."))))
+  pages <- c(pages, report_detection_pages(run_dir))
 
   # --- 6-9. Per-instrument views over the instrument image ------------------
   # Native instrument frame (x_orig/y_orig), as each viewer tab shows it.

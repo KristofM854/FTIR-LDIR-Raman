@@ -66,11 +66,43 @@ match_particles <- function(src_df, ref_df, config,
                                          config, src_label, ref_label)
   }
 
-  result$match_stats <- c(result$match_stats,
-                          .chance_stats(src_df, ref_df, result$match_stats$n_matched,
-                                        config$match_dist_threshold_um, config,
-                                        src_label, ref_label))
+  cs <- .chance_stats(src_df, ref_df, result$match_stats$n_matched,
+                      config$match_dist_threshold_um, config, src_label, ref_label)
+  if (nrow(result$matched) > 0) {
+    idx <- result$matched[[paste0(src_label, "_idx")]]
+    major <- if (!is.null(idx) && "major_um" %in% names(src_df)) src_df$major_um[idx]
+             else rep(NA_real_, nrow(result$matched))
+    result$matched$p_true <- pair_confidence(result$matched$match_distance, cs$position_fit,
+                                             major, cfg_value(config, "match_adaptive_dist_factor"))
+  }
+  cs$position_fit <- NULL
+  result$match_stats <- c(result$match_stats, cs)
   result
+}
+
+#' Probability that a matched pair is the true partner and not a chance
+#' neighbour, from the positional-error fit (.position_error()): the 2-D normal
+#' error density at the pair's distance against the chance nearest-neighbour
+#' density, each normalised over the fit window and weighted by the fitted
+#' share of true pairs. Large particles have a larger centroid error: sigma is
+#' at least adaptive_factor / 3 x the major axis, the widening the gate gets
+#' (0.15 x major = 3 sigma). NA without a fit.
+#'
+#' @param d Pair distances (um)
+#' @param fit .position_error() result (sigma, w, rho, window)
+#' @param major Source major axis per pair (um), NA when unknown
+#' @return Probability per pair, 0-1
+pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
+  if (is.null(fit) || !is.finite(fit$sigma) || !is.finite(fit$w))
+    return(rep(NA_real_, length(d)))
+  s <- pmax(fit$sigma, adaptive_factor / 3 * ifelse(is.finite(major), major, 0))
+  W <- fit$window; rho <- fit$rho
+  # Densities divided by d (both carry a factor d), so d = 0 is finite
+  f_true   <- exp(-d^2 / (2 * s^2)) / s^2 / (1 - exp(-W^2 / (2 * s^2)))
+  f_chance <- 2 * pi * rho * exp(-pi * rho * d^2) / (1 - exp(-pi * rho * W^2))
+  p <- fit$w * f_true / (fit$w * f_true + (1 - fit$w) * f_chance)
+  p[!is.finite(d)] <- NA_real_
+  round(p, 4)
 }
 
 
@@ -116,7 +148,7 @@ match_particles <- function(src_df, ref_df, config,
                   "alignment or widen the gate", level = "WARN")
   }
   list(chance_gate_um = gate, chance_p_partner = cr$p, chance_expected = expected,
-       chance_share = share, position_sigma_um = pe$sigma)
+       chance_share = share, position_sigma_um = pe$sigma, position_fit = pe)
 }
 
 #' Positional error of the aligned source against the reference: each source
@@ -126,7 +158,7 @@ match_particles <- function(src_df, ref_df, config,
 #' 2 pi rho r exp(-pi rho r^2)); the mixture is fitted by maximum likelihood.
 #' Fewer than 20 distances, or no density: sigma NA.
 .position_error <- function(sx, sy, rx, ry, rho, window) {
-  out <- list(sigma = NA_real_, n = 0L, window = window)
+  out <- list(sigma = NA_real_, w = NA_real_, rho = rho, n = 0L, window = window)
   ok <- is.finite(sx) & is.finite(sy); fin <- is.finite(rx) & is.finite(ry)
   if (is.null(window) || !is.finite(rho) || sum(ok) < 20 || sum(fin) < 3) return(out)
   r <- RANN::nn2(cbind(rx[fin], ry[fin]), cbind(sx[ok], sy[ok]), k = 1)$nn.dists[, 1]
@@ -143,7 +175,10 @@ match_particles <- function(src_df, ref_df, config,
   fit <- stats::optim(c(log(stats::median(r)), 0), nll)
   s <- exp(fit$par[1])
   # A sigma at the window edge means no peak of true pairs was found
-  if (fit$convergence == 0 && s < W / 3) out$sigma <- s
+  if (fit$convergence == 0 && s < W / 3) {
+    out$sigma <- s
+    out$w <- stats::plogis(fit$par[2])
+  }
   out
 }
 

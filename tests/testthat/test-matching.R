@@ -171,3 +171,14 @@ test_that("the positional error fit recovers sigma among chance neighbours", {
   pe0 <- .position_error(runif(400, 0, W), runif(400, 0, W), rx, ry, n_ref / W^2, 75)
   expect_true(is.na(pe0$sigma) || pe0$sigma > 15)
 })
+
+test_that("pair_confidence: near pairs are true, far ones in a dense field are not", {
+  fit <- list(sigma = 7, w = 0.6, rho = 1.5e-5, window = 75)
+  p <- pair_confidence(c(0, 5, 15, 30, 60), fit)
+  expect_true(all(diff(p) < 0))                  # falls with distance
+  expect_gt(p[2], 0.95); expect_lt(p[5], 0.01)
+  # A large particle's centroid is less certain: same distance, higher p
+  expect_gt(pair_confidence(30, fit, major = 400, adaptive_factor = 0.15),
+            pair_confidence(30, fit, major = 40, adaptive_factor = 0.15))
+  expect_true(all(is.na(pair_confidence(c(1, 2), list(sigma = NA)))))
+})
