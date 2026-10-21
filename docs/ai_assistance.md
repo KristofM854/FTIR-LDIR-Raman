@@ -10,17 +10,17 @@ the author's.
 
 From the git history (`git log`, `git blame` on the release commit):
 
-- Commits authored by "Claude" are AI-written. 257 of the 611 commits are;
-  the author's 354 commits are almost all pull-request merges of those
-  changes (319), plus small manual edits and file uploads.
-- For every tracked text file, each current line is attributed to the commit
-  that last changed it.
+- Commits authored by "Claude" are AI-written: 277 of the 631 commits (21
+  October 2026). The author's 354 commits are pull-request merges of those
+  changes (206) and manual edits and file uploads (148).
+- For every tracked text file (images, CSV data and `renv.lock` excluded),
+  each current line is attributed to the commit that last changed it.
 
 Limits of this measure: a line last touched by an AI commit may have been
-written or dictated by the author before (and vice versa), and commits under
-the author's name (for example 2026-02-27, Shiny image provenance fixes) may
-contain code produced with AI tools outside this record. The author should
-confirm those.
+written or dictated by the author before (and vice versa), and some commits
+under the author's name (for example 2026-02-27, Shiny image provenance
+fixes) contain code produced with AI tools outside this record, so the AI
+share is if anything higher than shown.
 
 ## Where
 
@@ -28,16 +28,17 @@ Share of current lines last changed by an AI-authored commit:
 
 | Area | lines | AI-authored | share |
 |---|---|---|---|
-| Pipeline (`R/`) | 13,680 | 13,595 | 99.4% |
-| Viewer (`shiny_app/`) | 8,538 | 8,463 | 99.1% |
+| Pipeline (`R/`) | 14,880 | 14,795 | 99.4% |
+| Viewer (`shiny_app/`) | 9,126 | 9,053 | 99.2% |
 | Python LDIR detector and its tests (`inst/python/`) | 813 | 813 | 100% |
-| Tests (`tests/`) | 4,634 | 4,634 | 100% |
-| Tools and examples | 2,566 | 2,565 | 100% |
-| Documentation and metadata | 2,744 | 2,742 | 99.9% |
-| **Total** | **32,975** | **32,812** | **99.5%** |
+| Tests (`tests/`) | 4,968 | 4,968 | 100% |
+| Tools and examples | 2,436 | 2,435 | 100% |
+| Documentation and metadata | 1,831 | 1,829 | 99.9% |
+| **Total** | **34,054** | **33,893** | **99.5%** |
 
-Files with author-written lines: `R/utils.R` (66 lines), `shiny_app/global.R`
-(73), `R/00_config.R` (14), `R/10_export.R` (4), `.gitignore` (2).
+Files with author-written lines: `shiny_app/global.R` (71 lines), `R/utils.R`
+(66), `R/00_config.R` (14), `R/10_export.R` (4), `.gitignore` (2),
+`shiny_app/app.R` (2), `R/00b_file_input.R` (1), `tools/reproducibility.R` (1).
 
 In short: essentially all code, tests and documentation text were written by
 the assistant; the author directed the work, reviewed and merged every change,
@@ -78,14 +79,27 @@ audit:
 - Agreement is reported at two levels: family (primary) and exact polymer
   (secondary).
 - Alignment scale band 0.8–1.25 kept; FTIR↔Raman keeps a fitted scale.
-- Distance gates 100 µm, LDIR 150 µm; LDIR size discrepancy < 5% accepted
-  without a manual scan-diameter entry.
+- LDIR size discrepancy < 5% accepted without a manual scan-diameter entry.
 - Acrylic polymers (incl. PAN) counted as synthetic.
 - Python required for LDIR images (no R fallback); git history not rewritten.
 - The spectral-library index is used and disclosed.
 - The LDIR join check is logged in every run; the quality-cutoff sweep was
   dropped.
 - Which datasets are published (dataset A).
+
+From the first field samples (dense filters, thousands of Raman particles):
+
+- Only particles passing their instrument's quality cutoff and >= 20 µm are
+  matched; pairs whose sizes differ more than 5x are rejected.
+- Distance gates 50 µm, and 20 µm for LDIR against the reference (about three
+  times its fitted positional error; the earlier 150 µm gate let in ~40%
+  chance pairs on a field sample).
+- Landmarks are trusted only when far above chance; an alignment that the
+  data cannot fix (a short, pre-filtered list) is reported as not determined.
+- Every pair gets a probability of being the true partner; agreement and
+  detection rates are reported with 95% intervals.
+- Open identification questions are referred to the plastics group
+  ([roadmap.md](roadmap.md)), not decided in code.
 
 ## Verification
 
