@@ -46,7 +46,7 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   particles put a chance partner within 150 um of every LDIR particle):
   - only particles passing their instrument's quality cutoff are matched
     (`match_quality_filter`; the agreement cutoffs);
-  - distance gates 50 um (was 100), 75 um with LDIR (was 150);
+  - distance gate 50 um (was 100); for LDIR see below;
   - Tier 2 alignment anchors are the quality-passing plastics
     (`align_anchor_plastics`);
   - landmarks are trusted also when their pairs are far above chance
@@ -65,11 +65,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   Dataset A: transforms unchanged; pairs 32/29/34 -> 31/20/30 (FTIR PE,
   FTIR Bruker, LDIR with Raman), scored pairs 32/21/31 -> 31/20/30, 100%
   agreement; chance share 2-5%.
-- Landmarks need 5 one-to-one pairs (was 8) and the chance test (p < 1e-8);
+- Landmarks need 5 one-to-one pairs and the chance test (p < 1e-8);
   the share of landmarks that pair (>= 50%) no longer suffices on its own: 5
-  of 6 random landmarks on a dense reference pair (p = 0.02). 8 had rejected
-  7 pairs at p = 2e-13 on a reference filter.
-- **(results)** LDIR gate 20 um (was 75): ~3 sigma of the LDIR positional
+  of 6 random landmarks on a dense reference pair (p = 0.02). An interim
+  minimum of 8 pairs rejected 7 pairs at p = 2e-13 on a reference filter.
+- **(results)** LDIR gate 20 um (was 250): ~3 sigma of the LDIR positional
   error, which every run now fits and logs (sigma 7.1 um dataset A, 7.3 um
   field sample A; `position_error_window_um`, `chance_pairs.csv`, report).
   On field sample A the 75 um gate gave ~41% wrong pairs, 20 um ~5%. Pairs of
@@ -90,6 +90,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   50-100, 100-200, > 200 um, all particles and plastics, with 95% intervals
   and a chance-corrected rate (sum of p_true).
 - Test: synthetic dense field sample end to end (`test-pipeline-field.R`).
+- `docs/roadmap.md` (open work and open identification questions) replaces
+  the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
   anchors pair within the gate than the pose search finds by chance
   (`align_determined_p` 0.01); its pairs are written but not scored, pairs
@@ -112,7 +114,6 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   0.70, Raman HQI 70, LDIR 0.85) and not "unknown" are scored; unresolvable
   name pairs form an *Unresolved* tier; rates are over resolved pairs.
   Triplets apply the same gate.
-- **(results)** LDIR distance gate 150 µm (was 250 µm).
 - **(results)** Acrylic polymers (incl. polyacrylonitrile) are *Synthetic*.
 - The PerkinElmer and Bruker FTIR paths share one `align_and_match()`;
   `main.R` is file input and config only.
@@ -120,10 +121,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   in `DESCRIPTION` and `inst/python/requirements.txt`.
 - The LDIR coordinate-swap file is found under any name containing
   coord/cord and swap.
-- **(results on other data)** The landmark tier is trusted only with at
-  least 8 one-to-one landmark pairs (`landmark_min_pairs`); the race between
-  RANSAC and global registration is decided on one-to-one pairs. Dataset A
-  unchanged.
+- **(results on other data)** The landmark tier counts one-to-one landmark
+  pairs (`landmark_min_pairs`, see above); the race between RANSAC and global
+  registration is decided on one-to-one pairs. Dataset A unchanged.
 - **(results)** Composite (1:many) matches no longer share a Raman fragment.
 - **(results on large samples)** Matching is optimal (Hungarian) for any
   number of particles; it used to switch to greedy above 2,000 particles on

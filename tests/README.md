@@ -29,6 +29,7 @@ python -m unittest discover -s inst/python -p "test_*.py"
 | File | What it checks |
 |---|---|
 | `test-pipeline-synthetic.R` | `run_pipeline()` on a synthetic filter seen by all four instruments, each read through the column-mapping reader with a *known* transform (178° rotation in mm; 3° with y-down; −90° with scale 1.03; particles outside the shared field). Recovered transforms, every matched pair a true correspondence, the exact agreement tiers and exclusions designed in, triplets, output files. Then the same run twice: the output folder is byte-identical apart from timestamps, the run path and PDF creation dates. |
+| `test-pipeline-field.R` | A synthetic *dense* field sample (12 000 Raman particles on a 13 mm filter, LDIR with a known 7 µm positional error, five unrelated FTIR particles): LDIR pairs correct and found at the 20 µm gate, the positional error recovered, a low chance share, pair confidence calibrated (expected vs actual wrong pairs), detection rates written, and the short FTIR list reported as not determined. |
 | `test-example-dataset-A.R` | The bundled real dataset (`examples/dataset_A`) through the full pipeline in a subprocess, compared with a stored fingerprint (row counts, every matched pair and its distance, transforms, agreement tier counts). |
 
 **Data contract and readers**
@@ -48,7 +49,7 @@ python -m unittest discover -s inst/python -p "test_*.py"
 | `test-align-and-match.R` | Raman reference frame, `align_and_match()` recovering a known rotation + shift, cross-pair matching, the triplet quality gate, the module list in `R/load.R`. |
 | `test-utils-transform.R`, `test-align-helpers.R`, `test-alignment-anchors.R`, `test-alignment-collapse.R` | Transform primitives, pose search, anchor selection, collapse guards. |
 | `test-determinism.R` | Aligners reproducible run to run and leave the caller's RNG untouched. |
-| `test-matching.R`, `test-ldir-gate.R` | Hungarian one-to-one matching, distance gates (LDIR 150 µm). |
+| `test-matching.R`, `test-ldir-gate.R` | Hungarian one-to-one matching, distance gates (50 µm; LDIR 20 µm), size-ratio limit, pair confidence. |
 | `test-ldir-processed-image.R` | LDIR analyzed-overlay extraction and the image join. |
 | `test-python-detector.R` → `inst/python/test_particle_detector.py` | Python LDIR detector on synthetic particle maps: every particle found at sub-pixel position, area, threshold auto-tuning, scan-circle mask, determinism, scan-circle centre. |
 
@@ -77,5 +78,5 @@ python -m unittest discover -s inst/python -p "test_*.py"
   detector. The pipeline uses the analyzed overlay when present.
 - **Shiny viewer interaction** (no `shinytest2` test; the viewer's helper
   functions are tested individually).
-- **Only one real dataset.** The other datasets are to be added as they come
-  (`docs/TODO.md`).
+- **One real dataset in the regression test** (dataset A). Further samples
+  are listed in [docs/roadmap.md](../docs/roadmap.md).

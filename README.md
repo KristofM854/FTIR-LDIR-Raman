@@ -2,7 +2,7 @@
 
 Spatial alignment and material cross-validation of microplastic particles detected by **FTIR** (PerkinElmer Spotlight, Bruker LUMOS), **Raman** (WITec) and **LDIR** (Agilent 8700) microspectroscopy on the same filter sample.
 
-Version 1.0.0 · [Changelog](CHANGELOG.md) · [Validation](docs/validation.md) · [Input format](docs/input_format.md) · [How to cite](#citation)
+Version 1.0.0 · [Changelog](CHANGELOG.md) · [Validation](docs/validation.md) · [Input format](docs/input_format.md) · [Roadmap](docs/roadmap.md) · [How to cite](#citation)
 
 ## What it does
 
@@ -58,18 +58,12 @@ specific interpreter, set `RETICULATE_PYTHON` (e.g. in `~/.Renviron`) before
 launching R; otherwise a standard Windows install or `python3`/`python` on
 `PATH` is used.
 
-#### Reproducible environment (recommended for the deposit)
+#### Reproducible environment
 
-The exact dependency versions are captured with [`renv`](https://rstudio.github.io/renv/).
-A `DESCRIPTION` file declares the dependency surface; run once on your machine to
-freeze versions into a committed `renv.lock`:
+`DESCRIPTION` declares the dependencies and `renv.lock` records the versions
+used. To install exactly those versions with [`renv`](https://rstudio.github.io/renv/):
 ```r
 install.packages("renv")
-renv::init(bare = TRUE)              # generates renv/activate.R
-renv::snapshot(type = "explicit")   # writes renv.lock from DESCRIPTION
-```
-Anyone re-running the analysis then restores the identical environment with:
-```r
 renv::restore()
 ```
 
@@ -119,7 +113,7 @@ Results are written to a timestamped subfolder under `output/` (e.g. `output/202
 | Instrument | Format | Key columns |
 |------------|--------|-------------|
 | **FTIR** (PerkinElmer Spotlight) | CSV (comma-separated) | `Coord. [um]` (bracketed X;Y), `Group` (material), `Max AAU score` |
-| **Raman** (Horiba / WITec) | CSV (semicolon-separated) | `Visual Center Point X/Y [um]`, `Material`, `HQI`, `Feret Max [um]` |
+| **Raman** (WITec) | CSV (semicolon-separated) | `Visual Center Point X/Y [um]`, `Material`, `HQI`, `Feret Max [um]` |
 | **LDIR** (Agilent 8700) | XLSX | `Identification` (material), `Quality`, `Width/Height [um]` — **no X/Y coordinates** |
 | **FTIR image** | PNG | Chemical absorption map exported from the FTIR instrument |
 | **LDIR image** | PNG | Colored particle map exported from Agilent LDIR software |
@@ -468,7 +462,7 @@ to switch the index off).
 
 - **Raman image placement**: the WITec placement file (a `.txt` with Width, Height, X, Y next to the image, found by name or content) is used when present; rotated images are not supported.
 
-- **Validation so far**: one real filter with all four instruments (dataset A, mostly PET) plus synthetic data; see [docs/validation.md](docs/validation.md).
+- **Validation so far**: one reference filter with all four instruments (dataset A, mostly PET), a polycarbonate reference filter, the first field samples and synthetic data with known answers; see [docs/validation.md](docs/validation.md) and the open work in [docs/roadmap.md](docs/roadmap.md).
 
 - **Single-filter assumption**: The pipeline assumes all instruments analysed the same physical filter. If scan areas differ significantly, the alignment may fail or produce a poor transform.
 
@@ -483,13 +477,15 @@ is described in [tests/README.md](tests/README.md).
 ## Citation
 
 If you use this software, please cite it; see [CITATION.cff](CITATION.cff)
-(GitHub shows a "Cite this repository" button) and the Zenodo record.
+(GitHub shows a "Cite this repository" button). A Zenodo DOI follows with the
+first archived release.
 
 ## Use of AI assistance
 
-Much of the code, tests and documentation were written with an AI coding
-assistant (Anthropic's Claude, via Claude Code) under the author's direction;
-the scientific choices and their validation are the author's. Where and how is
+Nearly all of the code, tests and documentation (99.5% of current lines) were
+written by an AI coding assistant (Anthropic's Claude, via Claude Code) under
+the author's direction; the scientific choices, the data and the validation
+are the author's. Where and how is
 listed in [docs/ai_assistance.md](docs/ai_assistance.md).
 
 ## License
