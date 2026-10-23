@@ -25,6 +25,7 @@ pipeline_modules <- c(
   "01_readers.R",
   "01b_ingest_image.R",
   "ftir_image_placement.R",
+  "ftir_segments.R",
   "utils_python.R",
   "01c_ingest_ldir.R",
   "02_prefilter.R",

@@ -389,6 +389,33 @@ ftir_extent_from_config <- function(cfg, prefix = "ftir_image") {
   list(xmin = cx - w / 2, xmax = cx + w / 2, ymin = cy - h / 2, ymax = cy + h / 2)
 }
 
+#' FTIR image placement file: <image stem>.txt next to the image, as written by
+#' tools/stitch_ftir_segments.R. Lines "Width: <um>", "Height: <um>" and
+#' optionally "Center X: <um>", "Center Y: <um>", in the particle table's frame
+#' (the same fields as ftir_image_* in the config). Only a file whose first
+#' line names it ("FTIR image placement") is read, so an unrelated .txt next to
+#' the image is ignored.
+#'
+#' @param image_path Path of the FTIR image
+#' @return list(path, width_um, height_um, center_x_um, center_y_um) or NULL
+read_ftir_image_metadata <- function(image_path) {
+  if (is.null(image_path) || !nzchar(image_path)) return(NULL)
+  p <- paste0(tools::file_path_sans_ext(image_path), ".txt")
+  if (!file.exists(p)) return(NULL)
+  txt <- tryCatch(readLines(p, warn = FALSE), error = function(e) character(0))
+  if (length(txt) == 0 || !grepl("FTIR image placement", txt[1], ignore.case = TRUE))
+    return(NULL)
+  val <- function(key) {
+    l <- grep(paste0("^\\s*", key, "\\s*:"), txt, value = TRUE, ignore.case = TRUE)
+    v <- suppressWarnings(as.numeric(sub("^[^:]*:\\s*([-0-9.eE+]+).*$", "\\1", l[1])))
+    if (length(v) && is.finite(v)) v else NA_real_
+  }
+  w <- val("Width"); h <- val("Height")
+  if (!is.finite(w) || !is.finite(h) || w <= 0 || h <= 0) return(NULL)
+  list(path = p, width_um = w, height_um = h,
+       center_x_um = val("Center X"), center_y_um = val("Center Y"))
+}
+
 
 # ---------------------------------------------------------------------------
 # P3: aspect-preserving particle-extent fit (approximate)

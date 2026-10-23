@@ -194,3 +194,21 @@ test_that("a downsampled raster (viewer upload path) keeps the same placement", 
   expect_s3_class(g, "ggplot")
   expect_silent(ggplot2::ggplot_build(g))
 })
+
+test_that("an FTIR placement file next to the image is read; others are ignored", {
+  d <- withr::local_tempdir()
+  img <- file.path(d, "scan_stitched.png")
+  writeLines(c("FTIR image placement (tools/stitch_ftir_segments.R), um in the table's frame",
+               "Width: 12988", "Height: 12990", "Center X: 6494.0", "Center Y: 6495.0"),
+             file.path(d, "scan_stitched.txt"))
+  m <- read_ftir_image_metadata(img)
+  expect_equal(c(m$width_um, m$height_um, m$center_x_um, m$center_y_um),
+               c(12988, 12990, 6494, 6495))
+  cfg <- list(ftir_image_width_um = m$width_um, ftir_image_height_um = m$height_um)
+  expect_equal(unlist(ftir_extent_from_config(cfg)),
+               c(xmin = 0, xmax = 12988, ymin = 0, ymax = 12990))
+  # A WITec-style or unrelated .txt is not an FTIR placement file
+  writeLines(c("Width: 13000", "Height: 13000"), file.path(d, "other.txt"))
+  expect_null(read_ftir_image_metadata(file.path(d, "other.png")))
+  expect_null(read_ftir_image_metadata(file.path(d, "missing.png")))
+})
