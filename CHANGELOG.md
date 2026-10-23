@@ -119,6 +119,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   It writes the image placement next to the
   image (`<image>.txt`), which the pipeline reads for PerkinElmer and Bruker
   images when the config sets no extent.
+- Viewer: hovering (and clicking) on the overlay finds only the particles the
+  overlay draws -- its material, quality and size filters -- not every particle
+  of the run, and a hovered particle that a filter change hides is cleared, on
+  the overlay and on each instrument's view.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
