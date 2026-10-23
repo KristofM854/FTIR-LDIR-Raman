@@ -48,8 +48,24 @@ match_particles <- function(src_df, ref_df, config,
   is_ldir_pair <- src_label == "ldir" || ref_label == "ldir"
   if (is_ldir_pair && !is.null(config$match_dist_threshold_ldir_um)) {
     eff <- config$match_dist_threshold_ldir_um
-    log_message("  LDIR pairing: using distance gate ", eff,
-                " um (default ", config$match_dist_threshold_um, " um)")
+    how <- "fixed"
+    # Per run: k x the positional error fitted to this alignment (the analysed
+    # LDIR image gives sigma ~3 um, the image-blob join ~7 um), within bounds;
+    # the fixed gate when there is no fit.
+    if (isTRUE(cfg_value(config, "match_gate_from_sigma"))) {
+      rho <- chance_partner_rate(ref_df$x_norm, ref_df$y_norm, 1)$density
+      pe <- .position_error(src_df$x_aligned, src_df$y_aligned, ref_df$x_norm, ref_df$y_norm,
+                            rho, cfg_value(config, "position_error_window_um"))
+      if (is.finite(pe$sigma)) {
+        k <- cfg_value(config, "match_gate_sigma_k")
+        eff <- min(max(k * pe$sigma, cfg_value(config, "match_gate_min_um")),
+                   cfg_value(config, "match_gate_max_um"))
+        how <- sprintf("%g x sigma %.1f um fitted to this alignment, within %g-%g um", k,
+                       pe$sigma, cfg_value(config, "match_gate_min_um"),
+                       cfg_value(config, "match_gate_max_um"))
+      } else how <- "fixed: no positional-error fit for this alignment"
+    }
+    log_message(sprintf("  LDIR pairing: distance gate %.1f um (%s)", eff, how))
     config$match_dist_threshold_um <- eff
   }
 

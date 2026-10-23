@@ -1914,18 +1914,29 @@ DETECTION_INSTRUMENT_LABEL <- c(raman = "Raman", ftir_perkin = "FTIR (PE)",
 
 # Detection rates as a report table: one row per direction ("LDIR finds Raman
 # particles"), one column per size class of the base particle; each cell
-# "rate (95% interval) n".
-report_detection_table <- function(run_dir, group = "all") {
+# "rate (95% interval) n". measure "identified": paired with a particle that
+# passes the other's quality cutoff; "detected": any particle of the other
+# within the gate, with the chance-corrected rate ("corr.").
+report_detection_table <- function(run_dir, group = "all", measure = "identified") {
   d <- read_detection_rates(run_dir)
   if (nrow(d) == 0) return(data.frame())
+  if (identical(measure, "detected") && !"n_detected" %in% names(d)) return(data.frame())
   d <- d[d$group == group, , drop = FALSE]
   if (nrow(d) == 0) return(data.frame())
   lab <- function(x) unname(ifelse(x %in% names(DETECTION_INSTRUMENT_LABEL),
                                    DETECTION_INSTRUMENT_LABEL[x], x))
   d$direction <- paste(lab(d$found_by), "finds", lab(d$of))
   classes <- unique(d$size_class)
-  cell <- function(r) if (r$n_base == 0) "-" else
+  cell <- function(r) {
+    if (r$n_base == 0) return("-")
+    if (identical(measure, "detected")) {
+      if (is.na(r$n_detected)) return("-")
+      return(paste0(format_rate_ci(r$n_detected, r$n_base), " n=", r$n_base,
+                    if (!is.na(r$detected_corrected_pct))
+                      sprintf(", corr. %.0f%%", r$detected_corrected_pct) else ""))
+    }
     paste0(format_rate_ci(r$n_found, r$n_base), " n=", r$n_base)
+  }
   dirs <- unique(d$direction)
   out <- data.frame(Direction = dirs, stringsAsFactors = FALSE)
   for (sc in classes)
@@ -1936,24 +1947,30 @@ report_detection_table <- function(run_dir, group = "all") {
   out
 }
 
-# Report pages with the detection rates (all particles; plastics), shared by
-# the pipeline report and the viewer's report download.
+# Report pages with the detection rates (identified, detected; all particles
+# and plastics), shared by the pipeline report and the viewer's report download.
 report_detection_pages <- function(run_dir) {
-  cap <- paste0(
+  base <- paste0(
     "Of the particles one instrument found (passing its quality cutoff, >= 20 um, inside ",
-    "the area the other instrument covered), the share the other instrument also found at ",
+    "the area the other instrument covered), the share the other instrument also has at ",
     "the same place, by size of the particle, with the 95% interval and the number of ",
-    "particles. Found = paired with a particle passing the other's quality cutoff. ",
-    "07_diagnostics/detection_rates.csv also gives a chance-corrected rate.")
+    "particles. ")
+  cap <- c(identified = paste0(base, "Identified = paired with a particle that passes the ",
+                               "other's quality cutoff: detected and confidently identified."),
+           detected = paste0(base, "Detected = any particle of the other instrument, of any ",
+                             "quality and size, within the pair's distance gate; corr. = ",
+                             "corrected for the particles found there by chance at the other's ",
+                             "density."))
   pages <- list()
-  for (g in c("all", "plastics")) {
-    t <- report_detection_table(run_dir, g)
+  for (g in c("all", "plastics")) for (m in c("identified", "detected")) {
+    t <- report_detection_table(run_dir, g, m)
     if (nrow(t) > 0)
       pages <- c(pages, list(report_table_page(
-        t, if (g == "all") "Detection Rates by Size (all particles)"
-           else "Detection Rates by Size (plastics)",
-        if (g == "all") cap else paste0("As before, for the particles the base instrument ",
-                                        "identified as plastic (synthetic or semi-synthetic)."))))
+        t, sprintf("%s by Size (%s)", if (m == "identified") "Identification Rates" else "Detection Rates",
+                   if (g == "all") "all particles" else "plastics"),
+        if (g == "all") cap[[m]] else paste0("As on the previous ", m, " page, for the particles ",
+                                             "the base instrument identified as plastic ",
+                                             "(synthetic or semi-synthetic)."))))
   }
   pages
 }

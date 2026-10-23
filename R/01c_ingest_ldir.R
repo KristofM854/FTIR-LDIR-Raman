@@ -1087,12 +1087,27 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
                  (n_blobs >= 0.85 * expected_count && n_blobs <= 1.15 * expected_count)
     if (total_px > 0 && count_ok) {
       scale_excel <- sqrt(expected_total_area_um2 / total_px)
-      log_message("  Scale self-calibrated from Excel area: ", round(scale, 3),
-                  " -> ", round(scale_excel, 3), " µm/px (image ~",
-                  round(w * scale_excel), " µm wide)")
-      scale <- scale_excel
-      scale_provenance <- "excel_area_scale"
-      circle_info$scale_um_per_px <- scale
+      # The area estimate is biased by how the overlay draws particle outlines
+      # (13% on field sample A, where the image is the full scan and the
+      # scan-diameter scale is right). Use it only when the two disagree by
+      # more than this factor, i.e. the overlay cannot be the full scan
+      # (dataset A: 2.7x); otherwise it is a check.
+      tol <- cfg_value(config %||% list(), "ldir_processed_scale_tolerance")
+      ratio <- scale_excel / scale
+      if (max(ratio, 1 / ratio) > tol) {
+        log_message("  Scale self-calibrated from Excel area: ", round(scale, 3),
+                    " -> ", round(scale_excel, 3), " µm/px (image ~",
+                    round(w * scale_excel), " µm wide; the scan-diameter scale is ",
+                    round(max(ratio, 1 / ratio), 2), "x off, so the overlay is not the full scan)")
+        scale <- scale_excel
+        scale_provenance <- "excel_area_scale"
+        circle_info$scale_um_per_px <- scale
+      } else {
+        log_message("  Scale from the scan diameter: ", round(scale, 3), " µm/px; the Excel ",
+                    "areas imply ", round(scale_excel, 3), " (", sprintf("%+.0f%%", 100 * (ratio - 1)),
+                    ", within the ", tol, "x tolerance: kept)",
+                    level = if (abs(ratio - 1) > 0.05) "WARN" else "INFO")
+      }
     } else if (!count_ok) {
       log_message("  Scale self-calibration skipped: blob count ", n_blobs,
                   " differs from Excel ", expected_count,

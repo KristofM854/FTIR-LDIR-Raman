@@ -182,3 +182,25 @@ test_that("pair_confidence: near pairs are true, far ones in a dense field are n
             pair_confidence(30, fit, major = 40, adaptive_factor = 0.15))
   expect_true(all(is.na(pair_confidence(c(1, 2), list(sigma = NA)))))
 })
+
+test_that("the LDIR gate is set per run from the fitted positional error", {
+  set.seed(8)
+  W <- 6000; n_ref <- 1500
+  ref <- data.frame(particle_id = paste0("R", 1:n_ref), x_norm = runif(n_ref, 0, W),
+                    y_norm = runif(n_ref, 0, W), feret_max_um = 40, area_um2 = 1000,
+                    major_um = 40, minor_um = 30)
+  i <- 1:200                                    # true partners with sigma = 4 um
+  src <- data.frame(particle_id = paste0("L", i), x_aligned = ref$x_norm[i] + rnorm(200, 0, 4),
+                    y_aligned = ref$y_norm[i] + rnorm(200, 0, 4), feret_max_um = 40,
+                    area_um2 = 1000, major_um = 40, minor_um = 30)
+  cfg <- make_config()
+  msgs <- character(0)
+  res <- withCallingHandlers(match_particles(src, ref, cfg, src_label = "ldir", ref_label = "raman"),
+                             message = function(m) { msgs <<- c(msgs, conditionMessage(m))
+                                                     invokeRestart("muffleMessage") })
+  expect_gt(res$match_stats$chance_gate_um, 10); expect_lt(res$match_stats$chance_gate_um, 15)
+  expect_true(any(grepl("x sigma", msgs)))
+  cfg$match_gate_from_sigma <- FALSE
+  res2 <- suppressMessages(match_particles(src, ref, cfg, src_label = "ldir", ref_label = "raman"))
+  expect_equal(res2$match_stats$chance_gate_um, 20)
+})

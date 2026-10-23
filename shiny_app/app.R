@@ -698,12 +698,17 @@ ui <- fluidPage(
             p(class = "text-muted",
               "Of the particles one instrument found (passing its quality cutoff, ",
               "≥ 20 µm, inside the area the other covered), the share the other ",
-              "instrument also found at the same place, by particle size. Bars: 95% interval. ",
-              "Not affected by the tab filters."),
+              "instrument also has at the same place, by particle size. Identified: paired ",
+              "with a particle passing the other's quality cutoff. Detected: any particle of ",
+              "the other within the distance gate (hover: corrected for chance). ",
+              "Bars: 95% interval. Not affected by the tab filters."),
             fluidRow(
               column(5, selectInput("summary_detection_pair", "Instrument pair",
                                     choices = character(0))),
               column(7, style = "padding-top: 25px;",
+                radioButtons("summary_detection_measure", NULL,
+                             choices = c("Identified" = "identified", "Detected" = "detected"),
+                             selected = "identified", inline = TRUE),
                 radioButtons("summary_detection_group", NULL,
                              choices = c("All particles" = "all", "Plastics" = "plastics"),
                              selected = "all", inline = TRUE))),
@@ -1221,27 +1226,37 @@ server <- function(input, output, session) {
              d$group == (input$summary_detection_group %||% "all") &
              d$size_class != "all sizes" & d$n_base > 0, , drop = FALSE]
     validate(need(nrow(d) > 0, "No particles in this group."))
+    det <- identical(input$summary_detection_measure, "detected")
+    if (det) {
+      validate(need("n_detected" %in% names(d) && any(!is.na(d$n_detected)),
+                    "No detected rates in this run (runs from before this version)."))
+      d$k <- d$n_detected; d$y <- d$detected_pct
+      d$lo <- d$det_ci_low_pct; d$hi <- d$det_ci_high_pct
+      d$extra <- sprintf("<br>chance-corrected %.0f%% (%.1f expected by chance within %g µm)",
+                         d$detected_corrected_pct, d$det_chance_expected, d$gate_um)
+    } else {
+      d$k <- d$n_found; d$y <- d$rate_pct; d$lo <- d$ci_low_pct; d$hi <- d$ci_high_pct
+      d$extra <- ifelse(is.na(d$rate_true_pct), "",
+                        sprintf("<br>chance-corrected %.0f%%", d$rate_true_pct))
+    }
     lv <- c("20-50", "50-100", "100-200", ">200")
     d <- d[order(d$direction, match(d$size_class, lv)), ]
     # Numeric x, the two directions offset so their interval bars do not overlap
     d$xpos <- match(d$size_class, lv) + ifelse(d$direction == sort(unique(d$direction))[1],
                                                -0.06, 0.06)
     d$hover <- sprintf("%s<br>%s µm: %d of %d = %.0f%% (95%%: %.0f–%.0f%%)%s",
-                       d$direction, d$size_class, d$n_found, d$n_base, d$rate_pct,
-                       d$ci_low_pct, d$ci_high_pct,
-                       ifelse(is.na(d$rate_true_pct), "",
-                              sprintf("<br>chance-corrected %.0f%%", d$rate_true_pct)))
-    plotly::plot_ly(d, x = ~xpos, y = ~rate_pct, color = ~direction,
+                       d$direction, d$size_class, d$k, d$n_base, d$y, d$lo, d$hi, d$extra)
+    plotly::plot_ly(d, x = ~xpos, y = ~y, color = ~direction,
                     colors = c("#1f77b4", "#d62728"),
                     type = "scatter", mode = "lines+markers", text = ~hover,
                     hoverinfo = "text",
                     error_y = ~list(type = "data", symmetric = FALSE,
-                                    array = ci_high_pct - rate_pct,
-                                    arrayminus = rate_pct - ci_low_pct)) |>
+                                    array = hi - y, arrayminus = y - lo)) |>
       plotly::layout(xaxis = list(title = "Feret max of the base particle (µm)",
                                   tickvals = seq_along(lv), ticktext = lv,
                                   range = c(0.5, length(lv) + 0.5)),
-                     yaxis = list(title = "Found by the other instrument (%)",
+                     yaxis = list(title = if (det) "Detected by the other instrument (%)"
+                                          else "Identified by the other instrument (%)",
                                   range = c(0, 105)),
                      legend = list(orientation = "h", y = -0.25))
   })

@@ -4,14 +4,18 @@
 # For every matched instrument pair, in both directions: of the particles the
 # base instrument found (passing its quality cutoff, >= min_particle_size_um,
 # and inside the area the other instrument covered), the share the other
-# instrument also found at the same place, per size class of the base
-# particle. "Found" means paired with a particle that passes the other
-# instrument's quality cutoff (only those are matched), so the rate is the
-# detection AND confident identification by the other instrument.
+# instrument also has at the same place, per size class of the base particle,
+# in two senses:
+#   identified  paired with a particle that passes the other instrument's
+#               quality cutoff (only those are matched): detected AND
+#               confidently identified by the other instrument;
+#   detected    any particle of the other instrument, of any quality and size,
+#               within the pair's distance gate. On a dense field part of that
+#               is chance; the chance-corrected rate is
+#               (detected - expected by chance) / (n - expected by chance).
 #
-# Each rate has a 95% Wilson interval, and a chance-corrected rate: the found
-# pairs weighted by p_true (pair_confidence()), the expected number of true
-# partners among them.
+# Each rate has a 95% Wilson interval; the identified rate also has a
+# chance-corrected value: the pairs weighted by p_true (pair_confidence()).
 # =============================================================================
 
 DETECTION_SIZE_BREAKS <- c(20, 50, 100, 200, Inf)
@@ -36,10 +40,15 @@ DETECTION_SIZE_LABELS <- c("20-50", "50-100", "100-200", ">200")
 #'   its first two *_particle_id columns are the stem's first and second
 #'   instrument, an optional p_true column the pair confidence
 #' @param config Pipeline config (quality cutoffs, min_particle_size_um)
+#' @param gates Named list, pair stem -> the pair's distance gate (um); the
+#'   detected rate is computed for the pairs that have one
 #' @return data.frame: found_by, of, group ("all" / "plastics"), size_class
-#'   (incl. "all sizes"), n_base, n_found, rate_pct, ci_low_pct, ci_high_pct,
-#'   n_found_true (sum of p_true), rate_true_pct
-detection_rates <- function(aligned, matches, config) {
+#'   (incl. "all sizes"), n_base; identified: n_found, rate_pct, ci_low_pct,
+#'   ci_high_pct, n_found_true (sum of p_true), rate_true_pct; detected:
+#'   gate_um, n_detected, detected_pct, det_ci_low_pct, det_ci_high_pct,
+#'   det_chance_expected, detected_corrected_pct
+detection_rates <- function(aligned, matches, config, gates = list()) {
+  adapt <- cfg_value(config, "match_adaptive_dist_factor")
   min_size <- cfg_value(config, "min_particle_size_um")
   plastic_fams <- c(synthetic_families, semi_synthetic_families)
   rows <- list()
@@ -69,9 +78,24 @@ detection_rates <- function(aligned, matches, config) {
       b <- base[keep & inside, , drop = FALSE]
       if (nrow(b) == 0) next
 
+      # Detected: any particle of the other instrument within the pair's gate
+      # (widened for large particles as in matching), with its chance level
+      gate <- gates[[stem]]
+      det <- p_chance <- rep(NA, nrow(b))
+      if (!is.null(gate) && is.finite(gate) && sum(fin) >= 3) {
+        g_i <- pmax(gate, adapt * ifelse(is.finite(b$major_um %||% NA), b$major_um, 0))
+        d_nn <- RANN::nn2(cbind(ox[fin], oy[fin]), cbind(b$x_aligned, b$y_aligned), k = 1)$nn.dists[, 1]
+        det <- d_nn <= g_i
+        rho <- chance_partner_rate(ox[fin], oy[fin], 1)$density
+        p_chance <- 1 - exp(-rho * pi * g_i^2)
+      }
+
       hit <- match(as.character(b$particle_id), ids)
       p_true <- if (!is.null(m$p_true)) m$p_true[hit] else rep(NA_real_, nrow(b))
       found <- !is.na(hit)
+      # A paired particle is detected (its partner may lie in a gate widened for
+      # the partner's size rather than this particle's)
+      if (!all(is.na(det))) det <- det | found
       fam <- b$material_family %||% classify_family_vec(b$material)
       size_class <- as.character(cut(b$feret_max_um, DETECTION_SIZE_BREAKS,
                                      DETECTION_SIZE_LABELS, right = FALSE))
@@ -90,6 +114,7 @@ detection_rates <- function(aligned, matches, config) {
             ci_low_pct = round(100 * ci$low, 1), ci_high_pct = round(100 * ci$high, 1),
             n_found_true = round(k_true, 1),
             rate_true_pct = if (n > 0) round(100 * k_true / n, 1) else NA_real_,
+            .detected_row(det[s], p_chance[s], gate),
             stringsAsFactors = FALSE)
         }
       }
@@ -97,6 +122,23 @@ detection_rates <- function(aligned, matches, config) {
   }
   if (length(rows) == 0) return(data.frame())
   do.call(rbind, rows)
+}
+
+# Detected-rate columns of one class: raw rate with its Wilson interval, the
+# expected chance detections and the chance-corrected rate (clamped to 0-100).
+.detected_row <- function(det, p_chance, gate) {
+  n <- length(det)
+  if (n == 0 || all(is.na(det)))
+    return(data.frame(gate_um = gate %||% NA_real_, n_detected = NA_integer_,
+                      detected_pct = NA_real_, det_ci_low_pct = NA_real_,
+                      det_ci_high_pct = NA_real_, det_chance_expected = NA_real_,
+                      detected_corrected_pct = NA_real_))
+  k <- sum(det); e <- sum(p_chance)
+  ci <- wilson_interval(k, n)
+  corr <- if (n - e > 0) min(100, max(0, 100 * (k - e) / (n - e))) else NA_real_
+  data.frame(gate_um = round(gate, 1), n_detected = k, detected_pct = round(100 * k / n, 1),
+             det_ci_low_pct = round(100 * ci$low, 1), det_ci_high_pct = round(100 * ci$high, 1),
+             det_chance_expected = round(e, 1), detected_corrected_pct = round(corr, 1))
 }
 
 #' Display name of an instrument by its file name ("ftir_perkin" -> "FTIR (PerkinElmer)")
@@ -110,11 +152,14 @@ log_detection_rates <- function(det) {
   if (is.null(det) || nrow(det) == 0) return(invisible(NULL))
   a <- det[det$group == "all" & det$size_class == "all sizes" & det$n_base > 0, ]
   for (i in seq_len(nrow(a)))
-    log_message(sprintf("  %s finds %s of the %d %s particles in its area%s",
-                        .file_role_name(a$found_by[i]),
-                        format_rate_ci(a$n_found[i], a$n_base[i]), a$n_base[i],
-                        .file_role_name(a$of[i]),
+    log_message(sprintf("  Of the %d %s particles in its area, %s identified %s%s%s",
+                        a$n_base[i], .file_role_name(a$of[i]), .file_role_name(a$found_by[i]),
+                        format_rate_ci(a$n_found[i], a$n_base[i]),
                         if (is.na(a$rate_true_pct[i])) ""
-                        else sprintf(" (chance-corrected %.0f%%)", a$rate_true_pct[i])))
+                        else sprintf(" (chance-corrected %.0f%%)", a$rate_true_pct[i]),
+                        if (is.null(a$n_detected) || is.na(a$n_detected[i])) ""
+                        else sprintf(" and detected %s (chance-corrected %.0f%%; any particle within %g um)",
+                                     format_rate_ci(a$n_detected[i], a$n_base[i]),
+                                     a$detected_corrected_pct[i], a$gate_um[i])))
   invisible(NULL)
 }

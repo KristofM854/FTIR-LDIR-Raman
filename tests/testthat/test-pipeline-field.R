@@ -85,7 +85,8 @@ test_that("a dense field sample: LDIR pairs are right, sigma is recovered, a sho
 
   ch <- utils::read.csv(file.path(run, "07_diagnostics", "chance_pairs.csv"))
   l <- ch[ch$pair == "ldir_raman", ]
-  expect_equal(l$gate_um, 20)
+  # Per-run gate: 3 x the fitted positional error (true sigma 7 um)
+  expect_gt(l$gate_um, 15); expect_lt(l$gate_um, 27)
   expect_lt(l$chance_share, 0.1)
   expect_gt(l$position_sigma_um, 4.5); expect_lt(l$position_sigma_um, 8.5)
 
@@ -101,6 +102,10 @@ test_that("a dense field sample: LDIR pairs are right, sigma is recovered, a sho
   r_all <- det[det$found_by == "raman" & det$of == "ldir" & det$group == "all" &
                  det$size_class == "all sizes", ]
   expect_equal(r_all$n_found, nrow(m))
+  # Detected (any Raman particle within the gate, any HQI) >= identified; the
+  # chance-corrected rate is below the raw one on this dense field
+  expect_gte(r_all$n_detected, r_all$n_found)
+  expect_lt(r_all$detected_corrected_pct, r_all$detected_pct)
   expect_true(r_all$ci_low_pct <= r_all$rate_pct && r_all$rate_pct <= r_all$ci_high_pct)
   expect_false(any(det$found_by == "ftir_bruker" | det$of == "ftir_bruker"))
 

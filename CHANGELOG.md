@@ -90,6 +90,22 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   50-100, 100-200, > 200 um, all particles and plastics, with 95% intervals
   and a chance-corrected rate (sum of p_true).
 - Test: synthetic dense field sample end to end (`test-pipeline-field.R`).
+- **(results on field samples)** The LDIR gate is set per run: 3 x the
+  positional error fitted to that alignment, within 10-50 um
+  (`match_gate_from_sigma`, `match_gate_sigma_k`, `match_gate_min_um`,
+  `match_gate_max_um`); the fixed 20 um when there is no fit. With the
+  analysed LDIR image sigma is ~3 um (field sample A), so the gate is 10 um and
+  the chance pairs drop to about a quarter. Dataset A unchanged (21.2 um).
+- **(results on field samples)** LDIR analysed image: the scale stays the scan
+  diameter's unless the Excel areas imply one more than 1.5x off
+  (`ldir_processed_scale_tolerance`; the overlay then covers part of the scan,
+  dataset A 2.7x). The area estimate was 13% off on field sample A, where the
+  alignment had to correct it. A difference above 5% is a WARN.
+- Detection rates in two senses: *identified* (paired with a particle passing
+  the other's quality cutoff, as before) and *detected* (any particle of the
+  other instrument within the pair's gate, of any quality, with its
+  chance-corrected rate); in `detection_rates.csv`, the report (four pages)
+  and the Summary plot.
 - Segmented PerkinElmer exports (temporary, `R/ftir_segments.R`): when the
   selected FTIR table is one of six segments, the run stitches the tables and
   images (2 x 3 grid column by column, 2 um/px) into `inputs/ftir_stitched/`
