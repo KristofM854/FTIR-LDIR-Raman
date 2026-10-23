@@ -204,6 +204,20 @@ ingest_ftir <- function(filepath, sheet = "Long_Table") {
   # Find identifier column
   id_col <- find_column(raw, c("Identifier", "ID", "Particle"))
   particle_ids <- if (!is.null(id_col)) as.character(raw[[id_col]]) else paste0("P_", seq_len(nrow(raw)))
+  # The Spotlight export numbers plastics MP_0, MP_1, ... but labels every
+  # other particle MP_-1, so an unfiltered export repeats identifiers. Then
+  # number the particles P_1 .. P_n and keep the exported label in
+  # identifier_export (also kept from a stitched table's "Identifier (export)").
+  export_col <- find_column(raw, c("Identifier (export)"))
+  identifier_export <- if (!is.null(export_col)) as.character(raw[[export_col]]) else NULL
+  if (anyDuplicated(particle_ids[!is.na(particle_ids)]) > 0) {
+    n_dup <- sum(duplicated(particle_ids) & !is.na(particle_ids))
+    log_message("  Identifiers repeat (", n_dup, " duplicates, e.g. ",
+                particle_ids[duplicated(particle_ids)][1], "): particles numbered P_1 .. P_",
+                length(particle_ids), ", the exported identifier kept in identifier_export")
+    identifier_export <- identifier_export %||% particle_ids
+    particle_ids <- paste0("P_", seq_along(particle_ids))
+  }
   require_unique_ids(particle_ids, filepath, "FTIR")
 
   # Find material/group column
@@ -225,6 +239,7 @@ ingest_ftir <- function(filepath, sheet = "Long_Table") {
     source_file  = if ("source_file" %in% names(raw)) as.character(raw[["source_file"]]) else basename(filepath),
     stringsAsFactors = FALSE
   )
+  if (!is.null(identifier_export)) df$identifier_export <- identifier_export
 
   log_message("  Parsed ", nrow(df), " FTIR particles")
   log_message("  Coordinate range: X [", round(min(df$x_um, na.rm = TRUE)),
