@@ -111,7 +111,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   images (2 x 3 grid column by column, 2 um/px) into `inputs/ftir_stitched/`
   and continues with them; `tools/stitch_ftir_segments.R` does it on its own.
   Checked on field sample A (15 plastics land on particles of the stitched
-  image). It writes the image placement next to the
+  image). The stitched table numbers its particles P_1 .. P_n (the export labels
+  every non-plastic MP_-1, so its identifiers repeat) and keeps the exported
+  identifier and the segment in `Identifier (export)` and `Segment`. It writes the image placement next to the
   image (`<image>.txt`), which the pipeline reads for PerkinElmer and Bruker
   images when the config sets no extent.
 - `docs/roadmap.md` (open work and open identification questions) replaces

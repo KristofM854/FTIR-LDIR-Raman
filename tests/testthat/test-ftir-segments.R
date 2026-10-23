@@ -41,12 +41,15 @@ test_that("segments are stitched column by column and shifted into one frame", {
   expect_equal(c(st$width_um, st$height_um), c(160, 180))     # 2 x 40 px, 3 x 30 px at 2 um
   expect_equal(st$on_particle, 1)                             # every particle on its spot
   t <- utils::read.csv(st$csv, check.names = FALSE, encoding = "UTF-8")
-  xy <- do.call(rbind, lapply(strsplit(gsub("\\[|\\]", "", t[[3]]), ";"), as.numeric))
+  um <- grep("^Coord\\..*m\\]$", names(t), value = TRUE); um <- um[!grepl("pixel", um)]
+  xy <- do.call(rbind, lapply(strsplit(gsub("\\[|\\]", "", t[[um]]), ";"), as.numeric))
   # column c = (k-1) %/% 3, row r = (k-1) %% 3 from the top; y up from the bottom
   c0 <- (loc$k - 1) %/% 3; r0 <- (loc$k - 1) %% 3
   expect_equal(xy[, 1], loc$x + c0 * 80)
   expect_equal(xy[, 2], loc$y + (2 - r0) * 60)
-  expect_equal(t[[1]], paste0("M", loc$k, "_MP_0"))
+  expect_equal(t[[1]], paste0("P_", seq_len(nrow(loc))))     # unique across segments
+  expect_equal(t[["Identifier (export)"]], rep("MP_0", nrow(loc)))
+  expect_equal(t$Segment, paste0("M", loc$k))
   expect_equal(read_ftir_image_metadata(st$png)$width_um, 160)
 })
 

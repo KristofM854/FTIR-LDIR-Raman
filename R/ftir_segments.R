@@ -107,11 +107,19 @@ stitch_ftir_segments <- function(tables, images, out_dir, cols = 2, rows = 3,
       d[[px_col]] <- sprintf("[%d;%d]", round((um[, 1] + dx) / map_um), round((um[, 2] + dy) / map_um))
     }
     d[[um_col]] <- sprintf("[%d;%d]", round(um[, 1] + dx), round(um[, 2] + dy))
-    d[[1]] <- paste0("M", k, "_", d[[1]])                    # identifiers unique across segments
+    d$Segment <- paste0("M", k)
     out[[length(out) + 1]] <- d
   }
   tab <- do.call(rbind, out)
   if (is.null(tab)) stop("The FTIR segment tables hold no particles", call. = FALSE)
+  # The export numbers plastics MP_0, MP_1, ... per segment but labels every
+  # other particle MP_-1, so identifiers repeat. New unique identifiers
+  # P_1 .. P_n (the column the pipeline reads); the exported one is kept as
+  # "Identifier (export)" next to the segment.
+  id_name <- names(tab)[1]
+  tab <- cbind(stats::setNames(data.frame(paste0("P_", seq_len(nrow(tab)))), id_name),
+               stats::setNames(tab[1], paste0(id_name, " (export)")),
+               tab[-1], stringsAsFactors = FALSE)
 
   # --- Check: do the shifted particles land on particles in the mosaic? -----
   # A particle is any spot whose colour stands out from the background: the
