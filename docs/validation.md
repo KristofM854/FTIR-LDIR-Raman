@@ -69,12 +69,14 @@ Only particles that pass their instrument's quality cutoff are matched (FTIR
 AAU ≥ 0.70, Raman HQI ≥ 70, LDIR ≥ 0.85, the cutoffs of the agreement
 scoring) and whose Feret max is at least 20 µm, the common detection limit;
 a pair whose Feret max differ by more than 5× is not made. Matching is
-one-to-one (Hungarian) within a distance gate: 50 µm, 20 µm for LDIR against
-the reference (wider for large particles: 0.15 × major axis). The LDIR gate
-is ~3σ of the LDIR positional error, which every run fits to the
-nearest-neighbour distances (a true-pair peak with a 2-D normal error plus
-chance neighbours at the reference density): σ = 7.1 µm on dataset A and
-7.3 µm on field sample A. A pair of two aligned instruments (neither the
+one-to-one (Hungarian) within a distance gate: 50 µm, and for LDIR against
+the reference 3σ of the LDIR positional error fitted to that run's alignment
+(within 10–50 µm; 20 µm without a fit), wider for large particles (0.15 ×
+major axis). The fit uses the nearest-neighbour distances (a true-pair peak
+with a 2-D normal error plus chance neighbours at the reference density):
+σ = 7.1 µm on dataset A (gate 21 µm), 7.3 µm on field sample A with the
+image-blob join, and 3.0 µm with the LDIR software's analysed image (gate
+10 µm). A pair of two aligned instruments (neither the
 reference) carries both alignment errors and takes the wider gate, 50 µm. The cost is the centre distance in µm plus unitless size
 and shape terms (0.3·|ln area ratio| + 0.3·|ln Feret ratio| + 0.1·relative
 aspect-ratio difference) that add less than 1.5 µm even for a tenfold size
@@ -89,9 +91,8 @@ breaking near-ties. For the paper (Methods):
 > passing their instrument's quality threshold (FTIR AAU ≥ 0.70, Raman HQI
 > ≥ 70, LDIR ≥ 0.85) and at least 20 µm in Feret diameter were paired,
 > excluding pairs whose Feret diameters differed by more than a factor of 5, one-to-one with the Hungarian algorithm,
-> minimising the summed centre-to-centre distance within a 50 µm gate (20 µm
-> for LDIR, about three times its positional error, σ ≈ 7 µm, fitted per
-> run). An alignment was used only when its anchor pairs exceeded what the
+> minimising the summed centre-to-centre distance within a 50 µm gate (for
+> LDIR, three times its positional error fitted to each alignment, 10–50 µm). An alignment was used only when its anchor pairs exceeded what the
 > pose search finds by chance (p < 0.01). Size and shape enter the cost only as small
 > tie-breaking terms (< 1.5 µm equivalent), so pairing is by position, not by
 > identification. For each instrument pair, the number of pairs expected by
@@ -223,7 +224,8 @@ against 0.9 expected by chance (p = 2e-28); ICP residual 10.5 µm. At the
 75 µm gate 170 LDIR–Raman pairs: 68 within 10 µm, 92 within 15 µm, then a
 flat tail. The positional-error fit gives σ = 7.3 µm and ~100 true pairs;
 expected share of wrong pairs 41% at 75 µm, 23% at 50 µm, 5% at 20 µm, 3% at
-15 µm. Hence the 20 µm LDIR gate. Within 15 µm the sizes agree (Spearman
+15 µm. Hence an LDIR gate of about 3σ, now set per run (with the analysed
+LDIR image σ = 3.0 µm and the gate 10 µm). Within 15 µm the sizes agree (Spearman
 0.56, tail 0.28) but the identities do not: LDIR says cellulose / natural
 polyamide / chitin, Raman (HQI 70–98) tin(II) chloride, p-diaminobenzene,
 rutin and similar -- a question for the libraries, not the matching.

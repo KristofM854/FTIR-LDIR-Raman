@@ -349,6 +349,11 @@ make_config <- function(ftir_path  = NULL,
     #   looking for the LDIR software's analyzed particle overlay image.
     #   Set to NULL to disable processed-image extraction entirely.
     ldir_processed_image_suffix = "_analyzed",
+    # The analysed image's scale comes from the scan diameter; the Excel
+    # particle areas replace it only when they imply a scale more than this
+    # factor off (the overlay then covers part of the scan; dataset A 2.7x).
+    # Closer, the area estimate is the less accurate one (field sample A: 13%).
+    ldir_processed_scale_tolerance = 1.5,
 
     # ldir_processed_image_min_brightness: per-pixel RGB sum threshold
     #   below which a pixel is treated as background (pure black = 0).
@@ -546,6 +551,16 @@ make_config <- function(ftir_path  = NULL,
     # Large particles still widen it (match_adaptive_dist_factor).
     # NULL = fall back to match_dist_threshold_um.
     match_dist_threshold_ldir_um = 20,
+    # Per run, the LDIR gate (LDIR against the reference) is instead
+    # match_gate_sigma_k x the positional error fitted to that alignment,
+    # within match_gate_min_um..match_gate_max_um; match_dist_threshold_ldir_um
+    # applies when there is no fit. With the analysed LDIR image sigma is ~3 um
+    # (field sample A: gate 10 um, 99% of true pairs, ~1/4 of the chance pairs
+    # of a 20 um gate). FALSE = always the fixed gate.
+    match_gate_from_sigma      = TRUE,
+    match_gate_sigma_k         = 3,
+    match_gate_min_um          = 10,
+    match_gate_max_um          = 50,
     # Window (um) of nearest-neighbour distances from which every pair's
     # positional error sigma is fitted and logged (a WARN when 3 sigma exceeds
     # 1.5x the gate). NULL = no fit.

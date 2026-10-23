@@ -756,7 +756,8 @@ run_pipeline <- function(config, report = TRUE) {
     # Pairs through an alignment that is not determined are left out.
     .det_matches <- lapply(.all_matches[vapply(names(.all_matches), function(nm)
       !isFALSE(pairs[[nm]]$determined), logical(1))], function(x) x$matched)
-    .detection <- detection_rates(.aligned, .det_matches, config)
+    .det_gates <- lapply(.all_matches[names(.det_matches)], function(x) x$match_stats$chance_gate_um)
+    .detection <- detection_rates(.aligned, .det_matches, config, gates = .det_gates)
     if (nrow(.detection)) {
       write.csv(.detection, file.path(.export_dirs$diagnostics, "detection_rates.csv"),
                 row.names = FALSE)
