@@ -114,12 +114,18 @@ stitch_ftir_segments <- function(tables, images, out_dir, cols = 2, rows = 3,
   if (is.null(tab)) stop("The FTIR segment tables hold no particles", call. = FALSE)
 
   # --- Check: do the shifted particles land on particles in the mosaic? -----
-  g <- as.integer(magick::image_data(mosaic, "rgb"))[, , 2]  # particles are green/yellow
+  # A particle is any spot whose colour stands out from the background: the
+  # absorbance map draws strong absorbers green/yellow but weak ones (much
+  # cellulose and protein) blue, so brightness in one channel is not enough.
+  bm <- magick::image_data(mosaic, "rgb")                   # raw [3, width, height]
+  bg <- vapply(1:3, function(ch) stats::median(as.integer(bm[ch, seq(1, cols * W, 7),
+                                                             seq(1, rows * H, 7)])), 0)
   um <- pair(tab[[um_column(tab)]])
   col_px <- round(um[, 1] / um_per_px); row_px <- round(rows * H - um[, 2] / um_per_px)
   hit <- mapply(function(cx, ry) {
     xs <- max(1, cx - 4):min(cols * W, cx + 4); ys <- max(1, ry - 4):min(rows * H, ry + 4)
-    max(g[ys, xs]) > 100 }, col_px, row_px)
+    v <- as.integer(bm[, xs, ys]); dim(v) <- c(3, length(v) / 3)
+    max(sqrt(colSums((v - bg)^2))) > 100 }, col_px, row_px)
   say(sprintf("  Stitched %d FTIR segments (%d x %d px, %.0f x %.0f um): %d particles from %d tables, %d of them on a particle in the image",
               n, cols * W, rows * H, cols * W_um, rows * H_um, nrow(tab), length(tables), sum(hit)))
   if (mean(hit) < 0.5)
