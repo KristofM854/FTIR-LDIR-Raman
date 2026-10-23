@@ -120,6 +120,20 @@ Results are written to a timestamped subfolder under `output/` (e.g. `output/202
 
 The ingest module auto-detects CSV delimiters and handles encoding differences (Latin-1, UTF-8).
 
+**Segmented PerkinElmer exports.** The current Spotlight software exports a
+whole-filter scan as six segments (`…M1.csv` … `…M6.csv` and
+`…_M1.bmp` … `…_M6.bmp`), each in its own coordinate frame. Until a software
+update exports one file, join them first:
+```sh
+Rscript tools/stitch_ftir_segments.R <folder with the 12 files> [output folder]
+```
+It writes one table and one image (`<name>_stitched.csv`, `<name>_stitched.png`)
+for the pipeline, checks that the particles land on particles in the stitched
+image, and prints the two config values (`ftir_image_width_um`,
+`ftir_image_height_um`) that place the image exactly. The grid (2 x 3, filled
+column by column) and the image scale (2 µm per pixel) are those of the
+current exports.
+
 Tables in any other layout are read with the column-mapping reader: name, in
 an R list or a JSON file, which column holds each field and the units
 (`config$<role>_column_map`). Every reader returns the same canonical particle
@@ -169,6 +183,7 @@ tools/
   validation.R                  # Null model, sensitivity sweeps (docs/validation.md)
   material_vocabulary.R         # How each material label of a run was classified
   regression_fingerprint.R      # Compact summary of a run (regression test)
+  stitch_ftir_segments.R        # Join segmented PerkinElmer exports (temporary)
 examples/
   dataset_A/                    # One filter, all four instruments
   run_example_A.R, validate_example_A.R

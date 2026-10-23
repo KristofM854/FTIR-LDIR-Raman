@@ -90,6 +90,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   50-100, 100-200, > 200 um, all particles and plastics, with 95% intervals
   and a chance-corrected rate (sum of p_true).
 - Test: synthetic dense field sample end to end (`test-pipeline-field.R`).
+- `tools/stitch_ftir_segments.R` (temporary): joins a PerkinElmer scan exported
+  as six segments (tables and images, 2 x 3 grid column by column, 2 um/px)
+  into one table and one image; checked on field sample A (15 plastics land on
+  particles of the stitched image).
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

@@ -34,6 +34,12 @@ To be settled with the analysts who run the instruments, not in code:
 - **File naming** across the instruments, so that the files of one filter are
   recognisable as such.
 
+## Temporary
+
+- `tools/stitch_ftir_segments.R` joins the six-segment PerkinElmer exports.
+  Remove it once the Spotlight software update exports one table and one
+  image per scan.
+
 ## Release
 
 - Zenodo deposit with a DOI; complete the citation metadata (`CITATION.cff`,
