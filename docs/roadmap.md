@@ -36,9 +36,12 @@ To be settled with the analysts who run the instruments, not in code:
 
 ## Temporary
 
-- `tools/stitch_ftir_segments.R` joins the six-segment PerkinElmer exports.
-  Remove it once the Spotlight software update exports one table and one
-  image per scan.
+- Segmented PerkinElmer exports are stitched automatically
+  (`R/ftir_segments.R`, called at the start of `run_pipeline()`;
+  `tools/stitch_ftir_segments.R`; `tests/testthat/test-ftir-segments.R`).
+  Remove these once the Spotlight software update exports one table and one
+  image per scan; the placement file reader (`read_ftir_image_metadata()`)
+  can stay.
 
 ## Release
 

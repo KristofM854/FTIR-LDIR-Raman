@@ -51,6 +51,10 @@ run_pipeline <- function(config, report = TRUE) {
   # Create a timestamped run subfolder (output/YYYY-MM-DD_1, _2, ...)
   config$output_dir <- make_run_dir(config$output_dir)
 
+  # Segmented PerkinElmer export (temporary, R/ftir_segments.R): stitch it into
+  # inputs/ and continue with the stitched table and image
+  config <- resolve_ftir_segments(config)
+
   # --- Collect input file paths for provenance ---
   .run_input_paths <- list(
     ftir       = if (!is.null(config$ftir_path)  && nzchar(config$ftir_path))  config$ftir_path  else NULL,

@@ -41,6 +41,7 @@ python -m unittest discover -s inst/python -p "test_*.py"
 | `test-ingest-contract.R` | Built-in readers: decimal commas, required columns, empty files, duplicate IDs. |
 | `test-raman-image-metadata.R` | WITec placement file (corner → centre, rotated / incomplete files ignored, discovery next to the image), large images downsized and not copied, the viewer honouring a stage-frame centre. |
 | `test-image-read.R` | Image reading (magick bitmap layout). |
+| `test-ftir-segments.R` | Segmented PerkinElmer exports (temporary): six synthetic segments stitched column by column, each segment's coordinates shifted into one frame, the run's resolver switching to the stitched files. |
 
 **Alignment and matching**
 

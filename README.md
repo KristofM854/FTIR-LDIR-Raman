@@ -122,16 +122,19 @@ The ingest module auto-detects CSV delimiters and handles encoding differences (
 
 **Segmented PerkinElmer exports.** The current Spotlight software exports a
 whole-filter scan as six segments (`…M1.csv` … `…M6.csv` and
-`…_M1.bmp` … `…_M6.bmp`), each in its own coordinate frame. Until a software
-update exports one file, join them first:
-```sh
-Rscript tools/stitch_ftir_segments.R <folder with the 12 files> [output folder]
-```
-It writes one table and one image (`<name>_stitched.csv`, `<name>_stitched.png`)
-for the pipeline and checks that the particles land on particles in the
-stitched image. It also writes `<name>_stitched.txt`, the image's placement:
-kept next to the image, the pipeline reads it and places the image exactly
-(unless `ftir_image_width_um` / `_height_um` are set in the config). The grid (2 x 3, filled
+`…_M1.bmp` … `…_M6.bmp`), each in its own coordinate frame. Select any one
+segment table as the FTIR file and any one segment image as the FTIR image
+(the tables and images may be in different folders): the pipeline finds the
+other segments, stitches them (2 x 3 grid filled column by column, 2 µm per
+pixel) into `inputs/ftir_stitched/` of the run, checks that the particles
+land on particles in the stitched image, and continues with the stitched
+table and image, placed exactly. A segment without particles may have no
+table; all six images are needed. `Rscript tools/stitch_ftir_segments.R
+<folder> [output folder]` does the same on its own. The stitched image's
+placement is written next to it (`<name>_stitched.txt`); the pipeline reads
+such a file for any FTIR image unless `ftir_image_width_um` / `_height_um` are
+set in the config. This is a workaround until the software exports one file
+per scan. The grid (2 x 3, filled
 column by column) and the image scale (2 µm per pixel) are those of the
 current exports.
 
@@ -184,7 +187,7 @@ tools/
   validation.R                  # Null model, sensitivity sweeps (docs/validation.md)
   material_vocabulary.R         # How each material label of a run was classified
   regression_fingerprint.R      # Compact summary of a run (regression test)
-  stitch_ftir_segments.R        # Join segmented PerkinElmer exports (temporary)
+  stitch_ftir_segments.R        # Join segmented PerkinElmer exports on their own (temporary)
 examples/
   dataset_A/                    # One filter, all four instruments
   run_example_A.R, validate_example_A.R

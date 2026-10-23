@@ -90,10 +90,12 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   50-100, 100-200, > 200 um, all particles and plastics, with 95% intervals
   and a chance-corrected rate (sum of p_true).
 - Test: synthetic dense field sample end to end (`test-pipeline-field.R`).
-- `tools/stitch_ftir_segments.R` (temporary): joins a PerkinElmer scan exported
-  as six segments (tables and images, 2 x 3 grid column by column, 2 um/px)
-  into one table and one image; checked on field sample A (15 plastics land on
-  particles of the stitched image). It writes the image placement next to the
+- Segmented PerkinElmer exports (temporary, `R/ftir_segments.R`): when the
+  selected FTIR table is one of six segments, the run stitches the tables and
+  images (2 x 3 grid column by column, 2 um/px) into `inputs/ftir_stitched/`
+  and continues with them; `tools/stitch_ftir_segments.R` does it on its own.
+  Checked on field sample A (15 plastics land on particles of the stitched
+  image). It writes the image placement next to the
   image (`<image>.txt`), which the pipeline reads for PerkinElmer and Bruker
   images when the config sets no extent.
 - `docs/roadmap.md` (open work and open identification questions) replaces
