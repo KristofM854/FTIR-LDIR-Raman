@@ -14,6 +14,9 @@ samples (see [validation.md](validation.md)). Next:
   alignments reported as not determined).
 - Further comparison filters, to repeat the chance-match null model, the
   parameter sensitivity and the detection rates per size class on each.
+- Open decision: align FTIR (PerkinElmer) to LDIR instead of the dense Raman
+  field (both infrared, similar identifications, a five times sparser field).
+  To be decided after a run with all six segments exported unfiltered.
 - A sweep of the quality cutoffs (FTIR AAU, Raman HQI, LDIR quality) and its
   effect on agreement and detection rates.
 
