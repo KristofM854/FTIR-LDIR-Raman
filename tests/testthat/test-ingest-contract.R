@@ -33,9 +33,26 @@ test_that("an export with no particle rows fails clearly", {
                "contains no particle rows")
 })
 
-test_that("duplicated particle IDs fail and are named", {
-  expect_error(suppressMessages(ingest_ftir(.write_csv(c(.ftir_header, .ftir_rows, .ftir_rows[2])))),
-               "duplicated particle ID.*MP_1")
+test_that("repeated FTIR identifiers (MP_-1 for every non-plastic) are renumbered, the export kept", {
+  # The Spotlight export labels every non-plastic MP_-1
+  rows <- c(.ftir_rows, sub("^\"?MP_[0-9]+\"?", "MP_-1", .ftir_rows[2]),
+            sub("^\"?MP_[0-9]+\"?", "MP_-1", .ftir_rows[2]))
+  d <- suppressMessages(ingest_ftir(.write_csv(c(.ftir_header, rows))))
+  expect_equal(d$particle_id, paste0("P_", seq_along(rows)))
+  expect_equal(d$identifier_export[length(rows)], "MP_-1")
+  expect_false(anyDuplicated(d$particle_id) > 0)
+  # Unique identifiers are left alone
+  d1 <- suppressMessages(ingest_ftir(.write_csv(c(.ftir_header, .ftir_rows))))
+  expect_null(d1$identifier_export)
+  expect_false(any(startsWith(d1$particle_id, "P_")))
+})
+
+test_that("a stitched table keeps its P_ numbers and its exported identifiers", {
+  hdr <- sub("^Identifier,", "Identifier,Identifier (export),", .ftir_header)
+  d <- suppressMessages(ingest_ftir(.write_csv(c(hdr, paste0("P_", 1:2, ",MP_-1,", sub("^[^,]*,", "", .ftir_rows))))))
+  expect_equal(d$particle_id, c("P_1", "P_2"))
+  expect_equal(d$identifier_export, c("MP_-1", "MP_-1"))
+  expect_equal(d$x_um, c(94, 375))
 })
 
 test_that("a semicolon export with decimal commas reads the same numbers", {
