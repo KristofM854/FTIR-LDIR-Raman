@@ -128,9 +128,10 @@ update exports one file, join them first:
 Rscript tools/stitch_ftir_segments.R <folder with the 12 files> [output folder]
 ```
 It writes one table and one image (`<name>_stitched.csv`, `<name>_stitched.png`)
-for the pipeline, checks that the particles land on particles in the stitched
-image, and prints the two config values (`ftir_image_width_um`,
-`ftir_image_height_um`) that place the image exactly. The grid (2 x 3, filled
+for the pipeline and checks that the particles land on particles in the
+stitched image. It also writes `<name>_stitched.txt`, the image's placement:
+kept next to the image, the pipeline reads it and places the image exactly
+(unless `ftir_image_width_um` / `_height_um` are set in the config). The grid (2 x 3, filled
 column by column) and the image scale (2 µm per pixel) are those of the
 current exports.
 

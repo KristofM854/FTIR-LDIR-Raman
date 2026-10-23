@@ -19,9 +19,9 @@
 #
 #   Rscript tools/stitch_ftir_segments.R <folder> [output folder]
 #
-# Writes <name>_stitched.csv and <name>_stitched.png, checks that the particles
-# land on particles in the stitched image, and prints the two config values
-# that place the image exactly (ftir_image_width_um / _height_um).
+# Writes <name>_stitched.csv, <name>_stitched.png and <name>_stitched.txt (the
+# image placement, read by the pipeline automatically when it sits next to the
+# image), and checks that the particles land on particles in the stitched image.
 # =============================================================================
 
 stitch_ftir_segments <- function(dir, out_dir = dir, cols = 2, rows = 3,
@@ -119,11 +119,16 @@ stitch_ftir_segments <- function(dir, out_dir = dir, cols = 2, rows = 3,
   header <- paste0('"', enc2utf8(names(tab)), '"', collapse = ",")
   con <- file(csv_out, "wb"); writeLines(enc2utf8(c(header, body)), con, useBytes = TRUE); close(con)
   magick::image_write(mosaic, png_out, format = "png")
-  say("Wrote ", csv_out, "\nWrote ", png_out)
-  say(sprintf(paste0("To place the image exactly, set in the config (00_config.R or ",
-                     "config_overrides):\n  ftir_image_width_um = %.0f, ftir_image_height_um = %.0f"),
-              cols * W_um, rows * H_um))
-  invisible(list(table = tab, csv = csv_out, png = png_out,
+  # Placement file next to the image, read by the pipeline (R/ftir_image_placement.R,
+  # read_ftir_image_metadata()): the image spans [0, width] x [0, height] um
+  txt_out <- paste0(tools::file_path_sans_ext(png_out), ".txt")
+  writeLines(c("FTIR image placement (tools/stitch_ftir_segments.R), um in the table's frame",
+               sprintf("Width: %.0f", cols * W_um), sprintf("Height: %.0f", rows * H_um),
+               sprintf("Center X: %.1f", cols * W_um / 2), sprintf("Center Y: %.1f", rows * H_um / 2)),
+             txt_out)
+  say("Wrote ", csv_out, "\nWrote ", png_out, "\nWrote ", txt_out,
+      " (image placement; keep it next to the image)")
+  invisible(list(table = tab, csv = csv_out, png = png_out, placement = txt_out,
                  width_um = cols * W_um, height_um = rows * H_um, on_particle = mean(hit)))
 }
 

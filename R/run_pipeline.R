@@ -398,6 +398,26 @@ run_pipeline <- function(config, report = TRUE) {
   .place_ftir_run_image <- function(img_path, df, prefix, key, label) {
     if (is.null(img_path) || !nzchar(img_path) || is.null(df) || nrow(df) == 0)
       return(NULL)
+    # A placement file next to the image (<image>.txt, e.g. from
+    # tools/stitch_ftir_segments.R) gives the exact extent unless the config
+    # sets one; recorded in the manifest so the viewer places it the same way.
+    keys <- paste0(prefix, c("_width_um", "_height_um", "_center_x_um", "_center_y_um"))
+    meta <- read_ftir_image_metadata(img_path)
+    if (!is.null(meta)) {
+      if (!is.null(ftir_extent_from_config(config, prefix))) {
+        log_message("  ", basename(meta$path), " found, but ", prefix, "_width_um / ",
+                    "_height_um are set in the config — using the config values")
+      } else {
+        vals <- list(meta$width_um, meta$height_um,
+                     if (is.finite(meta$center_x_um)) meta$center_x_um,
+                     if (is.finite(meta$center_y_um)) meta$center_y_um)
+        for (i in seq_along(keys)) config[[keys[i]]] <<- vals[[i]]
+        upd <- setNames(vals, keys); upd <- upd[!vapply(upd, is.null, logical(1))]
+        update_manifest_config_snapshot(config$output_dir, upd)
+        log_message(sprintf("  %s image placement from %s: %.0f x %.0f um", label,
+                            basename(meta$path), meta$width_um, meta$height_um))
+      }
+    }
     img_raw <- read_image_any(img_path, verbose = FALSE)
     if (is.null(img_raw)) {
       log_message("  WARNING: could not read ", label, " image \u2014 placement unavailable",
