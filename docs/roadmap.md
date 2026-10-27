@@ -21,16 +21,25 @@ samples (see [validation.md](validation.md)). Next:
 
 To be settled with the analysts who run the instruments, not in code:
 
-- **Natural particles in Raman.** On field sample A, LDIR identifies the
-  closest LDIR-Raman pairs (within 15 µm, sizes agreeing) mostly as cellulose,
-  natural polyamide or chitin, while Raman reports library hits such as tin(II)
-  chloride, p-diaminobenzene or rutin at HQI 70-98. Does the Raman library hold
-  cellulose and natural-fibre references? If not, should such hits count as
-  unresolved rather than as a disagreement? FTIR (PerkinElmer) shows the same:
-  of its 108 pairs with Raman, 79 Raman partners are such compounds
-  ("Other compound": p-diaminobenzene 17, rutin 11, 1,5-pentanediol 10, ...)
-  where FTIR reports cellulose or protein, at a median HQI of 84 -- higher
-  than the Raman cellulose hits, so the HQI cutoff does not remove them.
+- **Natural-material references for Raman (for the Raman analysts).** On
+  field sample A, FTIR and LDIR identify most particles as cellulose, protein,
+  natural polyamide or chitin; Raman reports reference chemicals instead
+  (79 of 108 FTIR-Raman pairs: p-diaminobenzene 17, rutin 11,
+  1,5-pentanediol 10, essential oils, esters, paraffins) at a median HQI of 84,
+  higher than its cellulose hits, so the HQI cutoff does not remove them. The
+  nine S.T. Japan libraries (21 105 entries, ~10 700 substances) hold almost no
+  natural-fibre references: one cotton, ~12 native celluloses (the other 120
+  cellulose entries are derivatives), two chitin, no wool, silk, keratin,
+  linen, hemp, jute or lignin. Where a reference exists Raman finds it (all 5
+  Raman cellulose hits agree with FTIR). Since this change such hits count as
+  unresolved, not as disagreements (field sample A: family agreement 26%
+  (13-45%) of 27 resolved pairs instead of 7% of 107; 81 unresolved). The fix
+  belongs on the instrument side: search only the relevant libraries
+  (L60035 microplastics and related compounds plus natural materials) and/or
+  add references measured in-house -- cotton, wool, viscose, native cellulose,
+  chitin, and biofilm or plankton material from the sampling sites.
+  Also to check: tin(II) chloride (from the inorganics library) is the Raman
+  hit for 5 cellulose/protein particles and still counts as a disagreement.
 - **PET vs PC.** On the polycarbonate reference filter, FTIR (PerkinElmer)
   calls 8 particles PET where Raman and LDIR call them PC. To check: the raw
   identification labels (`identification_raw`), since the classification
