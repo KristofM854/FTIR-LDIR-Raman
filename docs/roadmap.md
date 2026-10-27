@@ -14,9 +14,6 @@ samples (see [validation.md](validation.md)). Next:
   alignments reported as not determined).
 - Further comparison filters, to repeat the chance-match null model, the
   parameter sensitivity and the detection rates per size class on each.
-- Open decision: align FTIR (PerkinElmer) to LDIR instead of the dense Raman
-  field (both infrared, similar identifications, a five times sparser field).
-  To be decided after a run with all six segments exported unfiltered.
 - A sweep of the quality cutoffs (FTIR AAU, Raman HQI, LDIR quality) and its
   effect on agreement and detection rates.
 
@@ -29,7 +26,11 @@ To be settled with the analysts who run the instruments, not in code:
   natural polyamide or chitin, while Raman reports library hits such as tin(II)
   chloride, p-diaminobenzene or rutin at HQI 70-98. Does the Raman library hold
   cellulose and natural-fibre references? If not, should such hits count as
-  unresolved rather than as a disagreement?
+  unresolved rather than as a disagreement? FTIR (PerkinElmer) shows the same:
+  of its 108 pairs with Raman, 79 Raman partners are such compounds
+  ("Other compound": p-diaminobenzene 17, rutin 11, 1,5-pentanediol 10, ...)
+  where FTIR reports cellulose or protein, at a median HQI of 84 -- higher
+  than the Raman cellulose hits, so the HQI cutoff does not remove them.
 - **PET vs PC.** On the polycarbonate reference filter, FTIR (PerkinElmer)
   calls 8 particles PET where Raman and LDIR call them PC. To check: the raw
   identification labels (`identification_raw`), since the classification

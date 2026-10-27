@@ -234,6 +234,15 @@ Both FTIR exports had been filtered to plastics in the instrument software
 cannot fix a pose (PerkinElmer came out mirrored, the two Bruker searches
 disagreed by 140°), and the pose check now reports such an alignment as not
 determined.
+Exported again with all six PerkinElmer segments unfiltered (495
+particles, stitched): FTIR–Raman landmarks 35 pairs against 1.1 expected by
+chance (p = 4e-40), rotation 175.6°, scale 1.002, ICP RMS 18 µm, σ = 12.4 µm.
+At the fixed 50 µm gate 39% of the 108 pairs were expected by chance; hence
+the per-run gate (3σ ≈ 37 µm) for FTIR when the fixed gate lets in more than
+20% chance pairs. Not always: on dataset A a 3σ gate (24 and 37 µm) lost 3 of
+49 true PET–PET pairs, at 41–48 µm (4–6σ), with 0–3% chance pairs at 50 µm. Family agreement 7%:
+79 of the 108 Raman partners are non-polymer library compounds where FTIR
+reports cellulose or protein, also among the pairs with p_true ≥ 0.9.
 
 ## 6. Images
 

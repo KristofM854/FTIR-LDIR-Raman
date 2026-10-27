@@ -3367,6 +3367,13 @@ server <- function(input, output, session) {
     paste0(" — view ", paste(bits, collapse = " + "), " to match Raman")
   }
 
+  # The last hovered particle, or NULL once the filters hide it (the hover is
+  # sticky, so it would otherwise outlive a change of filter).
+  .still_shown <- function(row, df) {
+    if (is.null(row) || is.null(df) || nrow(df) == 0) return(NULL)
+    if (as.character(row$particle_id[1]) %in% as.character(df$particle_id)) row else NULL
+  }
+
   # Nearest particle under the cursor, in the coordinates actually plotted.
   .hover_pick <- function(hover, df, aligned, vt) {
     if (is.null(hover) || is.null(df) || nrow(df) == 0) return(NULL)
@@ -3518,7 +3525,7 @@ server <- function(input, output, session) {
   })
 
   output$ftir_hover_info <- renderUI({
-    row <- last_hover$ftir
+    row <- .still_shown(last_hover$ftir, ftir_filtered())
     single_detail_html(row, "FTIR (PerkinElmer)", "AAU Quality")
   })
 
@@ -3632,7 +3639,7 @@ server <- function(input, output, session) {
   })
 
   output$raman_hover_info <- renderUI({
-    row <- last_hover$raman
+    row <- .still_shown(last_hover$raman, raman_filtered())
     single_detail_html(row, "Raman", "HQI")
   })
 
@@ -4059,7 +4066,7 @@ server <- function(input, output, session) {
   })
 
   output$ldir_hover_info <- renderUI({
-    row <- last_hover$ldir
+    row <- .still_shown(last_hover$ldir, ldir_filtered())
     single_detail_html(row, "LDIR", "Quality")
   })
 
@@ -4188,7 +4195,7 @@ server <- function(input, output, session) {
   })
 
   output$ftir_bruker_hover_info <- renderUI({
-    row <- last_hover$ftir_bruker
+    row <- .still_shown(last_hover$ftir_bruker, ftir_bruker_filtered())
     single_detail_html(row, "FTIR (Bruker)", "AAU Quality")
   })
 
@@ -4831,9 +4838,25 @@ server <- function(input, output, session) {
     out
   }
 
+  # The particles the overlay draws: its quality, size and material filters
+  # (the matched tables are filtered in overlay_matched() and siblings).
+  overlay_shown_dfs <- function() {
+    dfs <- overlay_dfs()
+    mats <- c(ftir = "overlay_ftir_material", raman = "overlay_raman_material",
+              ldir = "overlay_ldir_material", ftir_bruker = "overlay_ftir_bruker_material")
+    for (k in names(mats)) {
+      d <- dfs[[k]]; mat <- mat_keep(mats[[k]])
+      if (!is.null(d) && nrow(d) > 0 && !is.null(mat) && "material_family" %in% names(d))
+        dfs[[k]] <- d[d$material_family %in% mat, , drop = FALSE]
+    }
+    dfs
+  }
+
+  # dfs: the particles to search (overlay_shown_dfs()); dfs_hl: where the
+  # highlighted / selected particles are looked up (drawn whatever the filters).
   find_nearest_overlay_particle <- function(px, py, snap_dist,
                                             inst, rel, matched, ldir_m, dfs,
-                                            bruker_m = data.frame()) {
+                                            bruker_m = data.frame(), dfs_hl = dfs) {
     best_dist   <- Inf
     best_row    <- NULL
     best_source <- NULL
@@ -4957,10 +4980,10 @@ server <- function(input, output, session) {
 
     # ALWAYS check highlighted/selected particles regardless of layer state
     hl_specs <- list(
-      list(ids = input$overlay_ftir_particles,        df = dfs$ftir,        src = "single_ftir"),
-      list(ids = input$overlay_raman_particles,       df = dfs$raman,       src = "single_raman"),
-      list(ids = input$overlay_ldir_particles,        df = dfs$ldir,        src = "single_ldir"),
-      list(ids = input$overlay_ftir_bruker_particles, df = dfs$ftir_bruker, src = "single_ftir_bruker")
+      list(ids = input$overlay_ftir_particles,        df = dfs_hl$ftir,        src = "single_ftir"),
+      list(ids = input$overlay_raman_particles,       df = dfs_hl$raman,       src = "single_raman"),
+      list(ids = input$overlay_ldir_particles,        df = dfs_hl$ldir,        src = "single_ldir"),
+      list(ids = input$overlay_ftir_bruker_particles, df = dfs_hl$ftir_bruker, src = "single_ftir_bruker")
     )
     for (spec in hl_specs) {
       if (is.null(spec$ids) || length(spec$ids) == 0) next
@@ -4981,6 +5004,12 @@ server <- function(input, output, session) {
     } else NULL
   }
 
+  # A change of the overlay filters drops the sticky hover: it may be a
+  # particle the overlay no longer draws.
+  observeEvent(list(overlay_matched(), overlay_ldir_matched(), overlay_bruker_matched(),
+                    overlay_shown_dfs()),
+               { last_hover$overlay <- NULL }, ignoreInit = TRUE)
+
   # Overlay: sticky hover — update last_hover$overlay only when a new match is found.
   # Checks active instruments/relationships AND highlighted/selected particles regardless of state.
   observeEvent(input$overlay_hover, {
@@ -5000,7 +5029,8 @@ server <- function(input, output, session) {
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
 
     result <- find_nearest_overlay_particle(hover$x, hover$y, snap_dist,
-                                            inst, rel, matched, ldir_m, dfs, bruker_m)
+                                            inst, rel, matched, ldir_m, overlay_shown_dfs(),
+                                            bruker_m, dfs_hl = dfs)
     if (!is.null(result)) {
       last_hover$overlay <- result$row
       attr(last_hover$overlay, "source") <- result$source
@@ -5028,7 +5058,8 @@ server <- function(input, output, session) {
 
     # For click, pass NULL inst/rel to search ALL instruments
     result <- find_nearest_overlay_particle(click$x, click$y, snap_dist,
-                                            NULL, NULL, matched, ldir_m, dfs, bruker_m)
+                                            NULL, NULL, matched, ldir_m, overlay_shown_dfs(),
+                                            bruker_m, dfs_hl = dfs)
     if (!is.null(result)) {
       pinned_overlay(result$row)
       pinned_source(result$source)
