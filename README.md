@@ -219,8 +219,9 @@ AAU ≥ 0.70, Raman HQI ≥ 70, LDIR ≥ 0.85, the cutoffs of the agreement
 scoring; `match_quality_filter`). The others are never scored, and on dense
 field samples they only add chance partners; they stay in the aligned tables
 and the viewer. Particles are paired one-to-one (Hungarian algorithm) within
-a distance gate (50 µm; for LDIR against the reference 3σ of the positional
-error fitted to that run's alignment, 10–50 µm, else 20 µm; wider for large
+a distance gate (50 µm, 20 µm for LDIR; against the reference, LDIR always and
+the other instruments when 50 µm would let in more than 20% chance pairs take
+3σ of the positional error fitted to that run's alignment, 10–50 µm; wider for large
 particles: 0.15 × major axis), minimising the summed cost. The
 cost is the centre-to-centre distance in µm plus small unitless size and
 shape terms, 0.3·|ln(area ratio)| + 0.3·|ln(Feret ratio)| + 0.1·(relative

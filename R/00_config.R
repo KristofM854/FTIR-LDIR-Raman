@@ -551,12 +551,17 @@ make_config <- function(ftir_path  = NULL,
     # Large particles still widen it (match_adaptive_dist_factor).
     # NULL = fall back to match_dist_threshold_um.
     match_dist_threshold_ldir_um = 20,
-    # Per run, the LDIR gate (LDIR against the reference) is instead
-    # match_gate_sigma_k x the positional error fitted to that alignment,
-    # within match_gate_min_um..match_gate_max_um; match_dist_threshold_ldir_um
-    # applies when there is no fit. With the analysed LDIR image sigma is ~3 um
-    # (field sample A: gate 10 um, 99% of true pairs, ~1/4 of the chance pairs
-    # of a 20 um gate). FALSE = always the fixed gate.
+    # Per run, the gate against the reference is instead match_gate_sigma_k x
+    # the positional error fitted to that alignment, within
+    # match_gate_min_um..match_gate_max_um: always for LDIR (field sample A:
+    # sigma ~3 um with the analysed image, gate 10 um, ~1/4 of the chance pairs
+    # of a 20 um gate); for the other instruments only when the fixed gate
+    # would let in more than chance_share_warn chance pairs (field sample A,
+    # FTIR (PerkinElmer), six segments: 39% at 50 um, sigma 12.4 um, gate
+    # 37 um). On a sparse filter FTIR keeps 50 um: it has a tail of true pairs
+    # at 4-6 sigma (dataset A: 3 of 49 at 41-48 um). The fixed gates above
+    # apply when there is no fit; pairs between two aligned instruments keep
+    # them (match_aligned_pair()). FALSE = always the fixed gate.
     match_gate_from_sigma      = TRUE,
     match_gate_sigma_k         = 3,
     match_gate_min_um          = 10,

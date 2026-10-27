@@ -420,7 +420,7 @@ match_aligned_pair <- function(src_aligned, ref_aligned, config, src_label, ref_
   if (!is.null(config$match_dist_threshold_ldir_um))
     config$match_dist_threshold_ldir_um <- max(config$match_dist_threshold_ldir_um,
                                                config$match_dist_threshold_um)
-  config$match_gate_from_sigma <- FALSE    # the per-run LDIR gate is for LDIR vs the reference
+  config$match_gate_from_sigma <- FALSE    # the per-run gate is for an instrument vs the reference
   match_particles(src_aligned, ref_aligned, config,
                   src_label = src_label, ref_label = ref_label)
 }

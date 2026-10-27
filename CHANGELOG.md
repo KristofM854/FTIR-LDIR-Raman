@@ -123,6 +123,15 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   overlay draws -- its material, quality and size filters -- not every particle
   of the run, and a hovered particle that a filter change hides is cleared, on
   the overlay and on each instrument's view.
+- FTIR (and any other non-LDIR) pairs against the reference take the per-run
+  gate (3 x the fitted positional error, 10-50 um) when the fixed 50 um gate
+  would let in more than `chance_share_warn` (20%) chance pairs, and keep
+  50 um otherwise: FTIR has a tail of true pairs at 4-6 sigma (dataset A: 3 of
+  49 at 41-48 um), which a 3 sigma gate on a sparse filter would lose for
+  nothing. Field sample A, all six PerkinElmer segments unfiltered: sigma
+  12.4 um, 39% chance pairs at 50 um, so ~37 um. LDIR keeps its per-run gate.
+  Aligning FTIR to LDIR instead of Raman (open decision) is dropped: with the
+  six segments the FTIR-Raman landmarks are confident (35 pairs, p = 4e-40).
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

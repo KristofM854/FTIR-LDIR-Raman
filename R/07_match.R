@@ -41,33 +41,42 @@ match_particles <- function(src_df, ref_df, config,
 
   force_complete <- isTRUE(config$ldir_force_complete_match) && src_label == "ldir"
 
-  # LDIR spatial precision (coarse circle-calibrated centroids on large
-  # particles) is inherently lower than FTIR/Raman, so genuine LDIR matches
-  # sit at larger residuals — the FTIR-tuned gate rejects them. Use a
-  # dedicated, looser threshold for any pairing that involves LDIR.
+  # Distance gate. Fixed: match_dist_threshold_um, or for any pairing that
+  # involves LDIR match_dist_threshold_ldir_um. Per run (match_gate_from_sigma):
+  # k x the positional error fitted to this alignment, within bounds; the fixed
+  # gate when there is no fit. LDIR always takes the per-run gate (sigma ~3 um
+  # with the analysed image). Other instruments only when the fixed gate would
+  # let in more than chance_share_warn chance pairs: FTIR has a tail of true
+  # pairs at 4-6 sigma (dataset A: 3 of 49 at 41-48 um), so on a sparse filter
+  # a 3 sigma gate loses them for nothing (field sample A, FTIR (PerkinElmer):
+  # sigma 12.4 um, 39% chance pairs at 50 um).
   is_ldir_pair <- src_label == "ldir" || ref_label == "ldir"
-  if (is_ldir_pair && !is.null(config$match_dist_threshold_ldir_um)) {
-    eff <- config$match_dist_threshold_ldir_um
-    how <- "fixed"
-    # Per run: k x the positional error fitted to this alignment (the analysed
-    # LDIR image gives sigma ~3 um, the image-blob join ~7 um), within bounds;
-    # the fixed gate when there is no fit.
-    if (isTRUE(cfg_value(config, "match_gate_from_sigma"))) {
-      rho <- chance_partner_rate(ref_df$x_norm, ref_df$y_norm, 1)$density
-      pe <- .position_error(src_df$x_aligned, src_df$y_aligned, ref_df$x_norm, ref_df$y_norm,
-                            rho, cfg_value(config, "position_error_window_um"))
-      if (is.finite(pe$sigma)) {
-        k <- cfg_value(config, "match_gate_sigma_k")
-        eff <- min(max(k * pe$sigma, cfg_value(config, "match_gate_min_um")),
-                   cfg_value(config, "match_gate_max_um"))
-        how <- sprintf("%g x sigma %.1f um fitted to this alignment, within %g-%g um", k,
-                       pe$sigma, cfg_value(config, "match_gate_min_um"),
-                       cfg_value(config, "match_gate_max_um"))
-      } else how <- "fixed: no positional-error fit for this alignment"
-    }
-    log_message(sprintf("  LDIR pairing: distance gate %.1f um (%s)", eff, how))
-    config$match_dist_threshold_um <- eff
+  eff <- if (is_ldir_pair && !is.null(config$match_dist_threshold_ldir_um))
+    config$match_dist_threshold_ldir_um else config$match_dist_threshold_um
+  how <- "fixed"
+  if (isTRUE(cfg_value(config, "match_gate_from_sigma"))) {
+    rho <- chance_partner_rate(ref_df$x_norm, ref_df$y_norm, 1)$density
+    pe <- .position_error(src_df$x_aligned, src_df$y_aligned, ref_df$x_norm, ref_df$y_norm,
+                          rho, cfg_value(config, "position_error_window_um"))
+    chance_fixed <- if (is_ldir_pair) NA_real_ else
+      .fixed_gate_chance_share(src_df, ref_df, config, eff, src_label, ref_label, force_complete)
+    tighten <- is_ldir_pair || isTRUE(chance_fixed > cfg_value(config, "chance_share_warn"))
+    if (!tighten) {
+      how <- sprintf("fixed: %.0f%% chance pairs at this gate", 100 * chance_fixed)
+    } else if (is.finite(pe$sigma)) {
+      k <- cfg_value(config, "match_gate_sigma_k")
+      eff <- min(max(k * pe$sigma, cfg_value(config, "match_gate_min_um")),
+                 cfg_value(config, "match_gate_max_um"))
+      how <- sprintf("%g x sigma %.1f um fitted to this alignment, within %g-%g um%s", k,
+                     pe$sigma, cfg_value(config, "match_gate_min_um"),
+                     cfg_value(config, "match_gate_max_um"),
+                     if (is_ldir_pair) "" else
+                       sprintf("; %.0f%% chance pairs at the fixed %g um", 100 * chance_fixed,
+                               config$match_dist_threshold_um))
+    } else how <- "fixed: no positional-error fit for this alignment"
   }
+  log_message(sprintf("  Pairing: distance gate %.1f um (%s)", eff, how))
+  config$match_dist_threshold_um <- eff
 
   if (method == "hungarian") {
     result <- .match_hungarian(src_df, ref_df, config, src_label, ref_label,
@@ -122,13 +131,22 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
 }
 
 
-# How many of the pairs a random arrangement would also give: each source
-# particle inside the reference field has a chance partner within the gate
-# with p = 1 - exp(-rho * pi * gate^2) (reference density rho over its convex
-# hull). Expected chance pairs = p x source particles inside the field; the
-# chance share is that over the pairs found. A lower bound on chance: the
-# adaptive gate of large particles is wider than the base gate used here.
-.chance_stats <- function(src_df, ref_df, n_matched, gate, config, src_label, ref_label) {
+# Share of chance pairs a match at `gate` would give (as .chance_stats() logs
+# it), from a quiet trial match.
+.fixed_gate_chance_share <- function(src_df, ref_df, config, gate, src_label, ref_label,
+                                     force_complete) {
+  config$match_dist_threshold_um <- gate
+  n <- suppressMessages(
+    if ((config$match_method %||% "hungarian") == "hungarian")
+      .match_hungarian(src_df, ref_df, config, src_label, ref_label,
+                       force_complete = force_complete)$match_stats$n_matched
+    else .match_greedy(src_df, ref_df, config, src_label, ref_label)$match_stats$n_matched)
+  min(1, .chance_expected(src_df, ref_df, gate)$expected / max(n, 1))
+}
+
+# Chance pairs expected at `gate`: source particles inside the reference's
+# convex hull x the chance of a reference particle within the gate.
+.chance_expected <- function(src_df, ref_df, gate) {
   cr <- chance_partner_rate(ref_df$x_norm, ref_df$y_norm, gate)
   sx <- src_df$x_aligned; sy <- src_df$y_aligned
   n_in <- if (is.finite(cr$area_um2) && length(sx) > 0) {
@@ -138,10 +156,22 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
     h <- grDevices::chull(rx[fin], ry[fin])
     sum(.points_in_polygon(sx[ok], sy[ok], rx[fin][h], ry[fin][h]))
   } else NA_integer_
-  expected <- cr$p * n_in
+  list(cr = cr, expected = cr$p * n_in)
+}
+
+# How many of the pairs a random arrangement would also give: each source
+# particle inside the reference field has a chance partner within the gate
+# with p = 1 - exp(-rho * pi * gate^2) (reference density rho over its convex
+# hull). Expected chance pairs = p x source particles inside the field; the
+# chance share is that over the pairs found. A lower bound on chance: the
+# adaptive gate of large particles is wider than the base gate used here.
+.chance_stats <- function(src_df, ref_df, n_matched, gate, config, src_label, ref_label) {
+  ce <- .chance_expected(src_df, ref_df, gate)
+  cr <- ce$cr; expected <- ce$expected
+  sx <- src_df$x_aligned; sy <- src_df$y_aligned
   share <- if (isTRUE(n_matched > 0)) min(1, expected / n_matched) else NA_real_
   lvl <- if (isTRUE(share > cfg_value(config, "chance_share_warn"))) "WARN" else "INFO"
-  log_message(sprintf(paste0("  Chance pairs (%s -> %s, gate %g um, %d reference particles): ",
+  log_message(sprintf(paste0("  Chance pairs (%s -> %s, gate %.1f um, %d reference particles): ",
                              "%.1f of %d expected at random = %s of the pairs"),
                       src_label, ref_label, gate, cr$n, expected, n_matched,
                       if (is.na(share)) "NA" else paste0(round(100 * share), "%")),
@@ -156,7 +186,7 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
     lvl <- if (3 * pe$sigma > 1.5 * gate) "WARN" else "INFO"
     log_message(sprintf(paste0("  Positional error (%s -> %s, fit to %d nearest-neighbour ",
                                "distances within %g um): sigma = %.1f um; 99%% of true ",
-                               "pairs lie within 3 sigma = %.0f um (gate %g um)"),
+                               "pairs lie within 3 sigma = %.0f um (gate %.1f um)"),
                         src_label, ref_label, pe$n, pe$window, pe$sigma, 3 * pe$sigma, gate),
                 level = lvl)
     if (identical(lvl, "WARN"))

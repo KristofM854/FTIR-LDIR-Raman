@@ -113,6 +113,7 @@ test_that("matching per group of nearby particles equals one dense assignment", 
     a <- mk(ns); b <- mk(nr)
     a$x_aligned <- a$x; a$y_aligned <- a$y; b$x_norm <- b$x; b$y_norm <- b$y
     cfg <- make_config()
+    cfg$match_gate_from_sigma <- FALSE         # the fixed gate the reference below uses
     m <- suppressMessages(match_particles(a, b, cfg))$matched
     # Dense reference: the same cost as the matcher, BIG outside the gate
     n <- max(ns, nr); C <- matrix(1e12, n, n)
@@ -183,7 +184,7 @@ test_that("pair_confidence: near pairs are true, far ones in a dense field are n
   expect_true(all(is.na(pair_confidence(c(1, 2), list(sigma = NA)))))
 })
 
-test_that("the LDIR gate is set per run from the fitted positional error", {
+test_that("the gate is set per run from the fitted positional error (LDIR; FTIR on dense filters)", {
   set.seed(8)
   W <- 6000; n_ref <- 1500
   ref <- data.frame(particle_id = paste0("R", 1:n_ref), x_norm = runif(n_ref, 0, W),
@@ -203,4 +204,18 @@ test_that("the LDIR gate is set per run from the fitted positional error", {
   cfg$match_gate_from_sigma <- FALSE
   res2 <- suppressMessages(match_particles(src, ref, cfg, src_label = "ldir", ref_label = "raman"))
   expect_equal(res2$match_stats$chance_gate_um, 20)
+  # FTIR: the per-run gate where 50 um lets in > 20% chance pairs (here ~28%)
+  cfg$match_gate_from_sigma <- TRUE
+  res3 <- suppressMessages(match_particles(src, ref, cfg, src_label = "ftir", ref_label = "raman"))
+  expect_gt(res3$match_stats$chance_gate_um, 10); expect_lt(res3$match_stats$chance_gate_um, 15)
+  # ... and the fixed 50 um on a sparse filter, keeping the true pairs in the tail
+  sparse <- ref[c(i, 201:300), ]
+  res5 <- suppressMessages(match_particles(src, sparse, cfg, src_label = "ftir", ref_label = "raman"))
+  expect_equal(res5$match_stats$chance_gate_um, 50)
+  # LDIR takes the per-run gate on the sparse filter too
+  res6 <- suppressMessages(match_particles(src, sparse, cfg, src_label = "ldir", ref_label = "raman"))
+  expect_lt(res6$match_stats$chance_gate_um, 15)
+  cfg$match_gate_from_sigma <- FALSE
+  res4 <- suppressMessages(match_particles(src, ref, cfg, src_label = "ftir", ref_label = "raman"))
+  expect_equal(res4$match_stats$chance_gate_um, 50)
 })
