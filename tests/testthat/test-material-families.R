@@ -172,3 +172,16 @@ test_that("a library listing PDF is parsed, wrapped entries re-joined", {
   expect_identical(fam(c("Hostalen GM 7040", "Brij (R) 78"), index = idx),
                    c("PE", "Additive"))
 })
+
+test_that("a reference chemical (Other compound) leaves a pair unresolved", {
+  # The Raman libraries hold thousands of reference chemicals but almost no
+  # natural fibres, so a natural particle often takes a chemical's spectrum.
+  idx <- .toy_index()
+  expect_identical(score_tiered_agreement_vec(c("Cellulose", "PE", "Paracetamol"),
+                                              c("Paracetamol", "Cyanomethane", "Paracetamol"),
+                                              index = idx),
+                   c("Unresolved", "Unresolved", "Exact"))
+  expect_false(family_agrees("Other compound", "Other compound"))
+  # Inorganic stays a scored family
+  expect_identical(score_tiered_agreement_vec("PE", "Halite", index = idx), "Disagree")
+})

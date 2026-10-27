@@ -711,9 +711,10 @@ annotate_materials <- function(df) {
 }
 
 # Families that do not resolve a material well enough to call two
-# identifications the same: "Unknown" (no rule recognises the name) and the
-# "Other polymer" catch-all (two different unlisted polymers both land there).
-unresolved_families <- c("Unknown", "Other polymer")
+# identifications the same: "Unknown" (no rule recognises the name), the
+# "Other polymer" catch-all (two different unlisted polymers both land there)
+# and "Other compound" (a reference chemical: a drug, solvent, oil, reagent).
+unresolved_families <- c("Unknown", "Other polymer", other_compound_families)
 
 #' Do two family labels agree? (Same family, and a family that resolves.)
 family_agrees <- function(fam_a, fam_b) {
@@ -730,10 +731,19 @@ family_agrees <- function(fam_a, fam_b) {
 #'                    additive (see filler_pigment_families): compatible, not
 #'                    a confirmation of the polymer
 #'   Unresolved     — the comparison cannot be made from the names: either
-#'                    name is not recognised by any family rule, or both fall
+#'                    name is not recognised by any family rule, either is a
+#'                    reference chemical ("Other compound"), or both fall
 #'                    into the "Other polymer" catch-all as different
 #'                    polymers. Needs human inspection; not an agreement and
-#'                    not a disagreement.
+#'                    not a disagreement. "Other compound": the Raman
+#'                    libraries hold ~10 700 reference substances but almost
+#'                    no natural fibres (one cotton, no wool, silk, linen or
+#'                    lignin, ~12 native celluloses), so a natural particle
+#'                    takes the best of thousands of small-molecule spectra
+#'                    (field sample A: 79 of 108 FTIR-Raman pairs, essential
+#'                    oils, esters, p-diaminobenzene, rutin at HQI 70-98).
+#'                    Such a hit says what the particle is not in the
+#'                    library, not what it is.
 #'   Disagree       — anything else
 #'
 #' Primary agreement = Exact + Family ("family hit"); secondary = Exact.
@@ -742,17 +752,20 @@ family_agrees <- function(fam_a, fam_b) {
 #'
 #' @param names_a,names_b Character vectors of raw material names
 #' @param families Polymer family definitions
+#' @param index Spectral-library index (get_spectral_library_index())
 #' @return Character vector of tiers
 score_tiered_agreement_vec <- function(names_a, names_b,
-                                       families = default_polymer_families) {
-  fam_a <- classify_family_vec(names_a, families)
-  fam_b <- classify_family_vec(names_b, families)
+                                       families = default_polymer_families,
+                                       index = get_spectral_library_index()) {
+  fam_a <- classify_family_vec(names_a, families, index)
+  fam_b <- classify_family_vec(names_b, families, index)
   pol_a <- canonical_polymer_vec(names_a)
   pol_b <- canonical_polymer_vec(names_b)
 
   result <- rep("Disagree", length(names_a))
   result[is_filler_pigment_pair(fam_a, fam_b)] <- "Filler/pigment"
   unresolved <- fam_a == "Unknown" | fam_b == "Unknown" |
+                fam_a %in% other_compound_families | fam_b %in% other_compound_families |
                 (fam_a == "Other polymer" & fam_b == "Other polymer")
   result[unresolved] <- "Unresolved"
   result[family_agrees(fam_a, fam_b)] <- "Family"

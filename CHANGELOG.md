@@ -132,6 +132,14 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   12.4 um, 39% chance pairs at 50 um, so ~37 um. LDIR keeps its per-run gate.
   Aligning FTIR to LDIR instead of Raman (open decision) is dropped: with the
   six segments the FTIR-Raman landmarks are confident (35 pairs, p = 4e-40).
+- Agreement: a pair in which either identification is a reference chemical
+  (family "Other compound": a drug, solvent, oil, reagent from the spectral
+  libraries) is Unresolved, not Disagree, and two different such chemicals no
+  longer count as a family hit. The Raman libraries hold almost no
+  natural-fibre references, so natural particles take a chemical's spectrum:
+  field sample A, FTIR (PerkinElmer)-Raman family agreement 26% (13-45%) of
+  27 resolved pairs instead of 7% of 107, with 81 unresolved. Without the
+  licensed library index no name is "Other compound" and nothing changes.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

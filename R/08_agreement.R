@@ -10,8 +10,9 @@
 #                    pigment or additive compounded into plastics (TiO2,
 #                    CaCO3, talc, ...): compatible, but the polymer is only
 #                    confirmed by one instrument
-#   Unresolved     — names that do not resolve to a comparable family; needs
-#                    inspection, excluded from the rates
+#   Unresolved     — names that do not resolve to a comparable family (an
+#                    unknown name, or a reference chemical: "Other compound");
+#                    needs inspection, excluded from the rates
 #   Disagree       — anything else
 #
 # Also provides category-level summaries (Synthetic / Semi-synthetic / Natural /

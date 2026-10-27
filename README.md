@@ -447,8 +447,11 @@ pass their instrument's quality cutoff (FTIR AAU ≥ 0.70, Raman HQI ≥ 70, LDI
 *Family* (different polymers of the same family), *Filler/pigment* (one
 instrument reports a plastic, the other a Mineral, Pigment or Additive — e.g.
 Raman sees the TiO₂ or CaCO₃ compounded into a particle whose polymer FTIR
-identifies), *Unresolved* (a name no family rule recognises, or two different
-polymers in the "Other polymer" catch-all — flagged for inspection) or
+identifies), *Unresolved* (a name no family rule recognises, a reference
+chemical on either side — "Other compound": the Raman libraries hold almost
+no natural-fibre references, so natural particles take a chemical's spectrum —
+or two different polymers in the "Other polymer" catch-all; flagged for
+inspection) or
 *Disagree*. **Primary agreement = family hit (Exact + Family); secondary =
 exact polymer.** Rates are over resolved pairs; filler/pigment pairs are not a
 family hit, because only one instrument confirms the polymer.

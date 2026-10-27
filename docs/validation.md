@@ -243,6 +243,10 @@ the per-run gate (3σ ≈ 37 µm) for FTIR when the fixed gate lets in more than
 49 true PET–PET pairs, at 41–48 µm (4–6σ), with 0–3% chance pairs at 50 µm. Family agreement 7%:
 79 of the 108 Raman partners are non-polymer library compounds where FTIR
 reports cellulose or protein, also among the pairs with p_true ≥ 0.9.
+The nine Raman libraries hold almost no natural-fibre references (one cotton,
+~12 native celluloses, two chitin; no wool, silk, linen or lignin), so such
+hits now count as unresolved: family agreement 26% (13–45%) of 27 resolved
+pairs, 81 unresolved.
 
 ## 6. Images
 
