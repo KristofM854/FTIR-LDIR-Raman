@@ -326,6 +326,34 @@ The viewer includes:
 - **Raman tab**: Native coordinate view
 - **LDIR tab**: Native coordinate view with raw / processed / extracted-points image layers
 - **Overlay tab**: All instruments in the shared coordinate frame, with layers for individual instruments, matched pairs, and triple matches (gold rings). The Raman image is the background when the run has Raman; runs without Raman have no overlay background yet
+- **Precision tab**: results of a precision study (below)
+
+### Precision study (repeatability and reproducibility)
+
+The same filter measured several times on each instrument, e.g. 3 replicates
+on each of the four: `Rscript tools/precision_study.R design.csv`, where
+`design.csv` lists one measurement per row:
+
+```
+instrument,replicate,file
+ftir,1,C:/data/filterA_perkin_run1.csv
+ftir,2,C:/data/filterA_perkin_run2.csv
+raman,1,C:/data/filterA_raman_run1.csv
+...
+```
+
+(`ftir` = PerkinElmer, `ftir_bruker`, `raman`, `ldir`; for a segmented
+PerkinElmer scan any one segment table; without arguments the script asks for
+the files.) The measurand is the particle count per filter, per polymer family
+and size class, counted as in the pipeline (≥ 20 µm; polymer groups only
+particles passing the instrument's quality cutoff). No particle is matched
+between measurements, so remounted, rotated filters and field samples need no
+images. Following ISO 5725-2, with the instruments as the "laboratories": the
+repeatability SD s_r, between-instrument SD s_L and reproducibility SD s_R
+(with 95% intervals), the limits r and R, the CVs, Mandel's h and k with their
+indicator levels, and each instrument's replicate variance against Poisson
+counting noise. Output in `output/precision/<timestamp>/`: CSVs and
+`precision_report.pdf`; the viewer's **Precision** tab reads the same folder.
 
 ### PDF report
 

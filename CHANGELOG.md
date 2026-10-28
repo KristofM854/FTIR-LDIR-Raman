@@ -179,6 +179,13 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   box (a long one scrolls from the top).
 - Viewer: the run list names each run's input folder (after "My Documents"),
   e.g. `2026-10-28_1 — Automatisations/MPs/.../Bora2025/A`.
+- Precision study after ISO 5725-2 (`R/precision_study.R`,
+  `tools/precision_study.R`, viewer tab "Precision"): the same filter
+  measured n times on each instrument; particle counts per polymer family and
+  size class; repeatability, between-instrument and reproducibility SDs with
+  95% intervals, r / R limits, CVs, Mandel's h and k with indicator levels
+  (checked against their null distributions), and the replicate variance
+  against Poisson counting noise. CSVs and a PDF report.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

@@ -3337,3 +3337,206 @@ build_overlay_plot <- function(dfs) {
     ggplot2::theme(plot.background =
                      ggplot2::element_rect(fill = "white", colour = NA))
 }
+
+# =============================================================================
+# Precision study (R/precision_study.R): plots and report pages, shared by
+# the viewer's Precision tab and tools/precision_study.R
+# =============================================================================
+
+PRECISION_INST_KEY <- c(ftir = "ftir_pe", ftir_bruker = "ftir_bruker", raman = "raman", ldir = "ldir")
+PRECISION_INST_LABEL <- c(ftir = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)",
+                          raman = "Raman", ldir = "LDIR")
+.precision_inst_levels <- function(x) intersect(names(PRECISION_INST_LABEL), unique(x))
+.precision_fill <- function() stats::setNames(INSTRUMENT_COLOURS[PRECISION_INST_KEY],
+                                              PRECISION_INST_LABEL)
+
+#' Read a precision-study output folder (tools/precision_study.R)
+read_precision_results <- function(dir) {
+  f <- function(n) file.path(dir, n)
+  if (!file.exists(f("precision_iso5725.csv"))) return(NULL)
+  rd <- function(n) if (file.exists(f(n))) utils::read.csv(f(n), stringsAsFactors = FALSE,
+                                                          check.names = FALSE) else NULL
+  list(dir = dir, design = rd("precision_design.csv"), counts = rd("precision_counts.csv"),
+       iso = rd("precision_iso5725.csv"), instruments = rd("precision_instruments.csv"),
+       critical = rd("precision_critical.csv"))
+}
+
+#' Precision-study output folders under `base`, newest first
+list_precision_results <- function(base) {
+  if (is.null(base) || !dir.exists(base)) return(character(0))
+  d <- c(base, list.dirs(base, recursive = FALSE))
+  d <- d[file.exists(file.path(d, "precision_iso5725.csv"))]
+  d[order(file.mtime(d), decreasing = TRUE)]
+}
+
+#' The groups worth showing: all particles, plastics, then families by count
+precision_groups <- function(res, max_families = 6) {
+  cnt <- res$counts[res$counts$size_class == "all sizes", ]
+  fam <- setdiff(unique(cnt$group), c("All particles", "Plastics"))
+  tot <- tapply(cnt$count, cnt$group, sum)
+  fam <- fam[order(-tot[fam])]
+  c(intersect(c("All particles", "Plastics"), unique(cnt$group)),
+    head(fam[tot[fam] > 0], max_families))
+}
+
+#' Counts of every replicate (points) with the instrument mean +/- SD, per group
+precision_counts_plot <- function(res, groups = precision_groups(res), size_class = "all sizes") {
+  d <- res$counts[res$counts$group %in% groups & res$counts$size_class == size_class, ]
+  if (nrow(d) == 0) return(NULL)
+  lv <- .precision_inst_levels(d$instrument)
+  d$Instrument <- factor(PRECISION_INST_LABEL[d$instrument], levels = PRECISION_INST_LABEL[lv])
+  d$group <- factor(d$group, levels = groups)
+  m <- stats::aggregate(count ~ Instrument + group, d, function(v) c(mean = mean(v), sd = stats::sd(v)))
+  m <- data.frame(m[, 1:2], mean = m$count[, "mean"], sd = m$count[, "sd"])
+  ggplot2::ggplot(d, ggplot2::aes(x = Instrument, y = count)) +
+    ggplot2::geom_col(data = m, ggplot2::aes(y = mean, fill = Instrument), width = 0.65,
+                      colour = "grey30", linewidth = 0.2, alpha = 0.9) +
+    ggplot2::geom_errorbar(data = m, ggplot2::aes(y = mean, ymin = pmax(0, mean - sd),
+                                                  ymax = mean + sd), width = 0.25) +
+    ggplot2::geom_point(position = ggplot2::position_jitter(width = 0.12, height = 0, seed = 1),
+                        size = 2, shape = 21, fill = "white", colour = "black") +
+    ggplot2::facet_wrap(~ group, scales = "free_y") +
+    ggplot2::scale_fill_manual(values = .precision_fill(), guide = "none") +
+    ggplot2::labs(title = paste0("Particle counts per replicate (",
+                                 if (size_class == "all sizes") "all sizes" else paste(size_class, "um"), ")"),
+                  subtitle = "Bars: instrument mean +/- SD; points: the replicates",
+                  x = NULL, y = "Particles per filter") +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 25, hjust = 1))
+}
+
+#' Relative repeatability (CV_r), between-instrument (CV_L) and
+#' reproducibility (CV_R) per group, or per size class for one group
+precision_components_plot <- function(res, groups = precision_groups(res), by_size = NULL) {
+  iso <- res$iso
+  d <- if (is.null(by_size)) iso[iso$group %in% groups & iso$size_class == "all sizes", ]
+       else iso[iso$group == by_size & iso$size_class != "all sizes", ]
+  if (nrow(d) == 0) return(NULL)
+  x <- if (is.null(by_size)) factor(d$group, levels = groups)
+       else factor(d$size_class, levels = c("20-50", "50-100", "100-200", ">200"))
+  long <- data.frame(x = rep(x, 3),
+                     component = factor(rep(c("Repeatability (s_r)", "Between instruments (s_L)",
+                                              "Reproducibility (s_R)"), each = nrow(d)),
+                                        levels = c("Repeatability (s_r)", "Between instruments (s_L)",
+                                                   "Reproducibility (s_R)")),
+                     cv = c(d$cv_r_pct, d$cv_L_pct, d$cv_R_pct))
+  ggplot2::ggplot(long, ggplot2::aes(x = x, y = cv, fill = component)) +
+    ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.8), width = 0.75,
+                      colour = "grey20", linewidth = 0.2) +
+    # neutral greys: these are not instruments
+    ggplot2::scale_fill_manual(values = c("#D9D9D9", "#969696", "#404040"), name = NULL) +
+    ggplot2::labs(title = if (is.null(by_size)) "Precision per group (all sizes)"
+                          else paste0("Precision per size class: ", by_size),
+                  x = if (is.null(by_size)) NULL else "Feret max (um)",
+                  y = "Relative standard deviation (% of the mean count)") +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(legend.position = "bottom",
+                   axis.text.x = ggplot2::element_text(angle = if (is.null(by_size)) 25 else 0,
+                                                       hjust = if (is.null(by_size)) 1 else 0.5))
+}
+
+#' Mandel's h (between) or k (within) per instrument and group, with the 5%
+#' (dashed) and 1% (solid) indicator levels
+precision_mandel_plot <- function(res, stat = c("h", "k"), groups = precision_groups(res)) {
+  stat <- match.arg(stat)
+  d <- res$instruments[res$instruments$group %in% groups & res$instruments$size_class == "all sizes", ]
+  if (nrow(d) == 0 || all(is.na(d[[stat]]))) return(NULL)
+  lv <- .precision_inst_levels(d$instrument)
+  d$Instrument <- factor(PRECISION_INST_LABEL[d$instrument], levels = PRECISION_INST_LABEL[lv])
+  d$group <- factor(d$group, levels = groups)
+  cr <- res$critical
+  c5 <- cr[[paste0(stat, "_5")]]; c1 <- cr[[paste0(stat, "_1")]]
+  lines <- if (stat == "h") c(-c1, -c5, c5, c1) else c(c5, c1)
+  ltys <- if (stat == "h") c("solid", "dashed", "dashed", "solid") else c("dashed", "solid")
+  ggplot2::ggplot(d, ggplot2::aes(x = group, y = .data[[stat]], fill = Instrument)) +
+    ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.8), width = 0.75,
+                      colour = "grey30", linewidth = 0.2) +
+    ggplot2::geom_hline(yintercept = lines, linetype = ltys, colour = "grey30") +
+    ggplot2::geom_hline(yintercept = 0, colour = "grey60") +
+    ggplot2::scale_fill_manual(values = .precision_fill(), name = NULL) +
+    ggplot2::labs(title = if (stat == "h") "Mandel's h: instrument mean vs the others"
+                          else "Mandel's k: instrument replicate spread vs the others",
+                  subtitle = "Dashed: 5% indicator level; solid: 1% (ISO 5725-2)",
+                  x = NULL, y = stat) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(legend.position = "bottom",
+                   axis.text.x = ggplot2::element_text(angle = 25, hjust = 1))
+}
+
+#' The ISO 5725 table (one row per group or size class) for display
+precision_iso_table <- function(res, size_class = "all sizes", group = NULL) {
+  iso <- res$iso
+  d <- if (is.null(group)) iso[iso$size_class == size_class, ] else
+       iso[iso$group == group & iso$size_class != "all sizes", ]
+  if (nrow(d) == 0) return(d)
+  f <- function(v, dig = 1) ifelse(is.na(v), "\u2014", formatC(v, format = "f", digits = dig))
+  ci <- function(s, lo, hi) ifelse(is.na(s), "\u2014", paste0(f(s), " (", f(lo), "-", f(hi), ")"))
+  data.frame(
+    check.names = FALSE,
+    Group = if (is.null(group)) d$group else d$size_class,
+    Mean = f(d$mean),
+    "s_r (95% CI)" = ci(d$s_r, d$s_r_low, d$s_r_high),
+    "s_L" = f(d$s_L),
+    "s_R (95% CI)" = ci(d$s_R, d$s_R_low, d$s_R_high),
+    "r / R" = paste0(f(d$r_limit), " / ", f(d$R_limit)),
+    "CV_r %" = f(d$cv_r_pct, 0), "CV_L %" = f(d$cv_L_pct, 0), "CV_R %" = f(d$cv_R_pct, 0))
+}
+
+#' Per-instrument table for one stratum: mean, SD, Mandel h / k with flags,
+#' and the counting-noise check
+precision_instrument_table <- function(res, group = "All particles", size_class = "all sizes") {
+  d <- res$instruments[res$instruments$group == group & res$instruments$size_class == size_class, ]
+  if (nrow(d) == 0) return(d)
+  f <- function(v, dig = 2) ifelse(is.na(v), "\u2014", formatC(v, format = "f", digits = dig))
+  fl <- function(x) ifelse(is.na(x) | !nzchar(x), "", paste0(" (", x, ")"))   # "" reads back as NA
+  d <- d[order(match(d$instrument, names(PRECISION_INST_LABEL))), ]
+  data.frame(check.names = FALSE,
+             Instrument = PRECISION_INST_LABEL[d$instrument], n = d$n,
+             Mean = f(d$mean, 1), SD = f(d$sd, 1),
+             h = paste0(f(d$h), fl(d$h_flag)),
+             k = paste0(f(d$k), fl(d$k_flag)),
+             "Var / mean" = f(d$dispersion),
+             "p (Poisson)" = ifelse(is.na(d$dispersion_p), "\u2014",
+                                    formatC(d$dispersion_p, format = "g", digits = 2)))
+}
+
+#' Report pages of a precision study (write_report_pdf())
+precision_report_pages <- function(res, title = "Precision study") {
+  des <- res$design
+  des <- des[order(match(des$instrument, names(PRECISION_INST_LABEL)), des$replicate), ]
+  reps <- table(factor(des$instrument, levels = names(PRECISION_INST_LABEL)))
+  reps <- reps[reps > 0]
+  intro <- c(
+    sprintf("Instruments: %s", paste(sprintf("%s (%d replicates)", PRECISION_INST_LABEL[names(reps)],
+                                             as.integer(reps)), collapse = ", ")),
+    "", "Measurand: particle count per filter, per group and size class (Feret max).",
+    "Counted: particles >= the pipeline's minimum size; the polymer groups only",
+    "those passing the instrument's quality cutoff (FTIR AAU, Raman HQI, LDIR quality).",
+    "", "Statistics after ISO 5725-2, the instruments in the role of the laboratories:",
+    "  s_r  repeatability SD (replicates of one instrument)",
+    "  s_L  between-instrument SD;  s_R  reproducibility SD, s_R^2 = s_L^2 + s_r^2",
+    "  r = 2.8 s_r, R = 2.8 s_R: limits for the difference of two counts",
+    "  CV: SD as % of the mean count; 95% CI: chi-square (s_r), Satterthwaite (s_R)",
+    "  Mandel's h / k: an instrument's mean / spread against the others",
+    "  Var / mean: replicate variance over the mean count -- 1 for pure counting",
+    "  (Poisson) noise; p < 0.05 means more variation than counting alone gives.",
+    "", "Measurements:",
+    sprintf("  %-20s %-4s %s", PRECISION_INST_LABEL[des$instrument], des$replicate, basename(des$file)))
+  pages <- list(report_text_page(title, intro, subtitle = format(Sys.time(), "%Y-%m-%d %H:%M")),
+                report_table_page(precision_iso_table(res), "Repeatability and reproducibility (all sizes)",
+                                  "Counts per filter. CI: 95% interval."))
+  for (g in intersect(c("All particles", "Plastics"), unique(res$iso$group)))
+    pages <- c(pages, list(report_table_page(precision_iso_table(res, group = g),
+                                             paste0("Per size class: ", g))))
+  for (g in intersect(c("All particles", "Plastics"), unique(res$iso$group)))
+    pages <- c(pages, list(report_table_page(precision_instrument_table(res, g),
+                                             paste0("Instruments: ", g, " (all sizes)"),
+                                             "Flags: Mandel indicator level exceeded (5% or 1%).")))
+  plots <- list(precision_counts_plot(res), precision_components_plot(res),
+                precision_components_plot(res, by_size = "All particles"),
+                if ("Plastics" %in% res$iso$group) precision_components_plot(res, by_size = "Plastics"),
+                precision_mandel_plot(res, "h"), precision_mandel_plot(res, "k"))
+  for (p in Filter(Negate(is.null), plots))
+    pages <- c(pages, list(report_figure_page(p, p$labels$title)))
+  pages
+}

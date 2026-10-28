@@ -880,6 +880,48 @@ ui <- fluidPage(
         )
       )
       ) # end div#multirun_panel
+    ),
+
+    # Tab 9: Precision study (tools/precision_study.R): n replicates of one
+    # filter on each instrument, ISO 5725-2 repeatability / reproducibility
+    tabPanel("Precision",
+      sidebarLayout(
+        sidebarPanel(width = 3,
+          h4("Precision study"),
+          tags$p(style = "font-size:12px; color:#666;",
+                 "Results of ", code("tools/precision_study.R"),
+                 ": the same filter measured several times on each instrument."),
+          textInput("prec_base", "Results folder", value = "output/precision"),
+          actionButton("prec_refresh", "Scan", class = "btn-sm btn-primary"),
+          uiOutput("prec_select_ui"),
+          hr(),
+          uiOutput("prec_group_ui"),
+          selectInput("prec_size", "Size class (um)",
+                      choices = c("all sizes", "20-50", "50-100", "100-200", ">200")),
+          hr(),
+          downloadButton("prec_download", "Download report (PDF)", class = "btn-sm")
+        ),
+        mainPanel(width = 9,
+          uiOutput("prec_empty"),
+          h4("Repeatability and reproducibility"),
+          tags$p(class = "text-muted", style = "font-size:12px;",
+                 "Counts per filter. s_r: within an instrument; s_L: between instruments; ",
+                 "s_R: reproducibility (s_R\u00b2 = s_L\u00b2 + s_r\u00b2); r / R = 2.8 s_r / 2.8 s_R; ",
+                 "CV: % of the mean count; 95% CI in brackets (ISO 5725-2)."),
+          tableOutput("prec_iso_table"),
+          plotOutput("prec_counts_plot", height = "420px"),
+          fluidRow(column(6, plotOutput("prec_components_plot", height = "380px")),
+                   column(6, plotOutput("prec_size_plot", height = "380px"))),
+          h4("Instruments"),
+          tags$p(class = "text-muted", style = "font-size:12px;",
+                 "Mandel's h / k: an instrument's mean / replicate spread against the others; ",
+                 "(5%) / (1%): indicator level exceeded. Var / mean: 1 for pure counting (Poisson) ",
+                 "noise; p < 0.05: more variation than counting alone gives."),
+          tableOutput("prec_inst_table"),
+          fluidRow(column(6, plotOutput("prec_h_plot", height = "360px")),
+                   column(6, plotOutput("prec_k_plot", height = "360px")))
+        )
+      )
     )
   )
 )
@@ -5460,6 +5502,64 @@ server <- function(input, output, session) {
   # Scan the base folder for reproducibility runs: any subfolder (or the base
   # itself) containing reproducibility_points.csv. Newest first.
   # Returns a list of records: list(dir, instrument, n_runs) — newest first.
+  # ==================================================================
+  # PRECISION TAB (tools/precision_study.R output)
+  # ==================================================================
+  .prec_base_dir <- reactive({
+    input$prec_refresh
+    b <- input$prec_base %||% "output/precision"
+    # relative to the project folder; the app runs in shiny_app/
+    if (!dir.exists(b) && dir.exists(file.path("..", b))) b <- file.path("..", b)
+    b
+  })
+  output$prec_select_ui <- renderUI({
+    dirs <- list_precision_results(.prec_base_dir())
+    if (length(dirs) == 0) return(tags$p(class = "text-muted", "No precision results found."))
+    selectInput("prec_dir", "Study", choices = stats::setNames(dirs, basename(dirs)))
+  })
+  prec_res <- reactive({
+    d <- input$prec_dir
+    if (is.null(d) || !nzchar(d)) return(NULL)
+    read_precision_results(d)
+  })
+  output$prec_empty <- renderUI({
+    if (!is.null(prec_res())) return(NULL)
+    tags$div(class = "placeholder-msg",
+             tags$h3("No precision study loaded"),
+             tags$p("Run ", tags$code("Rscript tools/precision_study.R design.csv"),
+                    ", then Scan."))
+  })
+  output$prec_group_ui <- renderUI({
+    r <- prec_res(); if (is.null(r)) return(NULL)
+    g <- precision_groups(r, max_families = 50)
+    selectInput("prec_group", "Group (instrument table and size plot)", choices = g)
+  })
+  output$prec_iso_table <- renderTable({
+    r <- prec_res(); req(r)
+    precision_iso_table(r, size_class = input$prec_size %||% "all sizes")
+  }, striped = TRUE, spacing = "s")
+  output$prec_counts_plot <- renderPlot({
+    r <- prec_res(); req(r)
+    precision_counts_plot(r, size_class = input$prec_size %||% "all sizes")
+  })
+  output$prec_components_plot <- renderPlot({ r <- prec_res(); req(r); precision_components_plot(r) })
+  output$prec_size_plot <- renderPlot({
+    r <- prec_res(); req(r, input$prec_group)
+    precision_components_plot(r, by_size = input$prec_group)
+  })
+  output$prec_inst_table <- renderTable({
+    r <- prec_res(); req(r, input$prec_group)
+    precision_instrument_table(r, input$prec_group, input$prec_size %||% "all sizes")
+  }, striped = TRUE, spacing = "s")
+  output$prec_h_plot <- renderPlot({ r <- prec_res(); req(r); precision_mandel_plot(r, "h") })
+  output$prec_k_plot <- renderPlot({ r <- prec_res(); req(r); precision_mandel_plot(r, "k") })
+  output$prec_download <- downloadHandler(
+    filename = function() paste0("precision_report_", basename(input$prec_dir %||% "study"), ".pdf"),
+    content = function(file) {
+      r <- prec_res(); req(r)
+      write_report_pdf(precision_report_pages(r), file)
+    })
+
   repro_scan <- reactive({
     input$repro_refresh                       # manual rescan trigger
     base <- input$repro_base
