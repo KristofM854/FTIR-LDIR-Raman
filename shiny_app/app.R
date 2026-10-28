@@ -235,12 +235,14 @@ ui <- fluidPage(
     .mat-filter-actions a:hover,
     .mat-filter-actions a:focus { color: #337ab7; text-decoration: underline; }
     .mat-filter-sep { color: #ccc; margin: 0 3px; }
-    .mat-filter-box { max-height: 170px; min-height: 62px; overflow-y: auto; background: #fff;
+    .mat-filter-box { display: flex; flex-direction: column;
+                      max-height: 170px; min-height: 62px; overflow-y: auto; background: #fff;
                       border: 1px solid #ced4da; border-radius: 4px;
                       padding: 5px 10px; }
-    /* Bootstrap gives .form-group a bottom margin; inside the box that is
-       just dead space under the last row. */
-    .mat-filter-box .form-group { margin-bottom: 0; }
+    /* A short list sits centred in the box: auto margins on its one child
+       (in place of Bootstrap's bottom margin), so a long, scrolling list
+       still starts at the top instead of being clipped. */
+    .mat-filter-box .form-group { margin-top: auto; margin-bottom: auto; }
     /* Shiny gives the options group margin-top: -10px, which pushed the
        first row above the box's top edge */
     .mat-filter-box .shiny-input-container .shiny-options-group,
