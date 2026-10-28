@@ -159,6 +159,15 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   Okabe-Ito palette, checked for deuteranopia, protanopia and tritanopia.
   A combination list with counts filters the groups (e.g. only
   PerkinElmer + LDIR). The former view stays as "Raw positions".
+- Viewer: one colour-blind-safe instrument palette (Okabe-Ito) across the whole
+  app and the report -- FTIR (PerkinElmer) yellow, FTIR (Bruker) reddish
+  purple, Raman blue, LDIR vermillion; darker shades of the same hues for
+  text on white (contrast >= 4.5:1). Particles without a partner are grey on
+  every instrument (formerly a second colour each, e.g. green vs red), the
+  pair-confidence gradient is viridis (formerly red-orange-green), and the
+  size histograms take the instrument colour. Overlay: the per-instrument
+  filters sit side by side below the image; background image and offsets at
+  the bottom of the sidebar.
 - Viewer: the run list names each run's input folder (after "My Documents"),
   e.g. `2026-10-28_1 — Automatisations/MPs/.../Bora2025/A`.
 - `docs/roadmap.md` (open work and open identification questions) replaces
