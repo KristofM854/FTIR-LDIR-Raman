@@ -9,6 +9,37 @@ library(png)
 # rintrojs (guided tour) is loaded in app.R: it is UI-only, and main.R sources
 # this file to build the report on machines without the viewer's packages.
 
+# ---- Instrument colours -------------------------------------------------------
+# Okabe & Ito (2008), colour-blind safe: the four stay apart under
+# deuteranopia, protanopia and tritanopia (checked with colorspace). Fills,
+# points and lines use INSTRUMENT_COLOURS; text on white uses the darker
+# INSTRUMENT_TEXT_COLOURS (contrast >= 4.5:1). Particles without a partner are
+# UNMATCHED_COLOUR on every instrument.
+INSTRUMENT_COLOURS <- c(ftir_pe = "#F0E442", ftir_bruker = "#CC79A7",
+                        raman = "#0072B2", ldir = "#D55E00")
+INSTRUMENT_TEXT_COLOURS <- c(ftir_pe = "#7D750A", ftir_bruker = "#BC4F8B",
+                             raman = "#0072B2", ldir = "#C05500")
+UNMATCHED_COLOUR <- "#BBBBBB"
+
+#' Instrument key of a key or display name ("FTIR (PerkinElmer)", "FTIR",
+#' "ftir", "ftir_perkin", "FTIR (Bruker)", "Raman", "LDIR", ...)
+instrument_key <- function(x) {
+  x <- tolower(as.character(x))
+  ifelse(grepl("bruker", x), "ftir_bruker",
+  ifelse(grepl("raman", x), "raman",
+  ifelse(grepl("ldir|ld-ir", x), "ldir",
+  ifelse(grepl("ftir|ft-ir|perkin", x), "ftir_pe", NA_character_))))
+}
+
+#' Colour of an instrument by key or display name (text = darker shade for
+#' text on white)
+instrument_colour <- function(x, text = FALSE) {
+  pal <- if (isTRUE(text)) INSTRUMENT_TEXT_COLOURS else INSTRUMENT_COLOURS
+  col <- unname(pal[instrument_key(x)])
+  col[is.na(col)] <- "grey40"
+  col
+}
+
 # %||% is used throughout this app (image offsets, placement fallbacks, etc.)
 # but is only DEFINED (guarded) in R/07_match.R / R/09_diagnostics.R, which
 # this file does not source. It was silently relying on main.R having been
@@ -618,13 +649,11 @@ link_groups <- function(legs) {
 # ---- Overlay symbol view ------------------------------------------------------
 # One symbol per group of linked particles: a circle in four fixed quarters,
 # one per instrument, filled where that instrument found the particle.
-# Quarter order (top-left, top-right, bottom-left, bottom-right) and colours:
-# Okabe & Ito (2008), chosen to stay apart under deuteranopia, protanopia and
-# tritanopia (simulated with colorspace); the quarter position carries the
-# instrument as well, so colour is never the only cue.
+# Quarter order (top-left, top-right, bottom-left, bottom-right); colours are
+# INSTRUMENT_COLOURS, and the quarter position carries the instrument as
+# well, so colour is never the only cue.
 SYMBOL_SLOTS  <- c(ftir_pe = 1L, ftir_bruker = 2L, raman = 3L, ldir = 4L)
-SYMBOL_COLOURS <- c(ftir_pe = "#F0E442", ftir_bruker = "#CC79A7",
-                    raman = "#0072B2", ldir = "#D55E00")
+SYMBOL_COLOURS <- INSTRUMENT_COLOURS
 SYMBOL_LABELS <- c(ftir_pe = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)",
                    raman = "Raman", ldir = "LDIR")
 
@@ -2394,7 +2423,8 @@ report_grid_page <- function(plots, title, caption = NULL, ncol = 2) {
 # level so both the viewer and the pipeline report can reach it.
 .MIN_SPAN <- 1e-6
 
-plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", color_unmatched = "#bcbd22") {
+plot_size_distribution <- function(df, inst_name, color_matched = instrument_colour(inst_name),
+                                   color_unmatched = UNMATCHED_COLOUR) {
 
   if (is.null(df) || nrow(df) == 0) {
     return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No data"),
@@ -2403,8 +2433,10 @@ plot_size_distribution <- function(df, inst_name, color_matched = "#d62728", col
   }
   # Show all particles in one histogram with smoothed density overlay (normalized to %)
   ggplot(df, aes(x = feret_max)) +
-    geom_histogram(aes(y = after_stat(density) * 100), alpha = 0.6, bins = 20, fill = "#4472C4", color = "white") +
-    geom_density(aes(y = after_stat(density) * 100), alpha = 0.5, fill = "#70AD47", color = "#70AD47", linewidth = 1.2) +
+    geom_histogram(aes(y = after_stat(density) * 100), alpha = 0.8, bins = 20,
+                   fill = color_matched, color = "grey40", linewidth = 0.2) +
+    geom_density(aes(y = after_stat(density) * 100), fill = NA,
+                 color = instrument_colour(inst_name, text = TRUE), linewidth = 1.2) +
     labs(title = inst_name, x = "Feret Max (\u00b5m)", y = "Relative Frequency (%)") +
     theme_minimal() + theme(plot.title = element_text(size = 11, face = "bold"))
 }
@@ -2513,11 +2545,14 @@ make_scatter <- function(df, img_info, bounds, title,
   # DATA units (um), so its size can be checked against the image. The default
   # point markers are sized in screen points by a size scale, which says
   # nothing about the particle's physical size.
+  # One colour for every particle (plain mode): the instrument's matched colour
+  plain_col <- if (!is.null(match_colours)) unname(match_colours[["matched"]]) else
+    INSTRUMENT_COLOURS[["raman"]]
   if (isTRUE(true_size) && "feret_max" %in% names(df)) {
     ci <- particle_circles(df$x, df$y, df$feret_max / 2)
     if (isTRUE(plain) || !"match_status" %in% names(df)) {
       p <- p + geom_polygon(data = ci, aes(x = x, y = y, group = id),
-                            fill = NA, colour = "#1f77b4", linewidth = 0.5,
+                            fill = NA, colour = plain_col, linewidth = 0.5,
                             inherit.aes = FALSE)
     } else {
       ci$match_status <- df$match_status[ci$id]
@@ -2534,7 +2569,7 @@ make_scatter <- function(df, img_info, bounds, title,
   } else if (isTRUE(plain)) {
   # Points. In "plain" mode (Show all detected) every particle is drawn in a
   # single colour with no matched/unmatched distinction or legend.
-    p <- p + geom_point(aes(size = feret_max), colour = "#1f77b4",
+    p <- p + geom_point(aes(size = feret_max), colour = plain_col,
                         alpha = 0.7)
   } else if (by_conf) {
   # Matched particles coloured by their pair confidence (p_true), others grey
@@ -2544,9 +2579,7 @@ make_scatter <- function(df, img_info, bounds, title,
                  colour = "grey60", alpha = 0.5) +
       geom_point(data = df[!um, , drop = FALSE], aes(colour = p_true, size = feret_max),
                  alpha = 0.85) +
-      scale_colour_gradientn(colours = c("#d62728", "#ff7f0e", "#2ca02c"),
-                             values = c(0, 0.5, 1), limits = c(0, 1),
-                             name = "Pair confidence\n(p_true)")
+      scale_colour_viridis_c(limits = c(0, 1), name = "Pair confidence\n(p_true)")
   } else {
     p <- p + geom_point(aes(colour = match_status, size = feret_max),
                         alpha = 0.7)
@@ -2679,8 +2712,9 @@ build_plotly_barplot <- function(device_counts,
   if (!requireNamespace("plotly", quietly = TRUE))
     stop("plotly is required for build_plotly_barplot()")
 
-  device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
-                     "Raman" = "#1f77b4", "LDIR" = "#d62728")
+  device_colors <- c("FTIR (PerkinElmer)" = INSTRUMENT_COLOURS[["ftir_pe"]],
+                     "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
+                     "Raman" = INSTRUMENT_COLOURS[["raman"]], "LDIR" = INSTRUMENT_COLOURS[["ldir"]])
   .fam_palette  <- c(
     PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
     PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
@@ -3160,16 +3194,13 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
                     list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
   if (n_of("ftir_bruker") > 0)
     size_plots <- c(size_plots,
-                    list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)",
-                                                color_matched = "#9467bd")))
+                    list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)")))
   if (n_of("raman") > 0)
     size_plots <- c(size_plots,
-                    list(plot_size_distribution(dfs$raman, "Raman",
-                                                color_matched = "#1f77b4")))
+                    list(plot_size_distribution(dfs$raman, "Raman")))
   if (n_of("ldir") > 0)
     size_plots <- c(size_plots,
-                    list(plot_size_distribution(dfs$ldir, "LDIR",
-                                                color_matched = "#ff7f0e")))
+                    list(plot_size_distribution(dfs$ldir, "LDIR")))
   pages <- c(pages, list(report_grid_page(
     size_plots, "Size Distribution by Instrument",
     paste0("Feret Max (\u00b5m) per instrument. Solid bars: matched. ",
@@ -3206,19 +3237,19 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
   inst_spec <- list(
     list(key = "ftir",        pkey = "ftir_perkin",
          title = "FTIR (PerkinElmer) \u2014 particles over instrument image",
-         cols = c(matched = "#2ca02c", unmatched = "#d62728"),
+         cols = c(matched = INSTRUMENT_COLOURS[["ftir_pe"]], unmatched = UNMATCHED_COLOUR),
          labs = c(matched = partner("ftir", "Raman"), unmatched = "unmatched")),
     list(key = "ftir_bruker", pkey = "ftir_bruker",
          title = "FTIR (Bruker) \u2014 particles over instrument image",
-         cols = c(matched = "#9467bd", unmatched = "#d62728"),
+         cols = c(matched = INSTRUMENT_COLOURS[["ftir_bruker"]], unmatched = UNMATCHED_COLOUR),
          labs = c(matched = partner("ftir_bruker", "Raman"), unmatched = "unmatched")),
     list(key = "raman",       pkey = "raman",
          title = "Raman \u2014 particles over instrument image",
-         cols = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
+         cols = c(matched = INSTRUMENT_COLOURS[["raman"]], unmatched = UNMATCHED_COLOUR),
          labs = c(matched = partner("raman", "FTIR"), unmatched = "unmatched")),
     list(key = "ldir",        pkey = "ldir",
          title = "LDIR \u2014 particles over instrument image",
-         cols = c(matched = "#d62728", unmatched = "#ff7f0e"),
+         cols = c(matched = INSTRUMENT_COLOURS[["ldir"]], unmatched = UNMATCHED_COLOUR),
          labs = c(matched = partner("ldir", "Raman"), unmatched = "unmatched")))
 
   for (sp in inst_spec) {
@@ -3261,10 +3292,10 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
 # (Raman, else FTIR PerkinElmer, else FTIR Bruker).
 build_overlay_plot <- function(dfs) {
   spec <- list(
-    list(key = "ftir",        lbl = "FTIR (PerkinElmer)", col = "#2ca02c"),
-    list(key = "ftir_bruker", lbl = "FTIR (Bruker)",      col = "#9467bd"),
-    list(key = "raman",       lbl = "Raman",              col = "#1f77b4"),
-    list(key = "ldir",        lbl = "LDIR",               col = "#d62728"))
+    list(key = "ftir",        lbl = "FTIR (PerkinElmer)", col = INSTRUMENT_COLOURS[["ftir_pe"]]),
+    list(key = "ftir_bruker", lbl = "FTIR (Bruker)",      col = INSTRUMENT_COLOURS[["ftir_bruker"]]),
+    list(key = "raman",       lbl = "Raman",              col = INSTRUMENT_COLOURS[["raman"]]),
+    list(key = "ldir",        lbl = "LDIR",               col = INSTRUMENT_COLOURS[["ldir"]]))
   parts <- list()
   for (s in spec) {
     d <- dfs[[s$key]]

@@ -181,3 +181,11 @@ test_that("run labels name the input folder after (My) Documents", {
   expect_equal(env$run_input_folder(m2), "projects/x/y/z")
   expect_equal(env$run_input_folder(list()), "")
 })
+
+test_that("instrument colours resolve from keys and display names", {
+  env <- .load_global_helpers()
+  expect_identical(env$instrument_colour(c("FTIR (PerkinElmer)", "ftir_perkin", "FTIR (Bruker)",
+                                           "Raman", "LDIR", "LD-IR", "something")),
+                   c("#F0E442", "#F0E442", "#CC79A7", "#0072B2", "#D55E00", "#D55E00", "grey40"))
+  expect_identical(env$instrument_colour("FTIR", text = TRUE), "#7D750A")
+})

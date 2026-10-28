@@ -470,16 +470,6 @@ ui <- fluidPage(
           div(class = "info-box",
               h5("Match Summary"), textOutput("overlay_summary_text")),
           hr(),
-          fileInput("overlay_image_upload", "Background Image",
-                    accept = c("image/png", "image/jpeg")),
-          fluidRow(
-            column(6, numericInput("overlay_img_offset_x",
-                                   "Img X offset (µm)", value = 0, step = 25)),
-            column(6, numericInput("overlay_img_offset_y",
-                                   "Img Y offset (µm)", value = 0, step = 25))
-          ),
-          hr(),
-
           # --- GLOBAL FILTERS ---
           h4("Global Filters"),
           sliderInput("overlay_size_range", "Feret Max (\u00b5m)",
@@ -488,93 +478,14 @@ ui <- fluidPage(
           sliderInput("overlay_dist_range", "Match Distance (\u00b5m)",
                       min = 0, max = 100, value = c(0, 100), step = 1),
           hr(),
-
-          # --- FT-IR SECTION ---
-          h4("FT-IR", style = "color: #2ca02c; margin-bottom: 4px;"),
-          sliderInput("overlay_ftir_quality", "AAU Quality",
-                      min = 0, max = 1, value = c(0.7, 1), step = 0.01),
-          sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 800,
-                      value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
-          material_filter_ui("overlay_ftir_material", "Materials"),
+          fileInput("overlay_image_upload", "Background Image",
+                    accept = c("image/png", "image/jpeg")),
           fluidRow(
-            column(8, textInput("overlay_ftir_pattern", NULL,
-                                placeholder = "Range (1-10) or pattern (MP_*)")),
-            column(4, actionButton("overlay_ftir_apply_pattern", "Apply",
-                                   class = "btn-sm", style = "margin-top: 25px;"))
-          ),
-          selectizeInput("overlay_ftir_particles", "Highlight Particles",
-                         choices = NULL, multiple = TRUE,
-                         options = list(placeholder = "Select particles...",
-                                        plugins = list("remove_button"))),
-          hr(),
-
-          # --- RAMAN SECTION ---
-          h4("Raman", style = "color: #1f77b4; margin-bottom: 4px;"),
-          sliderInput("overlay_raman_quality", "HQI",
-                      min = 0, max = 100, value = c(70, 100), step = 1),
-          sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 1200,
-                      value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
-          material_filter_ui("overlay_raman_material", "Materials"),
-          fluidRow(
-            column(8, textInput("overlay_raman_pattern", NULL,
-                                placeholder = "Range (1-10) or pattern")),
-            column(4, actionButton("overlay_raman_apply_pattern", "Apply",
-                                   class = "btn-sm", style = "margin-top: 25px;"))
-          ),
-          selectizeInput("overlay_raman_particles", "Highlight Particles",
-                         choices = NULL, multiple = TRUE,
-                         options = list(placeholder = "Select particles...",
-                                        plugins = list("remove_button"))),
-          hr(),
-
-          # --- LD-IR SECTION ---
-          h4("LD-IR", style = "color: #d62728; margin-bottom: 4px;"),
-          # Live acceptance gate: a LDIR<->Raman pair counts as matched only when
-          # its aligned-coordinate distance is at/under this value. Seeded from
-          # the run's recorded gate; drag to retune matched vs unmatched in real
-          # time (summary, overlay and triplet counts all follow).
-          sliderInput("overlay_ldir_dist_gate", "Match Gate (µm, LDIR↔Raman)",
-                      min = 0, max = 500, value = 250, step = 5),
-          sliderInput("overlay_ldir_quality", "Quality",
-                      min = 0, max = 1, value = c(0.85, 1), step = 0.01),
-          sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 1200,
-                      value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
-          material_filter_ui("overlay_ldir_material", "Materials"),
-          fluidRow(
-            column(8, textInput("overlay_ldir_pattern", NULL,
-                                placeholder = "Range (1-10) or pattern (A*)")),
-            column(4, actionButton("overlay_ldir_apply_pattern", "Apply",
-                                   class = "btn-sm", style = "margin-top: 25px;"))
-          ),
-          selectizeInput("overlay_ldir_particles", "Highlight Particles",
-                         choices = NULL, multiple = TRUE,
-                         options = list(placeholder = "Select particles...",
-                                        plugins = list("remove_button"))),
-          hr(),
-
-          # --- FTIR BRUKER SECTION ---
-          h4("FT-IR (Bruker)", style = "color: #9467bd; margin-bottom: 4px;"),
-          sliderInput("overlay_ftir_bruker_quality", "AAU Quality",
-                      min = 0, max = 1, value = c(0.7, 1), step = 0.01),
-          sliderInput("overlay_ftir_bruker_size", "Feret Max (\u00b5m)",
-                      min = 0, max = 800,
-                      value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
-          material_filter_ui("overlay_ftir_bruker_material", "Materials"),
-          fluidRow(
-            column(8, textInput("overlay_ftir_bruker_pattern", NULL,
-                                placeholder = "Range (1-10) or pattern (MP_*)")),
-            column(4, actionButton("overlay_ftir_bruker_apply_pattern", "Apply",
-                                   class = "btn-sm", style = "margin-top: 25px;"))
-          ),
-          selectizeInput("overlay_ftir_bruker_particles", "Highlight Particles",
-                         choices = NULL, multiple = TRUE,
-                         options = list(placeholder = "Select particles...",
-                                        plugins = list("remove_button"))),
-          hr()
-
+            column(6, numericInput("overlay_img_offset_x",
+                                   "Img X offset (µm)", value = 0, step = 25)),
+            column(6, numericInput("overlay_img_offset_y",
+                                   "Img Y offset (µm)", value = 0, step = 25))
+          )
         ),
         mainPanel(width = 9,
           plotOutput("overlay_plot", height = "650px",
@@ -599,7 +510,89 @@ ui <- fluidPage(
                                        class = "btn-sm btn-default",
                                        style = "float:right; margin-top:2px;"))
               ),
-              detail_table_ui("overlay_hover_info"))
+              detail_table_ui("overlay_hover_info")),
+          hr(),
+          # --- PER-INSTRUMENT FILTERS: side by side below the image ---
+          fluidRow(
+            column(3, div(class = "info-box overlay-inst-filter",
+                h4("FTIR (PerkinElmer)", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ftir_pe"]], "; margin-bottom: 4px;")),
+                sliderInput("overlay_ftir_quality", "AAU Quality",
+                            min = 0, max = 1, value = c(0.7, 1), step = 0.01),
+                sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
+                            min = 0, max = 800,
+                            value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
+                material_filter_ui("overlay_ftir_material", "Materials"),
+                fluidRow(
+                  column(8, textInput("overlay_ftir_pattern", NULL,
+                                      placeholder = "Range (1-10) or pattern (MP_*)")),
+                  column(4, actionButton("overlay_ftir_apply_pattern", "Apply",
+                                         class = "btn-sm", style = "margin-top: 25px;"))
+                ),
+                selectizeInput("overlay_ftir_particles", "Highlight Particles",
+                               choices = NULL, multiple = TRUE,
+                               options = list(placeholder = "Select particles...",
+                                              plugins = list("remove_button"))))),
+            column(3, div(class = "info-box overlay-inst-filter",
+                h4("FTIR (Bruker)", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ftir_bruker"]], "; margin-bottom: 4px;")),
+                sliderInput("overlay_ftir_bruker_quality", "AAU Quality",
+                            min = 0, max = 1, value = c(0.7, 1), step = 0.01),
+                sliderInput("overlay_ftir_bruker_size", "Feret Max (\u00b5m)",
+                            min = 0, max = 800,
+                            value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
+                material_filter_ui("overlay_ftir_bruker_material", "Materials"),
+                fluidRow(
+                  column(8, textInput("overlay_ftir_bruker_pattern", NULL,
+                                      placeholder = "Range (1-10) or pattern (MP_*)")),
+                  column(4, actionButton("overlay_ftir_bruker_apply_pattern", "Apply",
+                                         class = "btn-sm", style = "margin-top: 25px;"))
+                ),
+                selectizeInput("overlay_ftir_bruker_particles", "Highlight Particles",
+                               choices = NULL, multiple = TRUE,
+                               options = list(placeholder = "Select particles...",
+                                              plugins = list("remove_button"))))),
+            column(3, div(class = "info-box overlay-inst-filter",
+                h4("Raman", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["raman"]], "; margin-bottom: 4px;")),
+                sliderInput("overlay_raman_quality", "HQI",
+                            min = 0, max = 100, value = c(70, 100), step = 1),
+                sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
+                            min = 0, max = 1200,
+                            value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
+                material_filter_ui("overlay_raman_material", "Materials"),
+                fluidRow(
+                  column(8, textInput("overlay_raman_pattern", NULL,
+                                      placeholder = "Range (1-10) or pattern")),
+                  column(4, actionButton("overlay_raman_apply_pattern", "Apply",
+                                         class = "btn-sm", style = "margin-top: 25px;"))
+                ),
+                selectizeInput("overlay_raman_particles", "Highlight Particles",
+                               choices = NULL, multiple = TRUE,
+                               options = list(placeholder = "Select particles...",
+                                              plugins = list("remove_button"))))),
+            column(3, div(class = "info-box overlay-inst-filter",
+                h4("LDIR", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ldir"]], "; margin-bottom: 4px;")),
+                # Live acceptance gate: a LDIR<->Raman pair counts as matched only when
+                # its aligned-coordinate distance is at/under this value. Seeded from
+                # the run's recorded gate; drag to retune matched vs unmatched in real
+                # time (summary, overlay and triplet counts all follow).
+                sliderInput("overlay_ldir_dist_gate", "Match Gate (µm, LDIR↔Raman)",
+                            min = 0, max = 500, value = 250, step = 5),
+                sliderInput("overlay_ldir_quality", "Quality",
+                            min = 0, max = 1, value = c(0.85, 1), step = 0.01),
+                sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
+                            min = 0, max = 1200,
+                            value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
+                material_filter_ui("overlay_ldir_material", "Materials"),
+                fluidRow(
+                  column(8, textInput("overlay_ldir_pattern", NULL,
+                                      placeholder = "Range (1-10) or pattern (A*)")),
+                  column(4, actionButton("overlay_ldir_apply_pattern", "Apply",
+                                         class = "btn-sm", style = "margin-top: 25px;"))
+                ),
+                selectizeInput("overlay_ldir_particles", "Highlight Particles",
+                               choices = NULL, multiple = TRUE,
+                               options = list(placeholder = "Select particles...",
+                                              plugins = list("remove_button")))))
+          )
         )
       )
       ) # end div#overlay_panel
@@ -1083,8 +1076,9 @@ server <- function(input, output, session) {
     cat_mode  <- input$summary_bar_category_mode %||% "both"
     if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
 
-    device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
-                       "Raman" = "#1f77b4", "LDIR" = "#d62728")
+    device_colors <- c("FTIR (PerkinElmer)" = INSTRUMENT_COLOURS[["ftir_pe"]],
+                       "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
+                       "Raman" = INSTRUMENT_COLOURS[["raman"]], "LDIR" = INSTRUMENT_COLOURS[["ldir"]])
     cts      <- active_material_counts()
     use_filt <- summary_filtered()
     has_data <- !vapply(names(cts), function(l) is.null(cts[[l]]), logical(1))
@@ -1257,7 +1251,7 @@ server <- function(input, output, session) {
     d$hover <- sprintf("%s<br>%s µm: %d of %d = %.0f%% (95%%: %.0f–%.0f%%)%s",
                        d$direction, d$size_class, d$k, d$n_base, d$y, d$lo, d$hi, d$extra)
     plotly::plot_ly(d, x = ~xpos, y = ~y, color = ~direction,
-                    colors = c("#1f77b4", "#d62728"),
+                    colors = c("#56B4E9", "#E69F00"),   # Okabe-Ito sky blue / orange
                     type = "scatter", mode = "lines+markers", text = ~hover,
                     hoverinfo = "text",
                     error_y = ~list(type = "data", symmetric = FALSE,
@@ -1288,8 +1282,9 @@ server <- function(input, output, session) {
       POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
       Other = "#e5c494"
     )
-    device_colors <- c("FTIR (PerkinElmer)" = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
-                       "Raman" = "#1f77b4", "LDIR" = "#d62728")
+    device_colors <- c("FTIR (PerkinElmer)" = INSTRUMENT_COLOURS[["ftir_pe"]],
+                       "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
+                       "Raman" = INSTRUMENT_COLOURS[["raman"]], "LDIR" = INSTRUMENT_COLOURS[["ldir"]])
     cts      <- active_material_counts()
     use_filt <- summary_filtered()
     has_data <- !vapply(names(cts), function(l) is.null(cts[[l]]), logical(1))
@@ -1397,7 +1392,7 @@ server <- function(input, output, session) {
       return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No Raman data"),
                                    size = 4, colour = "grey50") + theme_void())
     }
-    plot_size_distribution(df, "Raman", color_matched = "#1f77b4")
+    plot_size_distribution(df, "Raman")
   }) |> bindCache(summary_dfs()$raman)
 
   output$size_hist_ldir <- renderPlot({
@@ -1406,7 +1401,7 @@ server <- function(input, output, session) {
       return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No LDIR data"),
                                    size = 4, colour = "grey50") + theme_void())
     }
-    plot_size_distribution(df, "LDIR", color_matched = "#ff7f0e")
+    plot_size_distribution(df, "LDIR")
   }) |> bindCache(summary_dfs()$ldir)
 
   # Size statistics table
@@ -1558,14 +1553,11 @@ server <- function(input, output, session) {
     if (n_of("ftir") > 0)
       size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
     if (n_of("ftir_bruker") > 0)
-      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)",
-                                                             color_matched = "#9467bd")))
+      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)")))
     if (n_of("raman") > 0)
-      size_plots <- c(size_plots, list(plot_size_distribution(dfs$raman, "Raman",
-                                                             color_matched = "#1f77b4")))
+      size_plots <- c(size_plots, list(plot_size_distribution(dfs$raman, "Raman")))
     if (n_of("ldir") > 0)
-      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ldir, "LDIR",
-                                                             color_matched = "#ff7f0e")))
+      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ldir, "LDIR")))
     pages <- c(pages, list(report_grid_page(
       size_plots, "Size Distribution by Instrument",
       paste0("Feret Max (um) per instrument. Solid bars: matched. Outline bars: ",
@@ -3495,7 +3487,7 @@ server <- function(input, output, session) {
 
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR Particles (", nrow(df_disp), " shown)", title_suffix),
-                 match_colours = c(matched = "#2ca02c", unmatched = "#d62728"),
+                 match_colours = c(matched = INSTRUMENT_COLOURS[["ftir_pe"]], unmatched = UNMATCHED_COLOUR),
                  match_labels  = c(matched = paste("matched to", partner_lbl()$ftir), unmatched = "unmatched"),
                  highlight_id  = hl_ids,
                  full_df       = full_ftir,
@@ -3607,7 +3599,7 @@ server <- function(input, output, session) {
     }
     make_scatter(df_disp, img, bounds,
                  paste0("Raman Particles (", nrow(df_disp), " shown)"),
-                 match_colours = c(matched = "#1f77b4", unmatched = "#ff7f0e"),
+                 match_colours = c(matched = INSTRUMENT_COLOURS[["raman"]], unmatched = UNMATCHED_COLOUR),
                  match_labels = c(matched = paste("matched to", partner_lbl()$raman), unmatched = "unmatched"),
                  highlight_id = hl_ids,
                  full_df = full_raman,
@@ -3932,7 +3924,7 @@ server <- function(input, output, session) {
             geom_segment(data = seg, aes(x = x, y = y, xend = xend, yend = yend),
                          colour = "#00CED1", linewidth = 0.4, alpha = 0.85) +
             geom_point(data = seg, aes(x = xend, y = yend), shape = 1,
-                       colour = "#1f77b4", size = 3, stroke = 1)
+                       colour = INSTRUMENT_COLOURS[["raman"]], size = 3, stroke = 1)
         }
       }
     }
@@ -3954,7 +3946,7 @@ server <- function(input, output, session) {
       if (isTRUE(input$ldir_show_all_detected)) {
         p <- p + geom_point(data = df_disp,
                               aes(x = x, y = y, size = feret_max),
-                              colour = "#1f77b4", alpha = 0.7)
+                              colour = INSTRUMENT_COLOURS[["ldir"]], alpha = 0.7)
       } else if (isTRUE(input$ldir_colour_confidence) && "p_true" %in% names(df_disp) &&
                  any(!is.na(df_disp$p_true))) {
         um <- df_disp$match_status != "matched" | is.na(df_disp$p_true)
@@ -3963,16 +3955,15 @@ server <- function(input, output, session) {
                      colour = "grey60", alpha = 0.5) +
           geom_point(data = df_disp[!um, , drop = FALSE],
                      aes(x = x, y = y, colour = p_true, size = feret_max), alpha = 0.85) +
-          scale_colour_gradientn(colours = c("#d62728", "#ff7f0e", "#2ca02c"),
-                                 values = c(0, 0.5, 1), limits = c(0, 1),
+          scale_colour_viridis_c(limits = c(0, 1),
                                  name = "Pair confidence\n(p_true)")
       } else {
         p <- p + geom_point(data = df_disp,
                               aes(x = x, y = y, colour = match_status,
                                   size = feret_max),
                               alpha = 0.7) +
-          scale_colour_manual(values = c(matched = "#d62728",
-                                          unmatched = "#bcbd22"),
+          scale_colour_manual(values = c(matched = INSTRUMENT_COLOURS[["ldir"]],
+                                          unmatched = UNMATCHED_COLOUR),
                                labels = c(matched = paste("matched to", partner_lbl()$ldir),
                                           unmatched = "unmatched"))
       }
@@ -4163,7 +4154,7 @@ server <- function(input, output, session) {
 
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)", title_suffix),
-                 match_colours = c(matched="#9467bd", unmatched="#8c564b"),
+                 match_colours = c(matched = INSTRUMENT_COLOURS[["ftir_bruker"]], unmatched = UNMATCHED_COLOUR),
                  match_labels  = c(matched = paste("matched to", partner_lbl()$ftir_bruker), unmatched = "unmatched"),
                  highlight_id  = hl_ids,
                  full_df       = full_fb,
@@ -4289,8 +4280,8 @@ server <- function(input, output, session) {
 
     # Genuine matches only: drop forced over-gate pairings so the overlay draws
     # the same matched set the summary counts. Over-gate LDIR then fall through
-    # to the unmatched layer (lone red) and their Raman partners to unmatched
-    # Raman (lone blue) — image and table stay consistent.
+    # to the unmatched layer (a lone LDIR particle) and their Raman partners to unmatched
+    # Raman (a lone Raman particle) — image and table stay consistent.
     if ("within_gate" %in% names(df)) {
       df <- df[!is.na(df$within_gate) & df$within_gate, , drop = FALSE]
       if (nrow(df) == 0) return(data.frame())
@@ -4588,10 +4579,10 @@ server <- function(input, output, session) {
   # Highlighted (gold ring) and pinned particles, drawn in both views.
   .overlay_marks <- function(p, dfs, bounds) {
     hl_specs <- list(
-      list(ids = input$overlay_ftir_particles,        df = dfs$ftir,        col = "#2ca02c"),
-      list(ids = input$overlay_raman_particles,       df = dfs$raman,       col = "#1f77b4"),
-      list(ids = input$overlay_ldir_particles,        df = dfs$ldir,        col = "#d62728"),
-      list(ids = input$overlay_ftir_bruker_particles, df = dfs$ftir_bruker, col = "#9467bd")
+      list(ids = input$overlay_ftir_particles,        df = dfs$ftir,        col = INSTRUMENT_COLOURS[["ftir_pe"]]),
+      list(ids = input$overlay_raman_particles,       df = dfs$raman,       col = INSTRUMENT_COLOURS[["raman"]]),
+      list(ids = input$overlay_ldir_particles,        df = dfs$ldir,        col = INSTRUMENT_COLOURS[["ldir"]]),
+      list(ids = input$overlay_ftir_bruker_particles, df = dfs$ftir_bruker, col = INSTRUMENT_COLOURS[["ftir_bruker"]])
     )
     y_span_ov   <- diff(bounds$y)
     y_nudge_ov  <- y_span_ov * 0.03
@@ -4700,7 +4691,7 @@ server <- function(input, output, session) {
           x = bruker_m$ftir_x_aligned, y = bruker_m$ftir_y_aligned,
           xend = bruker_m$raman_x_norm, yend = bruker_m$raman_y_norm)
         p <- p + geom_segment(data = bruker_seg, aes(x=x, y=y, xend=xend, yend=yend),
-                               colour = "#9467bd", alpha = 0.6, linewidth = 0.8)
+                               colour = INSTRUMENT_COLOURS[["ftir_bruker"]], alpha = 0.6, linewidth = 0.8)
       }
       if (show_ldir_raman && nrow(ldir_m) > 0 &&
           "ldir_x_aligned" %in% names(ldir_m) && "raman_x_norm" %in% names(ldir_m)) {
@@ -4708,7 +4699,7 @@ server <- function(input, output, session) {
           x = ldir_m$ldir_x_aligned, y = ldir_m$ldir_y_aligned,
           xend = ldir_m$raman_x_norm, yend = ldir_m$raman_y_norm)
         p <- p + geom_segment(data = ldir_seg, aes(x=x, y=y, xend=xend, yend=yend),
-                               colour = "#d62728", alpha = 0.5, linewidth = 0.7)
+                               colour = INSTRUMENT_COLOURS[["ldir"]], alpha = 0.5, linewidth = 0.7)
       }
       # Cross-instrument (non-Raman) pair lines
       for (ca in cross_active) {
@@ -4849,8 +4840,9 @@ server <- function(input, output, session) {
                              alpha = 0.65) +
           scale_colour_manual(
             name   = "Instrument",
-            values = c(FTIR = "#2ca02c", "FTIR (Bruker)" = "#9467bd",
-                       Raman = "#1f77b4", LDIR = "#d62728")
+            values = c(FTIR = INSTRUMENT_COLOURS[["ftir_pe"]],
+                       "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
+                       Raman = INSTRUMENT_COLOURS[["raman"]], LDIR = INSTRUMENT_COLOURS[["ldir"]])
           ) +
           scale_shape_manual(
             name   = "Match Status",
