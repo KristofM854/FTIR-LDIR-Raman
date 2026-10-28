@@ -331,7 +331,13 @@ The viewer includes:
 ### Precision study (repeatability and reproducibility)
 
 The same filter measured several times on each instrument, e.g. 3 replicates
-on each of the four: `Rscript tools/precision_study.R design.csv`, where
+on each of the four. When the replicates were analysed with the pipeline (one
+run per replicate), the runs are all it needs: in the viewer's **Precision**
+tab select the runs and click Compute, or
+`Rscript tools/precision_study.R --runs output/<run 1> output/<run 2> output/<run 3>`.
+The instrument tables come from the runs (stitched PerkinElmer segments, LDIR
+with its image coordinates), the quality and size cutoffs from the first
+run's config. Without runs: `Rscript tools/precision_study.R design.csv`, where
 `design.csv` lists one measurement per row:
 
 ```
@@ -359,7 +365,9 @@ Particle by particle within one instrument, `tools/reproducibility.R` links
 the replicates' particles (viewer tab **Multi-Run**): for one instrument by
 file pickers or arguments, or for every instrument of the same design with
 `Rscript tools/reproducibility.R --design design.csv` (plus an `image` column
-for LDIR, which needs its image for coordinates). A remount may turn the
+for LDIR, which needs its image for coordinates), or from pipeline runs with
+`Rscript tools/reproducibility.R --runs <run 1> <run 2> <run 3>` (no raw files
+or LDIR image extraction; the backdrop is each run's instrument image). A remount may turn the
 filter by any angle: the starting pose comes from the pipeline's landmark
 search on the largest particles; the links use the pipeline's matcher with a
 gate of 3x the positional error fitted to each pair of runs (10-75 µm), and

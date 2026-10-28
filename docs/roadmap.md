@@ -25,7 +25,8 @@ samples (see [validation.md](validation.md)). Next:
   finds in how many replicates) still needs the pipeline's alignment between
   the instruments' replicates and a cross-instrument grouping.
 - `tools/reproducibility.R` reads a segmented PerkinElmer scan one segment at
-  a time; replicates of a segmented export need stitching first.
+  a time from raw files; from pipeline runs (`--runs`) it uses the stitched
+  table.
 
 ## Open questions on identification
 

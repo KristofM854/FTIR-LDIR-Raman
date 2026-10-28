@@ -8,6 +8,11 @@
 # fine. Only the instruments' particle tables are needed -- no images.
 #
 # Usage:
+#   Rscript tools/precision_study.R --runs <run folder> <run folder> ... [--out dir]
+#     one pipeline run per replicate (the same filter, each analysed by up to
+#     four instruments): the instruments' particle tables come from the runs
+#     (stitched PerkinElmer segments, LDIR with its image coordinates), the
+#     quality and size cutoffs from the first run's config
 #   Rscript tools/precision_study.R design.csv [output_dir]
 #     design.csv: columns instrument, replicate, file
 #       instrument: ftir (PerkinElmer), ftir_bruker, raman, ldir (or the names)
@@ -63,8 +68,15 @@ collect_precision_design_interactive <- function() {
 }
 
 args <- commandArgs(trailingOnly = TRUE)
-design <- if (length(args) >= 1) read_precision_design(args[1]) else
+out_arg <- NULL
+if ("--out" %in% args) {
+  k <- match("--out", args); out_arg <- args[k + 1]; args <- args[-c(k, k + 1)]
+}
+from_runs <- length(args) >= 1 && identical(args[1], "--runs")
+design <- if (from_runs) precision_design_from_runs(args[-1]) else
+  if (length(args) >= 1) read_precision_design(args[1]) else
   read_precision_design(collect_precision_design_interactive())
+if (!from_runs && length(args) >= 2) out_arg <- args[2]
 reps <- table(factor(design$instrument, levels = names(PRECISION_ROLES)))
 reps <- reps[reps > 0]
 if (any(reps < 2)) stop("Every instrument needs at least 2 replicates: ",
@@ -72,20 +84,12 @@ if (any(reps < 2)) stop("Every instrument needs at least 2 replicates: ",
 if (length(reps) < 2) log_message("One instrument only: repeatability is computed, ",
                                   "between-instrument terms need at least two", level = "WARN")
 
-cfg <- make_config()
+cfg <- if (from_runs) precision_config_from_run(design$run_dir[1]) else make_config()
 res <- run_precision_study(design, cfg)
 
-out <- if (length(args) >= 2) args[2] else
+out <- out_arg %||%
   file.path(REPO_ROOT, "output", "precision", format(Sys.time(), "%Y-%m-%d_%H%M%S"))
-dir.create(out, recursive = TRUE, showWarnings = FALSE)
-des <- res$design
-des$md5 <- vapply(des$file, function(f) file_md5(f) %||% NA_character_, "")
-w <- function(d, n) utils::write.csv(d, file.path(out, n), row.names = FALSE)
-w(des, "precision_design.csv")
-w(res$counts, "precision_counts.csv")
-w(res$iso, "precision_iso5725.csv")
-w(res$instruments, "precision_instruments.csv")
-w(as.data.frame(res$critical), "precision_critical.csv")
+write_precision_results(res, out)
 
 # Report: the viewer's page renderers (shiny_app/global.R), in a private env
 rep_env <- new.env(parent = globalenv())

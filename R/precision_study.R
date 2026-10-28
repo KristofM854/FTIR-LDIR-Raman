@@ -56,15 +56,69 @@ read_precision_design <- function(design) {
   d
 }
 
-#' Particles of one measurement. A PerkinElmer segment table is read with all
-#' segments of its scan (coordinates do not matter for counts).
-.precision_read <- function(role, file, config) {
+# A pipeline run's particle table per instrument, as read and translated
+# (material tables, LDIR relabelling) by the run; PerkinElmer segments come
+# stitched. LDIR: the table joined to the image coordinates.
+PRECISION_RUN_TABLES <- c(ftir        = "01_ingested/ftir_perkin_ingested.csv",
+                          ftir_bruker = "01_ingested/ftir_bruker_ingested.csv",
+                          raman       = "01_ingested/raman_ingested.csv",
+                          ldir        = "02_joined/ldir_joined_raw.csv")
+
+#' The design of a study whose replicates are pipeline runs: one run folder
+#' per replicate (the same filter), each with the instruments it analysed.
+#' @return design data.frame (instrument, replicate = run folder name, file =
+#'   the run's particle table, source = "run", run_dir)
+precision_design_from_runs <- function(run_dirs) {
+  run_dirs <- normalizePath(run_dirs, winslash = "/", mustWork = FALSE)
+  miss <- run_dirs[!dir.exists(run_dirs)]
+  if (length(miss)) stop("Run folder(s) not found: ", paste(miss, collapse = ", "), call. = FALSE)
+  rows <- list()
+  for (d in run_dirs) for (role in names(PRECISION_RUN_TABLES)) {
+    f <- file.path(d, PRECISION_RUN_TABLES[[role]])
+    if (file.exists(f))
+      rows[[length(rows) + 1]] <- data.frame(instrument = role, replicate = basename(d), file = f,
+                                             source = "run", run_dir = d, stringsAsFactors = FALSE)
+  }
+  if (!length(rows)) stop("No instrument tables in these run folders (", PRECISION_RUN_TABLES[[1]],
+                          ", ...): are they pipeline runs?", call. = FALSE)
+  if (anyDuplicated(basename(run_dirs)))
+    stop("Two run folders share a name; replicates are named by their folder", call. = FALSE)
+  read_precision_design(do.call(rbind, rows))
+}
+
+# The counting settings a run used (its manifest's config snapshot), so the
+# study counts what the analysis counted
+PRECISION_CONFIG_KEYS <- c("min_particle_size_um", "ftir_agreement_min_quality",
+                           "raman_hqi_threshold", "ldir_hqi_unknown_threshold")
+
+#' Config for counting the replicates of runs: `config` with the counting
+#' settings of the run's manifest (first run of the study).
+precision_config_from_run <- function(run_dir, config = make_config()) {
+  mf <- file.path(run_dir, "00_manifest", "manifest.json")
+  if (!file.exists(mf) || !requireNamespace("jsonlite", quietly = TRUE)) return(config)
+  snap <- tryCatch(jsonlite::fromJSON(mf, simplifyVector = TRUE)$config_snapshot,
+                   error = function(e) NULL)
+  for (k in PRECISION_CONFIG_KEYS) {
+    v <- suppressWarnings(as.numeric(unlist(snap[[k]])))
+    if (length(v) == 1 && is.finite(v)) config[[k]] <- v
+  }
+  config
+}
+
+#' Particles of one measurement: a run's particle table, or an instrument
+#' export (a PerkinElmer segment table with all segments of its scan;
+#' coordinates do not matter for counts).
+.precision_read <- function(role, file, config, source = "export") {
+  cols <- c("particle_id", "feret_max_um", "material", "material_family", "quality")
+  if (identical(source, "run")) {
+    d <- utils::read.csv(file, stringsAsFactors = FALSE, check.names = FALSE, encoding = "UTF-8")
+    return(d[, intersect(cols, names(d)), drop = FALSE])
+  }
   files <- if (role == "ftir") ftir_segment_files(file, FTIR_SEGMENT_TABLE) else NULL
   if (length(files) < 2) files <- file
   do.call(rbind, lapply(files, function(f) {
     d <- read_instrument(role, config, path = f)
-    d[, intersect(c("particle_id", "feret_max_um", "material", "material_family", "quality"),
-                  names(d)), drop = FALSE]
+    d[, intersect(cols, names(d)), drop = FALSE]
   }))
 }
 
@@ -89,7 +143,8 @@ precision_counts <- function(design, config, particles = NULL) {
     df <- if (!is.null(particles)) particles[[key]] else {
       log_message("Precision study: ", PRECISION_ROLES[[role]], " replicate ", rep_id,
                   ": ", basename(design$file[i]))
-      .precision_read(role, design$file[i], config)
+      .precision_read(role, design$file[i], config,
+                      source = if ("source" %in% names(design)) design$source[i] else "export")
     }
     if (is.null(df)) stop("No particles for ", key, call. = FALSE)
     df <- df[!is.na(df$feret_max_um) & df$feret_max_um >= min_size, , drop = FALSE]
@@ -220,4 +275,20 @@ run_precision_study <- function(design, config, particles = NULL) {
   st <- precision_iso5725(counts)
   list(design = design, counts = counts, iso = st$iso, instruments = st$instruments,
        critical = st$critical)
+}
+
+#' Write a study's tables into `out` (the folder the viewer's Precision tab and
+#' read_precision_results() read): design (with file MD5s), counts, ISO 5725
+#' statistics, per-instrument statistics and the Mandel indicator levels.
+write_precision_results <- function(res, out) {
+  dir.create(out, recursive = TRUE, showWarnings = FALSE)
+  des <- res$design
+  des$md5 <- vapply(des$file, function(f) file_md5(f) %||% NA_character_, "")
+  w <- function(d, n) utils::write.csv(d, file.path(out, n), row.names = FALSE)
+  w(des, "precision_design.csv")
+  w(res$counts, "precision_counts.csv")
+  w(res$iso, "precision_iso5725.csv")
+  w(res$instruments, "precision_instruments.csv")
+  w(as.data.frame(res$critical), "precision_critical.csv")
+  invisible(out)
 }

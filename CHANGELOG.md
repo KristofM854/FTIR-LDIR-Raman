@@ -199,6 +199,12 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   180 deg): rotations exact, 0.6% of groups impure, detected-in-all 8 671 vs
   8 691 true, 27 s. `--design design.csv` runs every instrument of a
   precision-study design.
+- Precision study and replicate tool from pipeline runs: one run per
+  replicate, `--runs <run folders>` for `tools/precision_study.R` and
+  `tools/reproducibility.R`, and in the viewer's Precision tab (select runs,
+  Compute). The runs' instrument tables are used (stitched PerkinElmer
+  segments, LDIR joined to its image coordinates), the counting cutoffs come
+  from the first run's config; no raw files to name.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

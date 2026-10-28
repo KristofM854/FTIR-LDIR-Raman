@@ -3521,7 +3521,10 @@ precision_report_pages <- function(res, title = "Precision study") {
     "  Var / mean: replicate variance over the mean count -- 1 for pure counting",
     "  (Poisson) noise; p < 0.05 means more variation than counting alone gives.",
     "", "Measurements:",
-    sprintf("  %-20s %-4s %s", PRECISION_INST_LABEL[des$instrument], des$replicate, basename(des$file)))
+    sprintf("  %-20s %-14s %s", PRECISION_INST_LABEL[des$instrument], des$replicate,
+            if ("source" %in% names(des))
+              ifelse(des$source %in% "run", paste0("run ", basename(des$run_dir %||% des$file)), basename(des$file))
+            else basename(des$file)))
   pages <- list(report_text_page(title, intro, subtitle = format(Sys.time(), "%Y-%m-%d %H:%M")),
                 report_table_page(precision_iso_table(res), "Repeatability and reproducibility (all sizes)",
                                   "Counts per filter. CI: 95% interval."))

@@ -66,3 +66,32 @@ test_that("the design names instruments flexibly and rejects duplicates", {
   expect_error(read_precision_design(data.frame(instrument = c("ldir", "ldir"), replicate = 1,
                                                 file = "x")), "twice")
 })
+
+test_that("a study from pipeline runs: one run per replicate, the runs' cutoffs", {
+  root <- withr::local_tempdir()
+  mk_run <- function(name, n_pet, hqi) {
+    d <- file.path(root, name)
+    for (sub in c("00_manifest", "01_ingested", "02_joined")) dir.create(file.path(d, sub), recursive = TRUE)
+    tab <- function(n, mat, q) data.frame(particle_id = paste0("P_", seq_len(n)), x_um = seq_len(n),
+                                          y_um = 0, feret_max_um = 60, material = mat,
+                                          material_family = mat, quality = q)
+    utils::write.csv(tab(n_pet, "PET", 0.9), file.path(d, "01_ingested", "ftir_perkin_ingested.csv"),
+                     row.names = FALSE)
+    utils::write.csv(tab(n_pet + 1, "PET", 80), file.path(d, "01_ingested", "raman_ingested.csv"),
+                     row.names = FALSE)
+    jsonlite::write_json(list(config_snapshot = list(raman_hqi_threshold = hqi)),
+                         file.path(d, "00_manifest", "manifest.json"), auto_unbox = TRUE)
+    d
+  }
+  runs <- c(mk_run("2026-10-01_1", 10, 85), mk_run("2026-10-02_1", 12, 85), mk_run("2026-10-03_1", 11, 85))
+  des <- precision_design_from_runs(runs)
+  expect_equal(nrow(des), 6)                          # 2 instruments x 3 runs
+  expect_setequal(des$replicate, basename(runs))
+  cfg <- precision_config_from_run(des$run_dir[1])
+  expect_equal(cfg$raman_hqi_threshold, 85)           # from the run, not the default 70
+  res <- run_precision_study(des, cfg)
+  cnt <- res$counts[res$counts$group == "PET" & res$counts$size_class == "all sizes", ]
+  expect_equal(cnt$count[cnt$instrument == "ftir"], c(10, 12, 11))
+  expect_true(all(cnt$count[cnt$instrument == "raman"] == 0))   # HQI 80 < the run's 85
+  expect_error(precision_design_from_runs(file.path(root, "nope")), "not found")
+})
