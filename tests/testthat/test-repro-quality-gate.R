@@ -93,8 +93,16 @@ test_that("the gate can empty the selection, and says so upstream", {
 
 test_that("the reproducibility points table carries quality through", {
   # The viewer can only offer the slider if the writer emits the column.
-  rpath <- file.path(REPO_ROOT, "R", "reproducibility.R")
-  skip_if_not(file.exists(rpath))
-  src <- paste(readLines(rpath, warn = FALSE), collapse = "\n")
-  expect_match(src, "quality\\s*=\\s*if \\(\"quality\" %in% names\\(d\\)\\)")
+  for (m in c("08b_material_map.R", "reproducibility.R"))
+    sys.source(file.path(REPO_ROOT, "R", m), envir = globalenv())
+  run <- function(q) data.frame(particle_id = c("a", "b"), x_aligned = c(0, 100), y_aligned = 0,
+                                material = "PET", feret_max_um = 50, quality = q)
+  res <- list(runs = list(run(c(0.9, 0.5)), run(c(0.8, NA))),
+              membership = matrix(c(1L, 2L, 1L, 2L), 2),
+              consensus = data.frame(n_runs_detected = c(2L, 2L), material_concordant = TRUE))
+  pts <- repro_long_table(res)
+  expect_equal(pts$quality, c(0.9, 0.8, 0.5, NA))
+  # A run without quality scores gives NA, so the viewer can hide the slider
+  res$runs[[2]]$quality <- NULL
+  expect_true(all(is.na(repro_long_table(res)$quality[c(2, 4)])))
 })

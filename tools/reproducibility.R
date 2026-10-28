@@ -17,6 +17,17 @@
 #   (instrument = ftir_perkin | ftir_bruker | raman | ldir)
 #   For ldir, pass image files interleaved:  ldir <excel1> <img1> <excel2> <img2> ...
 #
+# Usage (from pipeline runs, one run folder per replicate):
+#   Rscript tools/reproducibility.R --runs <run folder> <run folder> ...
+#   Every instrument found in >= 2 of the runs, from the runs' particle
+#   tables (stitched PerkinElmer segments, LDIR with its image coordinates).
+#
+# Usage (all instruments of a precision study at once):
+#   Rscript tools/reproducibility.R --design design.csv
+#   The design CSV of tools/precision_study.R (instrument, replicate, file),
+#   plus an "image" column for LDIR; one result per instrument with >= 2
+#   replicates.
+#
 # Usage (unattended batch without command-line args):
 #   Set CONFIG$instrument and CONFIG$runs in the CONFIG block below, then:
 #   Rscript tools/reproducibility.R
@@ -30,11 +41,12 @@
 }, error = function(e) NA_character_)
 REPO_ROOT <- if (!is.na(.script_path)) dirname(dirname(.script_path)) else getwd()
 
-for (m in c("utils.R", "particle_contract.R", "00_config.R", "01_ingest.R", "utils_python.R",
-            "01c_ingest_ldir.R", "07_match.R", "08b_material_map.R",
-            "reproducibility.R")) {
+# The whole pipeline: the replicate comparison uses its landmark search,
+# matcher and positional-error fit (R/reproducibility.R)
+source(file.path(REPO_ROOT, "R", "load.R"))
+load_pipeline(REPO_ROOT)
+for (m in c("reproducibility.R", "precision_study.R"))
   source(file.path(REPO_ROOT, "R", m))
-}
 
 # =============================================================================
 # CONFIG — algorithm parameters only.
@@ -260,7 +272,11 @@ collect_repro_inputs_interactive <- function() {
 
 # --- Command-line override (highest priority) --------------------------------
 .args <- commandArgs(trailingOnly = TRUE)
-if (length(.args) >= 3L) {
+if (length(.args) >= 2L && identical(.args[1], "--design")) {
+  CONFIG$design <- .args[2]
+} else if (length(.args) >= 3L && identical(.args[1], "--runs")) {
+  CONFIG$run_dirs <- .args[-1]
+} else if (length(.args) >= 3L) {
   CONFIG$instrument <- .args[1]
   rest <- .args[-1]
   if (identical(CONFIG$instrument, "ldir")) {
@@ -282,8 +298,14 @@ if (length(.args) >= 3L) {
 # --- instrument-agnostic particle acquisition -------------------------------
 # Returns a standardized particle frame (x_um/y_um/material/feret...) for one
 # run, dispatching on instrument. LDIR coordinates come from the image pipeline.
-get_run_particles <- function(instrument, file, image = NULL, config) {
+get_run_particles <- function(instrument, file, image = NULL, config, table = FALSE) {
   ldir_circle <- NULL
+  # A pipeline run's particle table: already read, translated, stitched
+  # (PerkinElmer segments) and, for LDIR, joined to the image coordinates
+  if (isTRUE(table)) {
+    df <- utils::read.csv(file, stringsAsFactors = FALSE, check.names = FALSE, encoding = "UTF-8")
+    return(df[is.finite(df$x_um) & is.finite(df$y_um), , drop = FALSE])
+  }
   df <- switch(instrument,
     ftir_perkin = ingest_ftir(file),
     ftir_bruker = ingest_ftir_bruker(file),
@@ -308,6 +330,8 @@ get_run_particles <- function(instrument, file, image = NULL, config) {
 }
 
 # --- run ---------------------------------------------------------------------
+# One instrument's replicates: CONFIG$instrument, CONFIG$runs
+run_one <- function(CONFIG) {
 cfg <- make_config()
 if (length(CONFIG$runs) < 2) stop("Need at least 2 runs to compare.")
 
@@ -317,9 +341,10 @@ if (length(CONFIG$runs) < 2) stop("Need at least 2 runs to compare.")
 # resolve_raman_calibration_from_manifests() in R/utils.R for the rationale.
 raman_calibration_source <- "none"
 if (identical(CONFIG$instrument, "raman")) {
-  run1_file <- CONFIG$runs[[1]]$file
+  run1_file <- CONFIG$runs[[1]]$raw_file %||% CONFIG$runs[[1]]$file
   resolved <- tryCatch(
-    resolve_raman_calibration_from_manifests(run1_file, file.path(REPO_ROOT, "output")),
+    resolve_raman_calibration_from_manifests(run1_file,
+      CONFIG$runs[[1]]$output_root %||% file.path(REPO_ROOT, "output")),
     error = function(e) NULL)
   if (!is.null(resolved)) {
     log_message("Raman calibration: auto-resolved from pipeline run ", resolved$run_id,
@@ -347,7 +372,7 @@ if (identical(CONFIG$instrument, "raman")) {
 
 log_message("Reproducibility: ", CONFIG$instrument, " — ", length(CONFIG$runs), " runs")
 runs <- lapply(CONFIG$runs, function(r)
-  get_run_particles(CONFIG$instrument, r$file, r$image, cfg))
+  get_run_particles(CONFIG$instrument, r$file, r$image, cfg, table = isTRUE(r$table)))
 for (i in seq_along(runs))
   log_message("  run", i, ": ", nrow(runs[[i]]), " particles (", CONFIG$runs[[i]]$file, ")")
 
@@ -357,7 +382,7 @@ ref_fam <- if (!is.null(CONFIG$reference_material))
 res <- run_reproducibility(runs,
                            gate = CONFIG$match_gate_um,
                            align_gate = CONFIG$align_gate_um,
-                           reference_family = ref_fam)
+                           reference_family = ref_fam, config = cfg)
 
 # --- write outputs -----------------------------------------------------------
 # Each run goes in its own timestamped subfolder so results are never
@@ -382,8 +407,17 @@ summary_df <- data.frame(
   accuracy_vs_reference = if (is.na(s$accuracy_vs_reference)) NA else round(s$accuracy_vs_reference, 4),
   median_feret_cv       = round(s$median_feret_cv, 4),
   median_pos_jitter_um  = round(s$median_pos_jitter_um, 2),
+  # Run-to-run links: gate (3 x the fitted positional error, 10 um .. the
+  # match gate), chance share, links skipped as they would join two
+  # particles of one run
+  gate_um_min           = if (!is.null(s$run_pairs)) round(min(s$run_pairs$gate_um), 1) else NA,
+  gate_um_max           = if (!is.null(s$run_pairs)) round(max(s$run_pairs$gate_um), 1) else NA,
+  max_chance_share      = round(s$max_chance_share, 4),
+  n_link_conflicts      = s$n_link_conflicts,
   stringsAsFactors = FALSE)
 write.csv(summary_df, file.path(out, "reproducibility_summary.csv"), row.names = FALSE)
+if (!is.null(s$run_pairs))
+  write.csv(s$run_pairs, file.path(out, "reproducibility_run_pairs.csv"), row.names = FALSE)
 
 # Viewer-ready long table (per run × consensus particle, aligned frame).
 long <- repro_long_table(res)
@@ -405,8 +439,9 @@ if (!is.null(img1) && nzchar(img1) && file.exists(img1)) {
 # (tools/diagnose_multirun_placement.R reads these).
 meta <- data.frame(instrument = CONFIG$instrument, n_runs = length(runs),
                    bg_image = bg_image,
-                   run1_file = basename(CONFIG$runs[[1]]$file),
-                   run1_md5  = file_md5(CONFIG$runs[[1]]$file) %||% NA_character_,
+                   run1_file = basename(CONFIG$runs[[1]]$raw_file %||% CONFIG$runs[[1]]$file),
+                   run1_md5  = file_md5(CONFIG$runs[[1]]$raw_file %||% CONFIG$runs[[1]]$file) %||%
+                     NA_character_,
                    stringsAsFactors = FALSE)
 if (identical(CONFIG$instrument, "raman")) {
   meta$raman_image_width_um    <- CONFIG$raman_image_width_um    %||% NA_real_
@@ -459,6 +494,12 @@ if (identical(CONFIG$instrument, "ldir")) {
     meta[[paste0("ldir_run", i, "_detected")]]        <- isTRUE(rci$detected)
   }
 }
+# Each replicate's registration onto run 1: rotation and how it started
+for (i in seq_along(res$runs)[-1]) {
+  tf <- attr(res$runs[[i]], "transform"); ip <- attr(res$runs[[i]], "initial_pose")
+  meta[[paste0("run", i, "_rotation_deg")]] <- round(tf$rotation_deg %||% NA_real_, 2)
+  meta[[paste0("run", i, "_pose_start")]]   <- ip$method %||% NA_character_
+}
 write.csv(meta, file.path(out, "reproducibility_meta.csv"), row.names = FALSE)
 
 plots <- repro_plots(res, out, title_prefix = CONFIG$instrument)
@@ -477,5 +518,63 @@ if (!is.na(s$accuracy_vs_reference))
               round(100 * s$accuracy_vs_reference, 1), "%")
 log_message("  Median Feret CV:      ", round(100 * s$median_feret_cv, 1), "%")
 log_message("  Median jitter:        ", round(s$median_pos_jitter_um, 1), " um")
+if (!is.null(s$run_pairs))
+  log_message("  Run-to-run gate:      ", paste(sprintf("%d-%d %.0f um", s$run_pairs$run_a,
+                                                      s$run_pairs$run_b, s$run_pairs$gate_um),
+                                              collapse = ", "),
+              " (chance links up to ", round(100 * s$max_chance_share), "%)")
+if (isTRUE(s$n_link_conflicts > 0))
+  log_message("  Links skipped:        ", s$n_link_conflicts,
+              " (would have joined two particles of one run)")
 log_message("  Wrote: reproducibility_particles.csv, reproducibility_summary.csv, ",
             length(plots), " plots -> ", out)
+invisible(out)
+}
+
+if (!is.null(CONFIG$run_dirs)) {
+  # One replicate comparison per instrument, each pipeline run a replicate:
+  # the run's particle table (no raw files, no LDIR image extraction), its
+  # instrument image as the backdrop (placed by the particle extent in the
+  # Multi-Run tab), the raw file from its manifest for the Raman calibration
+  des <- precision_design_from_runs(CONFIG$run_dirs)
+  tool_role <- c(ftir = "ftir_perkin", ftir_bruker = "ftir_bruker", raman = "raman", ldir = "ldir")
+  img_key <- c(ftir = "ftir", ftir_bruker = "ftir_bruker", raman = "raman", ldir = "ldir")
+  raw_path <- function(run_dir, role) {
+    mf <- file.path(run_dir, "00_manifest", "manifest.json")
+    m <- tryCatch(jsonlite::fromJSON(mf, simplifyVector = FALSE), error = function(e) NULL)
+    p <- m$inputs[[img_key[[role]]]]$path
+    if (is.null(p) || !file.exists(p)) NULL else p
+  }
+  for (role in intersect(names(tool_role), unique(des$instrument))) {
+    rows <- which(des$instrument == role)
+    if (length(rows) < 2) { log_message(role, ": in fewer than 2 runs, skipped", level = "WARN"); next }
+    C <- CONFIG
+    C$instrument <- tool_role[[role]]
+    C$runs <- lapply(rows, function(k) {
+      img <- file.path(des$run_dir[k], "inputs", paste0(img_key[[role]], "_image_canonical.png"))
+      list(file = des$file[k], table = TRUE, raw_file = raw_path(des$run_dir[k], role),
+           output_root = dirname(des$run_dir[k]),
+           image = if (file.exists(img)) img else NULL)
+    })
+    tryCatch(run_one(C), error = function(e)
+      log_message(tool_role[[role]], ": not compared -- ", conditionMessage(e), level = "WARN"))
+  }
+} else if (!is.null(CONFIG$design)) {
+  # One replicate comparison per instrument of the design
+  des <- read_precision_design(CONFIG$design)
+  img <- if ("image" %in% names(des)) des$image else rep(NA_character_, nrow(des))
+  tool_role <- c(ftir = "ftir_perkin", ftir_bruker = "ftir_bruker", raman = "raman", ldir = "ldir")
+  for (role in intersect(names(tool_role), unique(des$instrument))) {
+    rows <- which(des$instrument == role)
+    rows <- rows[order(des$replicate[rows])]
+    if (length(rows) < 2) { log_message(role, ": fewer than 2 replicates, skipped", level = "WARN"); next }
+    C <- CONFIG
+    C$instrument <- tool_role[[role]]
+    C$runs <- lapply(rows, function(k) list(file = des$file[k],
+                                            image = if (is.na(img[k]) || !nzchar(img[k])) NULL else img[k]))
+    tryCatch(run_one(C), error = function(e)
+      log_message(tool_role[[role]], ": not compared -- ", conditionMessage(e), level = "WARN"))
+  }
+} else {
+  run_one(CONFIG)
+}

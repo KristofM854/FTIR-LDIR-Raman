@@ -59,6 +59,7 @@ python -m unittest discover -s inst/python -p "test_*.py"
 | File | What it checks |
 |---|---|
 | `test-agreement-tiers.R`, `test-material-families.R`, `test-material-filter.R`, `test-reference-material-menu.R` | Exact / Family / Filler / Unresolved / Disagree tiers, quality and identification exclusions, polymer names and families. |
+| `test-precision-study.R` | Precision study (ISO 5725-2): variance components equal the one-way ANOVA, s_L = 0 when instruments differ less than replicates, Mandel h / k indicator levels against the ISO table and a simulated null distribution, counts per stratum with the quality and size cutoffs and zeros filled, design parsing. |
 | `test-validation-tools.R` | Null model (few chance matches in a sparse field, many in a dense one; RNG restored), gate sensitivity, LDIR join check (correct join significant, scrambled not, single-polymer sample flagged uninformative) and its log line. |
 
 **Viewer, report, provenance**

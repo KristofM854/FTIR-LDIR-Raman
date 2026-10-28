@@ -535,7 +535,7 @@ ui <- fluidPage(
           # --- PER-INSTRUMENT FILTERS: side by side below the image ---
           fluidRow(
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("FTIR (PerkinElmer)", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ftir_pe"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("ftir_pe"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_ftir_quality", "AAU Quality",
                             min = 0, max = 1, value = c(0.7, 1), step = 0.01),
                 sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
@@ -553,7 +553,7 @@ ui <- fluidPage(
                                options = list(placeholder = "Select particles...",
                                               plugins = list("remove_button"))))),
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("FTIR (Bruker)", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ftir_bruker"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("ftir_bruker"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_ftir_bruker_quality", "AAU Quality",
                             min = 0, max = 1, value = c(0.7, 1), step = 0.01),
                 sliderInput("overlay_ftir_bruker_size", "Feret Max (\u00b5m)",
@@ -571,7 +571,7 @@ ui <- fluidPage(
                                options = list(placeholder = "Select particles...",
                                               plugins = list("remove_button"))))),
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("Raman", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["raman"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("raman"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_raman_quality", "HQI",
                             min = 0, max = 100, value = c(70, 100), step = 1),
                 sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
@@ -589,7 +589,7 @@ ui <- fluidPage(
                                options = list(placeholder = "Select particles...",
                                               plugins = list("remove_button"))))),
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("LDIR", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ldir"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("ldir"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_ldir_quality", "Quality",
                             min = 0, max = 1, value = c(0.85, 1), step = 0.01),
                 sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
@@ -880,6 +880,58 @@ ui <- fluidPage(
         )
       )
       ) # end div#multirun_panel
+    ),
+
+    # Tab 9: Precision study (tools/precision_study.R): n replicates of one
+    # filter on each instrument, ISO 5725-2 repeatability / reproducibility
+    tabPanel("Precision",
+      sidebarLayout(
+        sidebarPanel(width = 3,
+          h4("Precision study"),
+          tags$p(style = "font-size:12px; color:#666;",
+                 "Results of ", code("tools/precision_study.R"),
+                 ": the same filter measured several times on each instrument."),
+          tags$p(tags$strong("New study from pipeline runs")),
+          tags$p(style = "font-size:11px; color:#888; margin-top:-6px;",
+                 "One run per replicate of the same filter; every instrument a run analysed counts. ",
+                 "Cutoffs as in the first run."),
+          selectizeInput("prec_runs", NULL, choices = NULL, multiple = TRUE,
+                         options = list(placeholder = "Select runs...",
+                                        plugins = list("remove_button"))),
+          actionButton("prec_compute", "Compute", class = "btn-sm btn-primary"),
+          uiOutput("prec_compute_msg"),
+          hr(),
+          textInput("prec_base", "Results folder", value = "output/precision"),
+          actionButton("prec_refresh", "Scan", class = "btn-sm btn-default"),
+          uiOutput("prec_select_ui"),
+          hr(),
+          uiOutput("prec_group_ui"),
+          selectInput("prec_size", "Size class (um)",
+                      choices = c("all sizes", "20-50", "50-100", "100-200", ">200")),
+          hr(),
+          downloadButton("prec_download", "Download report (PDF)", class = "btn-sm")
+        ),
+        mainPanel(width = 9,
+          uiOutput("prec_empty"),
+          h4("Repeatability and reproducibility"),
+          tags$p(class = "text-muted", style = "font-size:12px;",
+                 "Counts per filter. s_r: within an instrument; s_L: between instruments; ",
+                 "s_R: reproducibility (s_R\u00b2 = s_L\u00b2 + s_r\u00b2); r / R = 2.8 s_r / 2.8 s_R; ",
+                 "CV: % of the mean count; 95% CI in brackets (ISO 5725-2)."),
+          tableOutput("prec_iso_table"),
+          plotOutput("prec_counts_plot", height = "420px"),
+          fluidRow(column(6, plotOutput("prec_components_plot", height = "380px")),
+                   column(6, plotOutput("prec_size_plot", height = "380px"))),
+          h4("Instruments"),
+          tags$p(class = "text-muted", style = "font-size:12px;",
+                 "Mandel's h / k: an instrument's mean / replicate spread against the others; ",
+                 "(5%) / (1%): indicator level exceeded. Var / mean: 1 for pure counting (Poisson) ",
+                 "noise; p < 0.05: more variation than counting alone gives."),
+          tableOutput("prec_inst_table"),
+          fluidRow(column(6, plotOutput("prec_h_plot", height = "360px")),
+                   column(6, plotOutput("prec_k_plot", height = "360px")))
+        )
+      )
     )
   )
 )
@@ -4863,8 +4915,14 @@ server <- function(input, output, session) {
             name   = "Instrument",
             values = c(FTIR = INSTRUMENT_COLOURS[["ftir_pe"]],
                        "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
-                       Raman = INSTRUMENT_COLOURS[["raman"]], LDIR = INSTRUMENT_COLOURS[["ldir"]])
+                       Raman = INSTRUMENT_COLOURS[["raman"]], LDIR = INSTRUMENT_COLOURS[["ldir"]]),
+            breaks = c("FTIR", "FTIR (Bruker)", "Raman", "LDIR"),   # symbol order
+            labels = c(FTIR = "FTIR (PerkinElmer)", "FTIR (Bruker)" = "FTIR (Bruker)",
+                       Raman = "Raman", LDIR = "LDIR")
           ) +
+          # Points are see-through so stacked ones show; the legend keys carry
+          # the instruments' exact colours
+          guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
           scale_shape_manual(
             name   = "Match Status",
             values = c(matched = 19, unmatched = 1),
@@ -5441,8 +5499,7 @@ server <- function(input, output, session) {
                                                 lapply(cols, function(c) tags$td(c[[f]], title = c[[f]]))))
     tags$table(class = "hover-tbl fixed-detail",
       do.call(tags$tr, c(list(tags$th("", style = "width: 12%;")),
-                         lapply(cols, function(c) tags$th(.OV_INST[[c$k]]$label,
-                           style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[[c$k]], ";"))))),
+                         lapply(cols, function(c) tags$th(instrument_badge(c$k))))),
       mk("Particle ID", "id"), mk("Material", "mat"), mk("Quality", "q"),
       mk("Feret Max", "feret"), mk("Position", "pos"))
   })
@@ -5455,6 +5512,104 @@ server <- function(input, output, session) {
   # Scan the base folder for reproducibility runs: any subfolder (or the base
   # itself) containing reproducibility_points.csv. Newest first.
   # Returns a list of records: list(dir, instrument, n_runs) — newest first.
+  # ==================================================================
+  # PRECISION TAB (tools/precision_study.R output)
+  # ==================================================================
+  .prec_base_dir <- reactive({
+    input$prec_refresh
+    b <- input$prec_base %||% "output/precision"
+    # relative to the project folder; the app runs in shiny_app/
+    if (!dir.exists(b) && dir.exists(file.path("..", b))) b <- file.path("..", b)
+    b
+  })
+  prec_new_dir <- reactiveVal(NULL)
+  output$prec_select_ui <- renderUI({
+    prec_new_dir()
+    dirs <- list_precision_results(.prec_base_dir())
+    if (length(dirs) == 0) return(tags$p(class = "text-muted", "No precision results found."))
+    sel <- prec_new_dir()
+    selectInput("prec_dir", "Study", choices = stats::setNames(dirs, basename(dirs)),
+                selected = if (!is.null(sel) && sel %in% dirs) sel else dirs[1])
+  })
+  # Run list for a new study (same labels as the run selector)
+  observe({
+    runs <- list_all_runs()
+    updateSelectizeInput(session, "prec_runs", choices = stats::setNames(unname(runs), names(runs)),
+                         selected = isolate(input$prec_runs), server = TRUE)
+  })
+  # A study from pipeline runs: the runs' particle tables, counted with the
+  # pipeline's own functions loaded into a private environment
+  output$prec_compute_msg <- renderUI(NULL)
+  observeEvent(input$prec_compute, {
+    dirs <- input$prec_runs
+    if (length(dirs) < 2) {
+      output$prec_compute_msg <- renderUI(tags$p(class = "text-danger", "Select at least two runs."))
+      return()
+    }
+    msg <- tryCatch(withProgress(message = "Computing the precision study", value = 0.2, {
+      env <- new.env(parent = globalenv())
+      if (!exists("%||%", envir = env)) env$`%||%` <- function(a, b) if (is.null(a)) b else a
+      for (m in c("utils.R", "00_config.R", "08b_material_map.R", "08_agreement.R",
+                  "align_helpers.R", "precision_study.R"))
+        sys.source(file.path(.pipeline_r_dir, m), envir = env)
+      des <- env$precision_design_from_runs(dirs)
+      cfg <- env$precision_config_from_run(des$run_dir[1])
+      res <- env$run_precision_study(des, cfg)
+      incProgress(0.5)
+      base <- .prec_base_dir()
+      out <- file.path(base, format(Sys.time(), "%Y-%m-%d_%H%M%S"))
+      env$write_precision_results(res, out)
+      write_report_pdf(precision_report_pages(read_precision_results(out)),
+                       file.path(out, "precision_report.pdf"))
+      prec_new_dir(out)
+      tags$p(class = "text-success", style = "font-size:12px;",
+             sprintf("Study of %d runs written to %s", length(dirs), basename(out)))
+    }), error = function(e) tags$p(class = "text-danger", conditionMessage(e)))
+    output$prec_compute_msg <- renderUI(msg)
+  })
+  prec_res <- reactive({
+    d <- input$prec_dir
+    if (is.null(d) || !nzchar(d)) return(NULL)
+    read_precision_results(d)
+  })
+  output$prec_empty <- renderUI({
+    if (!is.null(prec_res())) return(NULL)
+    tags$div(class = "placeholder-msg",
+             tags$h3("No precision study loaded"),
+             tags$p("Run ", tags$code("Rscript tools/precision_study.R design.csv"),
+                    ", then Scan."))
+  })
+  output$prec_group_ui <- renderUI({
+    r <- prec_res(); if (is.null(r)) return(NULL)
+    g <- precision_groups(r, max_families = 50)
+    selectInput("prec_group", "Group (instrument table and size plot)", choices = g)
+  })
+  output$prec_iso_table <- renderTable({
+    r <- prec_res(); req(r)
+    precision_iso_table(r, size_class = input$prec_size %||% "all sizes")
+  }, striped = TRUE, spacing = "s")
+  output$prec_counts_plot <- renderPlot({
+    r <- prec_res(); req(r)
+    precision_counts_plot(r, size_class = input$prec_size %||% "all sizes")
+  })
+  output$prec_components_plot <- renderPlot({ r <- prec_res(); req(r); precision_components_plot(r) })
+  output$prec_size_plot <- renderPlot({
+    r <- prec_res(); req(r, input$prec_group)
+    precision_components_plot(r, by_size = input$prec_group)
+  })
+  output$prec_inst_table <- renderTable({
+    r <- prec_res(); req(r, input$prec_group)
+    precision_instrument_table(r, input$prec_group, input$prec_size %||% "all sizes")
+  }, striped = TRUE, spacing = "s")
+  output$prec_h_plot <- renderPlot({ r <- prec_res(); req(r); precision_mandel_plot(r, "h") })
+  output$prec_k_plot <- renderPlot({ r <- prec_res(); req(r); precision_mandel_plot(r, "k") })
+  output$prec_download <- downloadHandler(
+    filename = function() paste0("precision_report_", basename(input$prec_dir %||% "study"), ".pdf"),
+    content = function(file) {
+      r <- prec_res(); req(r)
+      write_report_pdf(precision_report_pages(r), file)
+    })
+
   repro_scan <- reactive({
     input$repro_refresh                       # manual rescan trigger
     base <- input$repro_base

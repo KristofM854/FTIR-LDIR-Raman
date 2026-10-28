@@ -3,7 +3,7 @@
 
 local({
   rdir <- file.path(REPO_ROOT, "R")
-  for (m in c("08b_material_map.R", "reproducibility.R"))
+  for (m in c("08b_material_map.R", "03b_landmark_align.R", "reproducibility.R"))
     sys.source(file.path(rdir, m), envir = globalenv())
 })
 
@@ -143,4 +143,35 @@ test_that("long table's coord_match_cost is NA for instruments without it (FTIR/
   long <- repro_long_table(res)
   expect_true("coord_match_cost" %in% names(long))
   expect_true(all(is.na(long$coord_match_cost)))
+})
+
+test_that("dense, remounted replicates: rotation found, per-run gate, no particle in two groups", {
+  for (m in c("01_ingest.R", "align_helpers.R", "03b_landmark_align.R"))
+    sys.source(file.path(REPO_ROOT, "R", m), envir = globalenv())
+  set.seed(5); n <- 3000; W <- 6500
+  truth <- data.frame(tid = seq_len(n), x = runif(n, 0, W), y = runif(n, 0, W),
+                      feret = exp(rnorm(n, log(40), 0.6)) + 20)
+  mk <- function(deg, seed) {
+    set.seed(seed); t <- truth[runif(n) > 0.1, ]; th <- deg * pi / 180
+    f <- t$feret * exp(rnorm(nrow(t), 0, 0.05))
+    data.frame(particle_id = paste0("p", t$tid), tid = t$tid,
+               x_um = t$x * cos(th) - t$y * sin(th) + 300 + rnorm(nrow(t), 0, 3),
+               y_um = t$x * sin(th) + t$y * cos(th) - 200 + rnorm(nrow(t), 0, 3),
+               feret_max_um = f, major_um = f, minor_um = 0.7 * f, area_um2 = f^2 / 2,
+               material = "PET", quality = 90)
+  }
+  runs <- list(mk(0, 1), mk(120, 2), mk(-75, 3))     # remounted at any angle
+  res <- suppressMessages(run_reproducibility(runs, gate = 75, align_gate = 300))
+  rot <- vapply(res$runs[-1], function(r) attr(r, "transform")$rotation_deg, 0)
+  expect_equal(rot, c(-120, 75), tolerance = 0.5)
+  pr <- res$summary$run_pairs
+  expect_true(all(pr$gate_um < 20))                  # 3 sigma of ~3-4 um, not 75 um
+  m <- res$membership
+  # every particle in exactly one consensus particle; none dropped
+  expect_equal(sum(!is.na(m)), sum(vapply(runs, nrow, 0L)))
+  tid <- sapply(1:3, function(r) ifelse(is.na(m[, r]), NA, runs[[r]]$tid[m[, r]]))
+  impure <- apply(tid, 1, function(v) length(unique(v[!is.na(v)])) > 1)
+  expect_lt(mean(impure), 0.02)
+  truth_all <- length(Reduce(intersect, lapply(runs, `[[`, "tid")))
+  expect_equal(res$summary$detected_in_all, truth_all, tolerance = 0.02 * truth_all)
 })

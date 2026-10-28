@@ -3,7 +3,9 @@
 # =============================================================================
 # Compares N repeat measurements ("runs") of the SAME filter on the SAME
 # instrument to quantify reproducibility (precision) and, when the true
-# reference plastic is known, accuracy (trueness).
+# reference plastic is known, accuracy (trueness). A remount may turn the
+# filter by any angle: the starting pose comes from the pipeline's landmark
+# search; matching, gate and pair confidence are the pipeline's.
 #
 # The engine is instrument-agnostic: it operates on the standardized particle
 # frame every ingester emits (particle_id, x_um, y_um, area_um2, major_um,
@@ -14,12 +16,13 @@
 # Matching is SPATIAL ONLY — material is never a gate — so a particle called
 # PET in run 1 and PP in run 3 is still linked as one physical particle and the
 # disagreement is surfaced rather than hidden. Consensus particles are the
-# connected components of the pairwise run-to-run matches (unbiased: a particle
-# seen only in runs 2 & 3 still counts).
+# groups the pairwise run-to-run matches form, merged most confident first and
+# never two particles of one run (unbiased: a particle seen only in runs 2 & 3
+# still counts).
 #
-# Depends on: RANN (nearest neighbours), clue (optimal assignment; greedy
-# fallback), and classify_family_vec() from R/08b_material_map.R for polymer
-# family comparison. No side effects at source time.
+# Depends on the pipeline modules (R/load.R: landmark_align, match_particles,
+# .position_error, chance_partner_rate, make_config) and classify_family_vec()
+# from R/08b_material_map.R. No side effects at source time.
 
 # ---- 2D rigid registration (Kabsch / ICP, scale = 1) ------------------------
 
@@ -41,12 +44,66 @@
   out
 }
 
-#' Rigidly register `src` onto `ref` (same instrument, slight offset).
+#' Pipeline settings for replicate comparison: one instrument, so no mirror
+#' and scale fixed at 1. NULL = make_config().
+repro_config <- function(config = NULL) {
+  cfg <- config %||% make_config()
+  cfg$ransac_allow_mirror <- FALSE
+  cfg$align_scale_min <- 1
+  cfg$align_scale_max <- 1
+  cfg
+}
+
+# Particles per run used for the starting pose (the largest)
+REPRO_POSE_LANDMARKS <- 200
+
+#' Starting pose of `src` on `ref`: the pipeline's landmark search over all
+#' rotations (large particles; scale 1, no mirror), accepted only when its
+#' pairs are far above chance (landmark_align()). A remounted filter can be
+#' turned by any angle; the rigid ICP alone only corrects a few degrees.
+#' @return list(R, t, rotation_deg, method = "landmark" / "none", p_chance)
+.repro_initial_pose <- function(src, ref, config) {
+  none <- list(R = diag(2), t = colMeans(cbind(ref$x_um, ref$y_um)) -
+                 colMeans(cbind(src$x_um, src$y_um)),
+               rotation_deg = 0, method = "none", p_chance = NA_real_)
+  if (is.null(config) || !exists("landmark_align", mode = "function") ||
+      nrow(src) < 3 || nrow(ref) < 3) return(none)
+  cs <- colMeans(cbind(src$x_um, src$y_um)); cr <- colMeans(cbind(ref$x_um, ref$y_um))
+  # The same instrument sizes a particle the same way in every run, so its
+  # largest particles are the same ones: the pose search runs on those only
+  # (a dense field has thousands >= 100 um), the ICP then on all particles.
+  top <- function(d) {
+    k <- order(-d$feret_max_um)[seq_len(min(REPRO_POSE_LANDMARKS, nrow(d)))]
+    d[k[!is.na(d$feret_max_um[k])], , drop = FALSE]
+  }
+  s <- top(src); s$x_norm <- s$x_um - cs[1]; s$y_norm <- s$y_um - cs[2]
+  r <- top(ref); r$x_norm <- r$x_um - cr[1]; r$y_norm <- r$y_um - cr[2]
+  lcfg <- config
+  lcfg$landmark_min_size_um <- 0; lcfg$landmark_fiber_min_size_um <- 0
+  lm <- tryCatch(suppressMessages(landmark_align(s, r, lcfg, src_label = "replicate",
+                                                 ref_label = "run 1")),
+                 error = function(e) NULL)
+  if (is.null(lm) || !isTRUE(lm$confident) || is.null(lm$transform)) {
+    none$p_chance <- lm$p_chance %||% NA_real_
+    return(none)
+  }
+  M <- lm$transform
+  R <- M[1:2, 1:2]
+  R <- R / sqrt(abs(det(R)))                    # scale 1
+  list(R = R, t = as.numeric(cr + M[1:2, 3] - R %*% cs),
+       rotation_deg = atan2(R[2, 1], R[1, 1]) * 180 / pi,
+       method = "landmark", p_chance = lm$p_chance)
+}
+
+#' Rigidly register `src` onto `ref` (same instrument).
 #'
 #' Iterative closest point with a full re-fit each step and a correspondence
-#' gate to reject particles present in only one run. Adds x_aligned/y_aligned
-#' to `src` (ref's frame); records the transform as an attribute.
-repro_rigid_register <- function(src, ref, gate = 300, max_iter = 50, tol = 1e-3) {
+#' gate to reject particles present in only one run, started from `init`
+#' (.repro_initial_pose()) or, without it, the centroid shift. Adds
+#' x_aligned/y_aligned to `src` (ref's frame); records the transform and the
+#' starting pose as attributes.
+repro_rigid_register <- function(src, ref, gate = 300, max_iter = 50, tol = 1e-3,
+                                 init = NULL) {
   P      <- cbind(src$x_um, src$y_um)
   ref_xy <- cbind(ref$x_um, ref$y_um)
   if (nrow(P) == 0 || nrow(ref_xy) == 0) {
@@ -54,8 +111,8 @@ repro_rigid_register <- function(src, ref, gate = 300, max_iter = 50, tol = 1e-3
     attr(src, "transform") <- list(R = diag(2), t = c(0, 0))
     return(src)
   }
-  R  <- diag(2)
-  t  <- colMeans(ref_xy) - colMeans(P)       # centroid init
+  R  <- init$R %||% diag(2)
+  t  <- init$t %||% (colMeans(ref_xy) - colMeans(P))       # centroid init
   cur <- .repro_apply_rt(P, R, t)
   prev_err <- Inf
   for (it in seq_len(max_iter)) {
@@ -72,17 +129,27 @@ repro_rigid_register <- function(src, ref, gate = 300, max_iter = 50, tol = 1e-3
   }
   src$x_aligned <- cur[, 1]
   src$y_aligned <- cur[, 2]
-  attr(src, "transform") <- list(R = R, t = t)
+  attr(src, "transform") <- list(R = R, t = t, rotation_deg = atan2(R[2, 1], R[1, 1]) * 180 / pi)
+  attr(src, "initial_pose") <- init
   src
 }
 
-#' Register runs 2..N onto run 1. Run 1 keeps its native coordinates.
-repro_align_runs <- function(runs, gate = 300) {
+#' Register runs 2..N onto run 1 (run 1 keeps its native coordinates), each
+#' from the landmark starting pose when `config` is given.
+repro_align_runs <- function(runs, gate = 300, config = NULL) {
   stopifnot(length(runs) >= 1)
   runs[[1]]$x_aligned <- runs[[1]]$x_um
   runs[[1]]$y_aligned <- runs[[1]]$y_um
   for (i in seq_along(runs)[-1]) {
-    runs[[i]] <- repro_rigid_register(runs[[i]], runs[[1]], gate = gate)
+    init <- if (!is.null(config)) .repro_initial_pose(runs[[i]], runs[[1]], config) else NULL
+    runs[[i]] <- repro_rigid_register(runs[[i]], runs[[1]], gate = gate, init = init)
+    tf <- attr(runs[[i]], "transform")
+    if (!is.null(init))
+      log_message(sprintf("  run %d -> run 1: rotation %.1f deg (%s)", i, tf$rotation_deg,
+                          if (identical(init$method, "landmark"))
+                            sprintf("landmark start, p = %.1g", init$p_chance)
+                          else "no landmark pose above chance: started at 0 deg"),
+                  level = if (identical(init$method, "landmark")) "INFO" else "WARN")
   }
   runs
 }
@@ -91,99 +158,85 @@ repro_align_runs <- function(runs, gate = 300) {
 
 #' Optimal 1-to-1 spatial match between two registered runs.
 #'
-#' Cost = aligned-coordinate distance + a mild size penalty; pairs beyond `gate`
-#' are never linked. Material is deliberately ignored. Returns a data frame of
-#' a_idx / b_idx / dist (row indices into runs a and b).
-repro_match_pair <- function(a, b, gate = 75, size_weight = 0.2) {
-  na <- nrow(a); nb <- nrow(b)
-  if (na == 0 || nb == 0) return(data.frame(a_idx = integer(), b_idx = integer(),
-                                             dist = numeric()))
-  ax <- a$x_aligned; ay <- a$y_aligned
-  bx <- b$x_aligned; by <- b$y_aligned
-  k  <- min(nb, 10L)
-  nn <- RANN::nn2(cbind(bx, by), cbind(ax, ay), k = k)
-
-  BIG <- 1e12
-  n   <- max(na, nb)
-  cost <- matrix(BIG, n, n)
-  for (i in seq_len(na)) {
-    for (kk in seq_len(k)) {
-      j <- nn$nn.idx[i, kk]; d <- nn$nn.dists[i, kk]
-      if (d > gate) next
-      pen <- 0
-      fa <- a$feret_max_um[i]; fb <- b$feret_max_um[j]
-      if (size_weight > 0 && !is.na(fa) && !is.na(fb) && fa > 0 && fb > 0)
-        pen <- size_weight * abs(log(fa / fb)) * d
-      cost[i, j] <- min(cost[i, j], d + pen)
-    }
-  }
-  if (requireNamespace("clue", quietly = TRUE)) {
-    asg <- as.integer(clue::solve_LSAP(cost))
-  } else {
-    asg <- apply(cost, 1, which.min)         # greedy fallback
-  }
-  out <- list()
-  for (i in seq_len(na)) {
-    j <- asg[i]
-    if (j > nb || cost[i, j] >= BIG) next
-    out[[length(out) + 1]] <- data.frame(
-      a_idx = i, b_idx = j,
-      dist  = sqrt((ax[i] - bx[j])^2 + (ay[i] - by[j])^2))
-  }
-  if (length(out) == 0) data.frame(a_idx = integer(), b_idx = integer(),
-                                   dist = numeric())
-  else do.call(rbind, out)
+#' The pipeline's matcher (match_particles(): optimal assignment per group of
+#' nearby particles, size-ratio guard, distance + size / shape cost). The
+#' gate is 3 x the positional error fitted to this pair of runs
+#' (.position_error()), within 10 um .. `gate`; `gate` itself when there is
+#' no fit. Material is deliberately ignored. Returns a_idx / b_idx / dist /
+#' p_true (row indices into runs a and b), with attributes gate_um, sigma_um,
+#' chance_share.
+repro_match_pair <- function(a, b, gate = 75, config = NULL) {
+  empty <- data.frame(a_idx = integer(), b_idx = integer(), dist = numeric(), p_true = numeric())
+  if (nrow(a) == 0 || nrow(b) == 0) return(empty)
+  cfg <- repro_config(config)
+  b$x_norm <- b$x_aligned; b$y_norm <- b$y_aligned
+  rho <- chance_partner_rate(b$x_norm, b$y_norm, 1)$density
+  pe <- .position_error(a$x_aligned, a$y_aligned, b$x_norm, b$y_norm, rho, gate)
+  g <- if (is.finite(pe$sigma)) min(max(3 * pe$sigma, 10), gate) else gate
+  cfg$match_dist_threshold_um <- g
+  cfg$match_gate_from_sigma <- FALSE
+  res <- suppressMessages(match_particles(a, b, cfg, src_label = "a", ref_label = "b"))
+  m <- res$matched
+  out <- if (is.null(m) || nrow(m) == 0) empty else
+    data.frame(a_idx = m$a_idx, b_idx = m$b_idx, dist = m$match_distance,
+               p_true = m$p_true %||% NA_real_)
+  attr(out, "gate_um") <- g
+  attr(out, "sigma_um") <- pe$sigma
+  attr(out, "chance_share") <- res$match_stats$chance_share %||% NA_real_
+  out
 }
 
-# ---- union-find over all pairwise matches -> consensus particles ------------
-
-.repro_uf_new  <- function(n) seq_len(n)
-.repro_uf_find <- function(parent, i) {
-  i <- as.integer(i)
-  while (parent[i] != i) { parent[i] <- parent[parent[i]]; i <- parent[i] }
-  as.integer(i)
-}
+# ---- consensus particles -----------------------------------------------------
 
 #' Link runs into consensus particles.
 #'
-#' Matches every unordered pair of runs, unions matched nodes, and returns a
-#' membership list: consensus id -> per-run row index (NA when absent).
-repro_link_runs <- function(runs, gate = 75, size_weight = 0.2) {
+#' Matches every unordered pair of runs and merges the links into groups,
+#' most confident first (p_true, then distance). A link that would put two
+#' particles of the same run into one group is skipped and counted
+#' (attr "n_link_conflicts"), so each particle belongs to exactly one
+#' consensus particle and none is dropped. Returns the membership matrix:
+#' consensus id x run -> row index (NA when absent); attr "pairs" lists the
+#' gate, positional error and chance share of every run pair.
+repro_link_runs <- function(runs, gate = 75, config = NULL) {
   n_runs  <- length(runs)
   offsets <- as.integer(cumsum(c(0L, vapply(runs, nrow, integer(1)))))
   total   <- offsets[n_runs + 1]
-  parent  <- .repro_uf_new(total)
-
-  union <- function(a, b) {
-    ra <- .repro_uf_find(parent, as.integer(a))
-    rb <- .repro_uf_find(parent, as.integer(b))
-    if (ra != rb) parent[rb] <<- ra
-  }
-  for (i in seq_len(n_runs - 1)) {
-    for (j in (i + 1):n_runs) {
-      mm <- repro_match_pair(runs[[i]], runs[[j]], gate = gate, size_weight = size_weight)
-      if (nrow(mm) == 0) next
-      for (r in seq_len(nrow(mm)))
-        union(offsets[i] + mm$a_idx[r], offsets[j] + mm$b_idx[r])
-    }
-  }
-  # Group global nodes by root.
-  roots <- vapply(seq_len(total), function(i) .repro_uf_find(parent, i), integer(1))
-  comps <- split(seq_len(total), roots)
-
-  # Membership matrix: one row per consensus particle, one column per run.
-  memb <- matrix(NA_integer_, nrow = length(comps), ncol = n_runs)
   node_run <- rep(seq_len(n_runs), times = diff(offsets))
   node_row <- unlist(lapply(runs, function(d) seq_len(nrow(d))))
-  ci <- 0L
-  for (comp in comps) {
-    ci <- ci + 1L
-    for (nd in comp) {
-      r <- node_run[nd]
-      # Keep the first occurrence if a run somehow contributes twice.
-      if (is.na(memb[ci, r])) memb[ci, r] <- node_row[nd]
-    }
+
+  links <- list(); pairs <- list()
+  for (i in seq_len(n_runs - 1)) for (j in (i + 1):n_runs) {
+    mm <- repro_match_pair(runs[[i]], runs[[j]], gate = gate, config = config)
+    pairs[[length(pairs) + 1]] <- data.frame(run_a = i, run_b = j, n_links = nrow(mm),
+      gate_um = attr(mm, "gate_um") %||% NA_real_, sigma_um = attr(mm, "sigma_um") %||% NA_real_,
+      chance_share = attr(mm, "chance_share") %||% NA_real_)
+    if (nrow(mm) > 0)
+      links[[length(links) + 1]] <- data.frame(u = offsets[i] + mm$a_idx, v = offsets[j] + mm$b_idx,
+                                               p = mm$p_true, d = mm$dist)
   }
+  links <- if (length(links)) do.call(rbind, links) else data.frame(u = integer(), v = integer(),
+                                                                    p = numeric(), d = numeric())
+  links <- links[order(-ifelse(is.na(links$p), -1, links$p), links$d), , drop = FALSE]
+
+  # Union-find with the set of runs in each group
+  parent <- seq_len(total)
+  runs_in <- lapply(seq_len(total), function(k) node_run[k])
+  find <- function(k) { while (parent[k] != k) { parent[k] <<- parent[parent[k]]; k <- parent[k] }; k }
+  n_conflict <- 0L
+  for (r in seq_len(nrow(links))) {
+    a <- find(links$u[r]); b <- find(links$v[r])
+    if (a == b) next
+    if (length(intersect(runs_in[[a]], runs_in[[b]]))) { n_conflict <- n_conflict + 1L; next }
+    parent[b] <- a
+    runs_in[[a]] <- c(runs_in[[a]], runs_in[[b]])
+  }
+  roots <- vapply(seq_len(total), find, integer(1))
+  comp <- match(roots, unique(roots))
+  memb <- matrix(NA_integer_, nrow = max(c(0L, comp)), ncol = n_runs)
+  memb[cbind(comp, node_run)] <- node_row
+  attr(memb, "n_link_conflicts") <- n_conflict
+  attr(memb, "n_links") <- nrow(links)
+  attr(memb, "pairs") <- if (length(pairs)) do.call(rbind, pairs) else NULL
   memb
 }
 
@@ -194,47 +247,44 @@ repro_link_runs <- function(runs, gate = 75, size_weight = 0.2) {
 }
 
 #' Per-consensus-particle table: presence, material and size per run, plus
-#' concordance / CV / positional-jitter summaries.
+#' concordance / CV / positional-jitter summaries (vectorised over particles).
 repro_consensus_table <- function(runs, memb) {
-  n_runs <- length(runs)
-  rn <- seq_len(n_runs)
-  get <- function(ci, r, col) {
-    idx <- memb[ci, r]
-    if (is.na(idx)) NA else runs[[r]][[col]][idx]
+  n_runs <- length(runs); nc <- nrow(memb)
+  col <- function(name, cast) {
+    m <- matrix(cast(NA), nc, n_runs)
+    for (r in seq_len(n_runs)) {
+      idx <- memb[, r]; ok <- !is.na(idx)
+      v <- runs[[r]][[name]]
+      if (!is.null(v)) m[ok, r] <- cast(v[idx[ok]])
+    }
+    m
   }
-  rows <- lapply(seq_len(nrow(memb)), function(ci) {
-    present <- rn[!is.na(memb[ci, ])]
-    mats  <- vapply(rn, function(r) as.character(get(ci, r, "material")), character(1))
-    feret <- vapply(rn, function(r) as.numeric(get(ci, r, "feret_max_um")), numeric(1))
-    xs    <- vapply(rn, function(r) as.numeric(get(ci, r, "x_aligned")), numeric(1))
-    ys    <- vapply(rn, function(r) as.numeric(get(ci, r, "y_aligned")), numeric(1))
-    fams  <- .repro_family(mats)
-    fams_p <- fams[present]
-    feret_p <- feret[present]
-    concordant <- length(unique(fams_p[!is.na(fams_p)])) <= 1
-    feret_cv <- if (sum(is.finite(feret_p)) >= 2)
-                  stats::sd(feret_p, na.rm = TRUE) / mean(feret_p, na.rm = TRUE) else NA_real_
-    # Positional jitter: max pairwise distance among present runs (aligned).
-    jitter <- NA_real_
-    if (length(present) >= 2) {
-      pxy <- cbind(xs[present], ys[present])
-      dd  <- as.matrix(stats::dist(pxy))
-      jitter <- max(dd)
-    }
-    row <- list(
-      consensus_id = ci, n_runs_detected = length(present),
-      material_consensus = if (all(is.na(fams_p))) NA_character_
-                           else names(sort(table(fams_p), decreasing = TRUE))[1],
-      material_concordant = concordant,
-      feret_cv = feret_cv, pos_jitter_um = jitter)
-    for (r in rn) {
-      row[[paste0("run", r, "_detected")]] <- !is.na(memb[ci, r])
-      row[[paste0("run", r, "_material")]] <- mats[r]
-      row[[paste0("run", r, "_feret_um")]] <- feret[r]
-    }
-    as.data.frame(row, stringsAsFactors = FALSE)
-  })
-  do.call(rbind, rows)
+  mats <- col("material", as.character); feret <- col("feret_max_um", as.numeric)
+  xs <- col("x_aligned", as.numeric); ys <- col("y_aligned", as.numeric)
+  fams <- matrix(.repro_family(as.vector(mats)), nc, n_runs)
+  fams[is.na(mats)] <- NA
+  present <- !is.na(memb)
+  n_det <- rowSums(present)
+  concordant <- apply(fams, 1, function(f) length(unique(f[!is.na(f)])) <= 1)
+  consensus_mat <- apply(fams, 1, function(f) {
+    f <- f[!is.na(f)]; if (!length(f)) NA_character_ else names(sort(table(f), decreasing = TRUE))[1] })
+  fm <- rowMeans(feret, na.rm = TRUE)
+  fsd <- apply(feret, 1, function(v) if (sum(is.finite(v)) >= 2) stats::sd(v, na.rm = TRUE) else NA_real_)
+  # Positional jitter: max pairwise distance among the runs that saw it
+  jitter <- rep(NA_real_, nc)
+  for (r1 in seq_len(n_runs - 1)) for (r2 in (r1 + 1):n_runs) {
+    d <- sqrt((xs[, r1] - xs[, r2])^2 + (ys[, r1] - ys[, r2])^2)
+    jitter <- pmax(jitter, d, na.rm = TRUE)
+  }
+  out <- data.frame(consensus_id = seq_len(nc), n_runs_detected = n_det,
+                    material_consensus = consensus_mat, material_concordant = concordant,
+                    feret_cv = fsd / fm, pos_jitter_um = jitter, stringsAsFactors = FALSE)
+  for (r in seq_len(n_runs)) {
+    out[[paste0("run", r, "_detected")]] <- present[, r]
+    out[[paste0("run", r, "_material")]] <- mats[, r]
+    out[[paste0("run", r, "_feret_um")]] <- feret[, r]
+  }
+  out
 }
 
 #' Aggregate reproducibility (and, if reference_family given, accuracy) metrics.
@@ -242,7 +292,7 @@ repro_consensus_table <- function(runs, memb) {
 #' `reference_family` may be a single polymer-family string (monotype filter) or
 #' a character vector of expected families (mixed-polymer reference standard).
 #' Accuracy = fraction of all per-run calls whose family is in that set.
-repro_summary <- function(runs, consensus, reference_family = NULL) {
+repro_summary <- function(runs, consensus, reference_family = NULL, memb = NULL) {
   n_runs  <- length(runs)
   counts  <- vapply(runs, nrow, integer(1))
   det     <- consensus$n_runs_detected
@@ -256,6 +306,7 @@ repro_summary <- function(runs, consensus, reference_family = NULL) {
     all_fams <- all_fams[!is.na(all_fams)]
     accuracy <- if (length(all_fams) > 0) mean(all_fams %in% reference_family) else NA_real_
   }
+  pairs <- if (!is.null(memb)) attr(memb, "pairs") else NULL
 
   list(
     n_runs                 = n_runs,
@@ -269,18 +320,28 @@ repro_summary <- function(runs, consensus, reference_family = NULL) {
     material_concordance   = concord_rate,
     accuracy_vs_reference  = accuracy,
     median_feret_cv        = stats::median(consensus$feret_cv, na.rm = TRUE),
-    median_pos_jitter_um   = stats::median(consensus$pos_jitter_um, na.rm = TRUE)
+    median_pos_jitter_um   = stats::median(consensus$pos_jitter_um, na.rm = TRUE),
+    n_link_conflicts       = if (!is.null(memb)) attr(memb, "n_link_conflicts") %||% 0L else NA_integer_,
+    max_chance_share       = if (!is.null(pairs) && any(is.finite(pairs$chance_share)))
+                               max(pairs$chance_share, na.rm = TRUE) else NA_real_,
+    run_pairs              = pairs
   )
 }
 
 #' One-call driver: align -> link -> tabulate -> summarize.
+#' @param config Pipeline config (NULL = make_config()); replicate settings
+#'   (no mirror, scale 1) are applied on top (repro_config()).
 run_reproducibility <- function(runs, gate = 75, align_gate = 300,
-                                 size_weight = 0.2, reference_family = NULL) {
+                                 reference_family = NULL, config = NULL) {
   stopifnot(length(runs) >= 2)
-  runs      <- repro_align_runs(runs, gate = align_gate)
-  memb      <- repro_link_runs(runs, gate = gate, size_weight = size_weight)
+  cfg       <- repro_config(config)
+  runs      <- repro_align_runs(runs, gate = align_gate, config = cfg)
+  memb      <- repro_link_runs(runs, gate = gate, config = cfg)
   consensus <- repro_consensus_table(runs, memb)
-  summary   <- repro_summary(runs, consensus, reference_family = reference_family)
+  summary   <- repro_summary(runs, consensus, reference_family = reference_family, memb = memb)
+  if (summary$n_link_conflicts > 0)
+    log_message("  ", summary$n_link_conflicts, " run-to-run link(s) skipped: they would have ",
+                "joined two particles of the same run", level = "WARN")
   list(runs = runs, membership = memb, consensus = consensus, summary = summary)
 }
 
@@ -302,41 +363,37 @@ run_reproducibility <- function(runs, gate = 75, align_gate = 300,
 #' genuinely reproduced.
 repro_long_table <- function(res) {
   runs <- res$runs; memb <- res$membership; cons <- res$consensus
-  n_runs <- length(runs)
-  rows <- list()
-  for (ci in seq_len(nrow(memb))) {
-    ndet <- cons$n_runs_detected[ci]
-    conc <- cons$material_concordant[ci]
-    for (r in seq_len(n_runs)) {
-      idx <- memb[ci, r]
-      if (is.na(idx)) next
-      d <- runs[[r]]
-      rows[[length(rows) + 1]] <- data.frame(
-        consensus_id        = ci,
-        run                 = r,
-        particle_id         = as.character(d$particle_id[idx]),
-        x_aligned           = d$x_aligned[idx],
-        y_aligned           = d$y_aligned[idx],
-        material            = as.character(d$material[idx]),
-        material_family     = .repro_family(d$material[idx]),
-        # Carried so the Multi-Run viewer can gate on identification quality
-        # (AAU / HQI, scale depends on instrument). NA for a run whose ingester
-        # did not supply it; the viewer hides its slider in that case.
-        quality             = if ("quality" %in% names(d)) as.numeric(d$quality[idx]) else NA_real_,
-        feret_max_um        = d$feret_max_um[idx],
-        area_um2            = if ("area_um2"       %in% names(d)) as.numeric(d$area_um2[idx])       else NA_real_,
-        major_um            = if ("major_um"       %in% names(d)) as.numeric(d$major_um[idx])       else NA_real_,
-        image_area_um2      = if ("image_area_um2" %in% names(d)) as.numeric(d$image_area_um2[idx]) else NA_real_,
-        image_feret_um      = if ("image_feret_um" %in% names(d)) as.numeric(d$image_feret_um[idx]) else NA_real_,
-        n_runs_detected     = ndet,
-        material_concordant = conc,
-        coord_match_cost    = if ("coord_match_cost" %in% names(d))
-                                as.numeric(d$coord_match_cost[idx]) else NA_real_,
-        stringsAsFactors = FALSE)
-    }
-  }
+  rows <- lapply(seq_along(runs), function(r) {
+    ci <- which(!is.na(memb[, r]))
+    if (!length(ci)) return(NULL)
+    d <- runs[[r]]; idx <- memb[ci, r]
+    opt <- function(name) if (name %in% names(d)) as.numeric(d[[name]][idx]) else NA_real_
+    data.frame(
+      consensus_id        = ci,
+      run                 = r,
+      particle_id         = as.character(d$particle_id[idx]),
+      x_aligned           = d$x_aligned[idx],
+      y_aligned           = d$y_aligned[idx],
+      material            = as.character(d$material[idx]),
+      material_family     = .repro_family(d$material[idx]),
+      # Carried so the Multi-Run viewer can gate on identification quality
+      # (AAU / HQI, scale depends on instrument). NA for a run whose ingester
+      # did not supply it; the viewer hides its slider in that case.
+      quality             = opt("quality"),
+      feret_max_um        = d$feret_max_um[idx],
+      area_um2            = opt("area_um2"),
+      major_um            = opt("major_um"),
+      image_area_um2      = opt("image_area_um2"),
+      image_feret_um      = opt("image_feret_um"),
+      n_runs_detected     = cons$n_runs_detected[ci],
+      material_concordant = cons$material_concordant[ci],
+      coord_match_cost    = opt("coord_match_cost"),
+      stringsAsFactors = FALSE)
+  })
+  rows <- Filter(Negate(is.null), rows)
   if (length(rows) == 0) return(data.frame())
-  do.call(rbind, rows)
+  out <- do.call(rbind, rows)
+  out[order(out$consensus_id, out$run), , drop = FALSE]
 }
 
 # ---- overview plots ---------------------------------------------------------
@@ -368,7 +425,7 @@ repro_plots <- function(res, out_dir, title_prefix = "") {
   names(det_df) <- c("runs_detected", "n")
   save("repro_detection_consistency.png",
        g(det_df, aes(x = runs_detected, y = n)) +
-         ggplot2::geom_col(fill = "#1f77b4", width = 0.7) +
+         ggplot2::geom_col(fill = "#4D4D4D", width = 0.7) +   # not an instrument colour
          ggplot2::geom_text(aes(label = n), vjust = -0.3) +
          ggplot2::labs(title = ttl("Detection consistency"),
                        x = paste0("Detected in k of ", n_runs, " runs"),
@@ -397,7 +454,7 @@ repro_plots <- function(res, out_dir, title_prefix = "") {
   if (length(cv) > 0) {
     save("repro_feret_cv.png",
          g(data.frame(cv = cv), aes(x = cv)) +
-           ggplot2::geom_histogram(bins = 20, fill = "#2ca02c", colour = "white") +
+           ggplot2::geom_histogram(bins = 20, fill = "#4D4D4D", colour = "white") +
            ggplot2::labs(title = ttl("Size reproducibility (Feret CV)"),
                          x = "Coefficient of variation", y = "Particles") +
            ggplot2::theme_minimal(base_size = 14))
@@ -408,7 +465,7 @@ repro_plots <- function(res, out_dir, title_prefix = "") {
   if (length(jit) > 0) {
     save("repro_positional_jitter.png",
          g(data.frame(j = jit), aes(x = j)) +
-           ggplot2::geom_histogram(bins = 20, fill = "#d62728", colour = "white") +
+           ggplot2::geom_histogram(bins = 20, fill = "#4D4D4D", colour = "white") +
            ggplot2::labs(title = ttl("Localization precision (positional jitter)"),
                          x = "Max inter-run distance (µm)", y = "Particles") +
            ggplot2::theme_minimal(base_size = 14))

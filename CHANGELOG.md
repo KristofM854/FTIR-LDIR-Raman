@@ -161,8 +161,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   PerkinElmer + LDIR). The former view stays as "Raw positions".
 - Viewer: one colour-blind-safe instrument palette (Okabe-Ito) across the whole
   app and the report -- FTIR (PerkinElmer) yellow, FTIR (Bruker) reddish
-  purple, Raman blue, LDIR vermillion; darker shades of the same hues for
-  text on white (contrast >= 4.5:1). Particles without a partner are grey on
+  purple, Raman blue, LDIR vermillion -- one exact colour per instrument
+  everywhere; labels are badges filled with it (black or white text). Particles without a partner are grey on
   every instrument (formerly a second colour each, e.g. green vs red), the
   pair-confidence gradient is viridis (formerly red-orange-green), and the
   size histograms take the instrument colour. Overlay: the per-instrument
@@ -179,6 +179,32 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   box (a long one scrolls from the top).
 - Viewer: the run list names each run's input folder (after "My Documents"),
   e.g. `2026-10-28_1 — Automatisations/MPs/.../Bora2025/A`.
+- Precision study after ISO 5725-2 (`R/precision_study.R`,
+  `tools/precision_study.R`, viewer tab "Precision"): the same filter
+  measured n times on each instrument; particle counts per polymer family and
+  size class; repeatability, between-instrument and reproducibility SDs with
+  95% intervals, r / R limits, CVs, Mandel's h and k with indicator levels
+  (checked against their null distributions), and the replicate variance
+  against Poisson counting noise. CSVs and a PDF report.
+- Replicate tool (`R/reproducibility.R`, `tools/reproducibility.R`), four
+  fixes: run-to-run matching uses the pipeline's matcher (per group of nearby
+  particles; was a dense n x n matrix, ~1.25 GB per pair for 12 500 Raman
+  particles); registration starts from the pipeline's landmark search on the
+  200 largest particles (scale 1, no mirror), so a remounted filter at any
+  angle aligns (was: start at 0 deg); the gate is 3x the positional error
+  fitted to each pair of runs, 10-75 um (was a fixed 75 um), with the chance
+  share and p_true per link; links are merged most confident first and never
+  join two particles of one run (was: union-find kept the first of two
+  silently). Synthetic dense test (12 000 particles, 3 replicates at 0 / 90 /
+  180 deg): rotations exact, 0.6% of groups impure, detected-in-all 8 671 vs
+  8 691 true, 27 s. `--design design.csv` runs every instrument of a
+  precision-study design.
+- Precision study and replicate tool from pipeline runs: one run per
+  replicate, `--runs <run folders>` for `tools/precision_study.R` and
+  `tools/reproducibility.R`, and in the viewer's Precision tab (select runs,
+  Compute). The runs' instrument tables are used (stitched PerkinElmer
+  segments, LDIR joined to its image coordinates), the counting cutoffs come
+  from the first run's config; no raw files to name.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

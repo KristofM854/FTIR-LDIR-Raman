@@ -17,6 +17,17 @@ samples (see [validation.md](validation.md)). Next:
 - A sweep of the quality cutoffs (FTIR AAU, Raman HQI, LDIR quality) and its
   effect on agreement and detection rates.
 
+## Precision studies
+
+- `tools/precision_study.R` compares particle counts (level A) and
+  `tools/reproducibility.R --design` links particles within each instrument.
+  Particle level across instruments (level B: which particles each instrument
+  finds in how many replicates) still needs the pipeline's alignment between
+  the instruments' replicates and a cross-instrument grouping.
+- `tools/reproducibility.R` reads a segmented PerkinElmer scan one segment at
+  a time from raw files; from pipeline runs (`--runs`) it uses the stitched
+  table.
+
 ## Open questions on identification
 
 To be settled with the analysts who run the instruments, not in code:
