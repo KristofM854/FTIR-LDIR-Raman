@@ -170,7 +170,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   background image and offsets at
   the bottom of the sidebar. The overlay's LDIR match-gate slider is
   removed: LDIR pairs are counted with the run's own gate (the per-run gate
-  the pipeline matched with).
+  the pipeline matched with). The Match Details table has fixed rows (Particle
+  ID, Material, Quality, Feret Max, Position) and a column for each of the
+  four instruments, dashes where one has no particle, so it keeps its height.
 - Viewer: the run list names each run's input folder (after "My Documents"),
   e.g. `2026-10-28_1 — Automatisations/MPs/.../Bora2025/A`.
 - `docs/roadmap.md` (open work and open identification questions) replaces
