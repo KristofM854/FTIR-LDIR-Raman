@@ -186,6 +186,19 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   95% intervals, r / R limits, CVs, Mandel's h and k with indicator levels
   (checked against their null distributions), and the replicate variance
   against Poisson counting noise. CSVs and a PDF report.
+- Replicate tool (`R/reproducibility.R`, `tools/reproducibility.R`), four
+  fixes: run-to-run matching uses the pipeline's matcher (per group of nearby
+  particles; was a dense n x n matrix, ~1.25 GB per pair for 12 500 Raman
+  particles); registration starts from the pipeline's landmark search on the
+  200 largest particles (scale 1, no mirror), so a remounted filter at any
+  angle aligns (was: start at 0 deg); the gate is 3x the positional error
+  fitted to each pair of runs, 10-75 um (was a fixed 75 um), with the chance
+  share and p_true per link; links are merged most confident first and never
+  join two particles of one run (was: union-find kept the first of two
+  silently). Synthetic dense test (12 000 particles, 3 replicates at 0 / 90 /
+  180 deg): rotations exact, 0.6% of groups impure, detected-in-all 8 671 vs
+  8 691 true, 27 s. `--design design.csv` runs every instrument of a
+  precision-study design.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

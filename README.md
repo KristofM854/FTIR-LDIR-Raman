@@ -355,6 +355,16 @@ indicator levels, and each instrument's replicate variance against Poisson
 counting noise. Output in `output/precision/<timestamp>/`: CSVs and
 `precision_report.pdf`; the viewer's **Precision** tab reads the same folder.
 
+Particle by particle within one instrument, `tools/reproducibility.R` links
+the replicates' particles (viewer tab **Multi-Run**): for one instrument by
+file pickers or arguments, or for every instrument of the same design with
+`Rscript tools/reproducibility.R --design design.csv` (plus an `image` column
+for LDIR, which needs its image for coordinates). A remount may turn the
+filter by any angle: the starting pose comes from the pipeline's landmark
+search on the largest particles; the links use the pipeline's matcher with a
+gate of 3x the positional error fitted to each pair of runs (10-75 µm), and
+a link that would join two particles of the same run is skipped and counted.
+
 ### PDF report
 
 The **Summary** tab has a **Download PDF report** button that writes one

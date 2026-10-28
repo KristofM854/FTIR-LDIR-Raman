@@ -19,16 +19,13 @@ samples (see [validation.md](validation.md)). Next:
 
 ## Precision studies
 
-- `tools/precision_study.R` compares particle counts (level A). Particle
-  level across instruments (level B: which particles each instrument finds in
-  how many replicates) needs the pipeline's alignment for every measurement,
-  and the per-instrument replicate tool (`tools/reproducibility.R`) four fixes
-  first: (1) its pairwise matching builds a dense n x n cost matrix (about
-  1.25 GB per pair for 12 500 Raman particles) instead of matching per group
-  of nearby particles; (2) its registration starts at zero rotation, so a
-  remounted, rotated filter does not align; (3) a fixed 75 um gate without the
-  chance estimate; (4) union-find can put two particles of one run in one
-  consensus particle and silently keeps the first.
+- `tools/precision_study.R` compares particle counts (level A) and
+  `tools/reproducibility.R --design` links particles within each instrument.
+  Particle level across instruments (level B: which particles each instrument
+  finds in how many replicates) still needs the pipeline's alignment between
+  the instruments' replicates and a cross-instrument grouping.
+- `tools/reproducibility.R` reads a segmented PerkinElmer scan one segment at
+  a time; replicates of a segmented export need stitching first.
 
 ## Open questions on identification
 
