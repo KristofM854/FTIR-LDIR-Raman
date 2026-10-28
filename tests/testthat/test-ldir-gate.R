@@ -123,3 +123,31 @@ test_that("large LDIR particles keep the matcher's widened gate in the viewer", 
   data <- env$annotate_ldir_gate(list(ldir_raman_matched = m), "dummy")
   expect_equal(data$ldir_raman_matched$within_gate, c(TRUE, FALSE))
 })
+
+test_that("link_groups joins particles through any pair, Raman or direct", {
+  env <- .load_global_helpers()
+  ram <- list(inst = "raman", id = "raman_particle_id", x = "raman_x_norm", y = "raman_y_norm")
+  pe  <- list(inst = "ftir_pe", id = "ftir_particle_id", x = "ftir_x_aligned", y = "ftir_y_aligned")
+  ld  <- list(inst = "ldir", id = "ldir_particle_id", x = "ldir_x_aligned", y = "ldir_y_aligned")
+  br  <- list(inst = "ftir_bruker", id = "ftir_bruker_particle_id", x = "ftir_bruker_x_aligned",
+              y = "ftir_bruker_y_aligned")
+  ld2 <- list(inst = "ldir", id = "ldir_particle_id", x = "ldir_x_aligned", y = "ldir_y_aligned")
+  legs <- list(
+    # P_1 pairs with Raman R1 only
+    list(df = data.frame(ftir_particle_id = c("P_1", "P_2"), ftir_x_aligned = c(0, 50),
+                         ftir_y_aligned = 0, raman_particle_id = c("R1", "R2"),
+                         raman_x_norm = c(1, 51), raman_y_norm = 0), a = pe, b = ram),
+    # Bruker B1 <-> LDIR L1 and LDIR L1 <-> PE P_1: a four-instrument group
+    list(df = data.frame(ftir_bruker_particle_id = "B1", ftir_bruker_x_aligned = 2,
+                         ftir_bruker_y_aligned = 0, ldir_particle_id = "L1",
+                         ldir_x_aligned = 3, ldir_y_aligned = 0), a = br, b = ld2),
+    list(df = data.frame(ldir_particle_id = c("L1", "L9"), ldir_x_aligned = c(3, 900),
+                         ldir_y_aligned = 0, ftir_particle_id = c("P_1", "P_9"),
+                         ftir_x_aligned = c(0, 901), ftir_y_aligned = 0), a = ld, b = pe))
+  g <- env$link_groups(legs)
+  n <- setNames(g$n_inst, paste(g$inst, g$id))
+  expect_equal(unname(n[c("ftir_pe P_1", "raman R1", "ldir L1", "ftir_bruker B1")]), rep(4L, 4))
+  expect_equal(unname(n[c("ftir_pe P_2", "raman R2")]), c(2L, 2L))
+  expect_equal(unname(n[c("ldir L9", "ftir_pe P_9")]), c(2L, 2L))      # FTIR + LDIR only
+  expect_null(env$link_groups(list()))
+})

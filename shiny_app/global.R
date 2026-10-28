@@ -543,6 +543,51 @@ ldir_genuine_pairs <- function(m) {
 # Vectorised isTRUE (NA-safe): TRUE only where the value is exactly TRUE.
 isTRUE_vec <- function(x) !is.na(x) & x
 
+# Groups of particles linked by any pair on the overlay: the pairs with Raman
+# and the direct ones (FTIR (Bruker) <-> FTIR (PerkinElmer), ... <-> LDIR), so
+# a particle found by PerkinElmer and LDIR, or by four instruments of which
+# only one pairs with Raman, is one group.
+#
+# legs: list of list(df = match table, a = list(inst, id, x, y), b = ...) with
+#   the column names of each endpoint's instrument key, particle id and
+#   aligned coordinates.
+# Returns one row per particle: inst, id, x, y, group (integer), n_inst
+# (instruments in its group); NULL when there are no pairs.
+link_groups <- function(legs) {
+  ends <- list(); edges <- list()
+  for (l in legs) {
+    m <- l$df
+    if (is.null(m) || nrow(m) == 0 || !all(c(l$a$id, l$b$id) %in% names(m))) next
+    ka <- paste(l$a$inst, m[[l$a$id]], sep = "\r"); kb <- paste(l$b$inst, m[[l$b$id]], sep = "\r")
+    edges[[length(edges) + 1]] <- data.frame(a = ka, b = kb, stringsAsFactors = FALSE)
+    for (e in list(list(k = ka, s = l$a), list(k = kb, s = l$b)))
+      ends[[length(ends) + 1]] <- data.frame(
+        key = e$k, inst = e$s$inst, id = as.character(m[[e$s$id]]),
+        x = if (e$s$x %in% names(m)) m[[e$s$x]] else NA_real_,
+        y = if (e$s$y %in% names(m)) m[[e$s$y]] else NA_real_, stringsAsFactors = FALSE)
+  }
+  if (length(edges) == 0) return(NULL)
+  edges <- do.call(rbind, edges)
+  nodes <- do.call(rbind, ends)
+  nodes <- nodes[!duplicated(nodes$key), , drop = FALSE]
+  # Connected components: every node takes the smallest label of its edges
+  # until nothing changes
+  comp <- stats::setNames(seq_len(nrow(nodes)), nodes$key)
+  repeat {
+    lo <- pmin(comp[edges$a], comp[edges$b])
+    mins <- tapply(c(lo, lo), c(edges$a, edges$b), min)
+    new <- comp; new[names(mins)] <- pmin(comp[names(mins)], mins)
+    if (identical(new, comp)) break
+    comp <- new
+  }
+  nodes$group <- as.integer(factor(comp[nodes$key]))
+  n_inst <- tapply(nodes$inst, nodes$group, function(v) length(unique(v)))
+  nodes$n_inst <- as.integer(n_inst[as.character(nodes$group)])
+  nodes$key <- NULL
+  rownames(nodes) <- NULL
+  nodes
+}
+
 # Helper: add <prefix>_material_family columns for every <prefix>_material
 # column in the named match tables, so the overlay can filter any instrument
 # side on harmonized family names -- including the cross-instrument pair tables.

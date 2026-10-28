@@ -140,6 +140,15 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   field sample A, FTIR (PerkinElmer)-Raman family agreement 26% (13-45%) of
   27 resolved pairs instead of 7% of 107, with 81 unresolved. Without the
   licensed library index no name is "Other compound" and nothing changes.
+- Viewer overlay, multi-instrument option: a particle is ringed when the
+  shown pairs -- with Raman or direct (FTIR (Bruker) <-> FTIR (PerkinElmer),
+  ... <-> LDIR) -- link it into a group of three or more instruments
+  (`link_groups()`). Before, only PerkinElmer + Raman + LDIR triplets were
+  ringed, never the Bruker particle, and triplets of large particles whose
+  LDIR leg lay in the gate widened for their size lost the ring (dataset A:
+  4 of 28). Hover and click also find particles paired only directly (e.g.
+  FTIR + LDIR without Raman) and show the whole group; Clear also empties the
+  per-instrument highlight selections.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
