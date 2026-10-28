@@ -241,15 +241,20 @@ ui <- fluidPage(
     /* Bootstrap gives .form-group a bottom margin; inside the box that is
        just dead space under the last row. */
     .mat-filter-box .form-group { margin-bottom: 0; }
+    /* Shiny gives the options group margin-top: -10px, which pushed the
+       first row above the box's top edge */
+    .mat-filter-box .shiny-input-container .shiny-options-group,
     .mat-filter-box .shiny-options-group { margin-top: 0; }
     .mat-filter-box .checkbox { margin: 0; }
-    .mat-filter-box .checkbox label { display: block; font-weight: 400;
-                                      font-size: 13px; line-height: 1.35;
-                                      padding: 4px 4px 4px 24px;
+    /* Box and text centred on each other by flexbox, independent of the
+       font's metrics (an absolutely placed box sat ~3 px low) */
+    .mat-filter-box .checkbox label { display: flex; align-items: center; gap: 8px;
+                                      font-weight: 400; font-size: 13px; line-height: 1.35;
+                                      padding: 4px; min-height: 0;
                                       border-radius: 3px; cursor: pointer; }
     .mat-filter-box .checkbox label:hover { background: #eef2f6; }
-    .mat-filter-box .checkbox input[type=\"checkbox\"] { margin-left: -24px;
-                                                       margin-top: 5px; }
+    .mat-filter-box .checkbox input[type=\"checkbox\"] { position: static; margin: 0;
+                                                       flex: none; }
   "))),
 
   navbarPage(
@@ -482,6 +487,14 @@ ui <- fluidPage(
                       value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
           sliderInput("overlay_dist_range", "Match Distance (\u00b5m)",
                       min = 0, max = 100, value = c(0, 100), step = 1),
+          radioButtons("overlay_global_material", "Microplastics (all four instruments)",
+                       choices = c("All particles" = "all",
+                                   "Plastics (synthetic + semi-synthetic)" = "plastics",
+                                   "Synthetic only" = "synthetic"),
+                       selected = "all"),
+          tags$p(style = "font-size:11px; color:#888; margin-top:-6px;",
+                 "Sets the material lists of all four instruments below the image; ",
+                 "each can still be changed on its own."),
           hr(),
           fileInput("overlay_image_upload", "Background Image",
                     accept = c("image/png", "image/jpeg")),
@@ -2962,6 +2975,29 @@ server <- function(input, output, session) {
                                selected = character(0))
     })
   })
+
+  # Overlay: the global microplastic choice sets the four instruments' material
+  # lists (the same presets as their own links), again when a run brings new
+  # material families.
+  OVERLAY_MATERIAL_INPUTS <- c("overlay_ftir_material", "overlay_ftir_bruker_material",
+                               "overlay_raman_material", "overlay_ldir_material")
+  .apply_global_material <- function(mode) {
+    fams <- switch(mode, plastics = c(synthetic_families, semi_synthetic_families),
+                   synthetic = synthetic_families, NULL)
+    for (id in OVERLAY_MATERIAL_INPUTS) {
+      ch <- mat_choices[[id]]
+      if (is.null(ch)) next
+      mat_ready[[id]] <- TRUE
+      updateCheckboxGroupInput(session, id, choices = ch,
+                               selected = if (is.null(fams)) ch else intersect(ch, fams))
+    }
+  }
+  observeEvent(input$overlay_global_material,
+               .apply_global_material(input$overlay_global_material), ignoreInit = TRUE)
+  observeEvent(lapply(OVERLAY_MATERIAL_INPUTS, function(id) mat_choices[[id]]), {
+    mode <- isolate(input$overlay_global_material) %||% "all"
+    if (mode != "all") .apply_global_material(mode)
+  }, ignoreInit = TRUE)
 
   # ==================================================================
   # Helper: add image background to a ggplot
