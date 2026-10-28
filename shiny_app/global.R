@@ -11,14 +11,15 @@ library(png)
 
 # ---- Instrument colours -------------------------------------------------------
 # Okabe & Ito (2008), colour-blind safe: the four stay apart under
-# deuteranopia, protanopia and tritanopia (checked with colorspace). Fills,
-# points and lines use INSTRUMENT_COLOURS; text on white uses the darker
-# INSTRUMENT_TEXT_COLOURS (contrast >= 4.5:1). Particles without a partner are
+# deuteranopia, protanopia and tritanopia (checked with colorspace). Each
+# instrument has this ONE colour everywhere -- plots, legends and labels; a
+# label is a badge filled with it, its text in INSTRUMENT_INK (black or white,
+# contrast >= 5:1 on the fill). Particles without a partner are
 # UNMATCHED_COLOUR on every instrument.
 INSTRUMENT_COLOURS <- c(ftir_pe = "#F0E442", ftir_bruker = "#CC79A7",
                         raman = "#0072B2", ldir = "#D55E00")
-INSTRUMENT_TEXT_COLOURS <- c(ftir_pe = "#7D750A", ftir_bruker = "#BC4F8B",
-                             raman = "#0072B2", ldir = "#C05500")
+INSTRUMENT_INK <- c(ftir_pe = "#000000", ftir_bruker = "#000000",
+                    raman = "#FFFFFF", ldir = "#000000")
 UNMATCHED_COLOUR <- "#BBBBBB"
 
 #' Instrument key of a key or display name ("FTIR (PerkinElmer)", "FTIR",
@@ -31,13 +32,21 @@ instrument_key <- function(x) {
   ifelse(grepl("ftir|ft-ir|perkin", x), "ftir_pe", NA_character_))))
 }
 
-#' Colour of an instrument by key or display name (text = darker shade for
-#' text on white)
-instrument_colour <- function(x, text = FALSE) {
-  pal <- if (isTRUE(text)) INSTRUMENT_TEXT_COLOURS else INSTRUMENT_COLOURS
-  col <- unname(pal[instrument_key(x)])
+#' Colour of an instrument by key or display name
+instrument_colour <- function(x) {
+  col <- unname(INSTRUMENT_COLOURS[instrument_key(x)])
   col[is.na(col)] <- "grey40"
   col
+}
+
+#' An instrument's name as a badge in its colour (UI labels and headers)
+instrument_badge <- function(key, label = NULL) {
+  labels <- c(ftir_pe = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)",
+              raman = "Raman", ldir = "LDIR")
+  tags$span(label %||% labels[[key]],
+            style = paste0("display:inline-block; padding:2px 10px; border-radius:4px; ",
+                           "font-weight:600; background:", INSTRUMENT_COLOURS[[key]],
+                           "; color:", INSTRUMENT_INK[[key]], ";"))
 }
 
 # %||% is used throughout this app (image offsets, placement fallbacks, etc.)
@@ -2435,7 +2444,7 @@ plot_size_distribution <- function(df, inst_name, color_matched = instrument_col
     geom_histogram(aes(y = after_stat(density) * 100), alpha = 0.8, bins = 20,
                    fill = color_matched, color = "grey40", linewidth = 0.2) +
     geom_density(aes(y = after_stat(density) * 100), fill = NA,
-                 color = instrument_colour(inst_name, text = TRUE), linewidth = 1.2) +
+                 color = "grey20", linewidth = 1) +
     labs(title = inst_name, x = "Feret Max (\u00b5m)", y = "Relative Frequency (%)") +
     theme_minimal() + theme(plot.title = element_text(size = 11, face = "bold"))
 }

@@ -187,5 +187,7 @@ test_that("instrument colours resolve from keys and display names", {
   expect_identical(env$instrument_colour(c("FTIR (PerkinElmer)", "ftir_perkin", "FTIR (Bruker)",
                                            "Raman", "LDIR", "LD-IR", "something")),
                    c("#F0E442", "#F0E442", "#CC79A7", "#0072B2", "#D55E00", "#D55E00", "grey40"))
-  expect_identical(env$instrument_colour("FTIR", text = TRUE), "#7D750A")
+  b <- as.character(env$instrument_badge("raman"))
+  expect_match(b, "background:#0072B2", fixed = TRUE)
+  expect_match(b, "color:#FFFFFF", fixed = TRUE)
 })

@@ -535,7 +535,7 @@ ui <- fluidPage(
           # --- PER-INSTRUMENT FILTERS: side by side below the image ---
           fluidRow(
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("FTIR (PerkinElmer)", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ftir_pe"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("ftir_pe"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_ftir_quality", "AAU Quality",
                             min = 0, max = 1, value = c(0.7, 1), step = 0.01),
                 sliderInput("overlay_ftir_size", "Feret Max (\u00b5m)",
@@ -553,7 +553,7 @@ ui <- fluidPage(
                                options = list(placeholder = "Select particles...",
                                               plugins = list("remove_button"))))),
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("FTIR (Bruker)", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ftir_bruker"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("ftir_bruker"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_ftir_bruker_quality", "AAU Quality",
                             min = 0, max = 1, value = c(0.7, 1), step = 0.01),
                 sliderInput("overlay_ftir_bruker_size", "Feret Max (\u00b5m)",
@@ -571,7 +571,7 @@ ui <- fluidPage(
                                options = list(placeholder = "Select particles...",
                                               plugins = list("remove_button"))))),
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("Raman", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["raman"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("raman"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_raman_quality", "HQI",
                             min = 0, max = 100, value = c(70, 100), step = 1),
                 sliderInput("overlay_raman_size", "Feret Max (\u00b5m)",
@@ -589,7 +589,7 @@ ui <- fluidPage(
                                options = list(placeholder = "Select particles...",
                                               plugins = list("remove_button"))))),
             column(3, div(class = "info-box overlay-inst-filter",
-                h4("LDIR", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ldir"]], "; margin-bottom: 4px;")),
+                h4(instrument_badge("ldir"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_ldir_quality", "Quality",
                             min = 0, max = 1, value = c(0.85, 1), step = 0.01),
                 sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
@@ -4863,8 +4863,14 @@ server <- function(input, output, session) {
             name   = "Instrument",
             values = c(FTIR = INSTRUMENT_COLOURS[["ftir_pe"]],
                        "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
-                       Raman = INSTRUMENT_COLOURS[["raman"]], LDIR = INSTRUMENT_COLOURS[["ldir"]])
+                       Raman = INSTRUMENT_COLOURS[["raman"]], LDIR = INSTRUMENT_COLOURS[["ldir"]]),
+            breaks = c("FTIR", "FTIR (Bruker)", "Raman", "LDIR"),   # symbol order
+            labels = c(FTIR = "FTIR (PerkinElmer)", "FTIR (Bruker)" = "FTIR (Bruker)",
+                       Raman = "Raman", LDIR = "LDIR")
           ) +
+          # Points are see-through so stacked ones show; the legend keys carry
+          # the instruments' exact colours
+          guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
           scale_shape_manual(
             name   = "Match Status",
             values = c(matched = 19, unmatched = 1),
@@ -5441,8 +5447,7 @@ server <- function(input, output, session) {
                                                 lapply(cols, function(c) tags$td(c[[f]], title = c[[f]]))))
     tags$table(class = "hover-tbl fixed-detail",
       do.call(tags$tr, c(list(tags$th("", style = "width: 12%;")),
-                         lapply(cols, function(c) tags$th(.OV_INST[[c$k]]$label,
-                           style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[[c$k]], ";"))))),
+                         lapply(cols, function(c) tags$th(instrument_badge(c$k))))),
       mk("Particle ID", "id"), mk("Material", "mat"), mk("Quality", "q"),
       mk("Feret Max", "feret"), mk("Position", "pos"))
   })
