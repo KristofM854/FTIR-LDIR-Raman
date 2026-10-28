@@ -149,6 +149,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   4 of 28). Hover and click also find particles paired only directly (e.g.
   FTIR + LDIR without Raman) and show the whole group; Clear also empties the
   per-instrument highlight selections.
+- Viewer: the Summary detection plot calls `shiny::validate()` explicitly; with
+  jsonlite attached in the session its `validate()` masked Shiny's and the
+  page failed ("is.character(txt) is not TRUE").
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

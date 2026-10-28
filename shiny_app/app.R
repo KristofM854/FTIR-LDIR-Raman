@@ -1220,15 +1220,15 @@ server <- function(input, output, session) {
   })
   output$summary_detection_plot <- plotly::renderPlotly({
     d <- detection_data()
-    validate(need(nrow(d) > 0,
+    shiny::validate(shiny::need(nrow(d) > 0,
                   "No detection rates in this run (runs from before this version, or one instrument only)."))
     d <- d[d$pair == (input$summary_detection_pair %||% d$pair[1]) &
              d$group == (input$summary_detection_group %||% "all") &
              d$size_class != "all sizes" & d$n_base > 0, , drop = FALSE]
-    validate(need(nrow(d) > 0, "No particles in this group."))
+    shiny::validate(shiny::need(nrow(d) > 0, "No particles in this group."))
     det <- identical(input$summary_detection_measure, "detected")
     if (det) {
-      validate(need("n_detected" %in% names(d) && any(!is.na(d$n_detected)),
+      shiny::validate(shiny::need("n_detected" %in% names(d) && any(!is.na(d$n_detected)),
                     "No detected rates in this run (runs from before this version)."))
       d$k <- d$n_detected; d$y <- d$detected_pct
       d$lo <- d$det_ci_low_pct; d$hi <- d$det_ci_high_pct
