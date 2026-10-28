@@ -151,3 +151,33 @@ test_that("link_groups joins particles through any pair, Raman or direct", {
   expect_equal(unname(n[c("ldir L9", "ftir_pe P_9")]), c(2L, 2L))      # FTIR + LDIR only
   expect_null(env$link_groups(list()))
 })
+
+test_that("overlay symbols: one per group, unpaired particles as their own", {
+  env <- .load_global_helpers()
+  grp <- data.frame(inst = c("ftir_pe", "raman", "ldir"), id = c("P_1", "R1", "L1"),
+                    x = c(0, 2, 4), y = 0, group = 1L, n_inst = 3L, stringsAsFactors = FALSE)
+  singles <- list(raman = data.frame(particle_id = c("R1", "R2"), x = c(2, 500), y = 0),
+                  ldir = data.frame(particle_id = "L1", x = 4, y = 0))
+  st <- env$overlay_symbol_table(grp, singles)
+  expect_equal(nrow(st$sym), 2)
+  expect_equal(st$sym$combo, c("ftir_pe+raman+ldir", "raman"))
+  expect_equal(st$sym$x, c(2, 500))
+  g <- env$overlay_symbol_geometry(st$sym, r = 10, n_arc = 4L)
+  expect_setequal(unique(g$quarters$inst), c("ftir_pe", "raman", "ldir"))
+  # top-left quarter for FTIR (PerkinElmer): x <= centre, y >= centre
+  q <- g$quarters[g$quarters$inst == "ftir_pe", ]
+  expect_true(all(q$x <= 2 + 1e-9) && all(q$y >= -1e-9))
+  expect_null(env$overlay_symbol_table(NULL, list()))
+})
+
+test_that("run labels name the input folder after (My) Documents", {
+  env <- .load_global_helpers()
+  m <- list(inputs = list(
+    ftir = list(path = "C:/runs/out/2026-10-28_1/inputs/ftir_stitched/A_stitched.csv"),
+    ftir_image = list(path = "C:\\Users\\me\\OneDrive - IAEA\\My Documents\\Automatisations\\MPs\\Field_samples\\Bora2025\\A\\sample_perkin.bmp")))
+  expect_equal(env$run_input_folder(m, "C:/runs/out/2026-10-28_1"),
+               "Automatisations/MPs/Field_samples/Bora2025/A")
+  m2 <- list(inputs = list(raman = list(path = "/data/lab/projects/x/y/z/Raman.csv")))
+  expect_equal(env$run_input_folder(m2), "projects/x/y/z")
+  expect_equal(env$run_input_folder(list()), "")
+})

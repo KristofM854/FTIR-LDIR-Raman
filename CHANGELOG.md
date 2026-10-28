@@ -149,6 +149,18 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   4 of 28). Hover and click also find particles paired only directly (e.g.
   FTIR + LDIR without Raman) and show the whole group; Clear also empties the
   per-instrument highlight selections.
+- Viewer: the Summary detection plot calls `shiny::validate()` explicitly; with
+  jsonlite attached in the session its `validate()` masked Shiny's and the
+  page failed ("is.character(txt) is not TRUE").
+- Viewer overlay: a symbol view (default) draws each group of linked
+  particles once, as a circle in four fixed quarters (top-left FTIR
+  (PerkinElmer), top-right FTIR (Bruker), bottom-left Raman, bottom-right
+  LDIR), filled where that instrument found the particle; colours from the
+  Okabe-Ito palette, checked for deuteranopia, protanopia and tritanopia.
+  A combination list with counts filters the groups (e.g. only
+  PerkinElmer + LDIR). The former view stays as "Raw positions".
+- Viewer: the run list names each run's input folder (after "My Documents"),
+  e.g. `2026-10-28_1 — Automatisations/MPs/.../Bora2025/A`.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
