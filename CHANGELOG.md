@@ -166,7 +166,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   every instrument (formerly a second colour each, e.g. green vs red), the
   pair-confidence gradient is viridis (formerly red-orange-green), and the
   size histograms take the instrument colour. Overlay: the per-instrument
-  filters sit side by side below the image; background image and offsets at
+  filters sit side by side below the image, under the Match Details box;
+  background image and offsets at
   the bottom of the sidebar.
 - Viewer: the run list names each run's input folder (after "My Documents"),
   e.g. `2026-10-28_1 — Automatisations/MPs/.../Bora2025/A`.

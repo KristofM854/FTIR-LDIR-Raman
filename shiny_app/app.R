@@ -503,6 +503,15 @@ ui <- fluidPage(
                                    style = "float:right; margin-top:2px;"))
           ),
           hr(),
+          div(class = "info-box",
+              fluidRow(
+                column(8, h5("Match Details (hover / click / select)")),
+                column(4, actionButton("overlay_clear_pin", "Clear",
+                                       class = "btn-sm btn-default",
+                                       style = "float:right; margin-top:2px;"))
+              ),
+              detail_table_ui("overlay_hover_info")),
+          hr(),
           # --- PER-INSTRUMENT FILTERS: side by side below the image ---
           fluidRow(
             column(3, div(class = "info-box overlay-inst-filter",
@@ -583,16 +592,7 @@ ui <- fluidPage(
                                choices = NULL, multiple = TRUE,
                                options = list(placeholder = "Select particles...",
                                               plugins = list("remove_button")))))
-          ),
-          hr(),
-          div(class = "info-box",
-              fluidRow(
-                column(8, h5("Match Details (hover / click / select)")),
-                column(4, actionButton("overlay_clear_pin", "Clear",
-                                       class = "btn-sm btn-default",
-                                       style = "float:right; margin-top:2px;"))
-              ),
-              detail_table_ui("overlay_hover_info"))
+          )
         )
       )
       ) # end div#overlay_panel
