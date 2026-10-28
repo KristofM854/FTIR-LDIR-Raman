@@ -168,7 +168,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   size histograms take the instrument colour. Overlay: the per-instrument
   filters sit side by side below the image, under the Match Details box;
   background image and offsets at
-  the bottom of the sidebar.
+  the bottom of the sidebar. The overlay's LDIR match-gate slider is
+  removed: LDIR pairs are counted with the run's own gate (the per-run gate
+  the pipeline matched with).
 - Viewer: the run list names each run's input folder (after "My Documents"),
   e.g. `2026-10-28_1 — Automatisations/MPs/.../Bora2025/A`.
 - `docs/roadmap.md` (open work and open identification questions) replaces

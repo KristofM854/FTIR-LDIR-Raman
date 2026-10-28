@@ -556,10 +556,9 @@ annotate_ldir_gate <- function(data, run_dir) {
   data
 }
 
-# Recompute the within_gate classification against an explicit gate (um). Used
-# by the viewer's live gate slider so the user can retune the acceptance
-# distance in real time; annotate_ldir_gate() seeds the default from the
-# manifest, this overrides it with the slider value.
+# Recompute the within_gate classification against an explicit gate (um), as
+# the viewer does with the run's recorded gate (annotate_ldir_gate() reads the
+# same value from the manifest).
 regate_ldir <- function(data, gate) {
   m <- data$ldir_raman_matched
   if (is.null(m) || nrow(m) == 0) return(data)

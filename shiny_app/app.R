@@ -230,7 +230,7 @@ ui <- fluidPage(
     .mat-filter-actions a:hover,
     .mat-filter-actions a:focus { color: #337ab7; text-decoration: underline; }
     .mat-filter-sep { color: #ccc; margin: 0 3px; }
-    .mat-filter-box { max-height: 170px; overflow-y: auto; background: #fff;
+    .mat-filter-box { max-height: 170px; min-height: 62px; overflow-y: auto; background: #fff;
                       border: 1px solid #ced4da; border-radius: 4px;
                       padding: 5px 10px; }
     /* Bootstrap gives .form-group a bottom margin; inside the box that is
@@ -570,12 +570,6 @@ ui <- fluidPage(
                                               plugins = list("remove_button"))))),
             column(3, div(class = "info-box overlay-inst-filter",
                 h4("LDIR", style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[["ldir"]], "; margin-bottom: 4px;")),
-                # Live acceptance gate: a LDIR<->Raman pair counts as matched only when
-                # its aligned-coordinate distance is at/under this value. Seeded from
-                # the run's recorded gate; drag to retune matched vs unmatched in real
-                # time (summary, overlay and triplet counts all follow).
-                sliderInput("overlay_ldir_dist_gate", "Match Gate (µm, LDIR↔Raman)",
-                            min = 0, max = 500, value = 250, step = 5),
                 sliderInput("overlay_ldir_quality", "Quality",
                             min = 0, max = 1, value = c(0.85, 1), step = 0.01),
                 sliderInput("overlay_ldir_size", "Feret Max (\u00b5m)",
@@ -1982,16 +1976,12 @@ server <- function(input, output, session) {
   overlay_raman_size_d   <- debounce(reactive(input$overlay_raman_size), 300)
   overlay_ldir_quality_d <- debounce(reactive(input$overlay_ldir_quality), 300)
   overlay_ldir_size_d    <- debounce(reactive(input$overlay_ldir_size), 300)
-  overlay_ldir_gate_d    <- debounce(reactive(input$overlay_ldir_dist_gate), 300)
 
-  # Effective LDIR<->Raman acceptance gate (µm): the live slider value, falling
-  # back to the run's recorded default until the slider is initialised.
+  # LDIR<->Raman acceptance gate (µm): the run's recorded gate (the per-run
+  # gate the pipeline matched with), 20 um for runs that predate it.
   eff_ldir_gate <- reactive({
-    v <- overlay_ldir_gate_d()
-    if (is.null(v) || !is.finite(v) || v <= 0) {
-      g <- run_data()$ldir_match_gate_um
-      if (!is.null(g) && is.finite(g)) g else 20
-    } else v
+    g <- run_data()$ldir_match_gate_um
+    if (!is.null(g) && is.finite(g)) g else 20
   })
 
   # run_data() re-gated against the live slider. Only the LDIR<->Raman
@@ -2758,18 +2748,6 @@ server <- function(input, output, session) {
                         min = 0, max = max_dist, value = c(0, max_dist))
     }
 
-    # LDIR<->Raman live match gate: seed the slider at the run's recorded gate
-    # and open the range up to the largest forced-pair distance so every pair
-    # can be admitted if the user drags it all the way up.
-    lrm <- run_data()$ldir_raman_matched
-    if (!is.null(lrm) && "match_distance" %in% names(lrm) &&
-        any(is.finite(lrm$match_distance))) {
-      gate0 <- run_data()$ldir_match_gate_um
-      if (is.null(gate0) || !is.finite(gate0)) gate0 <- 20
-      max_g <- max(ceiling(max(lrm$match_distance, na.rm = TRUE)), gate0)
-      updateSliderInput(session, "overlay_ldir_dist_gate",
-                        min = 0, max = max_g, value = gate0)
-    }
   })
 
   # Global Feret Max constrains per-instrument size sliders
@@ -4916,9 +4894,9 @@ server <- function(input, output, session) {
     n_um_fb   <- if (!is.null(dfs$ftir_bruker)) sum(dfs$ftir_bruker$match_status == "unmatched") else 0
     n_ldir    <- if (!is.null(dfs$ldir))        nrow(dfs$ldir)                                   else 0
     n_trip    <- nrow(triplets)
-    # Genuine matches only, against the LIVE gate slider: over-gate forced
-    # pairings are reported as unmatched LDIR. Count from the re-gated frame so
-    # the summary tracks the slider in real time; show the gate for clarity.
+    # Genuine matches only, against the run's LDIR gate: over-gate forced
+    # pairings are reported as unmatched LDIR. Count from the re-gated frame;
+    # show the gate for clarity.
     gd        <- run_data_gated()
     lrm       <- gd$ldir_raman_matched
     n_ldir_m  <- if (!is.null(lrm) && nrow(lrm) > 0)
@@ -5448,7 +5426,7 @@ server <- function(input, output, session) {
     raman_pid <- if (!is.null(row$raman_particle_id)) row$raman_particle_id else NULL
     # Only surface a genuine (within-gate) LDIR partner — a forced over-gate
     # pairing is reported as unmatched everywhere else, so it must not appear
-    # here as a partner. Honours the live gate slider.
+    # here as a partner.
     partners <- gather_partners_by_raman(raman_pid, rd$matched,
                                          ldir_genuine_pairs(rd$ldir_raman_matched),
                                          rd$matched_ftir_bruker)
