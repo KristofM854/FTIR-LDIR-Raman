@@ -450,6 +450,16 @@ ui <- fluidPage(
           ),
           actionLink("overlay_toggle_all", "Select / Deselect All instruments",
                      style = "font-size:11px; margin-bottom:4px; display:block;"),
+          radioButtons("overlay_view", "View",
+                       choices = c("Symbols: one per particle group" = "symbols",
+                                   "Raw positions: every instrument's own point" = "raw"),
+                       selected = "symbols"),
+          conditionalPanel(
+            condition = "input.overlay_view == 'symbols'",
+            tags$p(tags$strong("COMBINATIONS"), tags$br(),
+                   tags$span("(instruments that found the particle; untick to hide)",
+                             style = "font-size:11px; color:#888;")),
+            uiOutput("overlay_combo_ui")),
           checkboxInput("overlay_show_all_labels", "Number all particles",
                         value = FALSE),
           conditionalPanel(
@@ -4457,6 +4467,116 @@ server <- function(input, output, session) {
       lapply(cross_active, function(ca) list(df = ca$df, a = ca$spec$a, b = ca$spec$b)))
   }
 
+  # ---- Symbol view: one symbol per group of linked particles ----------------
+  # Groups of the shown pairs (link_groups()) plus every shown particle in no
+  # pair, filtered by the relationship boxes (matched = groups of 2+,
+  # unmatched = single particles); the combination filter is applied on top.
+  overlay_symbol_data <- reactive({
+    inst <- input$overlay_instruments %||% character(0)
+    dfs  <- overlay_shown_dfs()
+    grp  <- link_groups(overlay_legs(inst, overlay_matched(), overlay_bruker_matched(),
+                                     overlay_ldir_matched()))
+    singles <- lapply(stats::setNames(nm = intersect(names(.OV_INST), inst)),
+                      function(k) dfs[[.OV_INST[[k]]$df]])
+    st <- overlay_symbol_table(grp, singles)
+    if (is.null(st)) return(NULL)
+    rel  <- input$overlay_relationships %||% character(0)
+    keep <- ("matched" %in% rel & st$sym$n_inst >= 2) | ("unmatched" %in% rel & st$sym$n_inst == 1)
+    st$sym <- st$sym[keep, , drop = FALSE]
+    st
+  })
+
+  combo_seen <- reactiveVal(FALSE)
+  observeEvent(input$overlay_combo, combo_seen(TRUE), ignoreNULL = TRUE)
+
+  overlay_symbols_shown <- reactive({
+    st <- overlay_symbol_data()
+    if (is.null(st)) return(NULL)
+    sel <- input$overlay_combo
+    if (is.null(sel)) sel <- if (combo_seen()) character(0) else unique(st$sym$combo)
+    st$sym <- st$sym[st$sym$combo %in% sel, , drop = FALSE]
+    st
+  })
+
+  # Combination list with counts; new combinations arrive ticked.
+  output$overlay_combo_ui <- renderUI({
+    st <- overlay_symbol_data()
+    if (is.null(st) || nrow(st$sym) == 0) return(tags$p(class = "text-muted", "No particles shown."))
+    tab <- sort(table(st$sym$combo), decreasing = TRUE)
+    keys <- names(tab)
+    prev <- isolate(input$overlay_combo)
+    known <- isolate(overlay_combo_known())
+    sel <- if (!isolate(combo_seen())) keys else union(intersect(prev, keys), setdiff(keys, known))
+    overlay_combo_known(union(known, keys))
+    glyph <- function(k) {
+      have <- strsplit(k, "+", fixed = TRUE)[[1]]
+      do.call(tags$span, c(list(style = paste0("display:inline-grid; grid-template-columns:8px 8px; ",
+                                                "gap:1px; vertical-align:middle; margin-right:6px;")),
+        lapply(names(SYMBOL_SLOTS), function(i) tags$span(style = paste0(
+          "width:8px; height:8px; display:inline-block; border:1px solid #777; background:",
+          if (i %in% have) SYMBOL_COLOURS[[i]] else "transparent", ";")))))
+    }
+    names_html <- lapply(keys, function(k) tags$span(glyph(k),
+      paste(SYMBOL_LABELS[strsplit(k, "+", fixed = TRUE)[[1]]], collapse = " + "),
+      tags$b(paste0(" ", tab[[k]]))))
+    tagList(
+      checkboxGroupInput("overlay_combo", NULL, choiceNames = names_html,
+                         choiceValues = keys, selected = sel),
+      tags$p(style = "font-size:11px; color:#888;",
+             "Quarters: top-left FTIR (PerkinElmer), top-right FTIR (Bruker), ",
+             "bottom-left Raman, bottom-right LDIR."))
+  })
+  overlay_combo_known <- reactiveVal(character(0))
+
+  # Symbol layers: outline circles and filled quarters, radius a fixed share
+  # of the view so symbols keep their screen size when zooming.
+  .add_symbol_layers <- function(p, st, bounds, inst, rel) {
+    sym <- st$sym
+    if (is.null(sym) || nrow(sym) == 0) return(p)
+    r <- max(diff(bounds$x), diff(bounds$y)) * 0.015
+    if ("lines" %in% rel) {
+      nd <- st$nodes[st$nodes$group %in% sym$group[sym$n_inst >= 2] & is.finite(st$nodes$x), ]
+      if (nrow(nd) > 0) {
+        c0 <- sym[match(nd$group, sym$group), ]
+        p <- p + geom_segment(data = data.frame(x = c0$x, y = c0$y, xend = nd$x, yend = nd$y,
+                                                inst = nd$inst),
+                              aes(x = x, y = y, xend = xend, yend = yend, colour = inst),
+                              linewidth = 0.6, alpha = 0.9, show.legend = FALSE) +
+          scale_colour_manual(values = SYMBOL_COLOURS, guide = "none")
+      }
+    }
+    # Coarser arcs on a dense field (~0.7 s instead of ~1.7 s for 14 000 symbols)
+    geo <- overlay_symbol_geometry(sym, r, n_arc = if (nrow(sym) > 2000) 4L else 8L)
+    p <- p + geom_polygon(data = geo$outline, aes(x = x, y = y, group = g),
+                          fill = NA, colour = "grey75", linewidth = 0.35)
+    if (!is.null(geo$quarters))
+      p <- p + geom_polygon(data = geo$quarters, aes(x = x, y = y, group = g, fill = inst),
+                            colour = "black", linewidth = 0.15) +
+        scale_fill_manual(name = "Found by", values = SYMBOL_COLOURS, labels = SYMBOL_LABELS,
+                          breaks = intersect(names(SYMBOL_SLOTS), inst), drop = FALSE)
+    p
+  }
+
+  # Nearest shown symbol: a group (2+ instruments) or a single particle.
+  .symbol_pick <- function(px, py, snap_dist) {
+    st <- overlay_symbols_shown()
+    if (is.null(st) || nrow(st$sym) == 0) return(NULL)
+    d <- sqrt((st$sym$x - px)^2 + (st$sym$y - py)^2); i <- which.min(d)
+    if (d[i] > snap_dist) return(NULL)
+    s <- st$sym[i, ]
+    mem <- st$nodes[st$nodes$group == s$group, , drop = FALSE]
+    if (s$n_inst >= 2) {
+      row <- data.frame(x = s$x, y = s$y, particle_id = mem$id[1], stringsAsFactors = FALSE)
+      attr(row, "members") <- mem
+      return(list(row = row, source = "group", dist = d[i]))
+    }
+    oi <- .OV_INST[[mem$inst[1]]]
+    full <- overlay_dfs_full()[[oi$df]]
+    r <- full[as.character(full$particle_id) == mem$id[1], , drop = FALSE]
+    if (nrow(r) == 0) return(NULL)
+    list(row = r[1, , drop = FALSE], source = paste0("single_", oi$df), dist = d[i])
+  }
+
   # Overlay instrument key -> its particle table in overlay_dfs*(), label and
   # highlight dropdown.
   .OV_INST <- list(
@@ -4464,6 +4584,45 @@ server <- function(input, output, session) {
     ftir_bruker = list(df = "ftir_bruker", label = "FTIR (Bruker)",      q = "AAU", sel = "overlay_ftir_bruker_particles"),
     raman       = list(df = "raman",       label = "Raman",              q = "HQI", sel = "overlay_raman_particles"),
     ldir        = list(df = "ldir",        label = "LDIR",               q = "",    sel = "overlay_ldir_particles"))
+
+  # Highlighted (gold ring) and pinned particles, drawn in both views.
+  .overlay_marks <- function(p, dfs, bounds) {
+    hl_specs <- list(
+      list(ids = input$overlay_ftir_particles,        df = dfs$ftir,        col = "#2ca02c"),
+      list(ids = input$overlay_raman_particles,       df = dfs$raman,       col = "#1f77b4"),
+      list(ids = input$overlay_ldir_particles,        df = dfs$ldir,        col = "#d62728"),
+      list(ids = input$overlay_ftir_bruker_particles, df = dfs$ftir_bruker, col = "#9467bd")
+    )
+    y_span_ov   <- diff(bounds$y)
+    y_nudge_ov  <- y_span_ov * 0.03
+    for (spec in hl_specs) {
+      sel_ids <- spec$ids
+      if (is.null(sel_ids) || length(sel_ids) == 0) next
+      inst_df <- spec$df
+      if (is.null(inst_df) || nrow(inst_df) == 0) next
+      hl <- inst_df[inst_df$particle_id %in% sel_ids, ]
+      if (nrow(hl) > 0) {
+        hl$label_y <- hl$y + y_nudge_ov
+        p <- p + geom_point(data=hl, aes(x=x, y=y), shape=19, size=5, colour=spec$col) +
+                 geom_point(data=hl, aes(x=x, y=y), shape=21, size=10, stroke=2,
+                             fill=NA, colour="#FFD700") +
+                 geom_text(data=hl, aes(x=x, y=label_y, label=particle_id),
+                            vjust=0, size=4.0, fontface="bold", colour="#FFD700")
+      }
+    }
+
+    pin <- pinned_overlay()
+    if (!is.null(pin) && !is.null(pin$x) && !is.null(pin$y)) {
+      pin_label_y <- pin$y + y_nudge_ov
+      pin_df <- data.frame(x=pin$x, y=pin$y, label_y=pin_label_y,
+                           label=if (!is.null(pin$particle_id)) pin$particle_id else "")
+      p <- p + geom_point(data=pin_df, aes(x=x, y=y), shape=8, size=8, stroke=2, colour="#FF6600") +
+               geom_text(data=pin_df, aes(x=x, y=label_y, label=label),
+                          vjust=0, size=4.6, fontface="bold", colour="#FF6600")
+    }
+
+    p
+  }
 
   overlay_plot_obj <- reactive({
     # Gate the heaviest render on data being present. run_data() is an empty
@@ -4521,6 +4680,10 @@ server <- function(input, output, session) {
       )
 
     p <- add_image_bg(p, overlay_image_info())
+
+    if (!identical(input$overlay_view, "raw"))
+      return(.overlay_marks(.add_symbol_layers(p, overlay_symbols_shown(), bounds, inst, rel),
+                            dfs, bounds))
 
     # Match lines
     if ("lines" %in% rel) {
@@ -4716,39 +4879,7 @@ server <- function(input, output, session) {
     p <- p + scale_size_continuous(name = "Feret Max (µm)", range = c(2, 12),
                                    limits = size_limits)
 
-    hl_specs <- list(
-      list(ids = input$overlay_ftir_particles,        df = dfs$ftir,        col = "#2ca02c"),
-      list(ids = input$overlay_raman_particles,       df = dfs$raman,       col = "#1f77b4"),
-      list(ids = input$overlay_ldir_particles,        df = dfs$ldir,        col = "#d62728"),
-      list(ids = input$overlay_ftir_bruker_particles, df = dfs$ftir_bruker, col = "#9467bd")
-    )
-    y_span_ov   <- diff(bounds$y)
-    y_nudge_ov  <- y_span_ov * 0.03
-    for (spec in hl_specs) {
-      sel_ids <- spec$ids
-      if (is.null(sel_ids) || length(sel_ids) == 0) next
-      inst_df <- spec$df
-      if (is.null(inst_df) || nrow(inst_df) == 0) next
-      hl <- inst_df[inst_df$particle_id %in% sel_ids, ]
-      if (nrow(hl) > 0) {
-        hl$label_y <- hl$y + y_nudge_ov
-        p <- p + geom_point(data=hl, aes(x=x, y=y), shape=19, size=5, colour=spec$col) +
-                 geom_point(data=hl, aes(x=x, y=y), shape=21, size=10, stroke=2,
-                             fill=NA, colour="#FFD700") +
-                 geom_text(data=hl, aes(x=x, y=label_y, label=particle_id),
-                            vjust=0, size=4.0, fontface="bold", colour="#FFD700")
-      }
-    }
-
-    pin <- pinned_overlay()
-    if (!is.null(pin) && !is.null(pin$x) && !is.null(pin$y)) {
-      pin_label_y <- pin$y + y_nudge_ov
-      pin_df <- data.frame(x=pin$x, y=pin$y, label_y=pin_label_y,
-                           label=if (!is.null(pin$particle_id)) pin$particle_id else "")
-      p <- p + geom_point(data=pin_df, aes(x=x, y=y), shape=8, size=8, stroke=2, colour="#FF6600") +
-               geom_text(data=pin_df, aes(x=x, y=label_y, label=label),
-                          vjust=0, size=4.6, fontface="bold", colour="#FF6600")
-    }
+    p <- .overlay_marks(p, dfs, bounds)
 
     p
   })
@@ -4772,6 +4903,7 @@ server <- function(input, output, session) {
     overlay_ftir_bruker_quality_d(), overlay_ftir_bruker_size_d(),
     overlay_matched(), overlay_ldir_matched(), overlay_bruker_matched(),
     overlay_triplets(), input$overlay_instruments, input$overlay_relationships,
+    input$overlay_view, overlay_symbols_shown(),
     mat_keep("overlay_ftir_material"), mat_keep("overlay_raman_material"),
     mat_keep("overlay_ldir_material"), mat_keep("overlay_ftir_bruker_material"),
     input$overlay_ftir_particles, input$overlay_raman_particles,
@@ -5058,7 +5190,7 @@ server <- function(input, output, session) {
   # A change of the overlay filters drops the sticky hover: it may be a
   # particle the overlay no longer draws.
   observeEvent(list(overlay_matched(), overlay_ldir_matched(), overlay_bruker_matched(),
-                    overlay_shown_dfs()),
+                    overlay_shown_dfs(), input$overlay_view, input$overlay_combo),
                { last_hover$overlay <- NULL }, ignoreInit = TRUE)
 
   # Overlay: sticky hover — update last_hover$overlay only when a new match is found.
@@ -5079,7 +5211,8 @@ server <- function(input, output, session) {
            else compute_bounds(dfs$ftir, dfs$raman, dfs$ldir)
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
 
-    result <- find_nearest_overlay_particle(hover$x, hover$y, snap_dist,
+    result <- if (!identical(input$overlay_view, "raw")) .symbol_pick(hover$x, hover$y, snap_dist)
+              else find_nearest_overlay_particle(hover$x, hover$y, snap_dist,
                                             inst, rel, matched, ldir_m, overlay_shown_dfs(),
                                             bruker_m, dfs_hl = dfs,
                                             legs = overlay_legs(inst %||% character(0),
@@ -5110,7 +5243,8 @@ server <- function(input, output, session) {
     snap_dist <- max(diff(vis$x), diff(vis$y), 500) * 0.05
 
     # For click, pass NULL inst/rel to search ALL instruments
-    result <- find_nearest_overlay_particle(click$x, click$y, snap_dist,
+    result <- if (!identical(input$overlay_view, "raw")) .symbol_pick(click$x, click$y, snap_dist)
+              else find_nearest_overlay_particle(click$x, click$y, snap_dist,
                                             NULL, NULL, matched, ldir_m, overlay_shown_dfs(),
                                             bruker_m, dfs_hl = dfs,
                                             legs = overlay_legs(names(.OV_INST), matched,

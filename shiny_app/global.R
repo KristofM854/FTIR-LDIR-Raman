@@ -125,7 +125,8 @@ list_all_runs <- function(output_dir = file.path("..", "output")) {
                    nzchar(m$git_commit))
                  paste0(" [", substr(m$git_commit, 1, 7), "]") else ""
         stg <- if (!is.null(m$stage)) paste0(" (", m$stage, ")") else ""
-        return(paste0(run_id, git, stg))
+        where <- run_input_folder(m, run_dir)
+        return(paste0(run_id, if (nzchar(where)) paste0(" \u2014 ", where) else "", git, stg))
       }
     }
     # Fallback: run_id + mtime
@@ -134,6 +135,32 @@ list_all_runs <- function(output_dir = file.path("..", "output")) {
   }, character(1))
 
   setNames(runs, labels)
+}
+
+#' Where a run's input files came from, for its label in the run list: the
+#' folder of the first input file recorded in the manifest (skipping copies
+#' inside the run folder, such as stitched FTIR segments), from the folder
+#' after "My Documents" / "Documents" on, else its last `n_tail` folders.
+#' "" when the manifest records no input path.
+run_input_folder <- function(manifest, run_dir = NULL, n_tail = 4L) {
+  paths <- unlist(lapply(manifest$inputs, function(x) x$path))
+  segs <- unlist(manifest$config_snapshot$ftir_segment_tables)
+  paths <- c(paths, segs)
+  paths <- paths[!is.na(paths) & nzchar(paths)]
+  norm <- function(p) gsub("\\\\", "/", p)
+  if (!is.null(run_dir)) {
+    rd <- norm(normalizePath(run_dir, winslash = "/", mustWork = FALSE))
+    paths <- paths[!startsWith(norm(paths), rd) & !grepl("/inputs/ftir_stitched/", norm(paths))]
+  }
+  if (length(paths) == 0) return("")
+  parts <- strsplit(norm(paths[1]), "/", fixed = TRUE)[[1]]
+  parts <- parts[nzchar(parts)]
+  folders <- head(parts, -1)
+  if (length(folders) == 0) return("")
+  doc <- which(tolower(folders) %in% c("my documents", "documents"))
+  keep <- if (length(doc)) folders[-seq_len(max(doc))] else tail(folders, n_tail)
+  if (length(keep) == 0) keep <- tail(folders, 1)
+  paste(keep, collapse = "/")
 }
 
 # ---------------------------------------------------------------------------
@@ -586,6 +613,80 @@ link_groups <- function(legs) {
   nodes$key <- NULL
   rownames(nodes) <- NULL
   nodes
+}
+
+# ---- Overlay symbol view ------------------------------------------------------
+# One symbol per group of linked particles: a circle in four fixed quarters,
+# one per instrument, filled where that instrument found the particle.
+# Quarter order (top-left, top-right, bottom-left, bottom-right) and colours:
+# Okabe & Ito (2008), chosen to stay apart under deuteranopia, protanopia and
+# tritanopia (simulated with colorspace); the quarter position carries the
+# instrument as well, so colour is never the only cue.
+SYMBOL_SLOTS  <- c(ftir_pe = 1L, ftir_bruker = 2L, raman = 3L, ldir = 4L)
+SYMBOL_COLOURS <- c(ftir_pe = "#F0E442", ftir_bruker = "#CC79A7",
+                    raman = "#0072B2", ldir = "#D55E00")
+SYMBOL_LABELS <- c(ftir_pe = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)",
+                   raman = "Raman", ldir = "LDIR")
+
+#' Symbols of the overlay: the linked groups (link_groups()) plus every shown
+#' particle in none of them as a one-instrument group.
+#'
+#' @param grp link_groups() result (or NULL)
+#' @param singles Named list, instrument key -> data.frame(particle_id, x, y)
+#'   of the particles shown for that instrument
+#' @return list(sym = data.frame(group, x, y, combo, n_inst), nodes =
+#'   data.frame(inst, id, x, y, group)); combo lists the instruments in
+#'   SYMBOL_SLOTS order joined by "+". NULL when there is nothing to show.
+overlay_symbol_table <- function(grp, singles) {
+  nodes <- if (is.null(grp)) NULL else grp[, c("inst", "id", "x", "y", "group")]
+  next_g <- if (is.null(nodes) || nrow(nodes) == 0) 0L else max(nodes$group)
+  for (k in names(singles)) {
+    d <- singles[[k]]
+    if (is.null(d) || nrow(d) == 0) next
+    ids <- as.character(d$particle_id)
+    keep <- is.finite(d$x) & is.finite(d$y) &
+      !(ids %in% if (is.null(nodes)) character(0) else nodes$id[nodes$inst == k])
+    if (!any(keep)) next
+    nodes <- rbind(nodes, data.frame(inst = k, id = ids[keep], x = d$x[keep], y = d$y[keep],
+                                     group = next_g + seq_len(sum(keep)), stringsAsFactors = FALSE))
+    next_g <- next_g + sum(keep)
+  }
+  if (is.null(nodes) || nrow(nodes) == 0) return(NULL)
+  slot <- names(SYMBOL_SLOTS)
+  combo <- tapply(nodes$inst, nodes$group, function(v) paste(slot[slot %in% v], collapse = "+"))
+  g <- names(combo)
+  sym <- data.frame(group = as.integer(g),
+                    x = as.numeric(tapply(nodes$x, nodes$group, mean, na.rm = TRUE)[g]),
+                    y = as.numeric(tapply(nodes$y, nodes$group, mean, na.rm = TRUE)[g]),
+                    combo = as.character(combo), stringsAsFactors = FALSE)
+  sym$n_inst <- lengths(strsplit(sym$combo, "+", fixed = TRUE))
+  list(sym = sym, nodes = nodes)
+}
+
+#' Polygons of the symbols: an outline circle per symbol and a filled quarter
+#' per instrument that found it. r = radius in data units.
+#' @return list(outline = data.frame(x, y, g), quarters = data.frame(x, y, g, inst))
+overlay_symbol_geometry <- function(sym, r, n_arc = 8L) {
+  n <- nrow(sym)
+  t <- seq(0, 2 * pi, length.out = 4L * n_arc + 1L)
+  outline <- data.frame(x = rep(sym$x, each = length(t)) + r * cos(t),
+                        y = rep(sym$y, each = length(t)) + r * sin(t),
+                        g = rep(seq_len(n), each = length(t)))
+  spl <- strsplit(sym$combo, "+", fixed = TRUE)
+  q <- data.frame(i = rep(seq_len(n), lengths(spl)), inst = unlist(spl), stringsAsFactors = FALSE)
+  if (nrow(q) == 0) return(list(outline = outline, quarters = NULL))
+  # Quarter start angles: top-left 90, top-right 0, bottom-left 180, bottom-right 270 deg
+  a0 <- c(90, 0, 180, 270)[SYMBOL_SLOTS[q$inst]] * pi / 180
+  arc <- seq(0, pi / 2, length.out = n_arc)
+  m <- length(arc) + 1L
+  ang <- as.vector(t(outer(a0, arc, "+")))
+  cx <- rep(sym$x[q$i], each = m); cy <- rep(sym$y[q$i], each = m)
+  ring <- rep(c(0, rep(1, length(arc))), nrow(q))
+  ang_full <- as.vector(rbind(a0, matrix(ang, nrow = length(arc))))
+  quarters <- data.frame(x = cx + ring * r * cos(ang_full), y = cy + ring * r * sin(ang_full),
+                         g = rep(seq_len(nrow(q)), each = m), inst = rep(q$inst, each = m),
+                         stringsAsFactors = FALSE)
+  list(outline = outline, quarters = quarters)
 }
 
 # Helper: add <prefix>_material_family columns for every <prefix>_material
