@@ -216,6 +216,11 @@ ui <- fluidPage(
     .hover-tbl { width: 100%; font-size: 13px; border-collapse: collapse; }
     .hover-tbl th { background: #e9ecef; padding: 4px 8px; text-align: left; }
     .hover-tbl td { padding: 4px 8px; border-bottom: 1px solid #dee2e6; }
+    /* Overlay match details: fixed columns, one line per cell (full text on
+       hover), so the box keeps its height */
+    .fixed-detail { table-layout: fixed; }
+    .fixed-detail td, .fixed-detail th { white-space: nowrap; overflow: hidden;
+                                         text-overflow: ellipsis; }
     .placeholder-msg { text-align: center; padding: 80px 20px; color: #6c757d; }
     .placeholder-msg h3 { color: #495057; }
     /* Material show/hide list: header row (title + all/none) above a boxed,
@@ -5341,156 +5346,67 @@ server <- function(input, output, session) {
   }, ignoreNULL = FALSE)
 
   # ==================================================================
-  # Helper: render detail HTML for a single-instrument particle
-  # ==================================================================
-  single_overlay_detail <- function(row, instrument, quality_label) {
-    tags$table(class = "hover-tbl",
-      tags$tr(tags$th("Field"), tags$th("Value")),
-      tags$tr(tags$td(tags$b("Instrument")), tags$td(instrument)),
-      tags$tr(tags$td(tags$b("Particle ID")), tags$td(row$particle_id)),
-      tags$tr(tags$td(tags$b("Material")), tags$td(tags$b(row$material))),
-      tags$tr(tags$td(tags$b(quality_label)), tags$td(round(row$quality, 3))),
-      tags$tr(tags$td(tags$b("Feret Max")),
-              tags$td(paste0(round(row$feret_max, 1), " \u00b5m"))),
-      tags$tr(tags$td(tags$b("Match Status")), tags$td(row$match_status)),
-      tags$tr(tags$td(tags$b("Position")),
-              tags$td(paste0("(", round(row$x, 1), ", ", round(row$y, 1), ")")))
-    )
-  }
-
-  # ==================================================================
   # Detail panel: pinned > hover. Shows pin source label when pinned.
   # ==================================================================
   output$overlay_hover_info <- renderUI({
-    # Priority: pinned particle > hover
+    # Priority: pinned particle > hover. One fixed table: a column per
+    # instrument (always all four) and the same five rows, so the box keeps
+    # its height whatever is shown.
     pin <- pinned_overlay()
-    pin_src <- pinned_source()
-
     if (!is.null(pin)) {
-      row <- pin
-      src <- pin_src
+      row <- pin; src <- pinned_source()
     } else {
       row <- last_hover$overlay
       src <- if (!is.null(row)) attr(row, "source") else NULL
     }
 
-    if (is.null(row)) {
-      return(tags$p(class = "text-muted",
-                    "Hover, click, or select a particle for details"))
-    }
-
-    # Group linked by direct pairs: one column per particle
-    if (identical(src, "group")) {
-      mem <- attr(row, "members")
-      full <- overlay_dfs_full()
-      cols <- lapply(seq_len(nrow(mem)), function(i) {
-        oi <- .OV_INST[[mem$inst[i]]]
-        d <- full[[oi$df]]
-        r <- if (!is.null(d)) d[as.character(d$particle_id) == mem$id[i], , drop = FALSE] else NULL
-        list(hdr = oi$label, q = oi$q, r = if (!is.null(r) && nrow(r) > 0) r[1, ] else NULL,
-             x = mem$x[i], y = mem$y[i], id = mem$id[i])
-      })
-      cols <- cols[order(match(mem$inst, names(.OV_INST)))]
-      .v <- function(c, f, digits = NULL, pre = "", suf = "") {
-        v <- if (is.null(c$r)) NULL else c$r[[f]]
-        if (is.null(v) || length(v) == 0 || is.na(v)) return("\u2014")
-        if (is.numeric(v) && !is.null(digits)) v <- round(v, digits)
-        paste0(pre, v, suf)
+    # Particles to show, as instrument key -> particle id
+    ids <- list()
+    if (!is.null(row) && !is.null(src)) {
+      if (identical(src, "group")) {
+        mem <- attr(row, "members")
+        for (i in seq_len(nrow(mem))) ids[[mem$inst[i]]] <- mem$id[i]
+      } else if (grepl("^single_", src)) {
+        k <- names(.OV_INST)[vapply(.OV_INST, function(o) o$df, "") == sub("^single_", "", src)]
+        if (length(k)) ids[[k]] <- as.character(row$particle_id[1])
+      } else if (!is.null(row$raman_particle_id)) {
+        # A pair with Raman: every partner of its Raman particle
+        rd <- run_data_gated()
+        pt <- gather_partners_by_raman(row$raman_particle_id, rd$matched,
+                                       ldir_genuine_pairs(rd$ldir_raman_matched),
+                                       rd$matched_ftir_bruker)
+        ids$raman <- as.character(row$raman_particle_id[1])
+        if (!is.null(pt$ftir))        ids$ftir_pe     <- as.character(pt$ftir$ftir_particle_id[1])
+        if (!is.null(pt$ftir_bruker)) ids$ftir_bruker <- as.character(pt$ftir_bruker$ftir_particle_id[1])
+        if (!is.null(pt$ldir))        ids$ldir        <- as.character(pt$ldir$ldir_particle_id[1])
       }
-      mk <- function(label, fn) do.call(tags$tr, c(list(tags$td(tags$b(label))),
-                                                    lapply(cols, function(c) tags$td(fn(c)))))
-      return(tags$table(class = "hover-tbl",
-        do.call(tags$tr, c(list(tags$th("")), lapply(cols, function(c) tags$th(c$hdr)))),
-        mk("Particle ID", function(c) c$id),
-        mk("Material", function(c) .v(c, "material")),
-        mk("Quality", function(c) .v(c, "quality", 3, pre = if (nzchar(c$q)) paste0(c$q, " ") else "")),
-        mk("Feret Max", function(c) .v(c, "feret_max", 1, suf = " \u00b5m")),
-        mk("Position", function(c) paste0("(", round(c$x, 1), ", ", round(c$y, 1), ")"))))
     }
 
-    # Single-instrument particle
-    if (!is.null(src) && grepl("^single_", src)) {
-      inst <- sub("^single_", "", src)
-      inst_label <- switch(inst,
-                           ftir = "FTIR", raman = "Raman", ldir = "LDIR", inst)
-      q_label <- switch(inst,
-                        ftir = "AAU Quality", raman = "HQI", ldir = "Quality", "Quality")
-      return(single_overlay_detail(row, inst_label, q_label))
-    }
-
-    # Matched particle: gather every instrument partner via the shared Raman id.
-    # run_data() keys: matched = FTIR(PE)<->Raman, matched_ftir_bruker =
-    # FTIR(Bruker)<->Raman, ldir_raman_matched = LDIR<->Raman. All join on
-    # raman_particle_id, so one Raman particle can carry up to three partners.
-    rd <- run_data_gated()
-    raman_pid <- if (!is.null(row$raman_particle_id)) row$raman_particle_id else NULL
-    # Only surface a genuine (within-gate) LDIR partner — a forced over-gate
-    # pairing is reported as unmatched everywhere else, so it must not appear
-    # here as a partner.
-    partners <- gather_partners_by_raman(raman_pid, rd$matched,
-                                         ldir_genuine_pairs(rd$ldir_raman_matched),
-                                         rd$matched_ftir_bruker)
-
-    # Safe accessors: return NULL/em-dash for missing columns rather than erroring.
-    .g <- function(frame, col) {
-      if (is.null(frame) || !col %in% names(frame)) return(NULL)
-      frame[[col]][1]
-    }
-    .fmt_num <- function(v, digits = 1, prefix = "", suffix = "") {
-      if (is.null(v) || length(v) == 0 || (is.atomic(v) && all(is.na(v)))) return("\u2014")
-      if (is.numeric(v)) return(paste0(prefix, round(v, digits), suffix))
-      as.character(v)
-    }
-    .fmt_pos <- function(frame, xcol, ycol) {
-      xv <- .g(frame, xcol); yv <- .g(frame, ycol)
-      if (is.null(xv) || is.null(yv) || is.na(xv) || is.na(yv)) return("\u2014")
-      paste0("(", round(xv, 1), ", ", round(yv, 1), ")")
-    }
-
-    # One column spec per present partner, in a fixed left-to-right order.
-    specs <- list()
-    if (!is.null(partners$ftir))
-      specs[[length(specs) + 1]] <- list(hdr = "FTIR", f = partners$ftir, p = "ftir_",
-        qpfx = "AAU ", qd = 3, xcol = "ftir_x_aligned", ycol = "ftir_y_aligned", is_raman = FALSE)
-    if (!is.null(partners$ftir_bruker))
-      specs[[length(specs) + 1]] <- list(hdr = "FTIR (Bruker)", f = partners$ftir_bruker, p = "ftir_",
-        qpfx = "AAU ", qd = 3, xcol = "ftir_x_aligned", ycol = "ftir_y_aligned", is_raman = FALSE)
-    if (!is.null(partners$raman))
-      specs[[length(specs) + 1]] <- list(hdr = "Raman", f = partners$raman, p = "raman_",
-        qpfx = "HQI ", qd = 2, xcol = "raman_x_um", ycol = "raman_y_um", is_raman = TRUE)
-    if (!is.null(partners$ldir))
-      specs[[length(specs) + 1]] <- list(hdr = "LDIR", f = partners$ldir, p = "ldir_",
-        qpfx = "", qd = 3, xcol = "ldir_x_aligned", ycol = "ldir_y_aligned", is_raman = FALSE)
-
-    # Fallback: no partner rows resolved (e.g. stale ids) \u2014 show minimal detail.
-    if (length(specs) == 0) {
-      return(tags$table(class = "hover-tbl",
-        tags$tr(tags$th("Field"), tags$th("Value")),
-        make_detail_row("Raman particle", if (!is.null(raman_pid)) raman_pid else "\u2014"),
-        make_detail_row("Note", "No match record found for this particle.")))
-    }
-
-    .cell <- function(x) tags$td(x)
-    mkrow <- function(label, cellfn)
-      do.call(tags$tr, c(list(tags$td(tags$b(label))),
-                         lapply(specs, function(s) .cell(cellfn(s)))))
-
-    tags$table(class = "hover-tbl",
-      do.call(tags$tr, c(list(tags$th("")), lapply(specs, function(s) tags$th(s$hdr)))),
-      mkrow("Particle ID", function(s) {
-        v <- .g(s$f, paste0(s$p, "particle_id")); if (is.null(v)) "\u2014" else as.character(v) }),
-      mkrow("Material", function(s) {
-        v <- .g(s$f, paste0(s$p, "material")); if (is.null(v)) "\u2014" else as.character(v) }),
-      mkrow("Quality", function(s)
-        .fmt_num(.g(s$f, paste0(s$p, "quality")), s$qd, prefix = s$qpfx)),
-      mkrow("Feret Max", function(s)
-        .fmt_num(.g(s$f, paste0(s$p, "feret_max_um")), 1, suffix = " \u00b5m")),
-      mkrow("Area", function(s)
-        .fmt_num(.g(s$f, paste0(s$p, "area_um2")), 1, suffix = " \u00b5m\u00b2")),
-      mkrow("Position", function(s) .fmt_pos(s$f, s$xcol, s$ycol)),
-      mkrow("Match Dist.", function(s)
-        if (isTRUE(s$is_raman)) "\u2014" else .fmt_num(.g(s$f, "match_distance"), 1, suffix = " \u00b5m"))
-    )
+    full <- overlay_dfs_full()
+    dash <- "\u2014"
+    cols <- lapply(names(.OV_INST), function(k) {
+      oi <- .OV_INST[[k]]; id <- ids[[k]]
+      d <- full[[oi$df]]
+      r <- if (!is.null(id) && !is.null(d)) d[as.character(d$particle_id) == id, , drop = FALSE]
+      if (is.null(r) || nrow(r) == 0)
+        return(list(k = k, id = id %||% dash, mat = dash, q = dash, feret = dash, pos = dash))
+      r <- r[1, ]
+      num <- function(v, digits) if (is.null(v) || is.na(v)) NA else round(v, digits)
+      q <- num(r$quality, if (k == "raman") 2 else 3)
+      list(k = k, id = id,
+           mat = if (is.null(r$material) || is.na(r$material)) dash else as.character(r$material),
+           q = if (is.na(q)) dash else paste0(if (nzchar(oi$q)) paste0(oi$q, " ") else "", q),
+           feret = if (is.na(num(r$feret_max, 1))) dash else paste0(num(r$feret_max, 1), " \u00b5m"),
+           pos = if (is.na(num(r$x, 1))) dash else paste0("(", num(r$x, 1), ", ", num(r$y, 1), ")"))
+    })
+    mk <- function(label, f) do.call(tags$tr, c(list(tags$td(tags$b(label))),
+                                                lapply(cols, function(c) tags$td(c[[f]], title = c[[f]]))))
+    tags$table(class = "hover-tbl fixed-detail",
+      do.call(tags$tr, c(list(tags$th("", style = "width: 12%;")),
+                         lapply(cols, function(c) tags$th(.OV_INST[[c$k]]$label,
+                           style = paste0("color: ", INSTRUMENT_TEXT_COLOURS[[c$k]], ";"))))),
+      mk("Particle ID", "id"), mk("Material", "mat"), mk("Quality", "q"),
+      mk("Feret Max", "feret"), mk("Position", "pos"))
   })
 
   # ==================================================================
