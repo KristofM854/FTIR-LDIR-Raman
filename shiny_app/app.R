@@ -4356,9 +4356,17 @@ server <- function(input, output, session) {
     # match — otherwise the LDIR partner is a forced over-gate assignment and
     # the "triple" is spurious. Keeps the triple count honest alongside the
     # gated LDIR↔Raman count.
-    gate <- d$ldir_match_gate_um
-    if (!is.null(gate) && is.finite(gate) && "ldir_raman_distance" %in% names(tr)) {
-      tr <- tr[!is.na(tr$ldir_raman_distance) & tr$ldir_raman_distance <= gate, , drop = FALSE]
+    # The within-gate flag of the LDIR<->Raman pairs includes the widening for
+    # large particles; the bare gate would drop big particles' triplets.
+    lm <- d$ldir_raman_matched
+    if (!is.null(lm) && nrow(lm) > 0 && "within_gate" %in% names(lm) &&
+        all(c("ldir_particle_id", "raman_particle_id") %in% names(tr))) {
+      ok <- paste(lm$ldir_particle_id, lm$raman_particle_id)[!is.na(lm$within_gate) & lm$within_gate]
+      tr <- tr[paste(tr$ldir_particle_id, tr$raman_particle_id) %in% ok, , drop = FALSE]
+    } else {
+      gate <- d$ldir_match_gate_um
+      if (!is.null(gate) && is.finite(gate) && "ldir_raman_distance" %in% names(tr))
+        tr <- tr[!is.na(tr$ldir_raman_distance) & tr$ldir_raman_distance <= gate, , drop = FALSE]
     }
     tr
   })
@@ -4432,6 +4440,30 @@ server <- function(input, output, session) {
       if (is.null(df)) NULL else list(spec = s, df = df)
     }))
   }
+
+  # Every pair the overlay shows, as legs for link_groups(): the three pairs
+  # with Raman (when both instruments are selected) and the active cross pairs.
+  .RAMAN_END <- list(inst = "raman", id = "raman_particle_id", x = "raman_x_norm", y = "raman_y_norm")
+  overlay_legs <- function(inst, matched, bruker_m, ldir_m, cross_active = active_cross_pairs(inst)) {
+    on <- function(k) k %in% inst && "raman" %in% inst
+    legs <- list(
+      if (on("ftir_pe")) list(df = matched, b = .RAMAN_END,
+        a = list(inst = "ftir_pe", id = "ftir_particle_id", x = "ftir_x_aligned", y = "ftir_y_aligned")),
+      if (on("ftir_bruker")) list(df = bruker_m, b = .RAMAN_END,
+        a = list(inst = "ftir_bruker", id = "ftir_particle_id", x = "ftir_x_aligned", y = "ftir_y_aligned")),
+      if (on("ldir")) list(df = ldir_m, b = .RAMAN_END,
+        a = list(inst = "ldir", id = "ldir_particle_id", x = "ldir_x_aligned", y = "ldir_y_aligned")))
+    c(Filter(Negate(is.null), legs),
+      lapply(cross_active, function(ca) list(df = ca$df, a = ca$spec$a, b = ca$spec$b)))
+  }
+
+  # Overlay instrument key -> its particle table in overlay_dfs*(), label and
+  # highlight dropdown.
+  .OV_INST <- list(
+    ftir_pe     = list(df = "ftir",        label = "FTIR (PerkinElmer)", q = "AAU", sel = "overlay_ftir_particles"),
+    ftir_bruker = list(df = "ftir_bruker", label = "FTIR (Bruker)",      q = "AAU", sel = "overlay_ftir_bruker_particles"),
+    raman       = list(df = "raman",       label = "Raman",              q = "HQI", sel = "overlay_raman_particles"),
+    ldir        = list(df = "ldir",        label = "LDIR",               q = "",    sel = "overlay_ldir_particles"))
 
   overlay_plot_obj <- reactive({
     # Gate the heaviest render on data being present. run_data() is an empty
@@ -4669,22 +4701,16 @@ server <- function(input, output, session) {
       }
     }
 
-    # Multi-instrument highlights (3+)
-    if ("multi" %in% rel && nrow(triplets) > 0 && nrow(matched) > 0 && nrow(ldir_m) > 0) {
-      triple_pts <- list()
-      m_trip <- matched[matched$raman_particle_id %in% triplets$raman_particle_id, ]
-      if (nrow(m_trip) > 0) {
-        triple_pts[[1]] <- data.frame(x=m_trip$ftir_x_aligned, y=m_trip$ftir_y_aligned)
-        triple_pts[[2]] <- data.frame(x=m_trip$raman_x_norm,   y=m_trip$raman_y_norm)
-      }
-      l_trip <- ldir_m[ldir_m$raman_particle_id %in% triplets$raman_particle_id, ]
-      if (nrow(l_trip) > 0 && "ldir_x_aligned" %in% names(l_trip))
-        triple_pts[[length(triple_pts)+1]] <- data.frame(x=l_trip$ldir_x_aligned, y=l_trip$ldir_y_aligned)
-      if (length(triple_pts) > 0) {
-        triple_df <- do.call(rbind, triple_pts)
-        p <- p + geom_point(data = triple_df, aes(x=x, y=y),
+    # Multi-instrument highlights (3+): every particle of a group linked by the
+    # shown pairs -- with Raman or direct (link_groups()) -- that spans three
+    # or more instruments. Uses the filtered (for LDIR within-gate) pairs the
+    # overlay draws.
+    if ("multi" %in% rel) {
+      grp <- link_groups(overlay_legs(inst, matched, bruker_m, ldir_m, cross_active))
+      multi_df <- if (!is.null(grp)) grp[grp$n_inst >= 3 & is.finite(grp$x) & is.finite(grp$y), ]
+      if (!is.null(multi_df) && nrow(multi_df) > 0)
+        p <- p + geom_point(data = multi_df, aes(x=x, y=y),
                              shape=21, size=6, stroke=1.5, fill=NA, colour="#FFD700", alpha=0.9)
-      }
     }
 
     p <- p + scale_size_continuous(name = "Feret Max (µm)", range = c(2, 12),
@@ -4854,9 +4880,13 @@ server <- function(input, output, session) {
 
   # dfs: the particles to search (overlay_shown_dfs()); dfs_hl: where the
   # highlighted / selected particles are looked up (drawn whatever the filters).
+  # Direct pairs (no Raman partner needed) are searched through `legs`
+  # (overlay_legs()); a hit there is returned as source "group" with the
+  # particles of its group (link_groups()) in attr(row, "members").
   find_nearest_overlay_particle <- function(px, py, snap_dist,
                                             inst, rel, matched, ldir_m, dfs,
-                                            bruker_m = data.frame(), dfs_hl = dfs) {
+                                            bruker_m = data.frame(), dfs_hl = dfs,
+                                            legs = list()) {
     best_dist   <- Inf
     best_row    <- NULL
     best_source <- NULL
@@ -4927,6 +4957,27 @@ server <- function(input, output, session) {
       d <- pmin(dist_fb, dist_rb); idx <- which.min(d)
       if (length(idx) > 0 && d[idx] < best_dist) {
         best_dist <- d[idx]; best_row <- bruker_m[idx, ]; best_source <- "bruker_raman"
+      }
+    }
+
+    # Direct pairs between two non-Raman instruments (FTIR <-> LDIR, ...); before
+    # the unmatched layers, since a particle without a Raman partner counts as
+    # unmatched there but is drawn as matched
+    if (search_all || "matched" %in% rel) {
+      grp <- link_groups(legs)
+      cross_inst <- unlist(lapply(legs, function(l) if (l$b$inst != "raman") c(l$a$inst, l$b$inst)))
+      if (!is.null(grp)) {
+        cand <- grp[grp$inst %in% cross_inst & is.finite(grp$x) & is.finite(grp$y), ]
+        if (nrow(cand) > 0) {
+          d_g <- sqrt((cand$x - px)^2 + (cand$y - py)^2); i_g <- which.min(d_g)
+          if (d_g[i_g] < best_dist) {
+            best_dist <- d_g[i_g]
+            best_row <- data.frame(x = cand$x[i_g], y = cand$y[i_g],
+                                   particle_id = cand$id[i_g], stringsAsFactors = FALSE)
+            attr(best_row, "members") <- grp[grp$group == cand$group[i_g], ]
+            best_source <- "group"
+          }
+        }
       }
     }
 
@@ -5030,7 +5081,9 @@ server <- function(input, output, session) {
 
     result <- find_nearest_overlay_particle(hover$x, hover$y, snap_dist,
                                             inst, rel, matched, ldir_m, overlay_shown_dfs(),
-                                            bruker_m, dfs_hl = dfs)
+                                            bruker_m, dfs_hl = dfs,
+                                            legs = overlay_legs(inst %||% character(0),
+                                                                matched, bruker_m, ldir_m))
     if (!is.null(result)) {
       last_hover$overlay <- result$row
       attr(last_hover$overlay, "source") <- result$source
@@ -5059,7 +5112,9 @@ server <- function(input, output, session) {
     # For click, pass NULL inst/rel to search ALL instruments
     result <- find_nearest_overlay_particle(click$x, click$y, snap_dist,
                                             NULL, NULL, matched, ldir_m, overlay_shown_dfs(),
-                                            bruker_m, dfs_hl = dfs)
+                                            bruker_m, dfs_hl = dfs,
+                                            legs = overlay_legs(names(.OV_INST), matched,
+                                                                bruker_m, ldir_m))
     if (!is.null(result)) {
       pinned_overlay(result$row)
       pinned_source(result$source)
@@ -5113,6 +5168,13 @@ server <- function(input, output, session) {
       } else if (src == "single_ftir_bruker" && !is.null(row$particle_id)) {
         .toggle_dropdown("overlay_ftir_bruker_particles", row$particle_id,
                          sort(dfs$ftir_bruker$particle_id))
+      } else if (src == "group") {
+        mem <- attr(row, "members")
+        for (i in seq_len(nrow(mem))) {
+          oi <- .OV_INST[[mem$inst[i]]]
+          d <- dfs[[oi$df]]
+          if (!is.null(d)) .toggle_dropdown(oi$sel, mem$id[i], sort(d$particle_id))
+        }
       }
     } else {
       # Click on empty space clears the pin
@@ -5122,9 +5184,13 @@ server <- function(input, output, session) {
   })
 
   # Clear pin button
+  # Clear button: the pin and the highlighted particles (the per-instrument
+  # selections on the left, which a click adds to).
   observeEvent(input$overlay_clear_pin, {
     pinned_overlay(NULL)
     pinned_source(NULL)
+    for (oi in .OV_INST)
+      updateSelectizeInput(session, oi$sel, selected = character(0))
   })
 
   # ==================================================================
@@ -5207,6 +5273,35 @@ server <- function(input, output, session) {
     if (is.null(row)) {
       return(tags$p(class = "text-muted",
                     "Hover, click, or select a particle for details"))
+    }
+
+    # Group linked by direct pairs: one column per particle
+    if (identical(src, "group")) {
+      mem <- attr(row, "members")
+      full <- overlay_dfs_full()
+      cols <- lapply(seq_len(nrow(mem)), function(i) {
+        oi <- .OV_INST[[mem$inst[i]]]
+        d <- full[[oi$df]]
+        r <- if (!is.null(d)) d[as.character(d$particle_id) == mem$id[i], , drop = FALSE] else NULL
+        list(hdr = oi$label, q = oi$q, r = if (!is.null(r) && nrow(r) > 0) r[1, ] else NULL,
+             x = mem$x[i], y = mem$y[i], id = mem$id[i])
+      })
+      cols <- cols[order(match(mem$inst, names(.OV_INST)))]
+      .v <- function(c, f, digits = NULL, pre = "", suf = "") {
+        v <- if (is.null(c$r)) NULL else c$r[[f]]
+        if (is.null(v) || length(v) == 0 || is.na(v)) return("\u2014")
+        if (is.numeric(v) && !is.null(digits)) v <- round(v, digits)
+        paste0(pre, v, suf)
+      }
+      mk <- function(label, fn) do.call(tags$tr, c(list(tags$td(tags$b(label))),
+                                                    lapply(cols, function(c) tags$td(fn(c)))))
+      return(tags$table(class = "hover-tbl",
+        do.call(tags$tr, c(list(tags$th("")), lapply(cols, function(c) tags$th(c$hdr)))),
+        mk("Particle ID", function(c) c$id),
+        mk("Material", function(c) .v(c, "material")),
+        mk("Quality", function(c) .v(c, "quality", 3, pre = if (nzchar(c$q)) paste0(c$q, " ") else "")),
+        mk("Feret Max", function(c) .v(c, "feret_max", 1, suf = " \u00b5m")),
+        mk("Position", function(c) paste0("(", round(c$x, 1), ", ", round(c$y, 1), ")"))))
     }
 
     # Single-instrument particle
