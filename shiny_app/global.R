@@ -3356,9 +3356,42 @@ read_precision_results <- function(dir) {
   if (!file.exists(f("precision_iso5725.csv"))) return(NULL)
   rd <- function(n) if (file.exists(f(n))) utils::read.csv(f(n), stringsAsFactors = FALSE,
                                                           check.names = FALSE) else NULL
-  list(dir = dir, design = rd("precision_design.csv"), counts = rd("precision_counts.csv"),
-       iso = rd("precision_iso5725.csv"), instruments = rd("precision_instruments.csv"),
-       critical = rd("precision_critical.csv"))
+  res <- list(dir = dir, design = rd("precision_design.csv"), counts = rd("precision_counts.csv"),
+              iso = rd("precision_iso5725.csv"), instruments = rd("precision_instruments.csv"),
+              critical = rd("precision_critical.csv"))
+  precision_add_synthetic(res)
+}
+
+#' Studies written before the "Synthetic" total group: add it from the family
+#' counts (each quality-passing particle has one family, so the sum over the
+#' synthetic families is the same count) and its statistics
+precision_add_synthetic <- function(res) {
+  cn <- res$counts
+  if (is.null(cn) || "Synthetic" %in% cn$group) return(res)
+  base <- unique(cn[cn$group == "All particles", c("instrument", "replicate", "size_class")])
+  if (nrow(base) == 0) return(res)
+  syn <- cn[cn$group %in% synthetic_families, ]
+  tot <- if (nrow(syn)) stats::aggregate(count ~ instrument + replicate + size_class, syn, sum) else
+    cbind(base[0, ], count = numeric(0))
+  add <- merge(base, tot, all.x = TRUE)
+  add$count[is.na(add$count)] <- 0
+  add$group <- "Synthetic"
+  add <- add[, names(cn)]
+  eng <- new.env(parent = globalenv())
+  eng$`%||%` <- function(a, b) if (is.null(a)) b else a
+  eng_file <- file.path(.pipeline_r_dir, "precision_study.R")
+  sys.source(eng_file, envir = eng)
+  st <- eng$precision_iso5725(add)
+  fill <- function(old, new) {
+    for (k in setdiff(names(old), names(new))) new[[k]] <- NA
+    for (k in setdiff(names(new), names(old))) old[[k]] <- rep(NA, nrow(old))
+    out <- rbind(old, new[, names(old)])
+    out[order(match(out$group, unique(c(PRECISION_TOTALS, out$group)))), , drop = FALSE]
+  }
+  res$counts <- rbind(cn, add)
+  res$iso <- fill(res$iso, st$iso)
+  res$instruments <- fill(res$instruments, st$instruments)
+  res
 }
 
 #' Precision-study output folders under `base`, newest first
