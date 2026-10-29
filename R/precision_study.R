@@ -125,8 +125,8 @@ precision_config_from_run <- function(run_dir, config = make_config()) {
 #' Counts per measurement and stratum.
 #'
 #' Groups: "All particles" (>= the minimum size, any quality), "Plastics"
-#' (synthetic + semi-synthetic families) and every polymer family found, the
-#' last two among particles passing the quality cutoff. Size classes: "all
+#' (synthetic + semi-synthetic families), "Synthetic" and every polymer family
+#' found, the last three among particles passing the quality cutoff. Size classes: "all
 #' sizes" and PRECISION_SIZE_LABELS. Strata missing in a measurement count 0.
 #'
 #' @param design read_precision_design() result
@@ -153,7 +153,8 @@ precision_counts <- function(design, config, particles = NULL) {
     size <- as.character(cut(df$feret_max_um, PRECISION_SIZE_BREAKS, PRECISION_SIZE_LABELS,
                              right = FALSE))
     groups <- c(list("All particles" = rep(TRUE, nrow(df)),
-                     "Plastics" = qok & fam %in% plastic_fams),
+                     "Plastics" = qok & fam %in% plastic_fams,
+                     "Synthetic" = qok & fam %in% synthetic_families),
                 stats::setNames(lapply(sort(unique(fam[qok & !fam %in% "Unknown"])),
                                        function(f) qok & fam == f),
                                 sort(unique(fam[qok & !fam %in% "Unknown"]))))
@@ -169,7 +170,7 @@ precision_counts <- function(design, config, particles = NULL) {
                 unique(design[, c("instrument", "replicate")]), by = NULL)
   out <- merge(grid, out, all.x = TRUE)
   out$count[is.na(out$count)] <- 0L
-  out[order(match(out$group, unique(c("All particles", "Plastics", sort(unique(out$group))))),
+  out[order(match(out$group, unique(c("All particles", "Plastics", "Synthetic", sort(unique(out$group))))),
             match(out$size_class, c("all sizes", PRECISION_SIZE_LABELS)),
             match(out$instrument, names(PRECISION_ROLES)), out$replicate), ]
 }

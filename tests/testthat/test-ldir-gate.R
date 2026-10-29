@@ -191,3 +191,29 @@ test_that("instrument colours resolve from keys and display names", {
   expect_match(b, "background:#0072B2", fixed = TRUE)
   expect_match(b, "color:#FFFFFF", fixed = TRUE)
 })
+
+test_that("precision view: one-instrument groups marked and left out of Mandel; plastics switch", {
+  env <- .load_global_helpers()
+  sys.source(file.path(REPO_ROOT, "R", "08b_material_map.R"), envir = env)
+  inst <- c("ftir", "ftir_bruker", "raman", "ldir")
+  grp <- c("All particles", "Plastics", "Synthetic", "PC", "Cellulose", "Protein")
+  counts <- expand.grid(instrument = inst, replicate = 1:3, group = grp, size_class = "all sizes",
+                        stringsAsFactors = FALSE)
+  counts$count <- ifelse(counts$group == "Protein", ifelse(counts$instrument == "ftir", 6, 0),
+                  ifelse(counts$group == "Cellulose", ifelse(counts$instrument %in% c("ftir", "ldir"), 1, 0),
+                         20 + counts$replicate))
+  ins <- stats::aggregate(count ~ instrument + group + size_class, counts, mean)
+  names(ins)[4] <- "mean"; ins$h <- 0.5; ins$k <- 1
+  res <- list(counts = counts, instruments = ins,
+              iso = data.frame(group = grp, size_class = "all sizes", mean = 1, s_r = 1, s_r_low = 0.5,
+                               s_r_high = 2, s_L = 1, s_R = 1.4, s_R_low = 0.8, s_R_high = 3,
+                               r_limit = 2.8, R_limit = 4, cv_r_pct = 1, cv_L_pct = 1, cv_R_pct = 1),
+              critical = list(h_5 = 1.42, h_1 = 1.49, k_5 = 1.59, k_1 = 1.77))
+  expect_equal(env$precision_single_groups(res), "Protein")
+  expect_equal(env$precision_groups(res, mode = "plastics", category = "both"), c("Plastics", "PC", "Cellulose"))
+  expect_equal(env$precision_groups(res, mode = "plastics", category = "synthetic"), c("Synthetic", "PC"))
+  expect_true("Protein *" %in% env$precision_iso_table(res)$Group)
+  h <- env$precision_mandel_plot(res, "h", groups = grp[-3])
+  expect_false("Protein" %in% as.character(h$data$group))
+  expect_s3_class(env$precision_counts_plotly(res), "plotly")
+})

@@ -205,6 +205,14 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   Compute). The runs' instrument tables are used (stitched PerkinElmer
   segments, LDIR joined to its image coordinates), the counting cutoffs come
   from the first run's config; no raw files to name.
+- Precision study views: a group reported by one instrument only is marked
+  "*" (an identification difference, not a precision) and left out of the
+  Mandel h / k plots, which state their ceilings ((p - 1) / sqrt(p) and
+  sqrt(p)); a short explanation under every table and figure, in the viewer's
+  Precision tab and the PDF report; the counts-per-replicate plot is
+  interactive (plotly: hover a dot for its replicate, a bar for mean and SD)
+  with the Summary tab's switches (all particles / plastics only, synthetic
+  only / synthetic + semi-synthetic); new total group "Synthetic".
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

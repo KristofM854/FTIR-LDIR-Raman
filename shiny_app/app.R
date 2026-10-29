@@ -914,22 +914,40 @@ ui <- fluidPage(
         mainPanel(width = 9,
           uiOutput("prec_empty"),
           h4("Repeatability and reproducibility"),
-          tags$p(class = "text-muted", style = "font-size:12px;",
-                 "Counts per filter. s_r: within an instrument; s_L: between instruments; ",
-                 "s_R: reproducibility (s_R\u00b2 = s_L\u00b2 + s_r\u00b2); r / R = 2.8 s_r / 2.8 s_R; ",
-                 "CV: % of the mean count; 95% CI in brackets (ISO 5725-2)."),
+          tags$p(class = "text-muted", style = "font-size:12px;", PRECISION_CAPTIONS$iso),
           tableOutput("prec_iso_table"),
-          plotOutput("prec_counts_plot", height = "420px"),
-          fluidRow(column(6, plotOutput("prec_components_plot", height = "380px")),
-                   column(6, plotOutput("prec_size_plot", height = "380px"))),
+          hr(),
+          h4("Particle counts per replicate"),
+          fluidRow(
+            column(12, tags$div(style = "font-size: 14px;",
+              radioButtons("prec_counts_mode", NULL,
+                           choices = c("All particles" = "all", "Plastics only" = "plastics"),
+                           selected = "all", inline = TRUE),
+              conditionalPanel(
+                condition = "input.prec_counts_mode === 'plastics'",
+                radioButtons("prec_counts_category", NULL,
+                             choices = c("Synthetic only" = "synthetic",
+                                         "Synth. + Semi-synth." = "both"),
+                             selected = "both", inline = TRUE))))),
+          tags$p(class = "text-muted", style = "font-size:12px;", PRECISION_CAPTIONS$counts,
+                 " Hover a dot for its replicate, a bar for the mean and SD."),
+          plotly::plotlyOutput("prec_counts_plot", height = "560px"),
+          hr(),
+          h4("Precision components"),
+          fluidRow(column(6, plotOutput("prec_components_plot", height = "380px"),
+                          tags$p(class = "text-muted", style = "font-size:12px;",
+                                 PRECISION_CAPTIONS$components)),
+                   column(6, plotOutput("prec_size_plot", height = "380px"),
+                          tags$p(class = "text-muted", style = "font-size:12px;",
+                                 PRECISION_CAPTIONS$by_size))),
+          hr(),
           h4("Instruments"),
-          tags$p(class = "text-muted", style = "font-size:12px;",
-                 "Mandel's h / k: an instrument's mean / replicate spread against the others; ",
-                 "(5%) / (1%): indicator level exceeded. Var / mean: 1 for pure counting (Poisson) ",
-                 "noise; p < 0.05: more variation than counting alone gives."),
+          tags$p(class = "text-muted", style = "font-size:12px;", PRECISION_CAPTIONS$instruments),
           tableOutput("prec_inst_table"),
-          fluidRow(column(6, plotOutput("prec_h_plot", height = "360px")),
-                   column(6, plotOutput("prec_k_plot", height = "360px")))
+          fluidRow(column(6, plotOutput("prec_h_plot", height = "380px"),
+                          tags$p(class = "text-muted", style = "font-size:12px;", PRECISION_CAPTIONS$h)),
+                   column(6, plotOutput("prec_k_plot", height = "380px"),
+                          tags$p(class = "text-muted", style = "font-size:12px;", PRECISION_CAPTIONS$k)))
         )
       )
     )
@@ -5588,9 +5606,12 @@ server <- function(input, output, session) {
     r <- prec_res(); req(r)
     precision_iso_table(r, size_class = input$prec_size %||% "all sizes")
   }, striped = TRUE, spacing = "s")
-  output$prec_counts_plot <- renderPlot({
+  output$prec_counts_plot <- plotly::renderPlotly({
     r <- prec_res(); req(r)
-    precision_counts_plot(r, size_class = input$prec_size %||% "all sizes")
+    g <- precision_groups(r, mode = input$prec_counts_mode %||% "all",
+                          category = input$prec_counts_category %||% "both")
+    shiny::validate(shiny::need(length(g) > 0, "No particles in this selection."))
+    precision_counts_plotly(r, groups = g, size_class = input$prec_size %||% "all sizes")
   })
   output$prec_components_plot <- renderPlot({ r <- prec_res(); req(r); precision_components_plot(r) })
   output$prec_size_plot <- renderPlot({
