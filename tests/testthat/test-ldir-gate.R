@@ -216,4 +216,12 @@ test_that("precision view: one-instrument groups marked and left out of Mandel; 
   h <- env$precision_mandel_plot(res, "h", groups = grp[-3])
   expect_false("Protein" %in% as.character(h$data$group))
   expect_s3_class(env$precision_counts_plotly(res), "plotly")
+  ins$dispersion_p <- 0.5; ins$h_flag <- ""; ins$k_flag <- ""
+  ins$k_flag[ins$group == "Synthetic" & ins$instrument == "ldir"] <- "5%"
+  res$instruments <- ins
+  txt <- env$precision_summary_text(res)
+  expect_match(txt, "Synthetic particles (all sizes): mean 1.0 per filter over 4 instruments", fixed = TRUE)
+  expect_match(txt, "Mandel flags: k for LDIR (5%)", fixed = TRUE)
+  expect_match(env$precision_summary_text(res, "Protein"), "Only one instrument")
+  expect_match(env$precision_summary_text(res, "PET"), "No PET particles")
 })

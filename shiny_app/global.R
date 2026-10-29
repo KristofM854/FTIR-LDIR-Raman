@@ -3589,6 +3589,53 @@ precision_instrument_table <- function(res, group = "All particles", size_class 
                                     formatC(d$dispersion_p, format = "g", digits = 2)))
 }
 
+#' Short results paragraph for the report's first page, one group (by
+#' default the synthetic polymers), written from the numbers so it always
+#' matches the tables
+precision_summary_text <- function(res, group = "Synthetic") {
+  iso <- res$iso[res$iso$group == group, ]
+  a <- iso[iso$size_class == "all sizes", ]
+  if (nrow(a) == 0 || is.na(a$mean) || a$mean == 0)
+    return(sprintf("No %s particles were counted.", group))
+  ins <- res$instruments[res$instruments$group == group & res$instruments$size_class == "all sizes", ]
+  lab <- function(k) unname(PRECISION_INST_LABEL[k])
+  f1 <- function(v) formatC(v, format = "f", digits = 1)
+  pc <- function(v) paste0(formatC(v, format = "f", digits = 0), "%")
+  txt <- sprintf("%s particles (all sizes): mean %s per filter over %d instruments.",
+                 group, f1(a$mean), nrow(ins))
+  if (group %in% precision_single_groups(res))
+    return(paste(txt, "Only one instrument reported them, so no between-instrument",
+                 "statistics are given."))
+  if (!is.na(a$s_r))
+    txt <- paste(txt, sprintf("Repeatability CV_r %s (r = %s counts);", pc(a$cv_r_pct), f1(a$r_limit)),
+                 sprintf("between-instrument CV_L %s, giving reproducibility CV_R %s (R = %s counts).",
+                         pc(a$cv_L_pct), pc(a$cv_R_pct), f1(a$R_limit)))
+  if (!is.na(a$s_R) && a$s_R > 0)
+    txt <- paste(txt, sprintf("Instrument differences make up %s of the reproducibility variance.",
+                              pc(100 * a$s_L^2 / a$s_R^2)))
+  if (nrow(ins) >= 2) {
+    lo <- ins[which.min(ins$mean), ]; hi <- ins[which.max(ins$mean), ]
+    txt <- paste(txt, sprintf("Instrument means range from %s (%s) to %s (%s).",
+                              f1(lo$mean), lab(lo$instrument), f1(hi$mean), lab(hi$instrument)))
+  }
+  fl <- c(if (any(nzchar(ins$h_flag))) sprintf("h for %s", paste(sprintf("%s (%s)",
+            lab(ins$instrument[nzchar(ins$h_flag)]), ins$h_flag[nzchar(ins$h_flag)]), collapse = ", ")),
+          if (any(nzchar(ins$k_flag))) sprintf("k for %s", paste(sprintf("%s (%s)",
+            lab(ins$instrument[nzchar(ins$k_flag)]), ins$k_flag[nzchar(ins$k_flag)]), collapse = ", ")))
+  txt <- paste(txt, if (length(fl)) paste0("Mandel flags: ", paste(fl, collapse = "; "), ".")
+                    else "No instrument is flagged by Mandel's h or k.")
+  over <- ins$instrument[!is.na(ins$dispersion_p) & ins$dispersion_p < 0.05]
+  txt <- paste(txt, if (length(over))
+    sprintf("Replicate scatter exceeds counting (Poisson) noise for %s.", paste(lab(over), collapse = ", "))
+    else "Replicate scatter is consistent with counting (Poisson) noise.")
+  sz <- iso[iso$size_class != "all sizes" & !is.na(iso$cv_R_pct) & iso$mean >= 5, ]
+  if (nrow(sz) >= 2)
+    txt <- paste(txt, sprintf("By size (classes with mean >= 5), CV_R is highest for %s um (%s) and lowest for %s um (%s).",
+                              sz$size_class[which.max(sz$cv_R_pct)], pc(max(sz$cv_R_pct)),
+                              sz$size_class[which.min(sz$cv_R_pct)], pc(min(sz$cv_R_pct))))
+  txt
+}
+
 #' Report pages of a precision study (write_report_pdf())
 precision_report_pages <- function(res, title = "Precision study") {
   des <- res$design
@@ -3596,6 +3643,7 @@ precision_report_pages <- function(res, title = "Precision study") {
   reps <- table(factor(des$instrument, levels = names(PRECISION_INST_LABEL)))
   reps <- reps[reps > 0]
   intro <- c(
+    "Summary (synthetic polymers):", precision_summary_text(res, "Synthetic"), "",
     sprintf("Instruments: %s", paste(sprintf("%s (%d replicates)", PRECISION_INST_LABEL[names(reps)],
                                              as.integer(reps)), collapse = ", ")),
     "", "Measurand: particle count per filter, per group and size class (Feret max).",

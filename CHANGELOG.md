@@ -213,6 +213,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   interactive (plotly: hover a dot for its replicate, a bar for mean and SD)
   with the Summary tab's switches (all particles / plastics only, synthetic
   only / synthetic + semi-synthetic); new total group "Synthetic".
+- Precision report: the first page opens with a short results paragraph for
+  the synthetic polymers (`precision_summary_text()`), written from the
+  numbers: mean count, CV_r / CV_L / CV_R with r and R, the instrument share
+  of the reproducibility variance, the instrument range, Mandel flags,
+  counting-noise check and the size classes with the highest / lowest CV_R.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
