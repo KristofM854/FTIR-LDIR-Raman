@@ -218,6 +218,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   numbers: mean count, CV_r / CV_L / CV_R with r and R, the instrument share
   of the reproducibility variance, the instrument range, Mandel flags,
   counting-noise check and the size classes with the highest / lowest CV_R.
+  Study folders written before the "Synthetic" group get it on reading,
+  summed from the synthetic family counts (the same count) with its
+  statistics, so their summary and tables are complete.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

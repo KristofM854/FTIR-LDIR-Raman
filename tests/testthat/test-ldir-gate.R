@@ -225,3 +225,27 @@ test_that("precision view: one-instrument groups marked and left out of Mandel; 
   expect_match(env$precision_summary_text(res, "Protein"), "Only one instrument")
   expect_match(env$precision_summary_text(res, "PET"), "No PET particles")
 })
+
+test_that("precision results written before the Synthetic group get it from the families", {
+  env <- .load_global_helpers()
+  sys.source(file.path(REPO_ROOT, "R", "08b_material_map.R"), envir = env)
+  inst <- c("ftir", "raman")
+  counts <- expand.grid(instrument = inst, replicate = 1:3, group = c("All particles", "PC", "PET", "Cellulose"),
+                        size_class = c("all sizes", "20-50"), stringsAsFactors = FALSE)
+  counts$count <- 5 + seq_len(nrow(counts)) %% 7
+  dir <- withr::local_tempdir()
+  utils::write.csv(counts, file.path(dir, "precision_counts.csv"), row.names = FALSE)
+  utils::write.csv(data.frame(group = "All particles", size_class = "all sizes", mean = 1),
+                   file.path(dir, "precision_iso5725.csv"), row.names = FALSE)
+  utils::write.csv(data.frame(group = "All particles", size_class = "all sizes", instrument = inst, mean = 1),
+                   file.path(dir, "precision_instruments.csv"), row.names = FALSE)
+  r <- env$read_precision_results(dir)
+  syn <- r$counts[r$counts$group == "Synthetic", ]
+  want <- stats::aggregate(count ~ instrument + replicate + size_class,
+                           counts[counts$group %in% c("PC", "PET"), ], sum)
+  m <- merge(syn, want, by = c("instrument", "replicate", "size_class"))
+  expect_equal(nrow(m), 12)
+  expect_equal(m$count.x, m$count.y)
+  expect_equal(r$iso$group[1:2], c("All particles", "Synthetic"))
+  expect_false(grepl("No Synthetic", env$precision_summary_text(r)))
+})
