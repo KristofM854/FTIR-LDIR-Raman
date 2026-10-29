@@ -112,8 +112,11 @@ for (g in intersect(c("All particles", "Plastics"), iso$group)) {
   log_message(sprintf("  %-14s mean %.1f | CV_r %.0f%% (s_r %.1f) | CV_L %.0f%% | CV_R %.0f%% (s_R %.1f) | r %.1f, R %.1f",
                       g, r$mean, r$cv_r_pct, r$s_r, r$cv_L_pct, r$cv_R_pct, r$s_R, r$r_limit, r$R_limit))
 }
-flags <- res$instruments[res$instruments$size_class == "all sizes" &
-                         (nzchar(res$instruments$h_flag) | nzchar(res$instruments$k_flag)), ]
+# Groups reported by one instrument only sit at the Mandel ceiling whatever
+# the counts: not worth a warning
+ins <- res$instruments[res$instruments$size_class == "all sizes", ]
+n_rep <- tapply(ins$mean > 0, ins$group, sum)
+flags <- ins[(nzchar(ins$h_flag) | nzchar(ins$k_flag)) & ins$group %in% names(n_rep)[n_rep >= 2], ]
 for (i in seq_len(nrow(flags)))
   log_message(sprintf("  Mandel: %s, %s: h %.2f %s, k %.2f %s", PRECISION_ROLES[[flags$instrument[i]]],
                       flags$group[i], flags$h[i], flags$h_flag[i], flags$k[i], flags$k_flag[i]),
