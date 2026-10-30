@@ -3402,6 +3402,29 @@ list_precision_results <- function(base) {
   d[order(file.mtime(d), decreasing = TRUE)]
 }
 
+#' Labels for the study selector, like the run list's: the study folder, the
+#' replicates (run folders, or "n files" for a study from exports) and where
+#' their input data came from (run_input_folder()); the folder name alone when
+#' the design cannot be read
+precision_study_labels <- function(dirs) {
+  vapply(dirs, function(d) {
+    des <- tryCatch(utils::read.csv(file.path(d, "precision_design.csv"), stringsAsFactors = FALSE),
+                    error = function(e) NULL)
+    if (is.null(des) || !nrow(des)) return(basename(d))
+    reps <- unique(as.character(des$replicate))
+    from_runs <- "run_dir" %in% names(des) && any(!is.na(des$run_dir) & nzchar(des$run_dir))
+    what <- if (from_runs) {
+      paste0(length(reps), " runs: ", if (length(reps) <= 3) paste(reps, collapse = ", ")
+             else paste(reps[1], "\u2026", reps[length(reps)]))
+    } else sprintf("%d files, %d replicates", nrow(des), length(reps))
+    m <- if (from_runs) load_run_manifest(des$run_dir[!is.na(des$run_dir)][1]) else NULL
+    where <- if (!is.null(m) && !isTRUE(m$is_missing))
+      run_input_folder(m, des$run_dir[!is.na(des$run_dir)][1])
+    else run_input_folder(list(inputs = list(list(path = des$file[1]))))
+    paste0(basename(d), " \u2014 ", what, if (nzchar(where)) paste0(" \u2014 ", where) else "")
+  }, character(1), USE.NAMES = FALSE)
+}
+
 # Totals (not polymer families)
 PRECISION_TOTALS <- c("All particles", "Plastics", "Synthetic")
 

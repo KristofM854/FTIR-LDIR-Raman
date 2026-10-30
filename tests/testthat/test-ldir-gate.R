@@ -249,3 +249,22 @@ test_that("precision results written before the Synthetic group get it from the 
   expect_equal(r$iso$group[1:2], c("All particles", "Synthetic"))
   expect_false(grepl("No Synthetic", env$precision_summary_text(r)))
 })
+
+test_that("precision study labels name the runs and their input folder", {
+  env <- .load_global_helpers()
+  env$load_run_manifest <- function(run_dir)
+    list(is_missing = FALSE, inputs = list(raman = list(path = "C:/Users/k/My Documents/PC_A_ref/raman/R.csv")))
+  root <- withr::local_tempdir()
+  a <- file.path(root, "2026-10-29_085018"); b <- file.path(root, "2026-10-30_101010")
+  dir.create(a); dir.create(b)
+  utils::write.csv(data.frame(instrument = "ftir", replicate = c("2026-10-28_1", "2026-10-29_1", "2026-10-29_2"),
+                              file = "x.csv", source = "run", run_dir = file.path(root, "run")),
+                   file.path(a, "precision_design.csv"), row.names = FALSE)
+  utils::write.csv(data.frame(instrument = "ldir", replicate = 1:2,
+                              file = "/home/k/Documents/lab/rep/ldir.csv"),
+                   file.path(b, "precision_design.csv"), row.names = FALSE)
+  lab <- env$precision_study_labels(c(a, b, file.path(root, "none")))
+  expect_equal(lab[1], "2026-10-29_085018 \u2014 3 runs: 2026-10-28_1, 2026-10-29_1, 2026-10-29_2 \u2014 PC_A_ref/raman")
+  expect_equal(lab[2], "2026-10-30_101010 \u2014 2 files, 2 replicates \u2014 lab/rep")
+  expect_equal(lab[3], "none")
+})
