@@ -71,3 +71,42 @@ test_that("the cancel condition is classed, not a bare error", {
   expect_s3_class(cond, "pipeline_cancelled")
   expect_match(conditionMessage(cond), "test reason")
 })
+
+# The whole explicit-input block: instrument list, slots, confirmation
+.run_input_block <- function(instruments, files, confirm = "YES") {
+  src <- readLines(file.path(REPO_ROOT, "main.R"), warn = FALSE)
+  i <- grep("^  # Abort the run cleanly", src)[1]
+  j <- grep("^\\} else if \\(input_mode == \"interactive\"\\)", src)[1]
+  env <- new.env(parent = globalenv())
+  env$.is_windows <- TRUE; env$.last_dir <- NULL
+  env$interactive <- function() TRUE
+  env$`%||%` <- function(a, b) if (is.null(a)) b else a
+  env$select.list <- function(...) instruments
+  q <- files; asked <- character(0)
+  env$choose.files <- function(caption, ...) {
+    asked <<- c(asked, caption); v <- q[1]; q <<- q[-1]; if (is.na(v)) "" else v
+  }
+  shown <- NULL
+  env$winDialog <- function(type, message) { shown <<- message; confirm }
+  txt <- gsub("utils::(select\\.list|winDialog)", "\\1", paste(src[i:(j - 1)], collapse = "\n"))
+  out <- suppressMessages(tryCatch({ eval(parse(text = txt), envir = env); "RAN" },
+                                   pipeline_cancelled = function(c) conditionMessage(c)))
+  list(out = out, env = env, asked = asked, shown = shown)
+}
+
+test_that("only the chosen instruments' dialogs open, and the files are confirmed", {
+  r <- .run_input_block(c("Raman", "LDIR"), c("r.csv", "", "l.csv", "l.png"))
+  expect_identical(r$out, "RAN")
+  expect_length(r$asked, 4)
+  expect_true(all(grepl("^(Raman|LDIR)", r$asked)))
+  expect_identical(r$env$raman_file, "r.csv"); expect_null(r$env$raman_image)
+  expect_null(r$env$ftir_file)
+  expect_match(r$shown, "l.png", fixed = TRUE)
+})
+
+test_that("Cancel on the instrument list or No at the confirmation ends the run at once", {
+  expect_match(.run_input_block(character(0), character(0))$out, "no instruments selected")
+  expect_match(.run_input_block("Raman", character(0))$out, "at least two")
+  r <- .run_input_block(c("Raman", "LDIR"), c("wrong.csv", "", "l.csv", ""), confirm = "NO")
+  expect_match(r$out, "not confirmed")
+})

@@ -224,6 +224,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - Precision tab: the study selector names each study like the run list
   does: study folder, its runs (or number of export files) and the input
   folder of the data (`precision_study_labels()`).
+- File input (`main.R`): a list of instruments first, so only their dialogs
+  open (Cancel there ends the run), and a confirmation of the chosen files
+  before the run starts (No ends it) -- no more cancelling through every
+  remaining slot after a wrong file.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
