@@ -75,9 +75,10 @@ FTIR Bruker, LDIR). The shared frame is Raman when it is present, else FTIR
 and every pair of instruments is matched. LDIR is never the frame (its
 coordinates usually come from its image), so LDIR needs Raman or an FTIR.
 
-**Option A — File pickers** (default): `source("main.R")` opens one file
-dialog per instrument slot; cancel a slot to skip it. At least two data files
-are needed.
+**Option A — File pickers** (default): `source("main.R")` first asks which
+instruments take part (at least two; Cancel ends the run), then opens a file
+dialog for each one's data file and image (Cancel on an image skips it). A
+last dialog lists the chosen files: No ends the run, e.g. after a wrong file.
 
 **Option B — Paths in a script** (non-interactive):
 

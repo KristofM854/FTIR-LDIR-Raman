@@ -36,10 +36,10 @@ if (!exists("input_mode")) input_mode <- "explicit"
 
 if (input_mode == "explicit") {
   # ------ Explicit per-slot file picker dialogs ------
-  # Each call opens a single-file picker with a descriptive caption.
-  # Optional slots (images, LDIR, Bruker) return NULL when the user
-  # presses Cancel -- the pipeline skips those instruments/images.
-  # Mandatory slots (Raman) re-prompt until a file is chosen.
+  # A list of instruments first, then one single-file picker per slot of the
+  # chosen instruments. Image slots return NULL on Cancel (skipped); a data
+  # slot re-prompts once, a second Cancel ends the run. A confirmation lists
+  # the files before the run starts (No ends it).
 
   .is_windows <- tolower(.Platform$OS.type) == "windows"
 
@@ -103,39 +103,60 @@ if (input_mode == "explicit") {
     }
   }
 
+  # Last check before the run: the chosen files, Yes to run, No to end
+  .confirm_files <- function(lines) {
+    if (.is_windows)
+      return(identical(utils::winDialog("yesno", paste0(
+        "Start the run with these files?\n\n", paste(lines, collapse = "\n"))), "YES"))
+    ans <- readline("Start the run with these files? [Y/n] ")
+    tolower(trimws(ans)) %in% c("", "y", "yes")
+  }
+
   DATA_FILTER  <- "Data files|*.csv;*.xlsx;*.xls|All files|*.*"
   IMAGE_FILTER <- "Image files|*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp|All files|*.*"
 
-  message("=== File Input: one dialog per instrument slot ===")
-  message("Press Cancel on a slot to skip it. Any two or more instruments can be ",
-          "combined (data file each; images optional).\n")
+  # Which instruments take part: one list up front, so only their dialogs
+  # open (Cancel here ends the run at once). A wrong file is caught by the
+  # confirmation after the last dialog -- one click instead of cancelling
+  # through every remaining slot.
+  .INSTRUMENTS <- c(ftir = "FTIR (PerkinElmer)", ftir_bruker = "FTIR Bruker (Lumos)",
+                    raman = "Raman", ldir = "LDIR")
+  .chosen <- if (interactive())
+    names(.INSTRUMENTS)[.INSTRUMENTS %in% utils::select.list(
+      unname(.INSTRUMENTS), multiple = TRUE, graphics = .is_windows,
+      title = "Instruments in this run (Cancel ends the run)")] else names(.INSTRUMENTS)
+  if (length(.chosen) == 0) .cancel_pipeline("no instruments selected")
+  if (length(.chosen) < 2) .cancel_pipeline("at least two instruments are needed")
 
-  ftir_file         <- .pick_file("FTIR (PerkinElmer) \u2014 data file (.csv/.xlsx)",
-                                   required = FALSE, filter = DATA_FILTER)
-  ftir_image        <- .pick_file("FTIR (PerkinElmer) \u2014 microscope image (optional)",
-                                   required = FALSE, filter = IMAGE_FILTER)
+  message("=== File Input: ", paste(.INSTRUMENTS[.chosen], collapse = ", "), " ===")
+  message("Data file: Cancel twice ends the run. Image: Cancel skips it.\n")
 
-  ftir_bruker_file  <- .pick_file("FTIR Bruker (Lumos) \u2014 data file (.csv/.xlsx) (optional)",
-                                   required = FALSE, filter = DATA_FILTER)
-  ftir_bruker_image <- .pick_file("FTIR Bruker (Lumos) \u2014 microscope image (optional)",
-                                   required = FALSE, filter = IMAGE_FILTER)
-
-  raman_file        <- .pick_file("Raman \u2014 data file (.csv/.xlsx) (optional)",
-                                   required = FALSE, filter = DATA_FILTER)
-  raman_image       <- .pick_file("Raman \u2014 microscope image, full size is fine (optional)",
-                                   required = FALSE, filter = IMAGE_FILTER)
-
-  ldir_file         <- .pick_file("LDIR \u2014 data file (.csv/.xlsx) (optional)",
-                                   required = FALSE, filter = DATA_FILTER)
-  ldir_image        <- .pick_file("LDIR \u2014 companion image (optional)",
-                                   required = FALSE, filter = IMAGE_FILTER)
-
-  message("\n=== Selected files ===")
-  for (nm in c("ftir_file", "ftir_image", "ftir_bruker_file", "ftir_bruker_image",
-               "raman_file", "raman_image", "ldir_file", "ldir_image")) {
-    val <- get(nm)
-    message(sprintf("  %-24s %s", nm, if (is.null(val)) "(skipped)" else val))
+  .slot <- function(key, what, filter, image = FALSE) {
+    if (!key %in% .chosen) return(NULL)
+    .pick_file(paste0(.INSTRUMENTS[[key]], " \u2014 ", what), required = !image, filter = filter)
   }
+  ftir_file         <- .slot("ftir", "data file (.csv/.xlsx)", DATA_FILTER)
+  ftir_image        <- .slot("ftir", "microscope image (optional)", IMAGE_FILTER, image = TRUE)
+  ftir_bruker_file  <- .slot("ftir_bruker", "data file (.csv/.xlsx)", DATA_FILTER)
+  ftir_bruker_image <- .slot("ftir_bruker", "microscope image (optional)", IMAGE_FILTER, image = TRUE)
+  raman_file        <- .slot("raman", "data file (.csv/.xlsx)", DATA_FILTER)
+  raman_image       <- .slot("raman", "microscope image, full size is fine (optional)",
+                             IMAGE_FILTER, image = TRUE)
+  ldir_file         <- .slot("ldir", "data file (.csv/.xlsx)", DATA_FILTER)
+  ldir_image        <- .slot("ldir", "companion image (optional)", IMAGE_FILTER, image = TRUE)
+
+  .picked <- c(ftir_file = ftir_file %||% "", ftir_image = ftir_image %||% "",
+               ftir_bruker_file = ftir_bruker_file %||% "",
+               ftir_bruker_image = ftir_bruker_image %||% "",
+               raman_file = raman_file %||% "", raman_image = raman_image %||% "",
+               ldir_file = ldir_file %||% "", ldir_image = ldir_image %||% "")
+  .summary <- sprintf("  %-18s %s", names(.picked),
+                      ifelse(nzchar(.picked), basename(.picked), "(skipped)"))
+  message("\n=== Selected files ===")
+  message(paste(sprintf("  %-24s %s", names(.picked),
+                        ifelse(nzchar(.picked), .picked, "(skipped)")), collapse = "\n"))
+  if (interactive() && !.confirm_files(.summary))
+    .cancel_pipeline("files not confirmed")
   .n_data <- sum(!vapply(list(ftir_file, ftir_bruker_file, raman_file, ldir_file),
                          is.null, logical(1)))
   if (.n_data < 2)
