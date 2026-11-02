@@ -5546,7 +5546,7 @@ server <- function(input, output, session) {
     dirs <- list_precision_results(.prec_base_dir())
     if (length(dirs) == 0) return(tags$p(class = "text-muted", "No precision results found."))
     sel <- prec_new_dir()
-    selectInput("prec_dir", "Study", choices = stats::setNames(dirs, basename(dirs)),
+    selectInput("prec_dir", "Study", choices = stats::setNames(dirs, precision_study_labels(dirs)),
                 selected = if (!is.null(sel) && sel %in% dirs) sel else dirs[1])
   })
   # Run list for a new study (same labels as the run selector)
