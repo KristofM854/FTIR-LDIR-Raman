@@ -233,6 +233,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   against the project folder (`project_path()`), so a study computed in the
   viewer lands in the pipeline's `output/precision/`, not in
   `shiny_app/output/precision/`.
+- FTIR / Bruker reader: coordinates written as "[x,y]" (no semicolon, one
+  comma; an occasional Lumos export glitch) are read with the comma as the
+  x/y separator, with a warning naming the file and the number of rows,
+  instead of failing with "could not be parsed as [x;y]".
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
