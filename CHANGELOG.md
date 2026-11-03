@@ -227,7 +227,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - File input (`main.R`): a list of instruments first, so only their dialogs
   open (Cancel there ends the run), and a confirmation of the chosen files
   before the run starts (No ends it) -- no more cancelling through every
-  remaining slot after a wrong file.
+  remaining slot after a wrong file. The confirmation is a Tk window as wide
+  as the longest file name (Windows message box when Tk is unavailable).
 - Viewer: the Precision and Replicates tabs resolve their results folders
   against the project folder (`project_path()`), so a study computed in the
   viewer lands in the pipeline's `output/precision/`, not in
