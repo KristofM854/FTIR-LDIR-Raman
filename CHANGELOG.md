@@ -228,6 +228,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   open (Cancel there ends the run), and a confirmation of the chosen files
   before the run starts (No ends it) -- no more cancelling through every
   remaining slot after a wrong file.
+- Viewer: the Precision and Replicates tabs resolve their results folders
+  against the project folder (`project_path()`), so a study computed in the
+  viewer lands in the pipeline's `output/precision/`, not in
+  `shiny_app/output/precision/`.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

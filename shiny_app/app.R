@@ -5535,10 +5535,8 @@ server <- function(input, output, session) {
   # ==================================================================
   .prec_base_dir <- reactive({
     input$prec_refresh
-    b <- input$prec_base %||% "output/precision"
-    # relative to the project folder; the app runs in shiny_app/
-    if (!dir.exists(b) && dir.exists(file.path("..", b))) b <- file.path("..", b)
-    b
+    b <- input$prec_base
+    project_path(if (is.null(b) || !nzchar(b)) "output/precision" else b)
   })
   prec_new_dir <- reactiveVal(NULL)
   output$prec_select_ui <- renderUI({
@@ -5635,6 +5633,7 @@ server <- function(input, output, session) {
     input$repro_refresh                       # manual rescan trigger
     base <- input$repro_base
     if (is.null(base) || !nzchar(base)) base <- "output/reproducibility"
+    base <- project_path(base)
     has_pts <- function(d) file.exists(file.path(d, "reproducibility_points.csv"))
     dirs <- character(0)
     if (has_pts(base)) dirs <- c(dirs, base)

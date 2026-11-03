@@ -268,3 +268,13 @@ test_that("precision study labels name the runs and their input folder", {
   expect_equal(lab[2], "2026-10-30_101010 \u2014 2 files, 2 replicates \u2014 lab/rep")
   expect_equal(lab[3], "none")
 })
+
+test_that("viewer result folders resolve against the project folder, not shiny_app/", {
+  env <- .load_global_helpers()
+  root <- normalizePath(REPO_ROOT, winslash = "/")
+  expect_equal(normalizePath(env$project_path("output/precision"), winslash = "/", mustWork = FALSE),
+               file.path(root, "output", "precision"))
+  expect_equal(env$project_path("C:/data/prec"), "C:/data/prec")
+  expect_equal(env$project_path("C:\\data\\prec"), "C:\\data\\prec")
+  expect_equal(env$project_path("/srv/prec"), "/srv/prec")
+})
