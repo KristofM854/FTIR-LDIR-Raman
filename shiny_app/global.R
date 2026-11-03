@@ -106,6 +106,13 @@ DEFAULT_MIN_SIZE_UM <- 20
   hit[[1]]
 })
 
+#' A folder typed in the viewer: absolute as given, relative to the project
+#' folder (where main.R writes output/), not to shiny_app/ where the app runs
+project_path <- function(p) {
+  if (grepl("^([A-Za-z]:)?[/\\\\]|^~", p)) return(p)
+  file.path(dirname(normalizePath(.pipeline_r_dir, winslash = "/", mustWork = FALSE)), p)
+}
+
 # Source canonical material classification from pipeline
 # (classify_family_vec, classify_category, classify_category_vec, etc.)
 source(file.path(.pipeline_r_dir, "08b_material_map.R"), local = TRUE)
