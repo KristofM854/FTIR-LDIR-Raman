@@ -103,13 +103,38 @@ if (input_mode == "explicit") {
     }
   }
 
-  # Last check before the run: the chosen files, Yes to run, No to end
+  # Last check before the run: the chosen files, Yes to run, No to end.
+  # A Tk window as wide as the longest file name (the Windows message box
+  # wraps long names at a fixed width); the message box, or the console,
+  # when Tk is not available.
   .confirm_files <- function(lines) {
+    tk <- tryCatch(.confirm_files_tk(lines), error = function(e) NA)
+    if (!is.na(tk)) return(tk)
     if (.is_windows)
       return(identical(utils::winDialog("yesno", paste0(
         "Start the run with these files?\n\n", paste(lines, collapse = "\n"))), "YES"))
     ans <- readline("Start the run with these files? [Y/n] ")
     tolower(trimws(ans)) %in% c("", "y", "yes")
+  }
+  .confirm_files_tk <- function(lines) {
+    if (!isTRUE(capabilities("tcltk")) || !requireNamespace("tcltk", quietly = TRUE)) return(NA)
+    tt <- tcltk::tktoplevel()
+    tcltk::tkwm.title(tt, "Start the run?")
+    ok <- tcltk::tclVar(0)
+    tcltk::tkgrid(tcltk::tklabel(tt, text = "Start the run with these files?"),
+                  sticky = "w", padx = 14, pady = c(12, 6))
+    tcltk::tkgrid(tcltk::tklabel(tt, text = paste(lines, collapse = "\n"), justify = "left",
+                                 font = "TkFixedFont"), sticky = "w", padx = 14)
+    btn <- tcltk::tkframe(tt)
+    close <- function(v) function() { tcltk::tclvalue(ok) <- v; tcltk::tkdestroy(tt) }
+    yes <- tcltk::tkbutton(btn, text = "Yes", width = 10, command = close(1))
+    tcltk::tkgrid(yes, tcltk::tkbutton(btn, text = "No", width = 10, command = close(0)), padx = 6)
+    tcltk::tkgrid(btn, sticky = "e", padx = 10, pady = 12)
+    tcltk::tkbind(tt, "<Return>", close(1)); tcltk::tkbind(tt, "<Escape>", close(0))
+    tcltk::tcl("wm", "attributes", tt, "-topmost", 1)
+    tcltk::tkfocus(yes)
+    tcltk::tkwait.window(tt)
+    identical(tcltk::tclvalue(ok), "1")
   }
 
   DATA_FILTER  <- "Data files|*.csv;*.xlsx;*.xls|All files|*.*"

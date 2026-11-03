@@ -94,13 +94,21 @@ parse_ftir_coordinates <- function(coord_str) {
   # Remove brackets and split on semicolon
 
   cleaned <- gsub("\\[|\\]", "", coord_str)
+  # Some exports (seen in Bruker Lumos files) write "[x,y]": no semicolon and
+  # exactly one comma, so the comma separates x and y rather than decimals.
+  # Counted in attr "comma_separated" so the reader can warn.
+  comma_sep <- !is.na(cleaned) & !grepl(";", cleaned, fixed = TRUE) &
+    nchar(gsub("[^,]", "", cleaned)) == 1L
+  cleaned[comma_sep] <- sub(",", ";", cleaned[comma_sep], fixed = TRUE)
   parts   <- strsplit(cleaned, ";")
 
   # as_number() also accepts a decimal comma: "[94,5;1650,2]".
   x_um <- vapply(parts, function(p) as_number(p[1]), numeric(1))
   y_um <- vapply(parts, function(p) as_number(p[2]), numeric(1))
 
-  data.frame(x_um = x_um, y_um = y_um)
+  out <- data.frame(x_um = x_um, y_um = y_um)
+  attr(out, "comma_separated") <- sum(comma_sep)
+  out
 }
 
 # ---------------------------------------------------------------------------

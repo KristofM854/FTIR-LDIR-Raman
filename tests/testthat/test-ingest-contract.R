@@ -72,3 +72,21 @@ test_that("a Raman export with duplicate IDs fails", {
          "R1,10,20,PET,80", "R1,30,40,PE,90")
   expect_error(suppressMessages(ingest_raman(.write_csv(r))), "duplicated particle ID.*R1")
 })
+
+test_that("a Lumos export with \"[x,y]\" coordinates is read, with a warning", {
+  # Seen in Bruker Lumos exports: ";"-separated, decimal comma, and the
+  # coordinates written with a comma between x and y
+  hdr <- gsub(",", ";", .ftir_header)
+  rows <- c("MP_-1;[47,677];[264,3798];0,752;Protein;440,6;34,2;16,4;22,4",
+            "MP_0;[106,779];[595,4370];0,681;PA;1007,1;61,4;20,9;32,0")
+  msgs <- character(0)
+  d <- withCallingHandlers(ingest_ftir(.write_csv(c(hdr, rows))),
+                           message = function(m) { msgs <<- c(msgs, conditionMessage(m))
+                                                   invokeRestart("muffleMessage") })
+  expect_equal(d$x_um, c(264, 595))
+  expect_equal(d$y_um, c(3798, 4370))
+  expect_equal(d$quality, c(0.752, 0.681))
+  expect_true(any(grepl("[x,y]", msgs, fixed = TRUE)))
+  # A decimal comma inside "[x;y]" stays a decimal comma
+  expect_equal(parse_ftir_coordinates(c("[94,5;1650,2]", "[264,3798]"))$x_um, c(94.5, 264))
+})
