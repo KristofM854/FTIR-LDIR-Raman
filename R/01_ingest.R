@@ -200,7 +200,8 @@ ingest_ftir <- function(filepath, sheet = "Long_Table") {
   n_comma <- attr(coords, "comma_separated") %||% 0L
   if (n_comma > 0)
     log_message("  Coordinates written as \"[x,y]\" instead of \"[x;y]\" in ", n_comma, " of ",
-                nrow(raw), " rows (a known export glitch): read with the comma as the ",
+                nrow(raw), " rows (an export with ';' between columns and ',' in the ",
+                "coordinates, which Excel shows in one column): read with the comma as the ",
                 "x/y separator. ", basename(filepath), level = "WARN")
   if (all(is.na(coords$x_um)) || all(is.na(coords$y_um)))
     stop("FTIR coordinate column '", coord_col, "' could not be parsed as ",
