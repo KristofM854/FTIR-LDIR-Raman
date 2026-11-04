@@ -621,6 +621,51 @@ image_spot_cloud <- function(raw, pl, x, y, block = 32L, margin_um = 200,
 }
 
 
+#' Fit an instrument's particle table to the particles visible in its own
+#' exactly placed image: per-axis scale and shift (x' = ax x + bx, y' = ay y +
+#' by), so the table can be corrected into the image's physical frame. The
+#' Lumos table converts both axes with about the map's x step (5.61 um/px)
+#' while the map's y step is 5.649 um, so its y runs 0.7% short of the image
+#' and the stage (Faanui field sample: up to ~55 um at the top of the scan).
+#' Iterative nearest-spot pairing with a shrinking gate; NULL unless at least
+#' half the particles pair, the scales stay within `scale_tol` of 1 and the
+#' shifts within `max_shift_um`.
+#' @param raw,pl the image and its placement (place_ftir_image())
+#' @param x,y particle table coordinates (um)
+#' @return list(ax, bx, ay, by, n, n_particles, rms_um) or NULL
+fit_table_to_image <- function(raw, pl, x, y, scale_tol = 0.03, max_shift_um = 150,
+                               block = 32L) {
+  if (is.null(raw) || is.null(pl) || isTRUE(pl$approximate)) return(NULL)
+  fin <- is.finite(x) & is.finite(y)
+  if (sum(fin) < 8) return(NULL)
+  x <- x[fin]; y <- y[fin]
+  b <- tryCatch(detect_image_blobs(raw, flatten = block), error = function(e) NULL)
+  if (is.null(b) || nrow(b) < 10) return(NULL)
+  W <- ncol(raw); H <- nrow(raw)
+  sx <- (pl$xmax - pl$xmin) / W; sy <- (pl$ymax - pl$ymin) / H
+  bx <- pl$xmin + b$cx_px * sx
+  by <- if (isTRUE(pl$flip_rows)) pl$ymin + b$cy_px * sy else pl$ymax - b$cy_px * sy
+  co <- c(ax = 1, bx = 0, ay = 1, by = 0); gate <- 120
+  for (it in 1:8) {
+    nn <- .nn1(cbind(bx, by), cbind(co["ax"] * x + co["bx"], co["ay"] * y + co["by"]))
+    ok <- nn$dist <= gate
+    if (sum(ok) < max(6, 0.5 * length(x))) return(NULL)
+    fx <- stats::lm.fit(cbind(1, x[ok]), bx[nn$idx[ok]])$coefficients
+    fy <- stats::lm.fit(cbind(1, y[ok]), by[nn$idx[ok]])$coefficients
+    co <- c(ax = fx[[2]], bx = fx[[1]], ay = fy[[2]], by = fy[[1]])
+    res <- sqrt((co["ax"] * x[ok] + co["bx"] - bx[nn$idx[ok]])^2 +
+                (co["ay"] * y[ok] + co["by"] - by[nn$idx[ok]])^2)
+    gate <- max(30, 3 * sqrt(mean(res^2)))
+  }
+  if (abs(co["ax"] - 1) > scale_tol || abs(co["ay"] - 1) > scale_tol) return(NULL)
+  mid <- c(stats::median(x), stats::median(y))
+  shift <- c(co["ax"] * mid[1] + co["bx"] - mid[1], co["ay"] * mid[2] + co["by"] - mid[2])
+  if (any(abs(shift) > max_shift_um)) return(NULL)
+  c(stats::setNames(as.list(unname(co)), c("ax", "bx", "ay", "by")),
+    list(n = sum(ok), n_particles = length(x), rms_um = sqrt(mean(res^2))))
+}
+
+
 #' Detect + register in one call, on the raster's ORIGINAL pixel grid.
 #' For a downsampled raster the blob coordinates are rescaled to the original
 #' pixel grid so the stored map stays valid for the full-resolution file.

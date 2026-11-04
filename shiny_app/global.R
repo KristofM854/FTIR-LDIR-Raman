@@ -2567,6 +2567,39 @@ add_particle_labels <- function(p, df, bounds, id_col = "particle_id",
               inherit.aes = FALSE)
 }
 
+# Overlay numbering: each instrument's particle_id in its own corner of the
+# marker -- the corners of the symbol view (SYMBOL_SLOTS: PerkinElmer top
+# left, Bruker top right, Raman bottom left, LDIR bottom right) -- in the
+# instrument's colour, with a dark shadow, so a matched pair's IDs no longer
+# print on top of each other. `df$instrument` holds the overlay's names.
+add_overlay_labels <- function(p, df, bounds, size = 3) {
+  if (is.null(df) || nrow(df) == 0 || !all(c("particle_id", "instrument") %in% names(df)))
+    return(p)
+  key <- c(FTIR = "ftir_pe", "FTIR (PerkinElmer)" = "ftir_pe", "FTIR (Bruker)" = "ftir_bruker",
+           Raman = "raman", LDIR = "ldir")[as.character(df$instrument)]
+  lab <- df[!is.na(key) & is.finite(df$x) & is.finite(df$y), , drop = FALSE]
+  key <- unname(key[!is.na(key) & is.finite(df$x) & is.finite(df$y)])
+  lab$.lbl <- as.character(lab$particle_id)
+  # A particle drawn once per pairing (Raman with FTIR and with LDIR) is numbered once
+  ok <- !is.na(lab$.lbl) & nzchar(lab$.lbl) & !duplicated(paste(key, lab$.lbl))
+  lab <- lab[ok, , drop = FALSE]; key <- key[ok]
+  if (nrow(lab) == 0) return(p)
+  size <- if (is.numeric(size) && length(size) == 1 && is.finite(size)) size else 3
+  slot <- SYMBOL_SLOTS[key]                         # 1 TL, 2 TR, 3 BL, 4 BR
+  sx <- c(-1, 1, -1, 1)[slot]; sy <- c(1, 1, -1, -1)[slot]
+  d <- max(diff(bounds$x), diff(bounds$y)) * 0.004 * size
+  lab$.lx <- lab$x + sx * d; lab$.ly <- lab$y + sy * d
+  lab$.hj <- ifelse(sx < 0, 1, 0); lab$.vj <- ifelse(sy > 0, 0, 1)
+  lab$.col <- unname(INSTRUMENT_COLOURS[key])
+  sh <- d * 0.12
+  p +
+    geom_text(data = lab, aes(x = .lx + sh, y = .ly - sh, label = .lbl, hjust = .hj, vjust = .vj),
+              size = size, colour = "black", alpha = 0.85, fontface = "bold",
+              inherit.aes = FALSE) +
+    geom_text(data = lab, aes(x = .lx, y = .ly, label = .lbl, hjust = .hj, vjust = .vj),
+              size = size, colour = lab$.col, fontface = "bold", inherit.aes = FALSE)
+}
+
 # Circle outlines (polygon vertices) of radius r in data units, one group per
 # particle; `id` indexes the input rows.
 particle_circles <- function(x, y, r, n = 36L) {

@@ -262,7 +262,34 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   pose ("not determined"), the pose is fitted on the particle-like spots of
   its exactly placed image (background-flattened, within the particle extent)
   and kept when it passes the same chance test (`align_use_image_spots`,
-  `image_spot_cloud()`, `align_and_match(image_cloud)`).
+  `image_spot_cloud()`, `align_and_match(image_cloud)`). The spots are
+  fitted to the reference's largest particles of any material
+  (`align_image_spots_ref_max`), not to its plastic anchors: a field sample's
+  few plastics (52 Raman anchors) left the spots without partners.
+- Image-spot alignment, checked on the Faanui field sample (Lumos photo,
+  OPUS values, Raman): the pose search on spots is now a rotation sweep with
+  translation voting on the 300 largest spots against the 1500 largest
+  reference particles (`vote_align()`, `fit_pose_spots()`); RANSAC and the
+  global registration (random 150-point subsamples, 200 um tolerance) found
+  no pose in the dense field. Result: rotation -4.79 deg, scale 0.999, 231
+  of 300 spots paired (p = 7e-128; LDIR -> Raman on the same filter -4.76
+  deg).
+- Lumos table fitted to its own image (`fit_table_to_image()`,
+  `ftir_table_to_image_fit`): the table's y runs ~0.7% short of the image
+  (it converts both axes with the map's x step) plus a small shift; per-axis
+  scale and shift are fitted to the particles visible in the image and the
+  table corrected into the image frame. Faanui: median distance of a Bruker
+  particle to the nearest Raman particle 44 um -> 9 um; Bruker-Raman pairs
+  6 -> 12. Confirmed on the photo: the table's y points up from the map
+  origin.
+- Viewer overlay: "Number all particles" puts each instrument's ID in its
+  corner of the marker (the symbol view's corners) in the instrument's
+  colour, so a matched pair's IDs no longer overprint (`add_overlay_labels()`).
+- Viewer: the FTIR (PerkinElmer) and FTIR (Bruker) tabs frame the whole
+  background image as well as the particles (an exactly placed image is
+  larger than the particles' extent and was cropped).
+- Run: the Bruker image object is recorded for an OPUS placement (it failed
+  with "subscript out of bounds").
 - Viewer overlay, symbol view: the "Found by" legend failed ("`breaks` and
   `labels` must have the same length") once an instrument was hidden; it
   now labels only the shown instruments.

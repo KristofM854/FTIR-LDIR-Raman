@@ -3419,6 +3419,22 @@ server <- function(input, output, session) {
     df
   }
 
+  # Default viewport of an FTIR-type tab: the particles (pad 300 um) and the
+  # whole background image (pad 200 um), whichever reaches further
+  .default_view <- function(ref, img) {
+    xs <- ys <- numeric(0)
+    if (!is.null(ref) && any(is.finite(ref$x))) {
+      xs <- range(ref$x, na.rm = TRUE) + c(-300, 300)
+      ys <- range(ref$y, na.rm = TRUE) + c(-300, 300)
+    }
+    if (!is.null(img) && all(is.finite(c(img$xmin, img$xmax, img$ymin, img$ymax)))) {
+      xs <- c(xs, img$xmin - 200, img$xmax + 200)
+      ys <- c(ys, img$ymin - 200, img$ymax + 200)
+    }
+    if (!length(xs)) return(list(x = c(0, 10000), y = c(0, 10000)))
+    list(x = range(xs), y = range(ys))
+  }
+
   .apply_view_tf_img <- function(img, vt) {
     if (is.null(img) || .tf_is_identity(vt)) return(img)
     ext <- view_transform_extent(img, vt$deg, vt$flip)
@@ -3522,16 +3538,14 @@ server <- function(input, output, session) {
     # Default viewport spans ALL this instrument's particles, never just the
     # filtered subset — otherwise unticking a material or moving a slider
     # silently re-fits the axes, which reads as an unrequested zoom. Zoom
-    # changes only on brush, double-click and Reset Zoom.
+    # changes only on brush, double-click and Reset Zoom. With an image, the
+    # whole image is in view too (an exactly placed image is larger than the
+    # particles' extent; framing on the particles cropped it).
     bounds <- if (!is.null(zoom$ftir)) zoom$ftir else {
       ref <- if (!is.null(full_ftir) && nrow(full_ftir) > 0) full_ftir
              else if (nrow(df_disp) > 0) df_disp
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x))) {
-        pad <- 300
-        list(x = c(min(ref$x, na.rm=TRUE) - pad, max(ref$x, na.rm=TRUE) + pad),
-             y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
-      } else list(x = c(0, 10000), y = c(0, 10000))
+      .default_view(ref, img)
     }
     bounds <- sanitize_bounds(bounds, list(x = c(0, 10000), y = c(0, 10000)))
 
@@ -4202,11 +4216,7 @@ server <- function(input, output, session) {
       ref <- if (!is.null(full_fb) && nrow(full_fb) > 0) full_fb
              else if (nrow(df_disp) > 0) df_disp
              else NULL
-      if (!is.null(ref) && any(is.finite(ref$x))) {
-        pad <- 300
-        list(x = c(min(ref$x, na.rm=TRUE) - pad, max(ref$x, na.rm=TRUE) + pad),
-             y = c(min(ref$y, na.rm=TRUE) - pad, max(ref$y, na.rm=TRUE) + pad))
-      } else list(x = c(0, 10000), y = c(0, 10000))
+      .default_view(ref, img)
     }
     bounds <- sanitize_bounds(bounds, list(x = c(0, 10000), y = c(0, 10000)))
 
@@ -4933,9 +4943,10 @@ server <- function(input, output, session) {
             labels = c(matched = "Matched (filled)", unmatched = "Unmatched (open)")
           )
         # Number every displayed particle (opt-in). Endpoints keep each
-        # instrument's own particle_id, so a matched pair shows both IDs.
+        # instrument's own particle_id, so a matched pair shows both IDs, each
+        # in its instrument's corner and colour (as in the symbol view).
         if (isTRUE(input$overlay_show_all_labels))
-          p <- add_particle_labels(p, both, bounds, size = input$overlay_label_size %||% 3)
+          p <- add_overlay_labels(p, both, bounds, size = input$overlay_label_size %||% 3)
       }
     }
 
