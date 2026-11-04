@@ -104,3 +104,42 @@ test_that("the OPUS values place the Bruker image, and stale values are refused"
   expect_identical(pl$method, "opus_metadata")
   expect_equal(pl$xmin, e$xmin)
 })
+
+test_that("a table whose y runs short of its image is fitted back to it", {
+  sc <- .spot_scene()
+  # the table in the image frame but compressed in y by 0.7% and shifted
+  b <- sc$bruker
+  spots <- image_spot_cloud(sc$raw, sc$pl, b$x_um, b$y_um, max_spots = 3000)
+  big <- spots[order(-spots$feret_max_um), ][1:40, ]
+  tx <- big$x_um + 6; ty <- (big$y_um - 20) / 1.007
+  f <- fit_table_to_image(sc$raw, sc$pl, tx, ty)
+  expect_false(is.null(f))
+  expect_equal(f$ay, 1.007, tolerance = 0.002)
+  expect_equal(f$ax, 1, tolerance = 0.002)
+  expect_lt(max(abs(f$ax * tx + f$bx - big$x_um)), 10)
+  expect_lt(max(abs(f$ay * ty + f$by - big$y_um)), 10)
+  # Nothing to fit on a blank image
+  blank <- array(0.8, dim(sc$raw))
+  expect_null(fit_table_to_image(blank, sc$pl, tx, ty))
+})
+
+test_that("spot voting finds the pose between two dense clouds of the largest particles", {
+  set.seed(4)
+  n <- 1500
+  ref <- data.frame(x_norm = stats::runif(n, -6000, 6000), y_norm = stats::runif(n, -6000, 6000),
+                    feret_max_um = 20 + stats::rexp(n, 1 / 30))
+  th <- -5 * pi / 180
+  keep <- sample(n, 400)                                # the spots see some of them, plus clutter
+  src <- data.frame(x_norm = cos(-th) * ref$x_norm[keep] - sin(-th) * ref$y_norm[keep] - 300 +
+                      stats::rnorm(400, 0, 8),
+                    y_norm = sin(-th) * ref$x_norm[keep] + cos(-th) * ref$y_norm[keep] + 200 +
+                      stats::rnorm(400, 0, 8),
+                    feret_max_um = ref$feret_max_um[keep] * stats::runif(400, 0.8, 1.2))
+  src <- rbind(src, data.frame(x_norm = stats::runif(200, -6000, 6000),
+                               y_norm = stats::runif(200, -6000, 6000), feret_max_um = 25))
+  cfg <- apply_pose_limits(make_config(), "ftir_bruker")
+  va <- suppressMessages(vote_align(src, ref, cfg, n_src = 300, n_ref = 1500))
+  expect_equal(va$params$rotation_deg, -5, tolerance = 0.2 / 5)
+  expect_equal(va$params$scale, 1, tolerance = 0.005)
+  expect_gt(va$diagnostics$votes, 5 * va$diagnostics$median_votes)
+})

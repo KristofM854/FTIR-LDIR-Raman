@@ -709,3 +709,63 @@ global_register_align <- function(src_df, ref_df, config,
        n_inliers = best$n, inlier_pairs = data.frame(),
        diagnostics = list(method = "global_register_coarse"))
 }
+
+
+# ---------------------------------------------------------------------------
+# Rotation sweep with translation voting on the largest points (image spots)
+# ---------------------------------------------------------------------------
+# For an instrument's image spots against a dense reference: the spots show
+# every particle, so both clouds have many points, and the largest particles
+# of each are mostly the same ones. For every rotation (and scale near 1)
+# every pair of a large source point and a large reference point votes for
+# the translation that would bring them together; the true pose collects
+# far more votes than any other (Faanui field sample: 113 votes against a
+# median of 18 over all rotations). global_register_align() instead scores
+# random 150-point subsamples at a 200 um tolerance, which leaves a dense
+# field without true pairs. The winning pose is refit on its one-to-one pairs.
+#
+# Same return contract as ransac_align().
+vote_align <- function(src_df, ref_df, config, allow_mirror = FALSE, n_src = 300L,
+                       n_ref = 1500L, bin_um = 40, tol_um = 50) {
+  big <- function(d, n) d[order(-d$feret_max_um)[seq_len(min(nrow(d), n))], , drop = FALSE]
+  a <- big(src_df, n_src); b <- big(ref_df, n_ref)
+  if (nrow(a) < 3 || nrow(b) < 3) stop("vote_align needs >= 3 points per cloud")
+  s_min <- cfg_value(config, "align_scale_min"); s_max <- cfg_value(config, "align_scale_max")
+  scales <- unique(pmin(s_max, pmax(s_min, c(1, 0.98, 1.02))))
+  mirrors <- if (allow_mirror) c(FALSE, TRUE) else FALSE
+  best <- list(n = -1); peaks <- numeric(0)
+  for (mir in mirrors) for (sc in scales) for (deg in 0:359) {
+    p <- align_pose_xy(deg, sc, mir, a$x_norm, a$y_norm)
+    ix <- as.integer(round(outer(b$x_norm, p$x, "-") / bin_um))
+    iy <- as.integer(round(outer(b$y_norm, p$y, "-") / bin_um))
+    k <- (ix - min(ix)) * (max(iy) - min(iy) + 1L) + (iy - min(iy)) + 1L
+    u <- tabulate(k); m <- which.max(u); peaks <- c(peaks, u[m])
+    if (u[m] > best$n) {
+      ny <- max(iy) - min(iy) + 1L
+      best <- list(n = u[m], deg = deg, s = sc, mir = mir,
+                   tx = ((m - 1L) %/% ny + min(ix)) * bin_um,
+                   ty = ((m - 1L) %% ny + min(iy)) * bin_um)
+    }
+  }
+  # Refit on the one-to-one pairs within tol, twice (re-pairing at the refit)
+  p <- align_pose_xy(best$deg, best$s, best$mir, src_df$x_norm, src_df$y_norm)
+  px <- p$x + best$tx; py <- p$y + best$ty
+  tf <- NULL; pairs <- data.frame()
+  for (it in 1:2) {
+    pr <- mutual_nn_pairs(cbind(px, py), cbind(ref_df$x_norm, ref_df$y_norm), gate = tol_um)
+    if (nrow(pr) < 3) break
+    tf <- estimate_similarity_transform(src_df$x_norm[pr$ia], src_df$y_norm[pr$ia],
+                                        ref_df$x_norm[pr$ib], ref_df$y_norm[pr$ib],
+                                        allow_reflection = allow_mirror)
+    tr <- apply_transform_points(src_df$x_norm, src_df$y_norm, tf$matrix)
+    px <- tr$x_transformed; py <- tr$y_transformed; pairs <- pr
+  }
+  if (is.null(tf)) stop("vote_align: no pairs at the best pose")
+  log_message(sprintf(paste0("  Spot voting: rot %.2f deg, scale %.4f, %d votes (median over ",
+                             "rotations %.0f), %d one-to-one pairs within %g um"),
+                      tf$rotation_deg, tf$scale, best$n, stats::median(peaks), nrow(pairs), tol_um))
+  list(transform = tf$matrix, params = extract_transform_params(tf$matrix),
+       n_inliers = nrow(pairs),
+       inlier_pairs = data.frame(src_idx = pairs$ia, ref_idx = pairs$ib),
+       diagnostics = list(method = "spot_vote", votes = best$n, median_votes = stats::median(peaks)))
+}

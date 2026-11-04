@@ -227,9 +227,13 @@ make_config <- function(ftir_path  = NULL,
     # when it passes the same chance test (align_and_match(image_cloud)).
     # align_image_spots_max: the largest spots used.
     align_use_image_spots = TRUE,
+    # With an image placed from the OPUS values: fit the particle table to the
+    # particles in its image (per-axis scale and shift; fit_table_to_image())
+    # and correct the table into the image frame (Lumos: y runs ~0.7% short).
+    ftir_table_to_image_fit = TRUE,
     align_image_spots_max = 600L,
-    # ... and the reference's largest particles (any material) it is fitted to
-    align_image_spots_ref_max = 1200L,
+    # ... and the reference's largest particles (any material) they are fitted to
+    align_image_spots_ref_max = 1500L,
     align_scale_min      = 0.8,
     align_scale_max      = 1.25,
     icp_scale_min        = 0.8,

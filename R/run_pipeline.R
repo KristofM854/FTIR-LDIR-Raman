@@ -181,6 +181,7 @@ run_pipeline <- function(config, report = TRUE) {
   # 00_manifest/images.json at the end.
   .image_objects <- list()
   .image_spots <- list()   # spots of an exactly placed FTIR-type image, for its alignment
+  .table_fix <- list()     # table -> own image correction (fit_table_to_image())
 
   log_message("Instruments: ", paste(ROLE_NAME[roles], collapse = ", "),
               " \u2014 reference frame: ", ROLE_NAME[[ref_role]])
@@ -448,6 +449,23 @@ run_pipeline <- function(config, report = TRUE) {
                   "to the particles; set ", prefix, "_width_um / _height_um in the config ",
                   "for an exact overlay", level = "WARN")
     .image_objects[[key]] <<- .placement_image_object(pl, key, img_path)
+    # An OPUS placement puts the image in the stage frame; the Lumos table's
+    # own um can be slightly off it (its y runs ~0.7% short). Fit the table to
+    # the particles in its image and keep the correction for the table.
+    if (identical(pl$method, "opus_metadata") && isTRUE(config$ftir_table_to_image_fit)) {
+      fit <- fit_table_to_image(img_raw, pl, df$x_um[ok], df$y_um[ok])
+      if (!is.null(fit)) {
+        .table_fix[[key]] <<- fit
+        log_message(sprintf(paste0("    %s table fitted to its image: x' = %.4f x %+.1f um, ",
+                                   "y' = %.4f y %+.1f um (%d of %d particles on an image spot, ",
+                                   "RMS %.1f um); the table is corrected into the image frame"),
+                            label, fit$ax, fit$bx, fit$ay, fit$by, fit$n, fit$n_particles,
+                            fit$rms_um))
+      } else {
+        log_message("    ", label, " table could not be fitted to its image; used as exported",
+                    level = "WARN")
+      }
+    }
     spots <- image_spot_cloud(img_raw, pl, df$x_um[ok], df$y_um[ok],
                               max_spots = cfg_value(config, "align_image_spots_max"))
     if (!is.null(spots)) {
@@ -469,6 +487,11 @@ run_pipeline <- function(config, report = TRUE) {
   if (!is.null(config$ftir_bruker_image) && nzchar(config$ftir_bruker_image))
     invisible(.place_ftir_run_image(config$ftir_bruker_image, ftir_bruker_raw,
                                     "ftir_bruker_image", "ftir_bruker", "FTIR (Bruker)"))
+  if (!is.null(.table_fix$ftir_bruker)) {
+    f <- .table_fix$ftir_bruker
+    ftir_bruker_raw$x_um <- f$ax * ftir_bruker_raw$x_um + f$bx
+    ftir_bruker_raw$y_um <- f$ay * ftir_bruker_raw$y_um + f$by
+  }
 
   # ---------------------------------------------------------------------------
   # 3-9. Reference frame; FTIR (PerkinElmer) alignment, matching, agreement

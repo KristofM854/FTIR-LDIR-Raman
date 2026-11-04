@@ -4943,9 +4943,10 @@ server <- function(input, output, session) {
             labels = c(matched = "Matched (filled)", unmatched = "Unmatched (open)")
           )
         # Number every displayed particle (opt-in). Endpoints keep each
-        # instrument's own particle_id, so a matched pair shows both IDs.
+        # instrument's own particle_id, so a matched pair shows both IDs, each
+        # in its instrument's corner and colour (as in the symbol view).
         if (isTRUE(input$overlay_show_all_labels))
-          p <- add_particle_labels(p, both, bounds, size = input$overlay_label_size %||% 3)
+          p <- add_overlay_labels(p, both, bounds, size = input$overlay_label_size %||% 3)
       }
     }
 
