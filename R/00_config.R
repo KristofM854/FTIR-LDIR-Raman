@@ -228,6 +228,8 @@ make_config <- function(ftir_path  = NULL,
     # align_image_spots_max: the largest spots used.
     align_use_image_spots = TRUE,
     align_image_spots_max = 600L,
+    # ... and the reference's largest particles (any material) it is fitted to
+    align_image_spots_ref_max = 1200L,
     align_scale_min      = 0.8,
     align_scale_max      = 1.25,
     icp_scale_min        = 0.8,

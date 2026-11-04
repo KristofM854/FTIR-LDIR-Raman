@@ -384,6 +384,7 @@ run_pipeline <- function(config, report = TRUE) {
   # the image extent from whatever (filtered) particles it happens to draw.
   ftir_scan_bounds <- NULL
   .placement_provenance <- c(config_extent = "config", registration = "registration",
+                             opus_metadata = "metadata",
                              particle_extent_approx = "particle_extent_approx")
   .placement_image_object <- function(pl, instrument, path) {
     if (is.null(pl)) return(NULL)

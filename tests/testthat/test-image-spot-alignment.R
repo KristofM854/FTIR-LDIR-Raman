@@ -24,8 +24,11 @@ local({
   n <- 900; A <- 12000
   tx <- stats::runif(n, 0, A); ty <- stats::runif(n, 0, A)
   sz <- pmin(400, 20 + stats::rexp(n, 1 / 40))
+  # Few plastics, as on a field sample: the Raman anchors (plastics) are too
+  # few to pair with the image spots, which show every particle
   raman <- .mk(paste0("R", 1:n), tx, ty, sz,
-               sample(c("Polyethylene", "Cellulose", "Polyamide", "PET"), n, TRUE), 90)
+               sample(c("Polyethylene", "1,5-PENTANEDIOL", "RUTIN", "Cellulose"), n, TRUE,
+                      prob = c(0.015, 0.4, 0.4, 0.185)), 90)
   th <- 177 * pi / 180
   bx <- cos(th) * tx - sin(th) * ty + 13000; by <- sin(th) * tx + cos(th) * ty + 12500
   sel <- sample(which(sz < 60), 12)

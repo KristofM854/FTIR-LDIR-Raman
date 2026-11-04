@@ -260,8 +260,9 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
   for_match <- norm(for_match)
 
   # The pose from a source cloud: src_clean (all points) for landmarks and
-  # ICP, src_align (anchors) for Tier 2 and the pose check.
-  fit_pose <- function(src_clean, src_align) {
+  # ICP, src_align (anchors) for Tier 2 and the pose check, against the
+  # reference anchors ref_align.
+  fit_pose <- function(src_clean, src_align, ref_align = ref$norm_align) {
     # Tier 1: landmarks
     landmark <- landmark_align(src_clean, ref$for_transform, config, src_label = label,
                                ref_label = ref_name)
@@ -276,7 +277,7 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
       # Disable the latter with config$ftir_use_global_register = FALSE.
       log_message(strrep("-", 50))
       log_message("Tier 2: Full alignment (anchor sets)")
-      ransac <- ransac_align(src_align, ref$norm_align, config, src_label = label)
+      ransac <- ransac_align(src_align, ref_align, config, src_label = label)
       log_message("RANSAC transform: scale = ", round(ransac$params$scale, 4),
                   ", rotation = ", round(ransac$params$rotation_deg, 2), " deg",
                   ", reflected = ", ransac$params$reflected,
@@ -285,14 +286,14 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
       method <- "ransac"
       if (!isFALSE(config$ftir_use_global_register)) {
         global <- tryCatch(
-          global_register_align(src_align, ref$norm_align, config,
+          global_register_align(src_align, ref_align, config,
                                 allow_mirror = config$ransac_allow_mirror),
           error = function(e) {
             log_message("Global registration failed: ", e$message, level = "WARN")
             NULL })
         if (!is.null(global)) {
-          n_r <- tier2_pairs(ransac$transform, src_align, ref$norm_align, config)
-          n_g <- tier2_pairs(global$transform, src_align, ref$norm_align, config)
+          n_r <- tier2_pairs(ransac$transform, src_align, ref_align, config)
+          n_g <- tier2_pairs(global$transform, src_align, ref_align, config)
           if (n_g > n_r) {
             log_message("Tier 2: using global registration (", n_g,
                         " one-to-one pairs vs RANSAC ", n_r, ")")
@@ -322,10 +323,10 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
     } else {
       r_pose <- config$match_dist_threshold_um
       n_pose <- align_transform_inliers(icp$transform, src_align$x_norm, src_align$y_norm,
-                                        ref$norm_align$x_norm, ref$norm_align$y_norm, r_pose)
+                                        ref_align$x_norm, ref_align$y_norm, r_pose)
       if (is.na(n_pose)) n_pose <- 0L
-      ps <- pose_significance(n_pose, nrow(src_align), ref$norm_align$x_norm,
-                              ref$norm_align$y_norm, r_pose,
+      ps <- pose_significance(n_pose, nrow(src_align), ref_align$x_norm,
+                              ref_align$y_norm, r_pose,
                               mirror = !isFALSE(config$ransac_allow_mirror))
       pose_p <- ps$p
       determined <- isTRUE(pose_p < cfg_value(config, "align_determined_p"))
@@ -352,7 +353,15 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
     log_message(label, ": pose not determined from ", nrow(norm_align),
                 " particles \u2014 fitting on ", nrow(image_cloud), " spots of its image")
     spots <- norm(image_cloud)
-    fit_img <- fit_pose(spots, spots)
+    # The spots show every particle, so their Tier 2 partners are the
+    # reference's largest particles of any material, not its (plastic)
+    # anchors: a field sample's few plastics leave the spots without partners
+    ft <- ref$for_transform
+    k <- min(nrow(ft), cfg_value(config, "align_image_spots_ref_max"))
+    ref_spots <- ft[order(-ft$feret_max_um)[seq_len(k)], , drop = FALSE]
+    log_message("  against the ", k, " largest ", ref_name, " particles (>= ",
+                round(min(ref_spots$feret_max_um), 1), " um)")
+    fit_img <- fit_pose(spots, spots, ref_spots)
     if (fit_img$determined) {
       log_message("  ", label, ": pose from the image spots (p = ",
                   signif(fit_img$pose_p, 2), ") is used for its particles")

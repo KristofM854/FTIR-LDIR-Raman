@@ -262,7 +262,15 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   pose ("not determined"), the pose is fitted on the particle-like spots of
   its exactly placed image (background-flattened, within the particle extent)
   and kept when it passes the same chance test (`align_use_image_spots`,
-  `image_spot_cloud()`, `align_and_match(image_cloud)`).
+  `image_spot_cloud()`, `align_and_match(image_cloud)`). The spots are
+  fitted to the reference's largest particles of any material
+  (`align_image_spots_ref_max`), not to its plastic anchors: a field sample's
+  few plastics (52 Raman anchors) left the spots without partners.
+- Viewer: the FTIR (PerkinElmer) and FTIR (Bruker) tabs frame the whole
+  background image as well as the particles (an exactly placed image is
+  larger than the particles' extent and was cropped).
+- Run: the Bruker image object is recorded for an OPUS placement (it failed
+  with "subscript out of bounds").
 - Viewer overlay, symbol view: the "Found by" legend failed ("`breaks` and
   `labels` must have the same length") once an instrument was hidden; it
   now labels only the shown instruments.
