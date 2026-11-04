@@ -241,6 +241,13 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   as fully transparent; suspected for the Bruker Lumos background image) is
   drawn opaque, in the viewer and in the pipeline's reader
   (`opaque_if_blank()`). Before, the image loaded but showed nothing.
+- Report: input file names on the title page in full (on their own line,
+  broken at a space when too long; a stitched PerkinElmer table also names
+  its segments); wide tables (detection rates) are fitted to the page (long
+  cells on two lines, then a smaller font); stacked bars no longer drop the
+  natural and inorganic families -- they had no colour, and an NA fill is
+  drawn as nothing. One family palette (`FAMILY_COLOURS`, `family_colour()`)
+  replaces four copies, in the report and the viewer.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more
