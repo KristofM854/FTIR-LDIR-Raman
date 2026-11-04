@@ -180,6 +180,7 @@ run_pipeline <- function(config, report = TRUE) {
   # Canonical image objects of this run (R/particle_contract.R), written to
   # 00_manifest/images.json at the end.
   .image_objects <- list()
+  .image_spots <- list()   # spots of an exactly placed FTIR-type image, for its alignment
 
   log_message("Instruments: ", paste(ROLE_NAME[roles], collapse = ", "),
               " \u2014 reference frame: ", ROLE_NAME[[ref_role]])
@@ -446,6 +447,13 @@ run_pipeline <- function(config, report = TRUE) {
                   "to the particles; set ", prefix, "_width_um / _height_um in the config ",
                   "for an exact overlay", level = "WARN")
     .image_objects[[key]] <<- .placement_image_object(pl, key, img_path)
+    spots <- image_spot_cloud(img_raw, pl, df$x_um[ok], df$y_um[ok],
+                              max_spots = cfg_value(config, "align_image_spots_max"))
+    if (!is.null(spots)) {
+      .image_spots[[key]] <<- spots
+      log_message("    ", nrow(spots), " particle-like spots in the image (used for the ",
+                  "alignment if the particle list cannot fix it)")
+    }
     pl
   }
   if (!is.null(config$ftir_image) && nzchar(config$ftir_image)) {
@@ -480,7 +488,9 @@ run_pipeline <- function(config, report = TRUE) {
   # reference). A table too small to align is reported and left unpaired.
   .ftir_type_pair <- function(role) {
     if (!role %in% roles || identical(role, ref_role)) return(NULL)
-    pair <- align_and_match(raw[[role]], ref, config, ROLE_NAME[[role]], role)
+    pair <- align_and_match(raw[[role]], ref, config, ROLE_NAME[[role]], role,
+                            image_cloud = if (isTRUE(config$align_use_image_spots))
+                                            .image_spots[[role]])
     write.csv(pair$prefiltered,
               file.path(.out_dirs$prefiltered, paste0(ROLE_FILE[[role]], "_prefiltered.csv")),
               row.names = FALSE)

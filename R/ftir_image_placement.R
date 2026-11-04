@@ -131,6 +131,27 @@
 }
 
 
+#' Slowly varying background of a gray image (illumination stripes,
+#' vignetting): medians of `block` x `block` px tiles, interpolated back to
+#' full size. Subtracted before thresholding a visible-light photo.
+.background_level <- function(g, block = 32L) {
+  h <- nrow(g); w <- ncol(g)
+  rb <- unique(c(seq(1, h, by = block), h + 1)); cb <- unique(c(seq(1, w, by = block), w + 1))
+  nr <- length(rb) - 1; nc <- length(cb) - 1
+  m <- matrix(0, nr, nc)
+  for (i in seq_len(nr)) for (j in seq_len(nc))
+    m[i, j] <- stats::median(g[rb[i]:(rb[i + 1] - 1), cb[j]:(cb[j + 1] - 1)])
+  rc <- (rb[-1] + rb[-(nr + 1)] - 1) / 2; cc <- (cb[-1] + cb[-(nc + 1)] - 1) / 2
+  up <- function(v, at, to) if (length(at) == 1) rep(v, length(to)) else
+    stats::approx(at, v, xout = to, rule = 2)$y
+  tmp <- apply(m, 2, up, at = rc, to = seq_len(h))            # h x nc
+  if (is.null(dim(tmp))) tmp <- matrix(tmp, nrow = h)
+  out <- t(apply(tmp, 1, up, at = cc, to = seq_len(w)))       # h x w
+  if (w == 1) out <- t(out)
+  out
+}
+
+
 #' Detect particle blobs in an FTIR chemical image
 #'
 #' Simple and deliberately dumb: global threshold on grayscale intensity,
@@ -144,13 +165,16 @@
 #' those are frames, colour bars and legends, not particles.
 #'
 #' @param raw H x W (x channels) raster in [0, 1] (png::readPNG layout)
+#' @param flatten tile size (px) of a background to subtract first (0 = none;
+#'   for visible-light photos with uneven illumination)
 #' @return data frame from .ftir_label_runs() (+ attr "polarity"), or NULL
 detect_image_blobs <- function(raw, polarity = c("auto", "bright", "dark"),
                                k_mad = 6, min_contrast = 0.08,
-                               min_px = 4, max_frac = 0.2) {
+                               min_px = 4, max_frac = 0.2, flatten = 0L) {
   polarity <- match.arg(polarity)
   g <- .ftir_gray(raw)
   if (is.null(dim(g)) || any(dim(g) < 2)) return(NULL)
+  if (flatten > 0) g <- g - .background_level(g, flatten)
   med <- stats::median(g)
   q <- stats::quantile(g, c(0.0005, 0.9995), names = FALSE)
   if (polarity == "auto")
@@ -389,6 +413,45 @@ ftir_extent_from_config <- function(cfg, prefix = "ftir_image") {
   list(xmin = cx - w / 2, xmax = cx + w / 2, ymin = cy - h / 2, ymax = cy + h / 2)
 }
 
+#' Extent of a Bruker (OPUS) image from the values OPUS shows for the scan:
+#' the bitmap's pixel size and position (Pos. X / Pos. Y, in image pixels: the
+#' image's lower-left stage corner divided by the pixel size) and the map
+#' origin, the stage point the particle table's (0, 0) refers to. The Lumos
+#' export writes no metadata file, so the values are copied into the config
+#' (opus_<prefix>; not <prefix>_opus: `config$ftir_bruker_image` would
+#' partially match that name when no image is set). NULL, with a warning, when they do not belong to this
+#' image: another image size, or most particles outside the extent.
+#' @param cfg config (or manifest config snapshot)
+#' @param img_w,img_h image size in pixels (the original file's)
+#' @param x,y particle table coordinates (um)
+ftir_extent_from_opus <- function(cfg, prefix, img_w, img_h, x = NULL, y = NULL,
+                                  min_inside = 0.9) {
+  o <- if (is.list(cfg) && !is.data.frame(cfg)) cfg[[paste0("opus_", prefix)]] else NULL
+  if (is.null(o)) return(NULL)
+  v <- function(k) .cfg_num(o, k)
+  px <- v("pixel_size_x_um"); py <- v("pixel_size_y_um")
+  if (!is.finite(px) || !is.finite(py) || px <= 0 || py <= 0) return(NULL)
+  # message(), not log_message(): the viewer sources this file without utils.R
+  warn <- function(...) { message("[WARN]   ", prefix, " OPUS values ignored: ", ...); NULL }
+  sw <- v("size_x_px"); sh <- v("size_y_px")
+  if (is.finite(sw) && is.finite(sh) && (abs(sw - img_w) > 1 || abs(sh - img_h) > 1))
+    return(warn(sprintf("they describe a %g x %g px image, this one is %g x %g px ",
+                        sw, sh, img_w, img_h), "(values of another scan?)"))
+  x0 <- v("pos_x_px") * px - .cfg_num(o, "map_origin_x_um")
+  y0 <- v("pos_y_px") * py - .cfg_num(o, "map_origin_y_um")
+  if (!is.finite(x0) || !is.finite(y0)) return(NULL)
+  ext <- list(xmin = x0, xmax = x0 + img_w * px, ymin = y0, ymax = y0 + img_h * py)
+  fin <- is.finite(x) & is.finite(y)
+  if (sum(fin) > 0) {
+    inside <- mean(x[fin] >= ext$xmin & x[fin] <= ext$xmax &
+                   y[fin] >= ext$ymin & y[fin] <= ext$ymax)
+    if (inside < min_inside)
+      return(warn(sprintf("only %.0f%% of the particles fall inside the image they place ",
+                          100 * inside), "(values of another scan?)"))
+  }
+  ext
+}
+
 #' FTIR image placement file: <image stem>.txt next to the image, as written by
 #' tools/stitch_ftir_segments.R. Lines "Width: <um>", "Height: <um>" and
 #' optionally "Center X: <um>", "Center Y: <um>", in the particle table's frame
@@ -491,9 +554,11 @@ place_ftir_image <- function(raw, x, y, size_um = NULL, cfg = NULL,
          approximate = identical(method, "particle_extent_approx"))
   }
 
-  # P1: explicit physical extent.
+  # P1: explicit physical extent: typed in, or from the OPUS values of the scan
   ext <- ftir_extent_from_config(cfg, prefix)
   if (!is.null(ext)) return(finish(ext, "config_extent"))
+  ext <- ftir_extent_from_opus(cfg, prefix, cov$orig_w, cov$orig_h, x, y)
+  if (!is.null(ext)) return(finish(ext, "opus_metadata"))
 
   # P2: registration (stored, else computed now on the full particle set).
   reg <- registration
@@ -516,6 +581,45 @@ place_ftir_image <- function(raw, x, y, size_um = NULL, cfg = NULL,
   if (is.null(ext)) return(NULL)
   finish(ext, "particle_extent_approx")
 }
+
+#' Particle-like spots of an exactly placed image, in the particle table's
+#' frame (um). An alignment cloud for an instrument whose particle list is too
+#' short to fix its pose (the Lumos lists only library-matched particles,
+#' while its image shows every particle): see align_and_match(image_cloud).
+#' The background is flattened first (illumination stripes, vignetting), and
+#' only spots within the particles' extent (+ margin) are kept, which drops
+#' the dark corners outside the filter.
+#' @param raw the image raster as placed (original orientation)
+#' @param pl place_ftir_image() result; NULL for an approximate placement
+#' @param x,y particle table coordinates (um), for the extent
+#' @return data frame (particle_id, x_um, y_um, feret_max_um, major_um,
+#'   minor_um, area_um2, material, quality) or NULL
+image_spot_cloud <- function(raw, pl, x, y, block = 32L, margin_um = 200,
+                             max_spots = 3000L) {
+  if (is.null(raw) || is.null(pl) || isTRUE(pl$approximate)) return(NULL)
+  b <- tryCatch(detect_image_blobs(raw, flatten = block), error = function(e) NULL)
+  if (is.null(b) || nrow(b) == 0) return(NULL)
+  W <- ncol(raw); H <- nrow(raw)
+  sx <- (pl$xmax - pl$xmin) / W; sy <- (pl$ymax - pl$ymin) / H
+  xu <- pl$xmin + b$cx_px * sx
+  yu <- if (isTRUE(pl$flip_rows)) pl$ymin + b$cy_px * sy else pl$ymax - b$cy_px * sy
+  w_um <- (b$col_max - b$col_min + 1) * sx; h_um <- (b$row_max - b$row_min + 1) * sy
+  fin <- is.finite(x) & is.finite(y)
+  if (!any(fin)) return(NULL)
+  keep <- xu >= min(x[fin]) - margin_um & xu <= max(x[fin]) + margin_um &
+          yu >= min(y[fin]) - margin_um & yu <= max(y[fin]) + margin_um
+  out <- data.frame(x_um = xu, y_um = yu, feret_max_um = pmax(w_um, h_um),
+                    major_um = pmax(w_um, h_um), minor_um = pmin(w_um, h_um),
+                    area_um2 = b$area_px * sx * sy)[keep, , drop = FALSE]
+  if (nrow(out) == 0) return(NULL)
+  out <- out[order(-out$area_um2), , drop = FALSE]
+  out <- out[seq_len(min(nrow(out), max_spots)), , drop = FALSE]
+  out$particle_id <- paste0("S", seq_len(nrow(out)))
+  out$material <- "Unknown"; out$quality <- NA_real_
+  rownames(out) <- NULL
+  out
+}
+
 
 #' Detect + register in one call, on the raster's ORIGINAL pixel grid.
 #' For a downsampled raster the blob coordinates are rescaled to the original
