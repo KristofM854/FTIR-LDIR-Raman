@@ -237,6 +237,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   comma; an occasional Lumos export glitch) are read with the comma as the
   x/y separator, with a warning naming the file and the number of rows,
   instead of failing with "could not be parsed as [x;y]".
+- Images: a 32-bit BMP whose alpha channel is all zero (ImageMagick reads it
+  as fully transparent; suspected for the Bruker Lumos background image) is
+  drawn opaque, in the viewer and in the pipeline's reader
+  (`opaque_if_blank()`). Before, the image loaded but showed nothing.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

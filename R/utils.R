@@ -410,7 +410,8 @@ read_image_any <- function(path, verbose = TRUE) {
       img_rgb <- magick::image_convert(img_mg, colorspace = "sRGB")
       # Export as RGBA bitmap (4 channels; images without alpha get A=255)
       raw_data <- magick::image_data(img_rgb, channels = "rgba")
-      return(magick_bitmap_array(raw_data) / 255)   # [H, W, 4] RGBA raster
+      arr <- magick_bitmap_array(raw_data) / 255   # [H, W, 4] RGBA raster
+      return(if (exists("opaque_if_blank")) opaque_if_blank(arr) else arr)
     }, error = function(e) {
       log_message("  magick failed (", e$message, "), trying pkg fallback",
                   level = "WARN")

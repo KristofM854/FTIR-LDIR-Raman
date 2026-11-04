@@ -1224,6 +1224,10 @@ sniff_image_type <- function(path) {
 # in Cartesian / stage coordinates.  So NO vertical flip is needed.
 # ---------------------------------------------------------------------------
 load_image_raster <- function(path, max_dim = NULL) {
+  opaque_if_blank(.load_image_raster(path, max_dim))
+}
+
+.load_image_raster <- function(path, max_dim = NULL) {
   # fileInput(multiple = TRUE) delivers a vector of datapaths; the scalar
   # conditions below would then error ("condition has length > 1") and the
   # calling observer would die without ever setting the image.

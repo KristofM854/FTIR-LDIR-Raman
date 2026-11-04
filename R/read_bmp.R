@@ -200,3 +200,20 @@ bmp_dimensions <- function(path) {
   s32 <- function(i) { v <- sum(as.numeric(h[i + 0:3]) * 256^(0:3)); if (v >= 2^31) v - 2^32 else v }
   c(width = s32(19L), height = abs(s32(23L)))
 }
+
+
+#' An all-zero alpha channel means "unused", not "fully transparent": 32-bit
+#' BMPs declare an alpha channel that some instrument software (suspected for the
+#' Bruker Lumos) leaves at 0, and ImageMagick honours it, so the image loads
+#' at the right size but draws as nothing. Such a channel is set opaque.
+#' Used by read_image_any() (pipeline) and the viewer's load_image_raster().
+opaque_if_blank <- function(arr) {
+  if (!is.null(arr) && length(dim(arr)) == 3 && dim(arr)[3] == 4 &&
+      all(arr[, , 4] == 0, na.rm = TRUE)) {
+    a <- attributes(arr)
+    arr[, , 4] <- 1
+    for (k in setdiff(names(a), c("dim", "dimnames"))) attr(arr, k) <- a[[k]]
+    message("image alpha channel is all zero: drawn opaque")
+  }
+  arr
+}

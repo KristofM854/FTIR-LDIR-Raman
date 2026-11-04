@@ -109,3 +109,32 @@ test_that("the tiling check flags repeated images, not evenly lit tiled filters"
   expect_equal(suppressMessages(assert_not_tiled_montage(rep4, "repeated")), 6L)
   expect_error(assert_not_tiled_montage(rep4, "repeated", strict = TRUE), "tiled")
 })
+
+test_that("a 32-bit BMP with an all-zero alpha channel is drawn opaque, not invisible", {
+  skip_if_not_installed("magick")
+  env <- new.env(parent = globalenv())
+  withr::with_dir(file.path(REPO_ROOT, "shiny_app"), suppressWarnings(suppressMessages(
+    source("global.R", local = env, encoding = "UTF-8"))))
+  # BITMAPV5HEADER, BI_BITFIELDS with an alpha mask, every alpha byte 0 (as
+  # suspected for the Bruker Lumos export): ImageMagick reads it as transparent
+  w <- 40; h <- 30
+  px <- rep(as.raw(c(0, 0, 200, 0)), w * h)
+  i32 <- function(v) writeBin(as.integer(v), raw(), size = 4)
+  u32 <- function(v) as.raw(c(v %% 256, (v %/% 256) %% 256, (v %/% 65536) %% 256, (v %/% 16777216) %% 256))
+  dib <- c(i32(124), i32(w), i32(h), writeBin(1L, raw(), size = 2), writeBin(32L, raw(), size = 2),
+           i32(3), i32(length(px)), i32(2835), i32(2835), i32(0), i32(0),
+           u32(0x00FF0000), u32(0x0000FF00), u32(0x000000FF), u32(0xFF000000))
+  dib <- c(dib, raw(124 - length(dib)))
+  f <- tempfile(fileext = ".bmp")
+  writeBin(c(charToRaw("BM"), i32(138 + length(px)), raw(4), i32(138), dib, px), f)
+  a <- suppressMessages(env$load_image_raster(f))
+  expect_identical(dim(a), c(30L, 40L, 4L))
+  expect_true(all(a[, , 4] == 1))
+  expect_gt(a[1, 1, 1], 0.7)                                   # red, as written
+  # The pipeline reader (registration, report) too
+  p <- suppressMessages(read_image_any(f, verbose = FALSE))
+  expect_true(all(p[, , 4] == 1))
+  # A real alpha channel is left alone
+  b <- array(0.5, c(2, 2, 4)); b[1, 1, 4] <- 0
+  expect_identical(env$opaque_if_blank(b), b)
+})
