@@ -71,7 +71,8 @@ test_that("the Bruker pose search is limited to no mirror and a scale near 1", {
   expect_false(cfg$ransac_allow_mirror)
   expect_equal(c(cfg$align_scale_min, cfg$align_scale_max), c(0.97, 1.03))
   expect_equal(c(cfg$icp_scale_min, cfg$icp_scale_max), c(0.97, 1.03))
-  expect_identical(apply_pose_limits(make_config(), "ftir")$ransac_allow_mirror,
+  expect_false(apply_pose_limits(make_config(), "ftir")$ransac_allow_mirror)    # PerkinElmer too
+  expect_identical(apply_pose_limits(make_config(), "ldir")$ransac_allow_mirror,
                    make_config()$ransac_allow_mirror)
   # Without mirrored poses the search is half as large
   set.seed(3); rx <- stats::runif(200, 0, 1e4); ry <- stats::runif(200, 0, 1e4)

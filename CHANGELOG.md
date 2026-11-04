@@ -255,13 +255,17 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   the image size and the particles and ignored with a warning when they belong
   to another scan. The particle-extent fallback drew this image 25% too small.
 - Alignment pose limits per instrument (`align_pose_limits`): FTIR (Bruker)
-  is searched without mirror and at scale 0.97-1.03, in every tier; the pose
+  and FTIR (PerkinElmer) are searched without mirror and at scale 0.97-1.03,
+  in every tier; the pose
   check counts mirrored poses only when they were searched.
 - Alignment on image spots: when an FTIR-type particle list cannot fix its
   pose ("not determined"), the pose is fitted on the particle-like spots of
   its exactly placed image (background-flattened, within the particle extent)
   and kept when it passes the same chance test (`align_use_image_spots`,
   `image_spot_cloud()`, `align_and_match(image_cloud)`).
+- Viewer overlay, symbol view: the "Found by" legend failed ("`breaks` and
+  `labels` must have the same length") once an instrument was hidden; it
+  now labels only the shown instruments.
 - `docs/roadmap.md` (open work and open identification questions) replaces
   the internal pre-release to-do list; `docs/ai_assistance.md` re-measured.
 - A Tier 2 (anchor) alignment is "not determined" unless, after ICP, more

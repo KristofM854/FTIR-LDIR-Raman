@@ -4613,11 +4613,15 @@ server <- function(input, output, session) {
     geo <- overlay_symbol_geometry(sym, r, n_arc = if (nrow(sym) > 2000) 4L else 8L)
     p <- p + geom_polygon(data = geo$outline, aes(x = x, y = y, group = g),
                           fill = NA, colour = "grey75", linewidth = 0.35)
-    if (!is.null(geo$quarters))
+    if (!is.null(geo$quarters)) {
+      # Labels for the shown instruments only: ggplot2 >= 3.5 wants as many
+      # labels as breaks (all four broke the legend once an instrument was off)
+      brk <- intersect(names(SYMBOL_SLOTS), inst)
       p <- p + geom_polygon(data = geo$quarters, aes(x = x, y = y, group = g, fill = inst),
                             colour = "black", linewidth = 0.15) +
-        scale_fill_manual(name = "Found by", values = SYMBOL_COLOURS, labels = SYMBOL_LABELS,
-                          breaks = intersect(names(SYMBOL_SLOTS), inst), drop = FALSE)
+        scale_fill_manual(name = "Found by", values = SYMBOL_COLOURS,
+                          labels = unname(SYMBOL_LABELS[brk]), breaks = brk, drop = FALSE)
+    }
     p
   }
 

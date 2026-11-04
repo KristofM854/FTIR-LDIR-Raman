@@ -216,8 +216,9 @@ make_config <- function(ftir_path  = NULL,
     # 0.996, neither mirrored). Narrowing the search keeps a short particle
     # list (the Lumos lists only library-matched particles) from fitting a
     # mirrored or rescaled pose by chance. Rotation stays free (a filter may
-    # be remounted). Add e.g. ftir = list(...) for the PerkinElmer.
+    # be remounted).
     align_pose_limits = list(
+      ftir        = list(allow_mirror = FALSE, scale_min = 0.97, scale_max = 1.03),
       ftir_bruker = list(allow_mirror = FALSE, scale_min = 0.97, scale_max = 1.03)),
     # When an FTIR-type pose is not determined by its particles (a short list
     # against a dense reference), fit it on the particle-like spots of its own
