@@ -152,6 +152,19 @@ make_config <- function(ftir_path  = NULL,
     # particles and stores the fit in <run>/ftir_image_placement.json; see
     # R/ftir_image_placement.R. Bruker: same fields with prefix
     # ftir_bruker_image_*.
+    # Bruker Lumos: the export writes no image metadata, so copy these values
+    # from OPUS for each scan (report view of the measurement: block "Bitmap"
+    # for the image, block "Data Parameters AB/Multiple" for the map origin).
+    # The image is then placed exactly. The values are checked against the
+    # image (size_x_px / size_y_px) and the particles (90% must fall inside);
+    # values left from another scan are ignored with a warning. Set to NULL to
+    # use the registration instead. Pre-filled: Faanui SW1L R4, measured
+    # 2026-07-27.
+    opus_ftir_bruker_image = list(
+      pixel_size_x_um = 7.907902, pixel_size_y_um = 7.908996,  # Bitmap: PixelSizeX / Y
+      pos_x_px = 6110.180843, pos_y_px = 604.290875,          # Bitmap: Pos. X / Pos. Y
+      size_x_px = 2048, size_y_px = 1949,                     # Bitmap: Size X / Y
+      map_origin_x_um = 49564, map_origin_y_um = 6050.38),    # Data Parameters: Map Origin X / Y
     ftir_image_width_um    = NULL,
     ftir_image_height_um   = NULL,
     ftir_image_center_x_um = NULL,
@@ -196,6 +209,25 @@ make_config <- function(ftir_path  = NULL,
     # ICP clamps every re-estimate to [icp_scale_min, icp_scale_max] because its
     # nearest-neighbour objective rewards shrinking the source (collapse). The
     # run log says when the ICP clamp binds.
+    # Physical limits of the pose per source instrument (to the reference),
+    # applied to every tier (landmarks, RANSAC, global registration, ICP).
+    # The instruments image the same filter side in micrometres: no mirror and
+    # a scale near 1 (dataset A: Bruker -> Raman 1.002, PerkinElmer -> Raman
+    # 0.996, neither mirrored). Narrowing the search keeps a short particle
+    # list (the Lumos lists only library-matched particles) from fitting a
+    # mirrored or rescaled pose by chance. Rotation stays free (a filter may
+    # be remounted).
+    align_pose_limits = list(
+      ftir        = list(allow_mirror = FALSE, scale_min = 0.97, scale_max = 1.03),
+      ftir_bruker = list(allow_mirror = FALSE, scale_min = 0.97, scale_max = 1.03)),
+    # When an FTIR-type pose is not determined by its particles (a short list
+    # against a dense reference), fit it on the particle-like spots of its own
+    # image instead -- only for an image placed exactly (config extent, OPUS
+    # values or registration), never an approximate placement -- and keep it
+    # when it passes the same chance test (align_and_match(image_cloud)).
+    # align_image_spots_max: the largest spots used.
+    align_use_image_spots = TRUE,
+    align_image_spots_max = 600L,
     align_scale_min      = 0.8,
     align_scale_max      = 1.25,
     icp_scale_min        = 0.8,

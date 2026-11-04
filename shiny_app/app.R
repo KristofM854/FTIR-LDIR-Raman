@@ -1231,14 +1231,6 @@ server <- function(input, output, session) {
     fam_order <- names(fam_totals)
 
     # Colour palette: family colours for stacked, device colours for single-family
-    .fam_palette <- c(
-      PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
-      PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
-      PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-      Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
-      POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
-      Other = "#e5c494"
-    )
 
     p <- plotly::plot_ly()
     for (fam in fam_order) {
@@ -1263,7 +1255,7 @@ server <- function(input, output, session) {
         hovertext     = sub_aligned$tooltip,
         hoverinfo     = "text",
         marker        = list(color = if (sel_fam == "__all_plastics__")
-                               (.fam_palette[fam] %||% "#cccccc")
+                               family_colour(fam)
                              else unname(device_colors[sub_aligned$instrument]))
       )
     }
@@ -1358,14 +1350,6 @@ server <- function(input, output, session) {
     cat_mode <- input$summary_bar_category_mode %||% "both"
     if (is.null(sel_fam) || !nzchar(sel_fam)) return(NULL)
 
-    .fam_palette <- c(
-      PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
-      PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
-      PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-      Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
-      POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
-      Other = "#e5c494"
-    )
     device_colors <- c("FTIR (PerkinElmer)" = INSTRUMENT_COLOURS[["ftir_pe"]],
                        "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
                        "Raman" = INSTRUMENT_COLOURS[["raman"]], "LDIR" = INSTRUMENT_COLOURS[["ldir"]])
@@ -1407,9 +1391,7 @@ server <- function(input, output, session) {
                         " across instruments", if (use_filt) " (filtered)" else "")
 
     if (sel_fam == "__all_plastics__") {
-      fam_colors <- .fam_palette[levels(rows$family)]
-      fam_colors[is.na(fam_colors)] <- "#cccccc"
-      names(fam_colors) <- levels(rows$family)
+      fam_colors <- stats::setNames(family_colour(levels(rows$family)), levels(rows$family))
       ggplot2::ggplot(rows, ggplot2::aes(x = instrument, y = value, fill = family)) +
         ggplot2::geom_col(width = 0.6) +
         ggplot2::scale_fill_manual(values = fam_colors, name = "Family") +
@@ -4631,11 +4613,15 @@ server <- function(input, output, session) {
     geo <- overlay_symbol_geometry(sym, r, n_arc = if (nrow(sym) > 2000) 4L else 8L)
     p <- p + geom_polygon(data = geo$outline, aes(x = x, y = y, group = g),
                           fill = NA, colour = "grey75", linewidth = 0.35)
-    if (!is.null(geo$quarters))
+    if (!is.null(geo$quarters)) {
+      # Labels for the shown instruments only: ggplot2 >= 3.5 wants as many
+      # labels as breaks (all four broke the legend once an instrument was off)
+      brk <- intersect(names(SYMBOL_SLOTS), inst)
       p <- p + geom_polygon(data = geo$quarters, aes(x = x, y = y, group = g, fill = inst),
                             colour = "black", linewidth = 0.15) +
-        scale_fill_manual(name = "Found by", values = SYMBOL_COLOURS, labels = SYMBOL_LABELS,
-                          breaks = intersect(names(SYMBOL_SLOTS), inst), drop = FALSE)
+        scale_fill_manual(name = "Found by", values = SYMBOL_COLOURS,
+                          labels = unname(SYMBOL_LABELS[brk]), breaks = brk, drop = FALSE)
+    }
     p
   }
 

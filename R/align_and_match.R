@@ -226,13 +226,15 @@ prepare_raman_reference <- function(raman_raw, config)
 #'   landmark, ransac, method, icp, match, agreement, norm, labels
 #'   (pair_labels()). With too few particles to align (warned) only label,
 #'   prefiltered and skipped = TRUE.
-align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
+align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
+                            image_cloud = NULL) {
   ref_role <- ref$role %||% "raman"
   ref_name <- ref$name %||% "Raman"
   labels <- pair_labels(src_role, ref_role)
   log_message(strrep("-", 50))
   log_message(label, " \u2194 ", ref_name, ": alignment and matching")
   anchor_min <- config$align_min_anchor_count %||% 4
+  config <- apply_pose_limits(config, src_role, label)
 
   prefiltered <- prefilter_ftir(src_raw, min_quality = 0, min_size_um = 0)
   # Material anchors for the coarse aligners; select_material_anchors() falls
@@ -257,82 +259,112 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
   norm_align <- norm(for_align)
   for_match <- norm(for_match)
 
-  # Tier 1: landmarks
-  landmark <- landmark_align(clean, ref$for_transform, config, src_label = label,
-                             ref_label = ref_name)
-  ransac <- NULL
-  if (landmark$confident && config$landmark_skip_full_ransac) {
-    log_message("Using landmark transform (Tier 1) \u2014 skipping full RANSAC")
-    transform <- landmark$transform
-    method <- "landmark"
-  } else {
-    # Tier 2: coarse RANSAC vs global registration (rotation x scale sweep,
-    # translation by voting; robust when the clouds overlap only partly).
-    # Disable the latter with config$ftir_use_global_register = FALSE.
-    log_message(strrep("-", 50))
-    log_message("Tier 2: Full alignment (anchor sets)")
-    ransac <- ransac_align(norm_align, ref$norm_align, config, src_label = label)
-    log_message("RANSAC transform: scale = ", round(ransac$params$scale, 4),
-                ", rotation = ", round(ransac$params$rotation_deg, 2), " deg",
-                ", reflected = ", ransac$params$reflected,
-                ", inliers = ", ransac$n_inliers)
-    transform <- ransac$transform
-    method <- "ransac"
-    if (!isFALSE(config$ftir_use_global_register)) {
-      global <- tryCatch(
-        global_register_align(norm_align, ref$norm_align, config,
-                              allow_mirror = config$ransac_allow_mirror),
-        error = function(e) {
-          log_message("Global registration failed: ", e$message, level = "WARN")
-          NULL })
-      if (!is.null(global)) {
-        n_r <- tier2_pairs(ransac$transform, norm_align, ref$norm_align, config)
-        n_g <- tier2_pairs(global$transform, norm_align, ref$norm_align, config)
-        if (n_g > n_r) {
-          log_message("Tier 2: using global registration (", n_g,
-                      " one-to-one pairs vs RANSAC ", n_r, ")")
-          ransac <- global
-          transform <- global$transform
-          method <- "global_register"
-        } else {
-          log_message("Tier 2: keeping RANSAC (", n_r,
-                      " one-to-one pairs vs global ", n_g, ")")
+  # The pose from a source cloud: src_clean (all points) for landmarks and
+  # ICP, src_align (anchors) for Tier 2 and the pose check.
+  fit_pose <- function(src_clean, src_align) {
+    # Tier 1: landmarks
+    landmark <- landmark_align(src_clean, ref$for_transform, config, src_label = label,
+                               ref_label = ref_name)
+    ransac <- NULL
+    if (landmark$confident && config$landmark_skip_full_ransac) {
+      log_message("Using landmark transform (Tier 1) \u2014 skipping full RANSAC")
+      transform <- landmark$transform
+      method <- "landmark"
+    } else {
+      # Tier 2: coarse RANSAC vs global registration (rotation x scale sweep,
+      # translation by voting; robust when the clouds overlap only partly).
+      # Disable the latter with config$ftir_use_global_register = FALSE.
+      log_message(strrep("-", 50))
+      log_message("Tier 2: Full alignment (anchor sets)")
+      ransac <- ransac_align(src_align, ref$norm_align, config, src_label = label)
+      log_message("RANSAC transform: scale = ", round(ransac$params$scale, 4),
+                  ", rotation = ", round(ransac$params$rotation_deg, 2), " deg",
+                  ", reflected = ", ransac$params$reflected,
+                  ", inliers = ", ransac$n_inliers)
+      transform <- ransac$transform
+      method <- "ransac"
+      if (!isFALSE(config$ftir_use_global_register)) {
+        global <- tryCatch(
+          global_register_align(src_align, ref$norm_align, config,
+                                allow_mirror = config$ransac_allow_mirror),
+          error = function(e) {
+            log_message("Global registration failed: ", e$message, level = "WARN")
+            NULL })
+        if (!is.null(global)) {
+          n_r <- tier2_pairs(ransac$transform, src_align, ref$norm_align, config)
+          n_g <- tier2_pairs(global$transform, src_align, ref$norm_align, config)
+          if (n_g > n_r) {
+            log_message("Tier 2: using global registration (", n_g,
+                        " one-to-one pairs vs RANSAC ", n_r, ")")
+            ransac <- global
+            transform <- global$transform
+            method <- "global_register"
+          } else {
+            log_message("Tier 2: keeping RANSAC (", n_r,
+                        " one-to-one pairs vs global ", n_g, ")")
+          }
         }
       }
     }
+
+    icp <- icp_refine(src_clean, ref$for_transform, transform, config)
+    log_message("ICP refined transform: scale = ", round(icp$params$scale, 4),
+                ", rotation = ", round(icp$params$rotation_deg, 2), " deg",
+                ", converged = ", icp$converged)
+
+    # Is the pose fixed by the data? Landmarks accepted above chance are; a
+    # Tier 2 pose (after ICP) must pair more anchors within the match gate than
+    # the search would find by chance (pose_significance()). A short particle
+    # list (e.g. one already filtered to plastics) against a dense reference
+    # cannot fix a pose.
+    if (identical(method, "landmark")) {
+      determined <- TRUE; pose_p <- landmark$p_chance %||% NA_real_
+    } else {
+      r_pose <- config$match_dist_threshold_um
+      n_pose <- align_transform_inliers(icp$transform, src_align$x_norm, src_align$y_norm,
+                                        ref$norm_align$x_norm, ref$norm_align$y_norm, r_pose)
+      if (is.na(n_pose)) n_pose <- 0L
+      ps <- pose_significance(n_pose, nrow(src_align), ref$norm_align$x_norm,
+                              ref$norm_align$y_norm, r_pose,
+                              mirror = !isFALSE(config$ransac_allow_mirror))
+      pose_p <- ps$p
+      determined <- isTRUE(pose_p < cfg_value(config, "align_determined_p"))
+      log_message(sprintf(paste0("  Pose check: %d anchor pairs of %d anchors at %g um; ",
+                                 "%.2f per pose by chance; p over the search = %.2g"),
+                          n_pose, nrow(src_align), r_pose, ps$expected, pose_p),
+                  level = if (determined) "INFO" else "WARN")
+      if (!determined)
+        log_message("  ", label, " \u2192 ", ref_name, ": ALIGNMENT NOT DETERMINED (too few ",
+                    "anchors for this reference density). Its pairs are written for ",
+                    "inspection but not scored, and pairs through it are skipped.",
+                    level = "WARN")
+    }
+    list(transform = icp$transform, method = method, landmark = landmark,
+         ransac = ransac, icp = icp, determined = determined, pose_p = pose_p)
   }
-
-  icp <- icp_refine(clean, ref$for_transform, transform, config)
-  log_message("ICP refined transform: scale = ", round(icp$params$scale, 4),
-              ", rotation = ", round(icp$params$rotation_deg, 2), " deg",
-              ", converged = ", icp$converged)
-
-  # Is the pose fixed by the data? Landmarks accepted above chance are; a
-  # Tier 2 pose (after ICP) must pair more anchors within the match gate than
-  # the search would find by chance (pose_significance()). A short particle
-  # list (e.g. one already filtered to plastics) against a dense reference
-  # cannot fix a pose.
-  if (identical(method, "landmark")) {
-    determined <- TRUE; pose_p <- landmark$p_chance %||% NA_real_
-  } else {
-    r_pose <- config$match_dist_threshold_um
-    n_pose <- align_transform_inliers(icp$transform, norm_align$x_norm, norm_align$y_norm,
-                                      ref$norm_align$x_norm, ref$norm_align$y_norm, r_pose)
-    if (is.na(n_pose)) n_pose <- 0L
-    ps <- pose_significance(n_pose, nrow(norm_align), ref$norm_align$x_norm,
-                            ref$norm_align$y_norm, r_pose)
-    pose_p <- ps$p
-    determined <- isTRUE(pose_p < cfg_value(config, "align_determined_p"))
-    log_message(sprintf(paste0("  Pose check: %d anchor pairs of %d anchors at %g um; ",
-                               "%.2f per pose by chance; p over the search = %.2g"),
-                        n_pose, nrow(norm_align), r_pose, ps$expected, pose_p),
-                level = if (determined) "INFO" else "WARN")
-    if (!determined)
-      log_message("  ", label, " \u2192 ", ref_name, ": ALIGNMENT NOT DETERMINED (too few ",
-                  "anchors for this reference density). Its pairs are written for ",
-                  "inspection but not scored, and pairs through it are skipped.",
+  fit <- fit_pose(clean, norm_align)
+  # A short particle list (the Lumos lists only library-matched particles)
+  # cannot fix the pose; the instrument's own image shows every particle.
+  # Fit on its spots instead (same frame: the image is placed exactly) and
+  # keep that pose when it passes the same chance test.
+  if (!fit$determined && !is.null(image_cloud) && nrow(image_cloud) >= 20) {
+    log_message(strrep("-", 50))
+    log_message(label, ": pose not determined from ", nrow(norm_align),
+                " particles \u2014 fitting on ", nrow(image_cloud), " spots of its image")
+    spots <- norm(image_cloud)
+    fit_img <- fit_pose(spots, spots)
+    if (fit_img$determined) {
+      log_message("  ", label, ": pose from the image spots (p = ",
+                  signif(fit_img$pose_p, 2), ") is used for its particles")
+      fit <- fit_img
+      fit$method <- paste0(fit_img$method, "+image_spots")
+    } else {
+      log_message("  ", label, ": the image spots do not fix the pose either",
                   level = "WARN")
+    }
   }
+  landmark <- fit$landmark; ransac <- fit$ransac; icp <- fit$icp
+  method <- fit$method; determined <- fit$determined; pose_p <- fit$pose_p
 
   aligned     <- apply_ftir_transform(for_match, icp$transform)
   aligned_all <- apply_ftir_transform(clean, icp$transform)
@@ -358,6 +390,21 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir") {
        alignment_determined = determined, pose_p = pose_p,
        norm = list(ftir_centroid = nm$centroid, ftir_scale = nm$scale,
                    raman_centroid = ref$centroid, raman_scale = ref$scale))
+}
+
+
+#' The pose search of one source instrument within its physical limits
+#' (config$align_pose_limits[[role]]): no mirror and/or a narrower scale window,
+#' for every alignment tier.
+apply_pose_limits <- function(config, role, label = role) {
+  lim <- config$align_pose_limits[[role]]
+  if (is.null(lim)) return(config)
+  if (!is.null(lim$allow_mirror)) config$ransac_allow_mirror <- isTRUE(lim$allow_mirror)
+  if (!is.null(lim$scale_min)) config$align_scale_min <- config$icp_scale_min <- lim$scale_min
+  if (!is.null(lim$scale_max)) config$align_scale_max <- config$icp_scale_max <- lim$scale_max
+  log_message("  ", label, " pose limits: scale ", config$align_scale_min, "-",
+              config$align_scale_max, if (isFALSE(config$ransac_allow_mirror)) ", no mirror")
+  config
 }
 
 

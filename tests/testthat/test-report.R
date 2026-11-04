@@ -234,3 +234,41 @@ test_that("one failing page does not cost the reader the rest of the report", {
   expect_gt(file.size(f), 1000)
   expect_identical(rawToChar(readBin(f, "raw", 4L)), "%PDF")
 })
+
+test_that("every material family gets a colour, so no stack is drawn invisible", {
+  env <- .load_report_helpers()
+  fams <- c(env$synthetic_families, env$semi_synthetic_families, env$natural_families,
+            env$inorganic_families, "Unknown", "Something new")
+  expect_false(anyNA(env$family_colour(fams)))
+  cts <- list(LDIR = table(c("Natural", "Chitin", "Chitin", "Protein", "Mineral", "PE")))
+  p <- env$build_material_barplot_gg(cts)
+  b <- ggplot2::ggplot_build(p)
+  expect_false(anyNA(b$data[[1]]$fill))
+})
+
+test_that("the title page lists input file names in full, within the page width", {
+  env <- .load_report_helpers()
+  long <- paste0(strrep("Comparstic2026 BORA2025 240314 Faanui SW1L R4 A ", 2), "260727_lumos.bmp")
+  m <- list(inputs = list(
+    ftir = list(basename = "Sample A 260805_stitched.csv", format = "CSV", size_bytes = 1400),
+    ftir_bruker_image = list(basename = long, format = "BMP", size_bytes = 1.5e7, width = 2048, height = 1949)),
+    config_snapshot = list(ftir_segment_tables = paste0("/x/Sample A 260805M", 1:6, ".csv")))
+  l <- env$report_input_file_lines(m)
+  expect_true(all(nchar(l) <= 92))
+  expect_false(any(grepl("...", l, fixed = TRUE)))
+  expect_identical(gsub("\\s+", " ", paste(trimws(l[grepl("Comparstic|lumos", l)]), collapse = " ")),
+                   gsub("\\s+", " ", long))
+  expect_true(any(grepl("stitched from 6 segments: Sample A 260805M1-M6.csv", l, fixed = TRUE)))
+})
+
+test_that("a wide table is fitted to the page", {
+  env <- .load_report_helpers()
+  skip_if_not_installed("gridExtra")
+  cell <- "82% (77-86%) n=280, corr. 64%"
+  df <- data.frame(Direction = "Raman finds LDIR", a = cell, b = cell, c = cell, d = cell, e = cell,
+                   f = cell, g = cell)
+  g <- env$report_table_page(df, "Detection")
+  tg <- g$grobs[[1]]$grobs[[1]]
+  grDevices::pdf(NULL); on.exit(grDevices::dev.off())
+  expect_lte(grid::convertWidth(sum(tg$widths), "in", valueOnly = TRUE), 10.2)
+})

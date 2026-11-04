@@ -2194,21 +2194,9 @@ report_detection_pages <- function(run_dir) {
 # file (basename, format, size, and pixel dimensions for images). Shared by the
 # pipeline report and the viewer's download so both list the same thing.
 #
-# Names are middle-truncated rather than wrapped: report_text_page() wraps with
-# strwrap(), which breaks on whitespace and leaves a long unbroken filename to
-# run off the page edge. Truncating in the middle keeps the extension visible,
-# which is the part that identifies the format.
+# Each file name is printed in full on its own line(s), cut into pieces when
+# longer than the line (report_input_file_lines()).
 # ---------------------------------------------------------------------------
-.report_trunc_mid <- function(s, width) {
-  s <- as.character(s)
-  n <- nchar(s)
-  if (is.na(n) || n <= width) return(s)
-  keep  <- width - 3L
-  left  <- ceiling(keep / 2)
-  right <- keep - left
-  paste0(substr(s, 1, left), "...", substr(s, n - right + 1L, n))
-}
-
 .report_fmt_bytes <- function(b) {
   b <- suppressWarnings(as.numeric(b))
   if (length(b) != 1 || is.na(b)) return("")
@@ -2217,13 +2205,28 @@ report_detection_pages <- function(run_dir) {
   sprintf("%d B", as.integer(b))
 }
 
-report_input_file_lines <- function(manifest, name_width = 32L) {
+# Segment files "<stem>M1.csv" .. "<stem>M6.csv" as "<stem>M1-M6.csv" (the
+# full names when they do not share one stem)
+.segment_names <- function(f) {
+  re <- "^(.*M)([0-9]+)(\\.[A-Za-z]+)$"
+  if (length(f) > 1 && all(grepl(re, f))) {
+    stem <- unique(sub(re, "\\1", f)); ext <- unique(sub(re, "\\3", f))
+    k <- as.integer(sub(re, "\\2", f))
+    if (length(stem) == 1 && length(ext) == 1)
+      return(sprintf("%d segments: %s%d-M%d%s", length(f), stem, min(k), max(k), ext))
+  }
+  paste(f, collapse = ", ")
+}
+
+report_input_file_lines <- function(manifest, width = 92L) {
   inp <- manifest$inputs
   if (is.null(inp) || length(inp) == 0)
     return(c("Input files:", "  (not recorded in this run's manifest)"))
 
   friendly <- c(ftir = "FTIR (PerkinElmer)", ftir_perkin = "FTIR (PerkinElmer)",
                 ftir_bruker = "FTIR (Bruker)", raman = "Raman", ldir = "LDIR")
+  # A stitched PerkinElmer table names its source segments in the config
+  segs <- unlist(manifest$config_snapshot$ftir_segment_tables)
   rows <- list()
   for (k in names(inp)) {
     e <- inp[[k]]
@@ -2236,27 +2239,38 @@ report_input_file_lines <- function(manifest, name_width = 32L) {
     dims <- if (!is.null(e$width) && !is.null(e$height) &&
                 is.finite(suppressWarnings(as.numeric(e$width))))
       sprintf("%dx%d px", as.integer(e$width), as.integer(e$height)) else ""
+    names_full <- base
+    if (k %in% c("ftir", "ftir_perkin") && length(segs) && grepl("_stitched", base))
+      names_full <- c(base, paste0("stitched from ", .segment_names(basename(segs))))
     rows[[length(rows) + 1]] <- list(
-      img = is_img,
-      label = friendly[[inst]] %||% inst,
-      base = .report_trunc_mid(base, name_width),
-      fmt = e$format %||% "",
-      size = .report_fmt_bytes(e$size_bytes),
-      dims = dims)
+      img = is_img, label = friendly[[inst]] %||% inst, names = names_full,
+      fmt = e$format %||% "", size = .report_fmt_bytes(e$size_bytes), dims = dims)
   }
   if (length(rows) == 0)
     return(c("Input files:", "  (not recorded in this run's manifest)"))
 
-  fmt_row <- function(r) sprintf("    %-19s %-*s %-5s %9s %s",
-                                 r$label, name_width, r$base, r$fmt, r$size, r$dims)
+  # The full file name on its own line(s): names identify the sample, so they
+  # are never shortened; a name longer than the line is cut into pieces (not
+  # at spaces, which strwrap would use and lose the indent)
+  chunk <- function(s, w) {
+    out <- character(0)
+    while (nchar(s) > w) {
+      sp <- max(c(0, gregexpr(" ", substr(s, 1, w + 1), fixed = TRUE)[[1]]))
+      cut <- if (sp > w / 2) sp else w          # at a space when there is one late enough
+      out <- c(out, trimws(substr(s, 1, cut), "right"))
+      s <- substr(s, cut + 1, nchar(s))
+    }
+    c(out, s)
+  }
+  fmt_row <- function(r) c(trimws(sprintf("    %-19s %-5s %9s %s", r$label, r$fmt, r$size, r$dims),
+                                  which = "right"),
+                           paste0("      ", unlist(lapply(r$names, chunk, w = width - 6L))))
   out <- "Input files:"
   data_rows <- Filter(function(r) !r$img, rows)
   img_rows  <- Filter(function(r)  r$img, rows)
-  if (length(data_rows)) out <- c(out, "  Data:",
-                                  vapply(data_rows, fmt_row, character(1)))
-  if (length(img_rows))  out <- c(out, "  Images:",
-                                  vapply(img_rows, fmt_row, character(1)))
-  trimws(out, which = "right")
+  if (length(data_rows)) out <- c(out, "  Data:", unlist(lapply(data_rows, fmt_row)))
+  if (length(img_rows))  out <- c(out, "  Images:", unlist(lapply(img_rows, fmt_row)))
+  out
 }
 
 report_text_page <- function(title, lines = character(0), subtitle = NULL) {
@@ -2303,13 +2317,32 @@ report_table_page <- function(df, title, caption = NULL) {
   faces <- matrix(1L, nrow = nr, ncol = nc)
   if (!is.na(total_row)) faces[total_row, ] <- 2L
 
-  tg <- gridExtra::tableGrob(
-    chr, rows = NULL,
+  make_tg <- function(d, fs) gridExtra::tableGrob(
+    d, rows = NULL,
     theme = gridExtra::ttheme_minimal(
       base_size = fs,
       core    = list(fg_params = list(hjust = 0, x = 0.03,
                                       fontface = as.vector(faces))),
       colhead = list(fg_params = list(fontface = "bold", hjust = 0, x = 0.03))))
+  tg <- make_tg(chr, fs)
+  # Keep the table inside the page (10.4 in of the 11 in report width): first
+  # put long cells on two lines at their ", " (e.g. "82% (77-86%) n=280,
+  # corr. 64%"), then shrink the font
+  avail <- 10.2
+  width_in <- function(g) {
+    grDevices::pdf(NULL); on.exit(grDevices::dev.off())
+    grid::convertWidth(sum(g$widths), "in", valueOnly = TRUE)
+  }
+  if (width_in(tg) > avail) {
+    chr2 <- as.data.frame(lapply(chr, function(v) sub(", ", ",\n", v, fixed = TRUE)),
+                          stringsAsFactors = FALSE, check.names = FALSE)
+    tg2 <- make_tg(chr2, fs)
+    if (width_in(tg2) < width_in(tg)) { chr <- chr2; tg <- tg2 }
+    while (width_in(tg) > avail && fs > 5) {
+      fs <- fs - 0.5
+      tg <- make_tg(chr, fs)
+    }
+  }
 
   # Rule above the Total row (the HTML uses a 2px top border).
   if (!is.na(total_row) && requireNamespace("gtable", quietly = TRUE)) {
@@ -2734,14 +2767,6 @@ build_plotly_barplot <- function(device_counts,
   device_colors <- c("FTIR (PerkinElmer)" = INSTRUMENT_COLOURS[["ftir_pe"]],
                      "FTIR (Bruker)" = INSTRUMENT_COLOURS[["ftir_bruker"]],
                      "Raman" = INSTRUMENT_COLOURS[["raman"]], "LDIR" = INSTRUMENT_COLOURS[["ldir"]])
-  .fam_palette  <- c(
-    PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
-    PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
-    PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-    Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
-    POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
-    Other = "#e5c494"
-  )
 
   cts <- device_counts
   has_data    <- vapply(names(cts), function(l) !is.null(cts[[l]]), logical(1))
@@ -2823,7 +2848,7 @@ build_plotly_barplot <- function(device_counts,
       hovertext        = sub_aligned$tooltip,
       hoverinfo        = "text",
       marker           = list(color = if (sel_fam == "__all_plastics__")
-                                (.fam_palette[fam] %||% "#cccccc")
+                                family_colour(fam)
                               else unname(device_colors[sub_aligned$instrument]))
     )
   }
@@ -3018,6 +3043,26 @@ write_report_html <- function(pages, path,
 
 # ggplot twin of build_plotly_barplot(), for the PDF (plotly cannot be printed
 # to a PDF device). Same families, same ordering, same palette.
+# One colour per material family, for every stacked bar chart (viewer and
+# report). Families without an entry get grey: a missing colour used to come
+# back as NA, and ggplot / plotly draw an NA fill as nothing, so whole stacks
+# (Natural, Chitin, Protein, Mineral) were missing from the bars.
+FAMILY_COLOURS <- c(
+  PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
+  PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
+  PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
+  Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
+  POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
+  Other = "#e5c494",
+  Natural = "#d9c89e", Chitin = "#a6d854", Protein = "#1b9e77",
+  Mineral = "#525252", Inorganic = "#525252", "Other compound" = "#bdbdbd")
+
+family_colour <- function(fam) {
+  col <- unname(FAMILY_COLOURS[as.character(fam)])
+  col[is.na(col)] <- "#cccccc"
+  col
+}
+
 build_material_barplot_gg <- function(device_counts,
                                       sel_fam  = "__all_plastics__",
                                       rel_mode = FALSE,
@@ -3025,14 +3070,6 @@ build_material_barplot_gg <- function(device_counts,
                                       cat_mode = "both") {
   cts <- device_counts[!vapply(device_counts, is.null, logical(1))]
   if (length(cts) == 0) return(NULL)
-
-  .fam_palette <- c(
-    PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
-    PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
-    PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-    Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
-    POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
-    Other = "#e5c494")
 
   plastic_fams <- c(synthetic_families, semi_synthetic_families)
   keep_fams <- if (sel_fam == "__all_plastics__") {
@@ -3064,9 +3101,7 @@ build_material_barplot_gg <- function(device_counts,
   rows$family     <- factor(rows$family, levels = rev(fam_order))
   rows$instrument <- factor(rows$instrument, levels = inst_levels)
 
-  pal <- vapply(levels(rows$family),
-                function(f) unname(.fam_palette[f]) %||% "#cccccc", character(1))
-  names(pal) <- levels(rows$family)
+  pal <- stats::setNames(family_colour(levels(rows$family)), levels(rows$family))
 
   ggplot2::ggplot(rows, ggplot2::aes(x = instrument, y = value, fill = family)) +
     ggplot2::geom_col(width = 0.65) +

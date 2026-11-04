@@ -1054,7 +1054,8 @@ write_manifest <- function(run_dir, run_id, config,
                  "ftir_image_width_um", "ftir_image_height_um",
                  "ftir_image_center_x_um", "ftir_image_center_y_um",
                  "ftir_bruker_image_width_um", "ftir_bruker_image_height_um",
-                 "ftir_bruker_image_center_x_um", "ftir_bruker_image_center_y_um")
+                 "ftir_bruker_image_center_x_um", "ftir_bruker_image_center_y_um",
+                 "opus_ftir_bruker_image")
   cfg_snap <- lapply(cfg_keys, function(k) config[[k]])
   names(cfg_snap) <- cfg_keys
   # Remove NULLs

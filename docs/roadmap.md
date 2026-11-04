@@ -12,6 +12,10 @@ samples (see [validation.md](validation.md)). Next:
   plastics in the instrument software is too short to fix the alignment
   against a dense Raman field (field sample A: 15 and 5 particles; both
   alignments reported as not determined).
+- A field sample with the Lumos image and its OPUS values, to check the
+  alignment on image spots (`align_use_image_spots`, tested on synthetic
+  data only) and whether the Lumos table's y axis points up from the map
+  origin, as the image placement assumes.
 - Further comparison filters, to repeat the chance-match null model, the
   parameter sensitivity and the detection rates per size class on each.
 - A sweep of the quality cutoffs (FTIR AAU, Raman HQI, LDIR quality) and its
