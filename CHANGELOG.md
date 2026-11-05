@@ -285,6 +285,18 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - Viewer overlay: "Number all particles" puts each instrument's ID in its
   corner of the marker (the symbol view's corners) in the instrument's
   colour, so a matched pair's IDs no longer overprint (`add_overlay_labels()`).
+- LDIR join: colour classes of the analyzed image. The LDIR "analyzed"
+  export colours every particle by its identification class (palette
+  reused when there are more classes than colours). `ldir_colour_classes()`
+  matches the colours to the table's classes by count (no legend needed;
+  left-over classes allowed in the colours with surplus blobs; equal counts
+  share) and the join adds a cost (`ldir_join_weight_colour_class`, 5) for a
+  row on a blob of another class, in every pass. Faanui field sample: 10
+  colours for 14 classes, counts exact (Undefined 946 = rows below quality
+  0.85); without the term only 54% of the rows sat on a blob of their own
+  class, with it 99.9%; LDIR-Raman family agreement where both identify
+  9% (1 of 11) -> 41% (9 of 22); LDIR polyethylene on Raman LLDPE/paraffin
+  8 of 8. The extraction records each blob's modal colour (`mode_rgb`).
 - LDIR join check: new circularity statistic (LDIR table vs Raman partner;
   circularity is not used by the join, so unlike size it tests whether a row
   sits on the right particle, not just one of the right size; the Raman

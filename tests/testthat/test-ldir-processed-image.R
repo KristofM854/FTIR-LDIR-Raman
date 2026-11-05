@@ -738,3 +738,59 @@ test_that("the swap sidecar is found under any name with coord/cord + swap", {
   expect_identical(basename(find_ldir_coord_swaps_file(xlsx, make_config())),
                    "LDIR_data_coord_swaps.csv")
 })
+
+# --- Colour classes (one colour per identification class) ---------------------
+
+.pack <- function(hex) strtoi(substring(hex, 2), 16L)
+
+test_that("colours are matched to classes by count, reused colours host the left-over classes", {
+  # Palette reuse as in the Faanui export: 3 colours for 5 classes; the two
+  # one-particle classes sit in the colours with one blob too many
+  cls <- c(rep("Undefined", 40), rep("Cellulosic", 12), rep("Polyethylene", 5), "ABS", "PVC")
+  q <- ifelse(cls == "Undefined", 0.5, 0.95)
+  ex <- data.frame(identification_raw = ifelse(cls == "Undefined", "Cellulosic", cls), quality = q,
+                   stringsAsFactors = FALSE)
+  img <- data.frame(mode_rgb = .pack(c(rep("#B2DF8A", 40), rep("#E31A1C", 13), rep("#6A3D9A", 6))))
+  cc <- ldir_colour_classes(img, ex, threshold = 0.85)
+  expect_false(inherits(cc, "ldir_colour_mismatch"))
+  expect_equal(cc$table$class[1:3], c("Undefined", "Cellulosic", "Polyethylene"))
+  a <- cc$allowed
+  expect_true(all(a[cls == "Undefined", img$mode_rgb == .pack("#B2DF8A")]))
+  expect_false(any(a[cls == "Undefined", img$mode_rgb != .pack("#B2DF8A")]))
+  expect_false(any(a[cls == "Cellulosic", img$mode_rgb == .pack("#6A3D9A")]))
+  # ABS / PVC may sit in either colour with a surplus blob, never in Undefined
+  expect_true(all(a[cls == "ABS", img$mode_rgb %in% .pack(c("#E31A1C", "#6A3D9A"))]))
+  expect_false(any(a[cls == "ABS", img$mode_rgb == .pack("#B2DF8A")]))
+  # Counts that do not add up: no constraint
+  bad <- data.frame(mode_rgb = .pack(c(rep("#B2DF8A", 20), rep("#E31A1C", 33), rep("#6A3D9A", 6))))
+  expect_s3_class(ldir_colour_classes(bad, ex, threshold = 0.85), "ldir_colour_mismatch")
+})
+
+test_that("the join puts each row on a blob of its colour class", {
+  set.seed(3)
+  n <- 30
+  # Two classes (18 and 12 particles: distinct counts) with the same size
+  # distribution: size alone cannot tell them apart
+  area <- round(stats::runif(n, 400, 2000))
+  ex <- data.frame(particle_id = paste0("A", 1:n), area_um2 = area, feret_max_um = sqrt(area) * 1.3,
+                   feret_min_um = sqrt(area) * 0.8, aspect_ratio = 1.6,
+                   identification_raw = sample(rep(c("Cellulosic", "Polyethylene"), c(18, 12))),
+                   quality = 0.95, x_um = NA_real_, y_um = NA_real_, stringsAsFactors = FALSE)
+  ex <- ex[order(-ex$area_um2), ]
+  perm <- sample(n)
+  img <- data.frame(x_um = stats::runif(n, -5000, 5000)[perm], y_um = stats::runif(n, -5000, 5000)[perm],
+                    area_um2 = (ex$area_um2 * stats::runif(n, 0.85, 1.15))[perm],
+                    feret_max_um = ex$feret_max_um[perm], feret_min_um = ex$feret_min_um[perm],
+                    aspect_ratio = 1.6,
+                    mode_rgb = .pack(ifelse(ex$identification_raw == "Cellulosic", "#E31A1C", "#6A3D9A"))[perm],
+                    coord_source = "processed_image", stringsAsFactors = FALSE)
+  cfg <- make_config()
+  j <- suppressMessages(join_ldir_coords(ex, img, cfg))
+  b <- match(paste(j$x_um, j$y_um), paste(img$x_um, img$y_um))
+  want <- .pack(ifelse(j$identification_raw == "Cellulosic", "#E31A1C", "#6A3D9A"))
+  expect_true(all(img$mode_rgb[b] == want))
+  cfg$ldir_join_weight_colour_class <- 0
+  j0 <- suppressMessages(join_ldir_coords(ex, img, cfg))
+  b0 <- match(paste(j0$x_um, j0$y_um), paste(img$x_um, img$y_um))
+  expect_lt(mean(img$mode_rgb[b0] == .pack(ifelse(j0$identification_raw == "Cellulosic", "#E31A1C", "#6A3D9A"))), 1)
+})
