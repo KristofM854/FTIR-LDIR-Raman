@@ -285,6 +285,16 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - Viewer overlay: "Number all particles" puts each instrument's ID in its
   corner of the marker (the symbol view's corners) in the instrument's
   colour, so a matched pair's IDs no longer overprint (`add_overlay_labels()`).
+- LDIR join check: new circularity statistic (LDIR table vs Raman partner;
+  circularity is not used by the join, so unlike size it tests whether a row
+  sits on the right particle, not just one of the right size; the Raman
+  reader keeps the exported circularity). The family statistic reports the
+  highest agreement a perfect join could reach (`max_possible`) and is
+  informative only when that is at least 0.2 above the random join, so a
+  sample where the instruments name different families (Raman reference
+  chemicals against LDIR natural materials) no longer counts as a test of the
+  join. A warning when sizes agree but circularity does not. Dataset A:
+  circularity 0.75 (p < 0.001); Faanui field sample: 0.20 (p 0.04).
 - Viewer: the FTIR (PerkinElmer) and FTIR (Bruker) tabs frame the whole
   background image as well as the particles (an exactly placed image is
   larger than the particles' extent and was cropped).

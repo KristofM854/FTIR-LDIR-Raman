@@ -319,6 +319,10 @@ ingest_raman <- function(filepath, sheet = "Long_Table") {
     source_file  = if ("source_file" %in% names(raw)) as.character(raw[["source_file"]]) else basename(filepath),
     stringsAsFactors = FALSE
   )
+  # Circularity, when exported: a shape measure the LDIR join check compares
+  # (ldir_join_check(); not used by any join or match)
+  circ_col <- find_column(raw, c("Circularity"))
+  if (!is.null(circ_col)) df$circularity <- as_number(raw[[circ_col]])
 
   log_message("  Parsed ", nrow(df), " Raman particles")
   log_message("  Coordinate range: X [", round(min(df$x_um, na.rm = TRUE)),
