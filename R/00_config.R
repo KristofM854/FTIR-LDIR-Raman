@@ -392,6 +392,11 @@ make_config <- function(ftir_path  = NULL,
     # factor off (the overlay then covers part of the scan; dataset A 2.7x).
     # Closer, the area estimate is the less accurate one (field sample A: 13%).
     ldir_processed_scale_tolerance = 1.5,
+    # Join cost of a row on a blob of another colour class (analyzed image:
+    # one colour per identification class, matched to the table's classes by
+    # count; ldir_colour_classes()). High enough that materials do not move
+    # between similar-sized particles; 0 switches the term off.
+    ldir_join_weight_colour_class = 5,
 
     # ldir_processed_image_min_brightness: per-pixel RGB sum threshold
     #   below which a pixel is treated as background (pure black = 0).

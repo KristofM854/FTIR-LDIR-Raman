@@ -1013,6 +1013,7 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
   area_all <- numeric(0); feret_all <- numeric(0)
   ecc_all <- numeric(0); circ_all <- numeric(0); solid_all <- numeric(0)
   mr_all <- numeric(0); mg_all <- numeric(0); mb_all <- numeric(0)
+  mode_all <- numeric(0)
 
   # --- (d) Connected components + per-blob measurements ---
   for (mask in masks) {
@@ -1058,6 +1059,11 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
       mr_all    <- c(mr_all, mean(Rc[pix]))
       mg_all    <- c(mg_all, mean(Gc[pix]))
       mb_all    <- c(mb_all, mean(Bc[pix]))
+      # Modal colour (packed 0xRRGGBB): the class colour of the blob; the mean
+      # mixes in anti-aliased edge pixels
+      code <- round(Rc[pix]) * 65536 + round(Gc[pix]) * 256 + round(Bc[pix])
+      u <- unique(code)
+      mode_all  <- c(mode_all, u[which.max(tabulate(match(code, u)))])
     }
   }
 
@@ -1151,6 +1157,7 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
     mean_r        = mr_all,
     mean_g        = mg_all,
     mean_b        = mb_all,
+    mode_rgb      = mode_all,
     material      = NA_character_,
     quality       = NA_real_,
     coord_source  = "processed_image",
@@ -1414,6 +1421,96 @@ extract_ldir_processed_image_coords <- function(img_path, scan_bounds = NULL,
 }
 
 
+#' Material classes of the analyzed-image blobs from their colours.
+#'
+#' The LDIR "analyzed" export colours every particle by its identification
+#' class ("Undefined" below the quality threshold) from a fixed palette that
+#' it reuses when there are more classes than colours. The legend is not
+#' exported, so colours are matched to classes by count: the classes sorted by
+#' size are paired with the colours sorted by size, each colour allowing its
+#' class. Classes left over (more classes than colours, or tied at the cut)
+#' sit inside colours with more blobs than their class: those colours also
+#' allow the left-over classes. Classes of equal count allow each other's
+#' colours. Faanui field sample: 10 colours for 14 classes, Undefined 946/946,
+#' Cellulosic 196/196, ..., five one-particle classes in the four colours
+#' with one blob too many and the colour without a class (2 blobs).
+#'
+#' @param image_df blobs with mode_rgb (packed 0xRRGGBB, from
+#'   extract_ldir_processed_image_coords())
+#' @param excel_df LDIR rows with identification_raw (or material) and quality
+#' @param threshold quality below which a row is "Undefined"
+#' @param merge_dist RGB distance within which colours count as one
+#' @param tol allowed count difference per paired class: max(2, tol x count)
+#' @return list(allowed = logical n_excel x n_image, table), or an object of
+#'   class "ldir_colour_mismatch" (with attr reason) when the counts do not
+#'   add up, or NULL without colours or qualities
+ldir_colour_classes <- function(image_df, excel_df, threshold, merge_dist = 40, tol = 0.1) {
+  if (is.null(image_df$mode_rgb) || all(is.na(image_df$mode_rgb))) return(NULL)
+  ident <- if (!is.null(excel_df$identification_raw)) excel_df$identification_raw else excel_df$material
+  q <- suppressWarnings(as.numeric(excel_df$quality))
+  if (all(is.na(q)) || is.null(threshold) || !is.finite(threshold)) return(NULL)
+  ex_cls <- ifelse(is.na(q) | q < threshold | is.na(ident) | !nzchar(ident), "Undefined",
+                   as.character(ident))
+  # Colour groups: greedy merge of the blobs' modal colours, most frequent first
+  code <- image_df$mode_rgb
+  u <- unique(code[!is.na(code)])
+  u <- u[order(-tabulate(match(code, u)))]
+  cen <- matrix(numeric(0), ncol = 3); grp_of_u <- integer(length(u))
+  for (k in seq_along(u)) {
+    v <- c(u[k] %/% 65536, (u[k] %/% 256) %% 256, u[k] %% 256)
+    d <- if (nrow(cen)) sqrt(colSums((t(cen) - v)^2)) else numeric(0)
+    if (length(d) && min(d) <= merge_dist) grp_of_u[k] <- which.min(d)
+    else { cen <- rbind(cen, v); grp_of_u[k] <- nrow(cen) }
+  }
+  img_grp <- grp_of_u[match(code, u)]
+  n_g <- tabulate(img_grp, nbins = nrow(cen))
+  n_c <- table(ex_cls); cls_ord <- names(n_c)[order(-n_c)]; grp_ord <- order(-n_g)
+  k <- min(length(cls_ord), length(grp_ord))
+  prim <- cls_ord[seq_len(k)]                                  # class of each sorted colour
+  left <- setdiff(cls_ord, prim)
+  # A tie at the cut: classes of that count are interchangeable leftovers
+  if (length(left)) {
+    cut_n <- n_c[[prim[k]]]
+    if (any(n_c[left] == cut_n)) {
+      tied <- prim[n_c[prim] == cut_n]; left <- c(left, tied); prim[prim %in% tied] <- NA
+    }
+  }
+  n_prim <- ifelse(is.na(prim), 0L, as.integer(n_c[ifelse(is.na(prim), cls_ord[1], prim)]))
+  surplus <- n_g[grp_ord[seq_len(k)]] - n_prim
+  hosts <- grp_ord[seq_len(k)][surplus > 0]
+  n_left <- if (length(left)) sum(n_c[left]) else 0L
+  tab <- data.frame(colour = sprintf("#%02X%02X%02X", cen[grp_ord, 1], cen[grp_ord, 2], cen[grp_ord, 3]),
+                    n_image = n_g[grp_ord],
+                    class = c(ifelse(is.na(prim), "(left-over classes)", prim),
+                              rep(NA_character_, length(grp_ord) - k)),
+                    n_excel = c(n_prim, rep(NA_integer_, length(grp_ord) - k)),
+                    stringsAsFactors = FALSE)
+  bad <- c(if (length(grp_ord) > length(cls_ord))
+             sprintf("%d colours in the image for %d classes", length(grp_ord), length(cls_ord)),
+           if (any(!is.na(prim) & surplus < -pmax(2, tol * n_prim)))
+             paste0("fewer blobs than rows for ", paste(prim[!is.na(prim) & surplus < -pmax(2, tol * n_prim)],
+                                                      collapse = ", ")),
+           if (abs(sum(pmax(surplus, 0)) - n_left) > max(2, tol * n_left) &&
+               !(n_left == 0 && all(abs(surplus) <= pmax(2, tol * n_prim))))
+             sprintf("the surplus blobs (%d) do not add up to the left-over classes (%d)",
+                     sum(pmax(surplus, 0)), n_left))
+  if (length(bad)) {
+    attr(tab, "reason") <- paste(bad, collapse = "; ")
+    return(structure(list(table = tab), class = "ldir_colour_mismatch"))
+  }
+  # Allowed (class, colour): the colour's own class; classes of equal count
+  # share; left-over classes in the colours with surplus blobs
+  allow <- matrix(FALSE, length(cls_ord), nrow(cen), dimnames = list(cls_ord, NULL))
+  for (i in seq_len(k)) if (!is.na(prim[i])) {
+    same <- names(n_c)[n_c == n_c[[prim[i]]] & names(n_c) %in% prim]
+    allow[same, grp_ord[i]] <- TRUE
+  }
+  if (length(left)) allow[left, hosts] <- TRUE
+  attr(tab, "left_over") <- left
+  list(allowed = allow[ex_cls, img_grp, drop = FALSE], table = tab)
+}
+
+
 #' Join image-extracted coordinates with Excel particle table
 #'
 #' Since the LDIR Excel has IDs + sizes but no coordinates, and the image
@@ -1609,6 +1706,28 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
   base_cost <- log_area + 0.5 * log_feret + w_ar * ar_cost + w_rank * rank_cost +
                w_shape * shape_cost
 
+  # --- Colour-class term: an analyzed image colours each blob by its class ---
+  # A row may join a blob of another colour only at a high cost, so materials
+  # cannot move between particles of similar size (ldir_colour_classes()).
+  class_cost <- matrix(0, nrow = n_excel, ncol = n_image)
+  w_class <- cfg_value(config, "ldir_join_weight_colour_class")
+  if (isTRUE(w_class > 0) && !is.null(image_df$mode_rgb)) {
+    cc <- ldir_colour_classes(image_df, excel_df, cfg_value(config, "ldir_hqi_unknown_threshold"))
+    if (inherits(cc, "ldir_colour_mismatch")) {
+      log_message("  Colour classes not used: ", attr(cc$table, "reason"), level = "WARN")
+    } else if (!is.null(cc)) {
+      class_cost <- w_class * (!cc$allowed)
+      t <- cc$table; lo <- attr(t, "left_over")
+      log_message("  Colour classes of the analyzed image (matched by count, table/image): ",
+                  paste(sprintf("%s %s/%d", t$class, ifelse(is.na(t$n_excel), "-", t$n_excel),
+                                t$n_image), collapse = ", "),
+                  if (length(lo)) paste0("; left-over classes (", paste(lo, collapse = ", "),
+                                         ") in the colours with surplus blobs"),
+                  ". A row joins only a blob of its colour class.")
+      base_cost <- base_cost + class_cost
+    }
+  }
+
   # --- Pass 0: rank-first mini-Hungarian for the largest particles ---
   # The LDIR Excel is in descending-area order and the top image blobs are taken
   # by area, so the rank signal anchors the largest particles before the
@@ -1627,7 +1746,8 @@ join_ldir_coords <- function(excel_df, image_df, config = NULL) {
     top_i <- order(ifelse(is.na(image_area), 0, image_area),
                    decreasing = TRUE)[seq_len(rank_first_k)]
     k_cost <- rank_cost[top_e, top_i, drop = FALSE] +
-              w_shape * shape_cost[top_e, top_i, drop = FALSE]
+              w_shape * shape_cost[top_e, top_i, drop = FALSE] +
+              class_cost[top_e, top_i, drop = FALSE]
 
     if (requireNamespace("clue", quietly = TRUE)) {
       k_asgn <- as.integer(clue::solve_LSAP(k_cost, maximum = FALSE))
