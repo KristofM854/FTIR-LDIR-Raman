@@ -72,10 +72,10 @@ test_that("LDIR join check: correct join is significant, scrambled join is not",
     ldir_feret_max_um = size[ldir_idx] * stats::runif(n, 0.9, 1.1), raman_feret_max_um = size,
     stringsAsFactors = FALSE)
   good <- ldir_join_check(mk(seq_len(n)), n_iter = 200)$summary
-  expect_true(all(good$p_value < 0.01))
+  expect_true(all(good$p_value < 0.01, na.rm = TRUE))
   expect_true(good$informative[good$statistic == "family_agreement"])
   bad <- ldir_join_check(mk(sample.int(n)), n_iter = 200)$summary
-  expect_true(all(bad$p_value > 0.01))
+  expect_true(all(bad$p_value > 0.01, na.rm = TRUE))
   # A single-polymer sample: the family statistic is flagged uninformative
   fam[] <- "PET"
   one <- ldir_join_check(mk(seq_len(n)), n_iter = 50)$summary
@@ -99,4 +99,37 @@ test_that("log_ldir_join_check warns when the join looks random", {
   expect_false(any(grepl("WARN", msgs)))
   expect_true(any(grepl("not informative for this sample", msgs)))
   expect_message(log_ldir_join_check(NULL), "not run")
+})
+
+test_that("LDIR join check: circularity tests identity; family test states its ceiling", {
+  set.seed(12)
+  n <- 80
+  size <- round(stats::runif(n, 25, 60))                       # many similar sizes
+  circ <- stats::runif(n, 0.2, 0.9)
+  # LDIR natural families against Raman synthetics: barely overlapping families
+  base <- data.frame(ldir_particle_id = paste0("L", 1:n), raman_particle_id = paste0("R", 1:n),
+                     match_distance = 5,
+                     ldir_material = sample(c("Cellulosic", "Chitin", "Polyamide (naturally occurring)"), n, TRUE),
+                     raman_material = sample(c("Polyethylene", "Polyvinyl chloride", "Cellulose"), n, TRUE,
+                                             prob = c(0.5, 0.45, 0.05)),
+                     raman_feret_max_um = size, raman_circularity = circ, stringsAsFactors = FALSE)
+  right <- base; right$ldir_feret_max_um <- size * stats::runif(n, 0.9, 1.1)
+  right$ldir_circularity <- circ + stats::rnorm(n, 0, 0.05)
+  s <- ldir_join_check(right, n_iter = 300)$summary
+  expect_true(s$informative[s$statistic == "circularity_spearman"])
+  expect_lt(s$p_value[s$statistic == "circularity_spearman"], 0.01)
+  fam <- s[s$statistic == "family_agreement", ]
+  expect_false(fam$informative)
+  expect_lt(fam$max_possible - fam$null_mean, 0.2)
+  # Rows swapped among similar sizes: size still agrees, circularity does not
+  swapped <- right; i <- order(size); j <- i; j[seq(1, n - 1, 2)] <- i[seq(2, n, 2)]
+  j[seq(2, n, 2)] <- i[seq(1, n - 1, 2)]
+  swapped$ldir_circularity[i] <- right$ldir_circularity[j]
+  sw <- ldir_join_check(swapped, n_iter = 300)
+  expect_lt(sw$summary$p_value[sw$summary$statistic == "size_spearman"], 0.01)
+  expect_gt(sw$summary$p_value[sw$summary$statistic == "circularity_spearman"], 0.05)
+  expect_message(log_ldir_join_check(sw), "circularity \\(not used by the join\\) does not")
+  # Without a Raman circularity the statistic is simply absent
+  nocirc <- right; nocirc$raman_circularity <- NULL
+  expect_false(ldir_join_check(nocirc, n_iter = 50)$summary$informative[3])
 })
