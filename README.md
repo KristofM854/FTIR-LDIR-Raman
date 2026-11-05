@@ -253,7 +253,16 @@ is therefore 100 % by construction and says nothing about join correctness.
 When the LDIR software's processed overlay (`<image>_analyzed.<ext>`) is
 present, its coloured blobs are segmented in R instead (the machine's own
 segmentation), and its scale is calibrated so the blob areas sum to the Excel
-areas. Python is required for every LDIR image run.
+areas. Python is required for every LDIR image run. The overlay colours each
+particle by its identification class; the join keeps every row on a particle
+of its own colour class (colours matched to the classes by count).
+
+With the Clarity project file (`.sam`, the only one next to the LDIR Excel, or
+`ldir_sam_path` in the config) the join is exact: the file stores every
+particle's ID and outline in pixels of the analyzed overlay, so each row takes
+the particle its own outline covers (log line "Exact LDIR join from the .sam
+file"). The size / shape / colour join is used when there is no `.sam` file or
+it does not fit the table.
 
 Pixel centroids are mapped to µm with the image's placement (scan circle =
 scan diameter, or the calibrated overlay), recorded per run in
