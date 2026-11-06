@@ -756,27 +756,6 @@ enrich_material_family <- function(data) {
 }
 
 # ---------------------------------------------------------------------------
-# Build run_data from user-uploaded CSVs (fallback when pipeline output is
-# not available).  Minimum required: matched_particles.csv.
-# ---------------------------------------------------------------------------
-load_uploaded_data <- function(matched_path,
-                                unmatched_ftir_path = NULL,
-                                unmatched_raman_path = NULL,
-                                transform_path = NULL) {
-  data <- list(run_dir = dirname(matched_path))
-  data$matched <- read.csv(matched_path, stringsAsFactors = FALSE)
-
-  if (!is.null(unmatched_ftir_path) && file.exists(unmatched_ftir_path))
-    data$unmatched_ftir <- read.csv(unmatched_ftir_path, stringsAsFactors = FALSE)
-  if (!is.null(unmatched_raman_path) && file.exists(unmatched_raman_path))
-    data$unmatched_raman <- read.csv(unmatched_raman_path, stringsAsFactors = FALSE)
-  if (!is.null(transform_path) && file.exists(transform_path))
-    data$transform <- parse_transform_params(transform_path)
-
-  enrich_material_family(data)
-}
-
-# ---------------------------------------------------------------------------
 # Parse transform_params.txt into a structured list
 # ---------------------------------------------------------------------------
 parse_transform_params <- function(filepath) {
@@ -1070,6 +1049,18 @@ build_instrument_dfs <- function(data) {
     result[[inst]]$p_true <- ifelse(d$match_status == "matched", best, NA_real_)
   }
 
+  # Above / below the instrument's quality cutoff (the run's settings): the
+  # pipeline matches only particles above it
+  cut <- quality_cutoffs(tryCatch(load_run_manifest(data$run_dir)$config_snapshot,
+                                  error = function(e) NULL))
+  for (inst in names(result)) {
+    d <- result[[inst]]
+    if (is.null(d) || nrow(d) == 0) next
+    q <- suppressWarnings(as.numeric(d$quality))
+    c0 <- cut[[inst]] %||% 0
+    result[[inst]]$passes_cutoff <- if (c0 <= 0 || all(is.na(q))) TRUE else !is.na(q) & q >= c0
+  }
+
   # An explicit NULL for an absent instrument: result$ftir would otherwise
   # partial-match ftir_bruker
   for (k in c("ftir", "raman", "ldir", "ftir_bruker"))
@@ -1126,6 +1117,18 @@ instrument_df_from_aligned <- function(data, inst) {
   attr(d, "match_partners") <- unname(INSTRUMENT_DISPLAY[
     sub("^matched_to_", "", flags[vapply(flags, function(f) any(d[[f]]), logical(1))])])
   d
+}
+
+# Quality cutoffs per viewer instrument key, from a run's config snapshot
+# (pipeline defaults when a value is missing): FTIR AAU, Raman HQI, LDIR quality
+quality_cutoffs <- function(cfg = NULL) {
+  v <- function(k, d) {
+    x <- suppressWarnings(as.numeric(unlist(cfg[[k]])))
+    if (length(x) && is.finite(x[1])) x[1] else d
+  }
+  ftir <- v("ftir_agreement_min_quality", 0.70)
+  list(ftir = ftir, ftir_bruker = ftir, raman = v("raman_hqi_threshold", 70),
+       ldir = v("ldir_hqi_unknown_threshold", 0.85))
 }
 
 INSTRUMENT_DISPLAY <- c(raman = "Raman", ftir_perkin = "FTIR", ldir = "LDIR",
@@ -2016,8 +2019,8 @@ report_size_stats_table <- function(dfs) {
     rows[[nm]] <- data.frame(
       Instrument = nm,
       Total      = nrow(df),
-      Matched    = sum(df$match_status == "matched",   na.rm = TRUE),
-      Unmatched  = sum(df$match_status == "unmatched", na.rm = TRUE),
+      `Above quality cutoff` = if ("passes_cutoff" %in% names(df)) sum(df$passes_cutoff %in% TRUE) else nrow(df),
+      `Below quality cutoff` = if ("passes_cutoff" %in% names(df)) sum(df$passes_cutoff %in% FALSE) else 0L,
       Mean       = paste0(round(mean(fm,   na.rm = TRUE), 1), " \u00b5m"),
       Median     = paste0(round(stats::median(fm, na.rm = TRUE), 1), " \u00b5m"),
       `Std Dev`  = paste0(round(stats::sd(fm, na.rm = TRUE), 1), " \u00b5m"),
@@ -2641,69 +2644,36 @@ particle_circles <- function(x, y, r, n = 36L) {
              y  = rep(y[idx], each = n) + rep(r[idx], each = n) * sin(t))
 }
 
-make_scatter <- function(df, img_info, bounds, title,
-                          match_colours = NULL, highlight_id = NULL,
-                          full_df = NULL, match_labels = NULL,
-                          plain = FALSE, show_labels = FALSE, label_size = 3,
-                          subtitle = NULL, true_size = FALSE,
-                          colour_by_confidence = FALSE) {
-
-  by_conf <- isTRUE(colour_by_confidence) && "p_true" %in% names(df) &&
-    "match_status" %in% names(df) && any(!is.na(df$p_true))
+# Points of one instrument in its own colour. Filled = passes the
+# instrument's quality cutoff (column passes_cutoff, as the pipeline matches
+# only those), open = below it. Match status is the overlay's business.
+make_scatter <- function(df, img_info, bounds, title, colour = NULL,
+                          highlight_id = NULL, full_df = NULL,
+                          show_labels = FALSE, label_size = 3,
+                          subtitle = NULL, true_size = FALSE) {
+  col <- colour %||% INSTRUMENT_COLOURS[["raman"]]
+  if (!"passes_cutoff" %in% names(df)) df$passes_cutoff <- rep(TRUE, nrow(df))
+  df$cutoff <- ifelse(df$passes_cutoff %in% FALSE, "below", "above")
+  cut_labels <- c(above = "Above quality cutoff (filled)", below = "Below quality cutoff (open)")
 
   p <- ggplot(df, aes(x = x, y = y))
-
-  # Background image (with per-image bounds)
   p <- add_image_bg(p, img_info)
 
   # true_size: each particle is drawn as a circle of diameter Feret Max in
   # DATA units (um), so its size can be checked against the image. The default
   # point markers are sized in screen points by a size scale, which says
   # nothing about the particle's physical size.
-  # One colour for every particle (plain mode): the instrument's matched colour
-  plain_col <- if (!is.null(match_colours)) unname(match_colours[["matched"]]) else
-    INSTRUMENT_COLOURS[["raman"]]
   if (isTRUE(true_size) && "feret_max" %in% names(df)) {
     ci <- particle_circles(df$x, df$y, df$feret_max / 2)
-    if (isTRUE(plain) || !"match_status" %in% names(df)) {
-      p <- p + geom_polygon(data = ci, aes(x = x, y = y, group = id),
-                            fill = NA, colour = plain_col, linewidth = 0.5,
-                            inherit.aes = FALSE)
-    } else {
-      ci$match_status <- df$match_status[ci$id]
-      p <- p + geom_polygon(data = ci, aes(x = x, y = y, group = id,
-                                           colour = match_status),
-                            fill = NA, linewidth = 0.5, inherit.aes = FALSE)
-      if (!is.null(match_colours)) {
-        p <- p + if (!is.null(match_labels))
-          scale_colour_manual(values = match_colours, labels = match_labels)
-        else scale_colour_manual(values = match_colours)
-      }
-    }
-    p <- p + geom_point(size = 0.6, colour = "white", alpha = 0.9)
-  } else if (isTRUE(plain)) {
-  # Points. In "plain" mode (Show all detected) every particle is drawn in a
-  # single colour with no matched/unmatched distinction or legend.
-    p <- p + geom_point(aes(size = feret_max), colour = plain_col,
-                        alpha = 0.7)
-  } else if (by_conf) {
-  # Matched particles coloured by their pair confidence (p_true), others grey
-    um <- df$match_status != "matched" | is.na(df$p_true)
-    p <- p +
-      geom_point(data = df[um, , drop = FALSE], aes(size = feret_max),
-                 colour = "grey60", alpha = 0.5) +
-      geom_point(data = df[!um, , drop = FALSE], aes(colour = p_true, size = feret_max),
-                 alpha = 0.85) +
-      scale_colour_viridis_c(limits = c(0, 1), name = "Pair confidence\n(p_true)")
+    ci$cutoff <- df$cutoff[ci$id]
+    p <- p + geom_polygon(data = ci, aes(x = x, y = y, group = id, linetype = cutoff),
+                          fill = NA, colour = col, linewidth = 0.5, inherit.aes = FALSE) +
+      scale_linetype_manual(name = NULL, values = c(above = "solid", below = "dashed"),
+                            labels = c(above = "Above quality cutoff", below = "Below quality cutoff")) +
+      geom_point(size = 0.6, colour = "white", alpha = 0.9)
   } else {
-    p <- p + geom_point(aes(colour = match_status, size = feret_max),
-                        alpha = 0.7)
-    if (!is.null(match_colours)) {
-      if (!is.null(match_labels))
-        p <- p + scale_colour_manual(values = match_colours, labels = match_labels)
-      else
-        p <- p + scale_colour_manual(values = match_colours)
-    }
+    p <- p + geom_point(aes(size = feret_max, shape = cutoff), colour = col, alpha = 0.7, stroke = 1) +
+      scale_shape_manual(name = NULL, values = c(above = 19, below = 1), labels = cut_labels)
   }
 
   if (!isTRUE(true_size))
@@ -3320,54 +3290,32 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
                     list(plot_size_distribution(dfs$ldir, "LDIR")))
   pages <- c(pages, list(report_grid_page(
     size_plots, "Size Distribution by Instrument",
-    paste0("Feret Max (\u00b5m) per instrument. Solid bars: matched. ",
-           "Outline bars: unmatched."),
+    "Feret Max (\u00b5m) per instrument.",
     ncol = if (length(size_plots) == 4) 2 else min(3, max(1, length(size_plots))))))
 
   # --- 5. Size statistics ---------------------------------------------------
   pages <- c(pages, list(report_table_page(
     report_size_stats_table(dfs), "Size Statistics",
-    "Feret Max summary statistics per instrument.")))
+    paste0("Feret Max summary statistics per instrument; above / below each ",
+           "instrument's quality cutoff (the pipeline matches only particles above it)."))))
 
-  # --- Matching quality -------------------------------------------------------
-  mt <- report_matching_table(run_dir)
-  if (nrow(mt) > 0)
-    pages <- c(pages, list(report_table_page(
-      mt, "Matching Quality per Instrument Pair",
-      paste0("Pairs found within the distance gate (particles passing their quality ",
-             "cutoff only). By chance: pairs a random arrangement of the particles would ",
-             "also give, from the reference density within the gate, and their share of ",
-             "the pairs; above ~20% the pairs cannot be told from chance. Sigma: positional ",
-             "error fitted to the nearest-neighbour distances (true pairs lie within ~3 sigma). ",
-             "Dist.: pair distance (um). Family agreement: over the scored, resolved pairs, ",
-             "with the 95% interval; then over the pairs very likely true (p_true); 'not ",
-             "determined' when too few anchors fixed the alignment (pairs not scored)."))))
+  # --- Alignment check and agreement (whole run) ---------------------------
+  .agr <- tryCatch(report_agreement_pages(run_dir), error = function(e) list())
+  pages <- c(pages, .agr$main)
   pages <- c(pages, report_detection_pages(run_dir))
 
   # --- 6-9. Per-instrument views over the instrument image ------------------
   # Native instrument frame (x_orig/y_orig), as each viewer tab shows it.
-  # "matched to ...": the run's partners, read from the unfiltered frames
-  # (filtering drops the frame's record of them)
-  partner <- function(k, default)
-    paste("matched to", match_partner_label((if (length(place_dfs)) place_dfs else dfs)[[k]],
-                                            default))
+  # Filled = above the quality cutoff, open = below.
   inst_spec <- list(
-    list(key = "ftir",        pkey = "ftir_perkin",
-         title = "FTIR (PerkinElmer) \u2014 particles over instrument image",
-         cols = c(matched = INSTRUMENT_COLOURS[["ftir_pe"]], unmatched = UNMATCHED_COLOUR),
-         labs = c(matched = partner("ftir", "Raman"), unmatched = "unmatched")),
-    list(key = "ftir_bruker", pkey = "ftir_bruker",
-         title = "FTIR (Bruker) \u2014 particles over instrument image",
-         cols = c(matched = INSTRUMENT_COLOURS[["ftir_bruker"]], unmatched = UNMATCHED_COLOUR),
-         labs = c(matched = partner("ftir_bruker", "Raman"), unmatched = "unmatched")),
-    list(key = "raman",       pkey = "raman",
-         title = "Raman \u2014 particles over instrument image",
-         cols = c(matched = INSTRUMENT_COLOURS[["raman"]], unmatched = UNMATCHED_COLOUR),
-         labs = c(matched = partner("raman", "FTIR"), unmatched = "unmatched")),
-    list(key = "ldir",        pkey = "ldir",
-         title = "LDIR \u2014 particles over instrument image",
-         cols = c(matched = INSTRUMENT_COLOURS[["ldir"]], unmatched = UNMATCHED_COLOUR),
-         labs = c(matched = partner("ldir", "Raman"), unmatched = "unmatched")))
+    list(key = "ftir",        pkey = "ftir_perkin", col = INSTRUMENT_COLOURS[["ftir_pe"]],
+         title = "FTIR (PerkinElmer) \u2014 particles over instrument image"),
+    list(key = "ftir_bruker", pkey = "ftir_bruker", col = INSTRUMENT_COLOURS[["ftir_bruker"]],
+         title = "FTIR (Bruker) \u2014 particles over instrument image"),
+    list(key = "raman",       pkey = "raman",       col = INSTRUMENT_COLOURS[["raman"]],
+         title = "Raman \u2014 particles over instrument image"),
+    list(key = "ldir",        pkey = "ldir",        col = INSTRUMENT_COLOURS[["ldir"]],
+         title = "LDIR \u2014 particles over instrument image"))
 
   for (sp in inst_spec) {
     d <- dfs[[sp$key]]
@@ -3383,8 +3331,7 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
     bounds <- .report_view_bounds(img, dd)
     pg <- tryCatch(
       make_scatter(dd, img, bounds,
-                   paste0(sp$title, "  (", nrow(dd), " shown)"),
-                   match_colours = sp$cols, match_labels = sp$labs),
+                   paste0(sp$title, "  (", nrow(dd), " shown)"), colour = sp$col),
       error = function(e) NULL)
     pages <- c(pages, list(report_figure_page(
       pg, sp$title,
@@ -3400,6 +3347,7 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
     paste0("All instruments in aligned (Raman) coordinates. ",
            "One colour per instrument."))))
 
+  pages <- c(pages, .agr$appendix)
   pages <- Filter(Negate(is.null), pages)
 
   pages
@@ -3949,4 +3897,349 @@ partner_fill_note <- function(f, q_name = "") {
   if (identical(f$status, "this_below_cutoff"))
     return(list(warn = TRUE, text = paste0("Found here; the other particle is below its cutoff (", where, ")")))
   list(warn = FALSE, text = paste0("Paired in the pipeline; hidden by the viewer filters (", where, ")"))
+}
+
+
+# ---- Summary: alignment check and agreement between instruments --------------
+# Read from a run folder only (not the viewer filters), so the Summary tab and
+# the pipeline's report show the same numbers.
+ROLE_LABELS <- c(ftir_perkin = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)",
+                 raman = "Raman", ldir = "LDIR")
+# Match files of a run: stem -> the two instrument roles
+MATCH_FILE_ROLES <- list(
+  ftir_perkin_raman = c("ftir_perkin", "raman"), ftir_bruker_raman = c("ftir_bruker", "raman"),
+  ldir_raman = c("ldir", "raman"), ldir_ftir_perkin = c("ldir", "ftir_perkin"),
+  ldir_ftir_bruker = c("ldir", "ftir_bruker"),
+  ftir_bruker_ftir_perkin = c("ftir_bruker", "ftir_perkin"),
+  ftir_bruker_ldir = c("ftir_bruker", "ldir"))
+PARTNER_STATUS_ORDER <- c(
+  matched = "Matched", partner_below_cutoff = "Partner below its cutoff",
+  this_below_cutoff = "This particle below its cutoff", both_below_cutoff = "Both below cutoff",
+  paired_elsewhere = "Partner paired elsewhere", not_found = "Nothing found",
+  outside_area = "Outside the partner's area")
+PARTNER_STATUS_FILL <- c(matched = "#2E86C1", partner_below_cutoff = "#F0A202",
+                         this_below_cutoff = "#F7CB6B", both_below_cutoff = "#FBE3A8",
+                         paired_elsewhere = "#9B59B6", not_found = "#E74C3C",
+                         outside_area = "#BDC3C7")
+
+.role_label <- function(r) unname(ifelse(r %in% names(ROLE_LABELS), ROLE_LABELS[r], r))
+
+# A role's column in a match file: <role>_<what>, else the classic ftir_<what>
+.pair_col_name <- function(m, role, what) {
+  for (pf in unique(c(role, if (startsWith(role, "ftir")) "ftir"))) {
+    k <- paste0(pf, "_", what)
+    if (k %in% names(m)) return(k)
+  }
+  NULL
+}
+
+#' The pairs of a run, one table per match file: role_a / id_a / material_a /
+#' role_b / ... Only genuine LDIR-Raman pairs, and none through an alignment
+#' the pipeline marked as not determined.
+run_pair_matches <- function(run_dir) {
+  if (is.null(run_dir)) return(list())
+  ch_path <- file.path(run_dir, "07_diagnostics", "chance_pairs.csv")
+  undet <- character(0)
+  if (file.exists(ch_path)) {
+    ch <- utils::read.csv(ch_path, stringsAsFactors = FALSE)
+    if ("alignment_determined" %in% names(ch))
+      undet <- ch$pair[isFALSE_vec(as.logical(ch$alignment_determined))]
+  }
+  out <- list()
+  for (stem in names(MATCH_FILE_ROLES)) {
+    f <- file.path(run_dir, "05_matches", paste0("matched_", stem, ".csv"))
+    if (!file.exists(f) || stem %in% undet) next
+    m <- utils::read.csv(f, stringsAsFactors = FALSE)
+    if (identical(stem, "ldir_raman")) m <- ldir_genuine_pairs(m)
+    r <- MATCH_FILE_ROLES[[stem]]
+    ia <- .pair_col_name(m, r[1], "particle_id"); ib <- .pair_col_name(m, r[2], "particle_id")
+    if (is.null(ia) || is.null(ib) || identical(ia, ib) || !nrow(m)) next
+    col <- function(role, what) { k <- .pair_col_name(m, role, what); if (is.null(k)) NA else m[[k]] }
+    out[[stem]] <- data.frame(role_a = r[1], id_a = as.character(m[[ia]]),
+                              material_a = as.character(col(r[1], "material")),
+                              role_b = r[2], id_b = as.character(m[[ib]]),
+                              material_b = as.character(col(r[2], "material")),
+                              stringsAsFactors = FALSE)
+  }
+  out
+}
+isFALSE_vec <- function(x) !is.na(x) & !x
+
+#' Alignment check: how each instrument was put into the shared frame
+#' (04_alignment/alignment_summary.csv), with the fitted positional error.
+summary_alignment_table <- function(run_dir) {
+  f <- file.path(run_dir %||% "", "04_alignment", "alignment_summary.csv")
+  if (is.null(run_dir) || !file.exists(f)) return(data.frame())
+  a <- utils::read.csv(f, stringsAsFactors = FALSE)
+  ch_path <- file.path(run_dir, "07_diagnostics", "chance_pairs.csv")
+  sig <- rep(NA_real_, nrow(a))
+  if (file.exists(ch_path)) {
+    ch <- utils::read.csv(ch_path, stringsAsFactors = FALSE)
+    stem <- paste0(a$instrument, "_", tolower(a$reference))
+    sig <- ch$position_sigma_um[match(stem, ch$pair)]
+  }
+  method <- c(landmark = "Landmarks (largest particles)", landmark_ransac = "Landmarks + RANSAC",
+              ransac = "RANSAC (point pattern)", global_register = "Global registration",
+              "spot_vote+image_spots" = "Spots of its own image")
+  out <- data.frame(
+    Instrument = .role_label(a$instrument), onto = a$reference,
+    Method = unname(ifelse(a$method %in% names(method), method[a$method], a$method)),
+    Scale = sprintf("%.3f", a$scale), rot = sprintf("%.1f", a$rotation_deg),
+    Mirrored = ifelse(a$reflected %in% TRUE, "yes", "no"),
+    res = ifelse(is.na(a$icp_rms_um), "\u2013", sprintf("%.1f", a$icp_rms_um)),
+    sig = ifelse(is.na(sig), "\u2013", sprintf("%.1f", sig)),
+    p = ifelse(is.na(a$pose_p), "\u2013", format(signif(a$pose_p, 2))),
+    Verdict = ifelse(a$determined %in% FALSE, "NOT DETERMINED",
+                     ifelse(!is.na(a$pose_p) & a$pose_p < 1e-3, "fixed by the data", "check")),
+    stringsAsFactors = FALSE)
+  names(out) <- c("Instrument", "Aligned onto", "Method", "Scale", "Rotation (\u00b0)", "Mirrored",
+                  "Residual (\u00b5m)", "Positional error \u03c3 (\u00b5m)", "Pose by chance (p)",
+                  "Verdict")
+  out
+}
+
+#' Pair matrix: of the particles of one instrument (rows, passing its cutoff,
+#' inside the other's area), the share the other (columns) identified /
+#' detected, from 07_diagnostics/detection_rates.csv (all sizes).
+#' @param group "all" or "plastics"
+#' @return list(identified, detected): matrices of display strings and
+#'   matrices of the rates (for shading), dimnames = instrument labels
+summary_pair_matrix <- function(run_dir, group = "all") {
+  f <- file.path(run_dir %||% "", "07_diagnostics", "detection_rates.csv")
+  if (is.null(run_dir) || !file.exists(f)) return(NULL)
+  d <- utils::read.csv(f, stringsAsFactors = FALSE, check.names = FALSE)
+  d <- d[d$size_class == "all sizes" & d$group == group, , drop = FALSE]
+  if (!nrow(d)) return(NULL)
+  roles <- intersect(names(ROLE_LABELS), unique(c(d$of, d$found_by)))
+  lab <- .role_label(roles)
+  mk <- function() matrix(NA, length(roles), length(roles), dimnames = list(lab, lab))
+  idt <- mk(); det <- mk(); idv <- mk(); dev <- mk(); n <- mk()
+  for (i in seq_len(nrow(d))) {
+    r <- match(d$of[i], roles); c <- match(d$found_by[i], roles)
+    idv[r, c] <- d$rate_pct[i]; dev[r, c] <- d$detected_pct[i]; n[r, c] <- d$n_base[i]
+    idt[r, c] <- sprintf("%.0f%% (%.0f\u2013%.0f)", d$rate_pct[i], d$ci_low_pct[i], d$ci_high_pct[i])
+    det[r, c] <- sprintf("%.0f%% (%.0f\u2013%.0f)", d$detected_pct[i], d$det_ci_low_pct[i],
+                         d$det_ci_high_pct[i])
+  }
+  list(identified = idt, detected = det, identified_pct = idv, detected_pct = dev, n = n)
+}
+
+#' Why particles are not matched: partner_status.csv counted per instrument
+#' and partner (long table: of, found_by, status, n, pct).
+summary_partner_status_counts <- function(run_dir, passing_only = FALSE) {
+  f <- file.path(run_dir %||% "", "05_matches", "partner_status.csv")
+  if (is.null(run_dir) || !file.exists(f)) return(data.frame())
+  ps <- utils::read.csv(f, stringsAsFactors = FALSE)
+  if (passing_only && "passes" %in% names(ps)) ps <- ps[ps$passes %in% TRUE, , drop = FALSE]
+  if (!nrow(ps)) return(data.frame())
+  tb <- stats::aggregate(list(n = rep(1L, nrow(ps))), ps[c("of", "found_by", "status")], sum)
+  tot <- stats::aggregate(list(total = tb$n), tb[c("of", "found_by")], sum)
+  tb <- merge(tb, tot)
+  tb$pct <- 100 * tb$n / tb$total
+  tb$status <- factor(tb$status, levels = names(PARTNER_STATUS_ORDER))
+  tb$pair <- paste0(.role_label(tb$of), " | partner: ", .role_label(tb$found_by))
+  tb[order(tb$of, tb$found_by, tb$status), , drop = FALSE]
+}
+
+#' Stacked bars: for each instrument and partner, what the partner has at the
+#' instrument's particles
+plot_partner_status <- function(tb) {
+  if (is.null(tb) || !nrow(tb)) return(NULL)
+  tb$status <- droplevels(tb$status)
+  tb$pair <- factor(tb$pair, levels = rev(unique(tb$pair)))
+  ggplot(tb, aes(x = pct, y = pair, fill = status)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.2) +
+    geom_text(aes(label = ifelse(pct >= 6, n, "")), position = position_stack(vjust = 0.5),
+              size = 3.2, colour = "black") +
+    scale_fill_manual(values = PARTNER_STATUS_FILL, labels = PARTNER_STATUS_ORDER,
+                      name = "What the partner has there", drop = TRUE) +
+    scale_x_continuous(expand = c(0, 0), labels = function(x) paste0(x, "%")) +
+    labs(x = "Share of the instrument's particles (labels: counts)", y = NULL) +
+    theme_minimal(base_size = 12) + theme(legend.position = "bottom") +
+    guides(fill = guide_legend(nrow = 3))
+}
+
+#' Particle groups: every particle above its quality cutoff and the minimum
+#' size, linked through the run's pairs (any instrument pair); one row per
+#' combination of instruments with its count.
+#' @param synthetic_only Keep groups with a synthetic polymer in any member
+#' @return data.frame(combo, n_inst, n) sorted by n, or an empty frame
+summary_particle_groups <- function(run_dir, synthetic_only = FALSE) {
+  if (is.null(run_dir)) return(data.frame())
+  cfg <- tryCatch(load_run_manifest(run_dir)$config_snapshot, error = function(e) NULL)
+  cut <- quality_cutoffs(cfg)
+  min_size <- suppressWarnings(as.numeric(unlist(cfg$min_particle_size_um)))
+  min_size <- if (length(min_size) && is.finite(min_size[1])) min_size[1] else 20
+  nodes <- list()
+  for (r in names(ROLE_LABELS)) {
+    f <- file.path(run_dir, "04_alignment", paste0("aligned_", r, ".csv"))
+    if (!file.exists(f)) next
+    a <- utils::read.csv(f, stringsAsFactors = FALSE)
+    c0 <- cut[[if (r == "ftir_perkin") "ftir" else r]] %||% 0
+    q <- suppressWarnings(as.numeric(a$quality))
+    ok <- (c0 <= 0 | all(is.na(q)) | (!is.na(q) & q >= c0)) &
+      !is.na(a$feret_max_um) & a$feret_max_um >= min_size
+    if (any(ok)) nodes[[r]] <- data.frame(inst = r, id = as.character(a$particle_id[ok]),
+                                          material = as.character(a$material[ok]),
+                                          stringsAsFactors = FALSE)
+  }
+  if (!length(nodes)) return(data.frame())
+  nodes <- do.call(rbind, nodes)
+  pm <- run_pair_matches(run_dir)
+  legs <- lapply(pm, function(m) list(
+    df = m, a = list(inst = m$role_a[1], id = "id_a", x = "none", y = "none"),
+    b = list(inst = m$role_b[1], id = "id_b", x = "none", y = "none")))
+  grp <- if (length(legs)) link_groups(legs) else NULL
+  key <- paste(nodes$inst, nodes$id)
+  nodes$group <- if (is.null(grp)) NA_integer_ else grp$group[match(key, paste(grp$inst, grp$id))]
+  # Pairs can hold particles the filter above drops (below the size): they
+  # still link their group, so add them as members
+  if (!is.null(grp)) {
+    extra <- grp[!paste(grp$inst, grp$id) %in% key, c("inst", "id", "group")]
+    if (nrow(extra)) {
+      mats <- unlist(lapply(pm, function(m) stats::setNames(c(m$material_a, m$material_b),
+                                                            c(paste(m$role_a, m$id_a), paste(m$role_b, m$id_b)))))
+      nodes <- rbind(nodes, data.frame(inst = extra$inst, id = extra$id,
+                                       material = unname(mats[paste(extra$inst, extra$id)]),
+                                       group = extra$group, stringsAsFactors = FALSE))
+    }
+  }
+  na <- is.na(nodes$group)
+  nodes$group[na] <- max(c(0L, nodes$group), na.rm = TRUE) + seq_len(sum(na))
+  if (synthetic_only) {
+    syn <- classify_category_vec(classify_family_vec(nodes$material)) == "Synthetic"
+    keep_g <- unique(nodes$group[syn %in% TRUE])
+    nodes <- nodes[nodes$group %in% keep_g, , drop = FALSE]
+    if (!nrow(nodes)) return(data.frame())
+  }
+  ord <- names(ROLE_LABELS)
+  combo <- tapply(nodes$inst, nodes$group, function(v) {
+    v <- ord[ord %in% v]; paste(.role_label(v), collapse = " + ")
+  })
+  n_inst <- tapply(nodes$inst, nodes$group, function(v) length(unique(v)))
+  out <- as.data.frame(table(combo = unname(combo)), stringsAsFactors = FALSE)
+  names(out)[2] <- "n"
+  out$n_inst <- as.integer(n_inst[match(out$combo, combo)])
+  out[order(-out$n_inst, -out$n), c("combo", "n_inst", "n"), drop = FALSE]
+}
+
+#' Bar chart of the particle groups (combinations of instruments that found
+#' the same particle), coloured by the number of instruments
+plot_particle_groups <- function(g) {
+  if (is.null(g) || !nrow(g)) return(NULL)
+  g$combo <- factor(g$combo, levels = rev(g$combo))
+  g$k <- factor(paste(g$n_inst, ifelse(g$n_inst == 1, "instrument", "instruments")))
+  ggplot(g, aes(x = n, y = combo, fill = k)) +
+    geom_col(width = 0.7) +
+    geom_text(aes(label = n), hjust = -0.2, size = 3.5) +
+    scale_fill_manual(values = c("1 instrument" = "#BDC3C7", "2 instruments" = "#85C1E9",
+                                 "3 instruments" = "#2E86C1", "4 instruments" = "#1B4F72"),
+                      name = NULL) +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.12))) +
+    labs(x = "Particles", y = NULL) +
+    theme_minimal(base_size = 12) + theme(legend.position = "bottom")
+}
+
+#' Material concordance of one pair: material family of the first instrument
+#' (rows) against the second (columns), over the run's pairs of that pair.
+#' @return table (matrix) of counts, NULL when the pair has no pairs
+summary_concordance <- function(run_dir, stem) {
+  m <- run_pair_matches(run_dir)[[stem]]
+  if (is.null(m) || !nrow(m)) return(NULL)
+  fa <- classify_family_vec(m$material_a); fb <- classify_family_vec(m$material_b)
+  fa[is.na(fa)] <- "unknown"; fb[is.na(fb)] <- "unknown"
+  tb <- table(fa, fb)
+  names(dimnames(tb)) <- .role_label(c(m$role_a[1], m$role_b[1]))
+  tb
+}
+
+#' The pairs a run has for the concordance selector: stem -> label
+summary_concordance_choices <- function(run_dir) {
+  pm <- run_pair_matches(run_dir)
+  if (!length(pm)) return(character(0))
+  stats::setNames(names(pm), vapply(pm, function(m)
+    paste(.role_label(m$role_a[1]), "vs", .role_label(m$role_b[1])), ""))
+}
+
+#' Report pages for the alignment check and the agreement between the
+#' instruments (whole run). main: alignment, pair matrices, matching quality,
+#' why unmatched, particle groups; appendix: one material-concordance table
+#' per instrument pair.
+# PDF tables: plain ASCII (the PDF device may lack the glyphs for mu, degree,
+# sigma and dashes, as the other report tables already assume)
+.report_ascii <- function(x) {
+  from <- c("\u2013", "\u2014", "\u00b5", "\u00b0", "\u03c3", "\u2192", "\u2193")
+  to   <- c("-", "-", "u", "deg", "sigma", "->", "")
+  for (i in seq_along(from)) x <- gsub(from[i], to[i], x, fixed = TRUE)
+  x
+}
+.report_ascii_df <- function(df) {
+  names(df) <- .report_ascii(names(df))
+  df[] <- lapply(df, function(v) if (is.character(v)) .report_ascii(v) else v)
+  df
+}
+
+report_agreement_pages <- function(run_dir) {
+  main <- list(); appendix <- list()
+  .tbl_page <- function(df, title, caption = NULL)
+    report_table_page(.report_ascii_df(df), .report_ascii(title), caption)
+  if (is.null(run_dir)) return(list(main = main, appendix = appendix))
+  al <- summary_alignment_table(run_dir)
+  if (nrow(al)) main <- c(main, list(.tbl_page(al, "Alignment Check",
+    paste0("How each instrument was put into the shared frame. Residual: distance left ",
+           "after the fit; positional error sigma: spread of true partners (99% within ",
+           "3 sigma); pose by chance: probability that a random arrangement gives as many ",
+           "anchor pairs. A pose NOT DETERMINED makes that instrument's pairs meaningless."))))
+  for (g in c("all", "plastics")) {
+    pm <- summary_pair_matrix(run_dir, g)
+    if (is.null(pm)) next
+    for (meas in c("identified", "detected")) {
+      m <- pm[[meas]]; m[is.na(m)] <- "\u2014"
+      df <- data.frame(`Particles of / found by` = rownames(m), m, check.names = FALSE,
+                       stringsAsFactors = FALSE)
+      main <- c(main, list(.tbl_page(df,
+        sprintf("Pair Matrix \u2014 %s (%s)", if (meas == "identified") "Identified" else "Detected",
+                if (g == "all") "all particles" else "plastics"),
+        paste0("Row instrument's particles (above its quality cutoff, inside the area the ",
+               "column instrument covered): the share the column instrument ",
+               if (meas == "identified") "paired with a particle above its own cutoff"
+               else "has within the distance gate, whatever the quality",
+               ". 95% interval in brackets."))))
+    }
+  }
+  mt <- tryCatch(report_matching_table(run_dir), error = function(e) data.frame())
+  if (nrow(mt) > 0)
+    main <- c(main, list(.tbl_page(
+      mt, "Matching Quality per Instrument Pair",
+      paste0("Pairs found within the distance gate (particles passing their quality ",
+             "cutoff only). By chance: pairs a random arrangement of the particles would ",
+             "also give, from the reference density within the gate, and their share of ",
+             "the pairs; above ~20% the pairs cannot be told from chance. Sigma: positional ",
+             "error fitted to the nearest-neighbour distances (true pairs lie within ~3 sigma). ",
+             "Dist.: pair distance (um). Family agreement: over the scored, resolved pairs, ",
+             "with the 95% interval; then over the pairs very likely true (p_true); 'not ",
+             "determined' when too few anchors fixed the alignment (pairs not scored)."))))
+  ps <- plot_partner_status(summary_partner_status_counts(run_dir, passing_only = TRUE))
+  if (!is.null(ps)) main <- c(main, list(report_full_figure_page(ps, "Why Particles Are Not Matched",
+    paste0("For each instrument's particles above its quality cutoff: what the partner ",
+           "instrument has at the same place, whatever the quality (05_matches/partner_status.csv)."))))
+  gp <- plot_particle_groups(summary_particle_groups(run_dir))
+  if (!is.null(gp)) main <- c(main, list(report_full_figure_page(gp, "Particle Groups",
+    paste0("Particles above their quality cutoff linked through the pairs of any two ",
+           "instruments, counted by the instruments that found them. One instrument alone: ",
+           "found by it and matched by none of the others."))))
+  for (stem in summary_concordance_choices(run_dir)) {
+    tb <- summary_concordance(run_dir, stem)
+    if (is.null(tb)) next
+    dn <- names(dimnames(tb))
+    df <- as.data.frame.matrix(tb)
+    df <- data.frame(x = rownames(df), df, check.names = FALSE, stringsAsFactors = FALSE)
+    names(df)[1] <- paste(dn[1], "/", dn[2])
+    agree <- sum(diag(tb[intersect(rownames(tb), colnames(tb)), intersect(rownames(tb), colnames(tb)), drop = FALSE]))
+    appendix <- c(appendix, list(.tbl_page(df,
+      paste0("Appendix: Material Concordance \u2014 ", dn[1], " vs ", dn[2]),
+      sprintf("Material family of %s (rows) against %s (columns) over their %d pairs; same family: %d (%.0f%%).",
+              dn[1], dn[2], sum(tb), agree, 100 * agree / max(1, sum(tb))))))
+  }
+  list(main = main, appendix = appendix)
 }

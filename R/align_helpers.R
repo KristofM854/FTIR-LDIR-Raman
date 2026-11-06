@@ -245,3 +245,33 @@ select_alignment_anchors <- function(df, patterns, prefix, config, label = "") {
               "cutoff; using all ", nrow(df), " particles", level = "WARN")
   df
 }
+
+
+#' How each instrument was put into the shared frame, one row per aligned
+#' source -> reference pair (04_alignment/alignment_summary.csv).
+#' @param pairs run_pipeline()'s pair list (src, match, icp, method,
+#'   determined, pose_p, labels)
+#' @param ref_name The reference instrument
+#' @return data.frame(instrument, reference, method, scale, rotation_deg,
+#'   reflected, icp_rms_um, pose_p, determined, n_matched)
+alignment_summary_table <- function(pairs, ref_name) {
+  rows <- lapply(names(pairs), function(stem) {
+    p <- pairs[[stem]]
+    pr <- p$icp$params %||% list()
+    num <- function(v) { v <- suppressWarnings(as.numeric(v)); if (length(v)) v[1] else NA_real_ }
+    rms <- p$icp$rms_history
+    data.frame(
+      instrument = p$labels$src_file %||% sub("_[^_]+$", "", stem),
+      reference = ref_name,
+      method = as.character(p$method %||% NA_character_)[1],
+      scale = round(num(pr$scale), 4), rotation_deg = round(num(pr$rotation_deg), 2),
+      reflected = isTRUE(pr$reflected),
+      icp_rms_um = round(if (length(rms)) utils::tail(rms, 1) else NA_real_, 1),
+      pose_p = signif(num(p$pose_p), 2),
+      determined = !isFALSE(p$determined),
+      n_matched = num(p$match$match_stats$n_matched %||% nrow(p$match$matched)),
+      stringsAsFactors = FALSE)
+  })
+  if (!length(rows)) return(data.frame())
+  do.call(rbind, rows)
+}

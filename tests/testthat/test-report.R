@@ -92,8 +92,13 @@ test_that("size statistics match a hand computation and carry units", {
   expect_equal(nrow(tbl), 1L)
   expect_equal(tbl$Instrument, "FTIR (PerkinElmer)")
   expect_equal(tbl$Total, 4L)
-  expect_equal(tbl$Matched, 3L)
-  expect_equal(tbl$Unmatched, 1L)
+  # No passes_cutoff column: every particle counts as above the cutoff
+  expect_equal(tbl[["Above quality cutoff"]], 4L)
+  expect_equal(tbl[["Below quality cutoff"]], 0L)
+  dfs$ftir$passes_cutoff <- c(TRUE, TRUE, FALSE, TRUE)
+  tbl <- env$report_size_stats_table(dfs)
+  expect_equal(tbl[["Above quality cutoff"]], 3L)
+  expect_equal(tbl[["Below quality cutoff"]], 1L)
   expect_match(tbl$Mean,   "^25\\b")
   expect_match(tbl$Median, "^25\\b")
   expect_match(tbl$Range,  "^10")
@@ -271,4 +276,97 @@ test_that("a wide table is fitted to the page", {
   tg <- g$grobs[[1]]$grobs[[1]]
   grDevices::pdf(NULL); on.exit(grDevices::dev.off())
   expect_lte(grid::convertWidth(sum(tg$widths), "in", valueOnly = TRUE), 10.2)
+})
+
+
+# ---- Summary: alignment check and agreement (from a run folder) -------------
+
+.fake_agreement_run <- function() {
+  skip_if_not_installed("withr")
+  suppressPackageStartupMessages(library(ggplot2))
+  d <- withr::local_tempdir(.local_envir = parent.frame())
+  for (s in c("04_alignment", "05_matches", "07_diagnostics")) dir.create(file.path(d, s))
+  w <- function(x, f) utils::write.csv(x, file.path(d, f), row.names = FALSE)
+  w(data.frame(instrument = c("ldir", "ftir_perkin"), reference = "Raman",
+               method = c("landmark_ransac", "ransac"), scale = 1, rotation_deg = c(-178.4, 2),
+               reflected = FALSE, icp_rms_um = c(14.1, 30), pose_p = c(4e-22, 0.2),
+               determined = c(TRUE, FALSE), n_matched = c(2, 1)),
+    "04_alignment/alignment_summary.csv")
+  w(data.frame(pair = c("ldir_raman", "ftir_perkin_raman"), alignment_determined = c(TRUE, FALSE),
+               n_matched = c(2, 1), gate_um = 20, p_chance_partner = 0.01,
+               chance_pairs_expected = 0.1, chance_share = 0.05, position_sigma_um = c(7.1, NA)),
+    "07_diagnostics/chance_pairs.csv")
+  w(data.frame(found_by = c("raman", "ldir"), of = c("ldir", "raman"), group = "all",
+               size_class = "all sizes", n_base = c(4, 3), n_found = c(2, 2),
+               rate_pct = c(50, 66.7), ci_low_pct = c(15, 20), ci_high_pct = c(85, 94),
+               n_found_true = 2, rate_true_pct = 50, gate_um = 20, n_detected = c(3, 2),
+               detected_pct = c(75, 66.7), det_ci_low_pct = 30, det_ci_high_pct = 95,
+               det_chance_expected = 0.1, detected_corrected_pct = 75),
+    "07_diagnostics/detection_rates.csv")
+  w(data.frame(of = "ldir", found_by = "raman", particle_id = c("A1", "A2", "A3", "A4"),
+               passes = c(TRUE, TRUE, TRUE, FALSE),
+               status = c("matched", "matched", "partner_below_cutoff", "this_below_cutoff")),
+    "05_matches/partner_status.csv")
+  # LDIR A1-A3 pass (quality >= 0.85), A4 not; Raman R1, R2 pass, R3 below 70
+  w(data.frame(particle_id = paste0("A", 1:4), quality = c(0.9, 0.95, 0.9, 0.5),
+               feret_max_um = 100, material = c("PET", "PE", "PP", "PET")),
+    "04_alignment/aligned_ldir.csv")
+  w(data.frame(particle_id = paste0("R", 1:3), quality = c(90, 80, 50), feret_max_um = 100,
+               material = c("Polyethylene terephthalate", "Cellulose", "PP")),
+    "04_alignment/aligned_raman.csv")
+  w(data.frame(ldir_particle_id = c("A1", "A2"), ldir_material = c("PET", "PE"),
+               raman_particle_id = c("R1", "R2"),
+               raman_material = c("Polyethylene terephthalate", "Cellulose"),
+               within_gate = TRUE),
+    "05_matches/matched_ldir_raman.csv")
+  # Pairs through an undetermined alignment are left out
+  w(data.frame(ftir_particle_id = "F1", ftir_material = "PET", raman_particle_id = "R3",
+               raman_material = "PP"), "05_matches/matched_ftir_perkin_raman.csv")
+  d
+}
+
+test_that("summary tables read the alignment, pairs and partner status of a run", {
+  env <- .load_report_helpers()
+  run <- .fake_agreement_run()
+  al <- env$summary_alignment_table(run)
+  expect_equal(al$Instrument, c("LDIR", "FTIR (PerkinElmer)"))
+  expect_equal(al$Verdict, c("fixed by the data", "NOT DETERMINED"))
+  expect_equal(al[[8]][1], "7.1")                           # positional error sigma
+  pm <- env$summary_pair_matrix(run)
+  expect_equal(unname(pm$identified_pct["LDIR", "Raman"]), 50)
+  expect_equal(unname(pm$detected_pct["LDIR", "Raman"]), 75)
+  expect_true(is.na(pm$identified_pct["LDIR", "LDIR"]))
+  # Only the determined pair is used
+  expect_named(env$run_pair_matches(run), "ldir_raman")
+  tb <- env$summary_partner_status_counts(run, passing_only = TRUE)
+  expect_equal(sum(tb$n), 3L)
+  expect_equal(tb$n[tb$status == "matched"], 2L)
+  expect_s3_class(env$plot_partner_status(tb), "ggplot")
+})
+
+test_that("particle groups count each combination of instruments once", {
+  env <- .load_report_helpers()
+  run <- .fake_agreement_run()
+  g <- env$summary_particle_groups(run)
+  # Pairs A1-R1 and A2-R2; A3 alone (LDIR); A4 and R3 below their cutoff
+  expect_equal(g$n[g$combo == "Raman + LDIR"], 2L)
+  expect_equal(g$n[g$combo == "LDIR"], 1L)
+  expect_false("Raman" %in% g$combo)
+  # A2 (PE) - R2 (Cellulose) has a synthetic member; A3 (PP) is synthetic too
+  gs <- env$summary_particle_groups(run, synthetic_only = TRUE)
+  expect_equal(sum(gs$n), 3L)
+  expect_s3_class(env$plot_particle_groups(g), "ggplot")
+})
+
+test_that("material concordance cross-tabulates the families of a pair", {
+  env <- .load_report_helpers()
+  run <- .fake_agreement_run()
+  expect_equal(unname(env$summary_concordance_choices(run)), "ldir_raman")
+  tb <- env$summary_concordance(run, "ldir_raman")
+  expect_equal(sum(tb), 2L)
+  expect_equal(names(dimnames(tb)), c("LDIR", "Raman"))
+  expect_equal(tb["PET", "PET"], 1L)
+  pg <- env$report_agreement_pages(run)
+  expect_true(length(pg$main) >= 3)
+  expect_length(pg$appendix, 1L)
 })

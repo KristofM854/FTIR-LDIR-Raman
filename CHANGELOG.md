@@ -8,6 +8,31 @@ change results on existing data are marked **(results)**.
 Pre-release audit and portability refactor (branch `audit/pre-release`).
 
 ### Added
+- **Viewer reorganised around one question per tab.** The instrument tabs show
+  what each instrument found; the Overlay and the Summary tab show how the
+  instruments agree.
+  - Instrument tabs: match status removed (Match Status boxes, "Show all
+    detected", pair-confidence colouring, LDIR match-score slider, "Show Raman
+    partners", "Hide unmatched"). Its "matched" meant matched to Raman (to FTIR
+    PerkinElmer on the Raman tab) and so differed from tab to tab. Points are
+    now filled above the instrument's quality cutoff and open below it; the
+    hover table says which.
+  - Summary tab, in three parts: (1) **alignment check** per instrument
+    (method, scale, rotation, mirror, residual, positional error, pose by
+    chance, verdict; new pipeline output `04_alignment/alignment_summary.csv`);
+    (2) what each instrument found (as before; size statistics now count
+    particles above / below the quality cutoff instead of matched / unmatched);
+    (3) how the instruments agree: **pair matrix** (identified / detected, each
+    direction, with 95% intervals), matching quality per pair, **why particles
+    are not matched** (from `partner_status.csv`), **particle groups** (which
+    combinations of instruments found the same particle, as in the overlay's
+    symbol view) and **material concordance** per instrument pair; then the
+    detection rates by size.
+  - Report: the same alignment and agreement pages, the concordance tables as
+    an appendix.
+  - Removed: the Upload Data tab (loaded the old CSV bundle from before run
+    folders) and the overlay's "Multi-instrument (3+/4)" option (the symbol
+    view's combinations show it).
 - **Partner status, independent of quality** (`05_matches/partner_status.csv`,
   `partner_status()` in `R/detection_rates.R`): for every particle and every
   other instrument, what that instrument has at its position whatever the
