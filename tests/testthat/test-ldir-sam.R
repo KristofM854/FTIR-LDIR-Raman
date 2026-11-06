@@ -55,3 +55,21 @@ test_that("the exact join places each row on the blob of its own outline", {
   bad <- sam; bad$area_um2 <- bad$area_um2 * 3
   expect_null(suppressMessages(join_ldir_by_sam(ex, bad, img, H)))
 })
+
+test_that("the exact join returns the outlines in the frame of x_um / y_um", {
+  set.seed(3)
+  H <- 2605
+  r1 <- .rect(337, 467, 1884, 1920)
+  b <- c(as.raw(sample(0:255, 200, TRUE)), .sam_record("A1", r1$x, r1$y, 39300, 650, 180))
+  f <- withr::local_tempfile(fileext = ".sam"); writeBin(b, f)
+  s <- read_ldir_sam_particles(f)
+  expect_equal(nrow(attr(s, "outlines")), length(r1$x))
+  # Blobs with a known pixel -> um map: x = 5 * col - 100, y = -5 * row + 7000
+  img <- data.frame(centroid_px_x = c(403, 1000, 2000), centroid_px_y = H - c(1902, 300, 1500),
+                    area_um2 = c(41000, 500, 500), feret_max_um = 1)
+  img$x_um <- 5 * img$centroid_px_x - 100; img$y_um <- -5 * img$centroid_px_y + 7000
+  j <- suppressMessages(join_ldir_by_sam(data.frame(particle_id = "A1", area_um2 = 39300), s, img, H))
+  ol <- attr(j, "outlines")
+  expect_equal(range(ol$x_um), 5 * (c(337, 467) + 1) - 100)
+  expect_equal(range(ol$y_um), sort(-5 * (H - c(1920, 1884)) + 7000))
+})

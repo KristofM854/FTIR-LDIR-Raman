@@ -278,3 +278,25 @@ test_that("viewer result folders resolve against the project folder, not shiny_a
   expect_equal(env$project_path("C:\\data\\prec"), "C:\\data\\prec")
   expect_equal(env$project_path("/srv/prec"), "/srv/prec")
 })
+
+test_that("LDIR outlines follow their particle into the aligned frame", {
+  env <- .load_global_helpers()
+  sq <- function(id, cx, cy, r) data.frame(particle_id = id, x_um = cx + c(-r, r, r, -r),
+                                           y_um = cy + c(-r, -r, r, r))
+  ol <- rbind(sq("A1", 0, 0, 10), sq("A2", 500, 200, 20), sq("A3", -300, 400, 5))
+  # aligned = rotate 90 deg + shift, plus a small local offset on A2 (as a TPS would)
+  df <- data.frame(particle_id = c("A1", "A2", "A3", "A4"), x_orig = c(0, 500, -300, 100),
+                   y_orig = c(0, 200, 400, -600))
+  df$x <- -df$y_orig + 1000; df$y <- df$x_orig + 50
+  df$x[2] <- df$x[2] + 3
+  nat <- env$ldir_outline_polygons(ol, df[1:2, ], aligned = FALSE)
+  expect_equal(nrow(nat), 8)
+  al <- env$ldir_outline_polygons(ol, df, aligned = TRUE)
+  a2 <- al[al$particle_id == "A2", ]
+  expect_equal(mean(a2$x), df$x[2], tolerance = 0.5)            # anchored on its own position
+  expect_equal(diff(range(a2$x)), 40, tolerance = 1)               # size kept, turned 90 deg
+  a1 <- al[al$particle_id == "A1", ]
+  expect_equal(a1$x[2] - a1$x[1], 0, tolerance = 0.5)             # x offset turned into y
+  expect_equal(a1$y[2] - a1$y[1], 20, tolerance = 0.5)
+  expect_null(env$ldir_outline_polygons(NULL, df))
+})

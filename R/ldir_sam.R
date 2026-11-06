@@ -39,7 +39,9 @@ LDIR_SAM_PARTICLE_CLASS <- "Agilent.Clarity.Models.Data.Analysis.LDIRParticle"
 #'   chunk boundary
 #' @return data.frame(group, particle_id, n_points, x_px, y_px (outline
 #'   centroid, 0-based, y from the bottom), x_min, x_max, y_min, y_max,
-#'   area_um2, width_um, height_um), or NULL when no record is found
+#'   area_um2, width_um, height_um), or NULL when no record is found; attr
+#'   "outlines": data.frame(group, particle_id, x_px, y_px), the outline
+#'   vertices in the same pixel frame
 read_ldir_sam_particles <- function(path, chunk_mb = 64) {
   if (is.null(path) || !file.exists(path)) return(NULL)
   size <- file.info(path)$size
@@ -59,7 +61,7 @@ read_ldir_sam_particles <- function(path, chunk_mb = 64) {
   rd <- function(at, n) { seek(con, at); readBin(con, "raw", n = n) }
   int32 <- function(r, i) readBin(r[i:(i + 3)], "integer", size = 4, endian = "little")
   dbl <- function(r, i) readBin(r[i:(i + 7)], "double", size = 8, endian = "little")
-  recs <- vector("list", length(hits))
+  recs <- vector("list", length(hits)); outl <- vector("list", length(hits))
   for (k in seq_along(hits)) {
     p0 <- hits[k] + length(pat)
     r <- rd(p0, 512)
@@ -86,8 +88,11 @@ read_ldir_sam_particles <- function(path, chunk_mb = 64) {
                             x_min = min(x), x_max = max(x), y_min = min(y), y_max = max(y),
                             area_um2 = dbl(tail, 1), width_um = dbl(tail, 9),
                             height_um = dbl(tail, 17), stringsAsFactors = FALSE)
+    outl[[k]] <- list(x = x, y = y)
   }
+  done <- !vapply(recs, is.null, logical(1))
   out <- do.call(rbind, recs)
+  outl <- outl[done]
   if (is.null(out) || !nrow(out)) {
     log_message("  ", length(hits), " particle class names found in ", basename(path),
                 " but none could be decoded (another Clarity version?)", level = "WARN")
@@ -100,6 +105,12 @@ read_ldir_sam_particles <- function(path, chunk_mb = 64) {
     seen <- c(seen, out$particle_id[k]); grp[k] <- g
   }
   out$group <- grp
+  # The outlines (vertices, same pixel frame) as a long table
+  attr(out, "outlines") <- data.frame(
+    group = rep(grp, lengths(lapply(outl, `[[`, "x"))),
+    particle_id = rep(out$particle_id, lengths(lapply(outl, `[[`, "x"))),
+    x_px = unlist(lapply(outl, `[[`, "x")), y_px = unlist(lapply(outl, `[[`, "y")),
+    stringsAsFactors = FALSE)
   out
 }
 
@@ -122,7 +133,9 @@ find_ldir_sam <- function(config) {
 #' table, then gives each Excel row the analyzed-image blob its outline
 #' centroid falls on (nearest blob centroid within `max_px`, area within a
 #' factor 2). Returns the table with the columns join_ldir_coords() writes
-#' (coord_source "sam"), or NULL when the file does not fit the table.
+#' (coord_source "sam"), or NULL when the file does not fit the table. attr
+#' "outlines": the rows' outline vertices (particle_id, x_um, y_um) in the
+#' same frame as x_um / y_um.
 #'
 #' @param excel_df LDIR rows (particle_id, area_um2)
 #' @param sam read_ldir_sam_particles() result
@@ -168,6 +181,19 @@ join_ldir_by_sam <- function(excel_df, sam, image_df, img_h, max_px = 4, min_sha
   out$image_area_um2 <- ifelse(good, image_df$area_um2[j], NA_real_)
   out$image_feret_um <- ifelse(good, image_df$feret_max_um[j], NA_real_)
   out$coord_join_warning <- FALSE
+  # Outlines in the same um frame as x_um / y_um: the blobs give the linear
+  # pixel -> um map of the overlay (column -> x, row -> y)
+  ol <- attr(sam, "outlines")
+  if (!is.null(ol) && nrow(image_df) >= 3) {
+    fx <- stats::lm.fit(cbind(1, image_df$centroid_px_x), image_df$x_um)$coefficients
+    fy <- stats::lm.fit(cbind(1, image_df$centroid_px_y), image_df$y_um)$coefficients
+    ol <- ol[ol$group == best & ol$particle_id %in% out$particle_id[good], , drop = FALSE]
+    if (nrow(ol))
+      attr(out, "outlines") <- data.frame(
+        particle_id = ol$particle_id,
+        x_um = fx[[1]] + fx[[2]] * (ol$x_px + 1), y_um = fy[[1]] + fy[[2]] * (img_h - ol$y_px),
+        stringsAsFactors = FALSE)
+  }
   log_message(sprintf(paste0("  Exact LDIR join from the .sam file: %d of %d rows placed by their ",
                              "own outline (group %d of %d; median outline-to-blob distance %.1f px)"),
                       sum(good), nrow(excel_df), best, length(fit), stats::median(d[good])))
