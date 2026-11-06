@@ -88,7 +88,11 @@ read_ldir_sam_particles <- function(path, chunk_mb = 64) {
                             height_um = dbl(tail, 17), stringsAsFactors = FALSE)
   }
   out <- do.call(rbind, recs)
-  if (is.null(out) || !nrow(out)) return(NULL)
+  if (is.null(out) || !nrow(out)) {
+    log_message("  ", length(hits), " particle class names found in ", basename(path),
+                " but none could be decoded (another Clarity version?)", level = "WARN")
+    return(NULL)
+  }
   # Groups: a new analysis starts where an ID repeats
   g <- 1L; seen <- character(0); grp <- integer(nrow(out))
   for (k in seq_len(nrow(out))) {
