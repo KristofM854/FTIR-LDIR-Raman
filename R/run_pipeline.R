@@ -798,6 +798,19 @@ run_pipeline <- function(config, report = TRUE) {
       log_message("  Wrote detection_rates.csv")
       log_detection_rates(.detection)
     }
+    # Partner status of every particle (any quality), for the unmatched ones:
+    # did the other instrument find nothing there, or something below its cutoff?
+    .pstat <- partner_status(.aligned, .det_matches, config, gates = .det_gates)
+    if (nrow(.pstat)) {
+      write.csv(.pstat, file.path(.export_dirs$matches, "partner_status.csv"), row.names = FALSE)
+      nm <- function(v) vapply(v, .file_role_name, character(1))
+      tb <- table(paste(nm(.pstat$of), "vs", nm(.pstat$found_by)), .pstat$status)
+      log_message("  Wrote partner_status.csv (every particle: matched, partner below cutoff, ",
+                  "not found, ...)")
+      for (r in rownames(tb))
+        log_message("    ", r, ": ", paste(sprintf("%s %d", colnames(tb), tb[r, ])[tb[r, ] > 0],
+                                          collapse = ", "))
+    }
   }
 
   # Export composite matches if found

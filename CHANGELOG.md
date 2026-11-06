@@ -8,6 +8,19 @@ change results on existing data are marked **(results)**.
 Pre-release audit and portability refactor (branch `audit/pre-release`).
 
 ### Added
+- **Partner status, independent of quality** (`05_matches/partner_status.csv`,
+  `partner_status()` in `R/detection_rates.R`): for every particle and every
+  other instrument, what that instrument has at its position whatever the
+  quality: matched, partner below its quality cutoff, this particle below
+  its cutoff, both below, partner paired elsewhere, nothing found, or outside
+  the partner's area; with the partner's ID, material, quality, distance and
+  the chance of an unrelated particle within the gate. Matching itself is
+  unchanged (quality-passing particles only). The run log counts the statuses
+  per pair. In the viewer's overlay, the "Match Details" table fills an
+  instrument with no match from this file (in italics, with a note such as
+  "below the HQI cutoff: not confidently identified" and the distance), and
+  unmatched particles get a ring coloured by status in both views
+  (checkbox, on by default).
 - **Any combination of two to four instruments**: the shared frame is Raman
   when present, else FTIR (PerkinElmer), else FTIR (Bruker); every other
   instrument is aligned into it and every pair is matched. Output files keep

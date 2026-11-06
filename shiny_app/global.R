@@ -462,6 +462,7 @@ load_run_data <- function(run_info) {
       triplets             = c("05_matches/triplets_3way.csv",
                                 "triplets_3way.csv"),
       ldir_outlines        = c("02_joined/ldir_outlines.csv", ""),
+      partner_status       = c("05_matches/partner_status.csv", ""),
       ldir_image_extracted = c("02_joined/ldir_image_extracted.csv",
                                 "ldir_image_extracted.csv")
     )
@@ -3847,4 +3848,105 @@ precision_report_pages <- function(res, title = "Precision study") {
   for (pc in plots) if (!is.null(pc[[1]]))
     pages <- c(pages, list(report_figure_page(pc[[1]], pc[[1]]$labels$title, pc[[2]])))
   pages
+}
+
+
+# ---- Partner status (05_matches/partner_status.csv) -------------------------
+# For every particle and every other instrument: what that instrument has at
+# its position, whatever the quality (detection_rates.R partner_status()).
+# Pipeline file roles -> overlay instrument keys
+PARTNER_ROLE_TO_OV <- c(ftir_perkin = "ftir_pe", ftir_bruker = "ftir_bruker",
+                        raman = "raman", ldir = "ldir")
+# Classes for colouring an unmatched particle, best first
+PARTNER_STATUS_LABELS <- c(
+  below_cutoff     = "Partner found, below quality cutoff",
+  paired_elsewhere = "Partner nearby, paired with another",
+  not_found        = "Nothing found by the partner",
+  outside_area     = "Outside the partner's scanned area")
+PARTNER_STATUS_COLOURS <- c(below_cutoff = "#F0A202", paired_elsewhere = "#9B59B6",
+                            not_found = "#E74C3C", outside_area = "#95A5A6")
+
+partner_status_class <- function(status) {
+  out <- rep(NA_character_, length(status))
+  out[status %in% c("partner_below_cutoff", "this_below_cutoff", "both_below_cutoff")] <- "below_cutoff"
+  out[status == "paired_elsewhere"] <- "paired_elsewhere"
+  out[status == "not_found"] <- "not_found"
+  out[status == "outside_area"] <- "outside_area"
+  out
+}
+
+#' Partner-status rows between the shown instruments, with overlay keys.
+#' @param ps partner_status.csv table
+#' @param shown overlay instrument keys
+partner_status_shown <- function(ps, shown) {
+  if (is.null(ps) || !nrow(ps) || !all(c("of", "found_by", "status") %in% names(ps)))
+    return(NULL)
+  ps$of_key <- unname(PARTNER_ROLE_TO_OV[ps$of]); ps$by_key <- unname(PARTNER_ROLE_TO_OV[ps$found_by])
+  ps <- ps[ps$of_key %in% shown & ps$by_key %in% shown, , drop = FALSE]
+  ps$particle_id <- as.character(ps$particle_id); ps$partner_id <- as.character(ps$partner_id)
+  if (nrow(ps)) ps else NULL
+}
+
+#' One colour class per particle over the shown partners (the best one: a
+#' partner found below the cutoff wins over nothing found). Pipeline-matched
+#' rows give no class.
+#' @return data.frame(inst, particle_id, class) or NULL
+overlay_partner_class <- function(ps, shown) {
+  ps <- partner_status_shown(ps, shown)
+  if (is.null(ps)) return(NULL)
+  ps$class <- partner_status_class(ps$status)
+  ps <- ps[!is.na(ps$class), , drop = FALSE]
+  if (!nrow(ps)) return(NULL)
+  ps$rank <- match(ps$class, names(PARTNER_STATUS_LABELS))
+  ps <- ps[order(ps$of_key, ps$particle_id, ps$rank), , drop = FALSE]
+  ps <- ps[!duplicated(paste(ps$of_key, ps$particle_id)), , drop = FALSE]
+  data.frame(inst = ps$of_key, particle_id = ps$particle_id, class = ps$class,
+             stringsAsFactors = FALSE)
+}
+
+#' Fill the instruments of a hover table that have no particle: the partner
+#' each shown particle's own instrument found at its position (any quality).
+#' @param ps partner_status.csv table
+#' @param ids named list, instrument key -> particle id (the shown particles)
+#' @param shown overlay instrument keys
+#' @return named list, instrument key -> list(id, status, passes, distance,
+#'   p_chance, from) for the filled instruments; and for the shown particles
+#'   (key -> list(passes)) under attr "own"
+partner_fill <- function(ps, ids, shown) {
+  ps <- partner_status_shown(ps, shown)
+  out <- list(); own <- list()
+  if (is.null(ps) || !length(ids)) return(structure(out, own = own))
+  for (m in names(ids)) {
+    r <- ps[ps$of_key == m & ps$particle_id == as.character(ids[[m]]), , drop = FALSE]
+    if (nrow(r) && "passes" %in% names(r)) own[[m]] <- list(passes = as.logical(r$passes[1]))
+  }
+  for (k in setdiff(shown, names(ids))) {
+    for (m in names(ids)) {
+      r <- ps[ps$of_key == m & ps$particle_id == as.character(ids[[m]]) & ps$by_key == k &
+                !is.na(ps$partner_id), , drop = FALSE]
+      if (!nrow(r)) next
+      out[[k]] <- list(id = r$partner_id[1], status = r$status[1],
+                       passes = as.logical(r$partner_passes[1]),
+                       distance = r$partner_distance_um[1], p_chance = r$p_chance[1],
+                       material = r$partner_material[1], quality = r$partner_quality[1],
+                       from = m)
+      break
+    }
+  }
+  structure(out, own = own)
+}
+
+#' The note under a hover-table column filled from the partner status
+partner_fill_note <- function(f, q_name = "") {
+  if (is.null(f)) return(NULL)
+  where <- sprintf("%s \u00b5m away, %s%% chance of an unrelated particle",
+                   format(round(f$distance, 1)), format(round(100 * f$p_chance, 1)))
+  if (isFALSE(f$passes))
+    return(list(warn = TRUE, text = paste0("\u26a0 Below the ", if (nzchar(q_name)) q_name else "quality", " ",
+                                           "cutoff: not confidently identified (", where, ")")))
+  if (identical(f$status, "paired_elsewhere"))
+    return(list(warn = TRUE, text = paste0("Nearest particle, paired with another (", where, ")")))
+  if (identical(f$status, "this_below_cutoff"))
+    return(list(warn = TRUE, text = paste0("Found here; the other particle is below its cutoff (", where, ")")))
+  list(warn = FALSE, text = paste0("Paired in the pipeline; hidden by the viewer filters (", where, ")"))
 }
