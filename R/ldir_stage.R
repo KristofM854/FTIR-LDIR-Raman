@@ -154,9 +154,19 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       sam <- tryCatch(read_ldir_sam_particles(sam_path), error = function(e) {
         log_message("  Could not read ", basename(sam_path), ": ", conditionMessage(e),
                     level = "WARN"); NULL })
-      if (!is.null(sam))
+      if (is.null(sam)) {
+        log_message(sprintf(paste0("  No LDIR particle records in %s (%.0f MB): the join uses the ",
+                                   "image instead. Is it the project file saved after the particle ",
+                                   "analysis?"), basename(sam_path), file.info(sam_path)$size / 1024^2),
+                    level = "WARN")
+      } else {
+        log_message(sprintf("  %d particle records in %d group(s) (%s)", nrow(sam),
+                            length(unique(sam$group)),
+                            paste(sprintf("group %d: %d", as.integer(names(table(sam$group))),
+                                          as.integer(table(sam$group))), collapse = ", ")))
         ldir_with_coords <- join_ldir_by_sam(ldir_raw, sam, ldir_image_particles,
                                              .ldir_circle_info$height)
+      }
     }
     # Join image coordinates with RAW Excel data via size-based Hungarian matching
     if (is.null(ldir_with_coords))

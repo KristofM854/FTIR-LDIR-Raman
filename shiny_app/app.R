@@ -493,7 +493,7 @@ ui <- fluidPage(
                        choices = c("All particles" = "all",
                                    "Plastics (synthetic + semi-synthetic)" = "plastics",
                                    "Synthetic only" = "synthetic"),
-                       selected = "all"),
+                       selected = "synthetic"),
           tags$p(style = "font-size:11px; color:#888; margin-top:-6px;",
                  "Sets the material lists of all four instruments below the image; ",
                  "each can still be changed on its own."),
@@ -2959,7 +2959,8 @@ server <- function(input, output, session) {
   # Per-material show/hide checkbox groups
   # ==================================================================
   # Every viewer and the overlay lists the material families actually present
-  # in its data, all ticked on load, so any of them can be switched off.
+  # in its data; on load only the synthetic families are ticked (all of them
+  # when the data has none), and the "all" / "plastics" links widen it.
   #
   # An empty checkbox group reads back as NULL, which is ambiguous: it is
   # either "not populated yet" (data still loading — must not filter) or "the
@@ -2973,6 +2974,7 @@ server <- function(input, output, session) {
 
   mat_ready   <- reactiveValues()
   mat_choices <- reactiveValues()   # input_id -> families offered
+  mat_sent    <- reactiveValues()   # input_id -> selection last sent to the browser
 
   # Families to keep for an input: NULL = no filtering at all.
   mat_keep <- function(input_id) {
@@ -2985,19 +2987,25 @@ server <- function(input, output, session) {
   }
 
   # Fill a group from the data, keeping the user's ticks where the family still
-  # exists; families new to this run arrive ticked, so switching runs never
-  # silently hides particles.
+  # exists; families new to this run arrive ticked when they are synthetic
+  # (the default view: synthetic particles only).
+  default_families <- function(families) {
+    syn <- intersect(families, synthetic_families)
+    if (length(syn)) syn else families
+  }
   update_material_choices <- function(input_id, families) {
     families <- sort(unique(as.character(families[!is.na(families)])))
     prev_ch  <- mat_choices[[input_id]]
     # Until the browser has reported the group, its selection is what was last
-    # sent (all ticked); reading the input then gives NULL and a second fill
-    # (several data reactives fire on load) unticked everything on screen.
+    # sent; reading the input then gives NULL and a second fill (several data
+    # reactives fire on load) unticked everything on screen.
     prev_sel <- if (isTRUE(isolate(mat_ready[[input_id]])))
-      isolate(input[[input_id]]) else prev_ch
-    selected <- if (is.null(prev_ch)) families
-                else union(intersect(prev_sel, families), setdiff(families, prev_ch))
+      isolate(input[[input_id]]) else isolate(mat_sent[[input_id]])
+    selected <- if (is.null(prev_ch)) default_families(families)
+                else union(intersect(prev_sel, families),
+                           intersect(setdiff(families, prev_ch), default_families(families)))
     mat_choices[[input_id]] <- families
+    mat_sent[[input_id]] <- selected
     updateCheckboxGroupInput(session, input_id, choices = families,
                              selected = selected)
   }
