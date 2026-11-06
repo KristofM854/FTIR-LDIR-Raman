@@ -1577,3 +1577,26 @@ debug_ldir_branches <- function(ldir_aligned, raman_df, ldir_raman_match,
     log_message("  Debug branch comparison failed: ", e$message, level = "WARN")
   })
 }
+
+
+#' Record a supporting file the run used (00_manifest/supporting_files.csv):
+#' an instrument's side file found next to its data, such as the Raman
+#' placement .txt or the LDIR project file. Shown in the viewer's Run Info tab.
+#' @param kind Short key (raman_placement, ldir_sam, ...)
+#' @param path The file (several are joined with "; ")
+#' @param used_for What the pipeline did with it
+note_supporting_file <- function(config, kind, path, used_for) {
+  dir <- config$output_dir
+  if (is.null(dir) || !nzchar(dir) || is.null(path) || !length(path)) return(invisible(NULL))
+  f <- file.path(dir, "00_manifest", "supporting_files.csv")
+  row <- data.frame(kind = kind, file = paste(basename(path), collapse = "; "),
+                    path = paste(path, collapse = "; "), used_for = used_for,
+                    stringsAsFactors = FALSE)
+  tryCatch({
+    dir.create(dirname(f), showWarnings = FALSE, recursive = TRUE)
+    old <- if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE) else NULL
+    if (!is.null(old)) old <- old[old$kind != kind, , drop = FALSE]
+    utils::write.csv(rbind(old, row), f, row.names = FALSE)
+  }, error = function(e) NULL)
+  invisible(NULL)
+}

@@ -2118,6 +2118,8 @@ find_ldir_coord_swaps_file <- function(ldir_path, config = NULL) {
 load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
   f <- find_ldir_coord_swaps_file(ldir_path, config)
   if (is.null(f)) return(NULL)
+  note_supporting_file(config, "ldir_coord_swaps", f,
+    "Manual corrections of the LDIR join: pairs of particle IDs whose positions are swapped")
 
   # Auto-detect the separator: read with each candidate and keep the one that
   # actually splits the file into columns. Reading a ";"-delimited file with

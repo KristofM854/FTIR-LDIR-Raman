@@ -126,12 +126,10 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
         selectizeInput(paste0(id_prefix, "_highlight_particle"), "Highlight Particle",
                        choices = c("None"), selected = "None",
                        options = list(maxOptions = 200, placeholder = "Type a particle ID")),
-        fluidRow(
-          column(8, textInput(paste0(id_prefix, "_highlight_pattern"), NULL,
-                              placeholder = "IDs: 1-10, MP_*, or MP_1,MP_5")),
-          column(4, actionButton(paste0(id_prefix, "_highlight_apply"), "Apply",
-                                 class = "btn-sm", style = "margin-top: 25px;"))
-        )),
+        div(class = "ov-pattern-row",
+          textInput(paste0(id_prefix, "_highlight_pattern"), NULL,
+                    placeholder = "IDs: 1-10, MP_*, or MP_1,MP_5"),
+          actionButton(paste0(id_prefix, "_highlight_apply"), "Apply", class = "btn-sm"))),
       hr(),
       div(class = "info-box",
           h5("Summary"), textOutput(paste0(id_prefix, "_summary_text"))),
@@ -237,6 +235,19 @@ ui <- fluidPage(
     .mat-filter-box .shiny-input-container .shiny-options-group,
     .mat-filter-box .shiny-options-group { margin-top: 0; }
     .mat-filter-box .checkbox { margin: 0; }
+    /* Overlay: the four instrument cards side by side, equal height, their
+       material lists one fixed height (with or without a scroll bar) so the
+       controls below line up across the four */
+    .ov-filter-row { display: flex; flex-wrap: wrap; }
+    .ov-filter-row > [class*='col-'] { display: flex; min-width: 0; }
+    .ov-filter-row .overlay-inst-filter { flex: 1 1 0; min-width: 0; display: flex;
+                                          flex-direction: column; }
+    .ov-pattern-row .form-group, .ov-pattern-row input { min-width: 0; }
+    .overlay-inst-filter .mat-filter-box { height: 170px; }
+    .overlay-inst-filter .mat-filter-box .form-group { margin-top: 0; }
+    .ov-pattern-row { display: flex; gap: 6px; align-items: flex-start; }
+    .ov-pattern-row .form-group { flex: 1; margin-bottom: 10px; }
+    .ov-pattern-row .btn { height: 34px; }
     /* Box and text centred on each other by flexbox, independent of the
        font's metrics (an absolutely placed box sat ~3 px low) */
     .mat-filter-box .checkbox label { display: flex; align-items: center; gap: 8px;
@@ -507,7 +518,7 @@ ui <- fluidPage(
               detail_table_ui("overlay_hover_info")),
           hr(),
           # --- PER-INSTRUMENT FILTERS: side by side below the image ---
-          fluidRow(
+          fluidRow(class = "ov-filter-row",
             column(3, div(class = "info-box overlay-inst-filter",
                 h4(instrument_badge("ftir_pe"), style = "margin: 0 0 8px;"),
                 sliderInput("overlay_ftir_quality", "AAU Quality",
@@ -516,12 +527,9 @@ ui <- fluidPage(
                             min = 0, max = 800,
                             value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
                 material_filter_ui("overlay_ftir_material", "Materials"),
-                fluidRow(
-                  column(8, textInput("overlay_ftir_pattern", NULL,
-                                      placeholder = "Range (1-10) or pattern (MP_*)")),
-                  column(4, actionButton("overlay_ftir_apply_pattern", "Apply",
-                                         class = "btn-sm", style = "margin-top: 25px;"))
-                ),
+                div(class = "ov-pattern-row",
+                  textInput("overlay_ftir_pattern", NULL, placeholder = "IDs: 1-10 or MP_*"),
+                  actionButton("overlay_ftir_apply_pattern", "Apply", class = "btn-sm")),
                 selectizeInput("overlay_ftir_particles", "Highlight Particles",
                                choices = NULL, multiple = TRUE,
                                options = list(placeholder = "Select particles...",
@@ -534,12 +542,9 @@ ui <- fluidPage(
                             min = 0, max = 800,
                             value = c(DEFAULT_MIN_SIZE_UM, 800), step = 5),
                 material_filter_ui("overlay_ftir_bruker_material", "Materials"),
-                fluidRow(
-                  column(8, textInput("overlay_ftir_bruker_pattern", NULL,
-                                      placeholder = "Range (1-10) or pattern (MP_*)")),
-                  column(4, actionButton("overlay_ftir_bruker_apply_pattern", "Apply",
-                                         class = "btn-sm", style = "margin-top: 25px;"))
-                ),
+                div(class = "ov-pattern-row",
+                  textInput("overlay_ftir_bruker_pattern", NULL, placeholder = "IDs: 1-10 or MP_*"),
+                  actionButton("overlay_ftir_bruker_apply_pattern", "Apply", class = "btn-sm")),
                 selectizeInput("overlay_ftir_bruker_particles", "Highlight Particles",
                                choices = NULL, multiple = TRUE,
                                options = list(placeholder = "Select particles...",
@@ -552,12 +557,9 @@ ui <- fluidPage(
                             min = 0, max = 1200,
                             value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
                 material_filter_ui("overlay_raman_material", "Materials"),
-                fluidRow(
-                  column(8, textInput("overlay_raman_pattern", NULL,
-                                      placeholder = "Range (1-10) or pattern")),
-                  column(4, actionButton("overlay_raman_apply_pattern", "Apply",
-                                         class = "btn-sm", style = "margin-top: 25px;"))
-                ),
+                div(class = "ov-pattern-row",
+                  textInput("overlay_raman_pattern", NULL, placeholder = "IDs: 1-10 or 5*"),
+                  actionButton("overlay_raman_apply_pattern", "Apply", class = "btn-sm")),
                 selectizeInput("overlay_raman_particles", "Highlight Particles",
                                choices = NULL, multiple = TRUE,
                                options = list(placeholder = "Select particles...",
@@ -570,12 +572,9 @@ ui <- fluidPage(
                             min = 0, max = 1200,
                             value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
                 material_filter_ui("overlay_ldir_material", "Materials"),
-                fluidRow(
-                  column(8, textInput("overlay_ldir_pattern", NULL,
-                                      placeholder = "Range (1-10) or pattern (A*)")),
-                  column(4, actionButton("overlay_ldir_apply_pattern", "Apply",
-                                         class = "btn-sm", style = "margin-top: 25px;"))
-                ),
+                div(class = "ov-pattern-row",
+                  textInput("overlay_ldir_pattern", NULL, placeholder = "IDs: 1-10 or A*"),
+                  actionButton("overlay_ldir_apply_pattern", "Apply", class = "btn-sm")),
                 selectizeInput("overlay_ldir_particles", "Highlight Particles",
                                choices = NULL, multiple = TRUE,
                                options = list(placeholder = "Select particles...",
@@ -2026,9 +2025,37 @@ server <- function(input, output, session) {
         )
       } else NULL,
       br(),
+      .supporting_files_ui(m),
+      br(),
       images_ui_panels
     )
   })
+
+  # Supporting files: what the pipeline looks for next to each instrument's
+  # data, which of them this run used, and what for
+  .supporting_files_ui <- function(m) {
+    inst <- intersect(c("ftir", "ftir_bruker", "raman", "ldir"), names(m$inputs %||% list()))
+    sf <- supporting_files_table(selected_run_dir(), inst)
+    if (!nrow(sf)) return(NULL)
+    lbl <- c(ftir = "ftir_pe", ftir_bruker = "ftir_bruker", raman = "raman", ldir = "ldir")
+    div(
+      h5("Supporting Files"),
+      p(class = "text-muted", style = "font-size: 12px;",
+        "Besides each instrument's particle table and image, the pipeline looks for these ",
+        "files next to them and uses them when present. Put them in the same folder ",
+        "with the names shown; the run records the ones it found. ",
+        "A file not found is no error: the pipeline then uses the fallback described."),
+      tags$table(class = "hover-tbl",
+        tags$tr(tags$th("Instrument"), tags$th("File"), tags$th("This run"),
+                tags$th("What it does")),
+        lapply(seq_len(nrow(sf)), function(i) tags$tr(
+          tags$td(instrument_badge(lbl[[sf$instrument[i]]])),
+          tags$td(tags$b(sf$label[i]), tags$br(),
+                  tags$span(style = "font-size: 11px; color: #777;", sf$expected[i])),
+          tags$td(if (is.na(sf$file[i])) tags$span(style = "color: #999;", "not found")
+                  else tags$span(style = "color: #1E8449;", "\u2713 ", code(sf$file[i]))),
+          tags$td(style = "font-size: 12px;", sf$used_for[i])))))
+  }
 
   has_data <- reactive({
     d <- run_data()

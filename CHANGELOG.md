@@ -8,6 +8,16 @@ change results on existing data are marked **(results)**.
 Pre-release audit and portability refactor (branch `audit/pre-release`).
 
 ### Added
+- **Run Info: supporting files.** A table of the side files the pipeline looks
+  for next to each instrument's data (FTIR scan segments and placement .txt,
+  Bruker placement / OPUS values, Raman WITec placement .txt, LDIR analyzed
+  image, .sam project file, coordinate swaps): how to name them, whether this
+  run found them, and what they do (or the fallback without them). Runs record
+  the ones they used in `00_manifest/supporting_files.csv`.
+- Overlay: the four instrument filter cards are one height, with a fixed-height
+  material list, so their controls line up whether or not a list scrolls; the
+  ID-pattern box and its Apply button sit on one line (also on the instrument
+  tabs).
 - **Viewer reorganised around one question per tab.** The instrument tabs show
   what each instrument found; the Overlay and the Summary tab show how the
   instruments agree.
