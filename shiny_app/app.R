@@ -478,6 +478,11 @@ ui <- fluidPage(
                         value = FALSE),
           checkboxInput("overlay_show_ldir_outlines",
                         "LDIR particle outlines (from the LDIR project file)", value = TRUE),
+          checkboxInput("overlay_colour_status",
+                        "Colour unmatched particles by what the other instruments found there",
+                        value = TRUE),
+          conditionalPanel(condition = "input.overlay_colour_status",
+                           uiOutput("overlay_status_legend")),
           conditionalPanel(
             condition = "input.overlay_show_all_labels",
             sliderInput("overlay_label_size", "Label size",
@@ -4650,6 +4655,49 @@ server <- function(input, output, session) {
                      alpha = 0.45, linewidth = 0.25, inherit.aes = FALSE)
   }
 
+  # Partner-status class of each shown particle (NULL when off / no file)
+  overlay_status_classes <- reactive({
+    if (!isTRUE(input$overlay_colour_status)) return(NULL)
+    overlay_partner_class(run_data_gated()$partner_status,
+                          input$overlay_instruments %||% character(0))
+  })
+  output$overlay_status_legend <- renderUI({
+    if (is.null(run_data_gated()$partner_status))
+      return(tags$p(style = "font-size:11px; color:#888;",
+                    "No partner_status.csv in this run (re-run the pipeline)."))
+    tags$div(style = "font-size:11px; margin:-4px 0 6px 0;",
+      lapply(names(PARTNER_STATUS_LABELS), function(k) tags$div(
+        tags$span(style = paste0("display:inline-block; width:10px; height:10px; border-radius:50%; ",
+                                 "border:2px solid ", PARTNER_STATUS_COLOURS[[k]], "; margin-right:5px; ",
+                                 "vertical-align:middle;")),
+        PARTNER_STATUS_LABELS[[k]])),
+      tags$span(style = "color:#888;",
+                "Ring around an unmatched particle; quality cutoffs as in the pipeline."))
+  })
+  # Status rings: one layer per class with its fixed colour, so the plot's
+  # colour / fill scales stay the instruments'
+  .add_status_rings <- function(p, pts, r = NULL) {
+    cl <- overlay_status_classes()
+    if (is.null(cl) || is.null(pts) || !nrow(pts)) return(p)
+    pts$class <- cl$class[match(paste(pts$inst, pts$particle_id), paste(cl$inst, cl$particle_id))]
+    pts <- pts[!is.na(pts$class) & is.finite(pts$x) & is.finite(pts$y), , drop = FALSE]
+    for (k in intersect(names(PARTNER_STATUS_COLOURS), unique(pts$class))) {
+      d <- pts[pts$class == k, , drop = FALSE]
+      p <- if (is.null(r))
+        p + geom_point(data = d, aes(x = x, y = y, size = feret_max), shape = 1, stroke = 1.8,
+                       colour = PARTNER_STATUS_COLOURS[[k]], alpha = 0.9, inherit.aes = FALSE,
+                       show.legend = FALSE)
+      else {
+        a <- seq(0, 2 * pi, length.out = 25)
+        ring <- data.frame(g = rep(seq_len(nrow(d)), each = 25),
+                           x = rep(d$x, each = 25) + r * cos(a), y = rep(d$y, each = 25) + r * sin(a))
+        p + geom_path(data = ring, aes(x = x, y = y, group = g), colour = PARTNER_STATUS_COLOURS[[k]],
+                      linewidth = 1.1, inherit.aes = FALSE)
+      }
+    }
+    p
+  }
+
   .add_symbol_layers <- function(p, st, bounds, inst, rel) {
     sym <- st$sym
     if (is.null(sym) || nrow(sym) == 0) return(p)
@@ -4677,6 +4725,12 @@ server <- function(input, output, session) {
                             colour = "black", linewidth = 0.15) +
         scale_fill_manual(name = "Found by", values = SYMBOL_COLOURS,
                           labels = unname(SYMBOL_LABELS[brk]), breaks = brk, drop = FALSE)
+    }
+    one <- sym[sym$n_inst == 1, , drop = FALSE]
+    if (nrow(one)) {
+      nd <- st$nodes[match(one$group, st$nodes$group), , drop = FALSE]
+      p <- .add_status_rings(p, data.frame(inst = nd$inst, particle_id = as.character(nd$id),
+                                           x = one$x, y = one$y), r = r * 1.3)
     }
     p
   }
@@ -4973,6 +5027,12 @@ server <- function(input, output, session) {
       if (nrow(both) > 0) {
         size_limits <- safe_size_limits(both$feret_max)
         p <- .overlay_ldir_outlines(p, both$particle_id[both$instrument == "LDIR"])
+        um <- both[both$match_status == "unmatched", , drop = FALSE]
+        if (nrow(um))
+          p <- .add_status_rings(p, data.frame(
+            inst = unname(c(FTIR = "ftir_pe", "FTIR (Bruker)" = "ftir_bruker", Raman = "raman",
+                            LDIR = "ldir")[um$instrument]),
+            particle_id = um$particle_id, x = um$x, y = um$y, feret_max = um$feret_max))
         p <- p + geom_point(data = both,
                              aes(x=x, y=y, size=feret_max, colour=instrument, shape=match_status),
                              alpha = 0.65) +
@@ -5046,7 +5106,7 @@ server <- function(input, output, session) {
     input$overlay_ftir_particles, input$overlay_raman_particles,
     input$overlay_ldir_particles, input$overlay_ftir_bruker_particles,
     input$overlay_show_all_labels, input$overlay_label_size,
-    input$overlay_show_ldir_outlines,
+    input$overlay_show_ldir_outlines, overlay_status_classes(),
     zoom$overlay, pinned_overlay(), img_key(overlay_image_info())
   )
   output$overlay_summary_text <- renderText({
@@ -5547,12 +5607,24 @@ server <- function(input, output, session) {
 
     full <- overlay_dfs_full()
     dash <- "\u2014"
+    # Instruments shown without a particle here: what that instrument has at
+    # this position whatever its quality (05_matches/partner_status.csv)
+    fill <- partner_fill(run_data_gated()$partner_status, ids,
+                         input$overlay_instruments %||% character(0))
+    own <- attr(fill, "own")
     cols <- lapply(names(.OV_INST), function(k) {
-      oi <- .OV_INST[[k]]; id <- ids[[k]]
+      oi <- .OV_INST[[k]]; id <- ids[[k]]; f <- fill[[k]]
+      if (is.null(id) && !is.null(f)) id <- f$id
+      note <- if (!is.null(f)) partner_fill_note(f, oi$q)
+              else if (!is.null(ids[[k]]) && isFALSE(own[[k]]$passes))
+                list(warn = TRUE, text = paste0("\u26a0 Below the ", if (nzchar(oi$q)) oi$q else "quality", " ",
+                                                "cutoff: not confidently identified"))
       d <- full[[oi$df]]
       r <- if (!is.null(id) && !is.null(d)) d[as.character(d$particle_id) == id, , drop = FALSE]
       if (is.null(r) || nrow(r) == 0)
-        return(list(k = k, id = id %||% dash, mat = dash, q = dash, feret = dash, pos = dash))
+        return(list(k = k, id = id %||% dash, mat = f$material %||% dash,
+                    q = if (!is.null(f$quality) && is.finite(f$quality)) f$quality else dash,
+                    feret = dash, pos = dash, note = note))
       r <- r[1, ]
       num <- function(v, digits) if (is.null(v) || is.na(v)) NA else round(v, digits)
       q <- num(r$quality, if (k == "raman") 2 else 3)
@@ -5560,15 +5632,25 @@ server <- function(input, output, session) {
            mat = if (is.null(r$material) || is.na(r$material)) dash else as.character(r$material),
            q = if (is.na(q)) dash else paste0(if (nzchar(oi$q)) paste0(oi$q, " ") else "", q),
            feret = if (is.na(num(r$feret_max, 1))) dash else paste0(num(r$feret_max, 1), " \u00b5m"),
-           pos = if (is.na(num(r$x, 1))) dash else paste0("(", num(r$x, 1), ", ", num(r$y, 1), ")"))
+           pos = if (is.na(num(r$x, 1))) dash else paste0("(", num(r$x, 1), ", ", num(r$y, 1), ")"),
+           note = note)
     })
+    # A filled column is shown in italics; its note says how sure it is
     mk <- function(label, f) do.call(tags$tr, c(list(tags$td(tags$b(label))),
-                                                lapply(cols, function(c) tags$td(c[[f]], title = c[[f]]))))
+      lapply(cols, function(c) tags$td(c[[f]], title = c[[f]],
+                                       style = if (!is.null(fill[[c$k]])) "font-style: italic;"))))
+    note_row <- do.call(tags$tr, c(list(tags$td(tags$b("Note"))), lapply(cols, function(c) {
+      n <- c$note
+      if (is.null(n)) return(tags$td(dash))
+      tags$td(n$text, title = n$text,
+              style = paste0("font-size: 11px; white-space: normal;",
+                             if (isTRUE(n$warn)) " color: #B9770E;" else " color: #777;"))
+    })))
     tags$table(class = "hover-tbl fixed-detail",
       do.call(tags$tr, c(list(tags$th("", style = "width: 12%;")),
                          lapply(cols, function(c) tags$th(instrument_badge(c$k))))),
       mk("Particle ID", "id"), mk("Material", "mat"), mk("Quality", "q"),
-      mk("Feret Max", "feret"), mk("Position", "pos"))
+      mk("Feret Max", "feret"), mk("Position", "pos"), note_row)
   })
 
   # ==================================================================

@@ -28,6 +28,7 @@
 "n_rows","05_matches/matched_ftir_perkin_raman.csv",31
 "n_rows","05_matches/matched_ldir_ftir_perkin.csv",31
 "n_rows","05_matches/matched_ldir_raman.csv",28
+"n_rows","05_matches/partner_status.csv",456
 "n_rows","05_matches/triplets_3way.csv",28
 "n_rows","05_matches/unmatched_ftir_bruker_vs_raman.csv",7
 "n_rows","05_matches/unmatched_ftir_perkin_vs_raman.csv",2

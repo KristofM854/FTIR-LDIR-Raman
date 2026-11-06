@@ -300,3 +300,39 @@ test_that("LDIR outlines follow their particle into the aligned frame", {
   expect_equal(a1$y[2] - a1$y[1], 20, tolerance = 0.5)
   expect_null(env$ldir_outline_polygons(NULL, df))
 })
+
+
+test_that("partner status: hover fill and colour classes", {
+  g <- .load_global_helpers()
+  ps <- data.frame(
+    of = c("ldir", "ldir", "raman", "ldir", "ldir"),
+    found_by = c("raman", "ftir_perkin", "ldir", "raman", "raman"),
+    particle_id = c("A1", "A1", "R7", "A2", "A3"),
+    passes = c(TRUE, TRUE, FALSE, TRUE, TRUE),
+    status = c("partner_below_cutoff", "not_found", "this_below_cutoff", "not_found", "matched"),
+    partner_id = c("R7", NA, "A1", NA, "R9"),
+    partner_material = c("PET", NA, "PET", NA, "PE"),
+    partner_quality = c(55, NA, 0.9, NA, 88),
+    partner_passes = c(FALSE, NA, TRUE, NA, TRUE),
+    partner_distance_um = c(12, NA, 12, NA, 3), gate_um = 50, p_chance = c(0.02, NA, 0.03, NA, 0.01),
+    stringsAsFactors = FALSE)
+  # The user's case: LDIR PET hovered, Raman shown without a match
+  f <- g$partner_fill(ps, list(ldir = "A1"), c("ldir", "raman"))
+  expect_equal(f$raman$id, "R7")
+  expect_false(f$raman$passes)
+  n <- g$partner_fill_note(f$raman, "HQI")
+  expect_true(n$warn)
+  expect_match(n$text, "Below the HQI cutoff: not confidently identified")
+  # FTIR not shown: nothing filled for it; nothing found: no fill
+  expect_null(f$ftir_pe)
+  expect_length(g$partner_fill(ps, list(ldir = "A2"), c("ldir", "raman")), 0)
+  # The hovered particle's own cutoff state
+  expect_false(attr(g$partner_fill(ps, list(raman = "R7"), c("ldir", "raman")), "own")$raman$passes)
+  # Colour classes: best over the shown partners, matched gives none
+  cl <- g$overlay_partner_class(ps, c("ldir", "raman", "ftir_pe"))
+  expect_equal(cl$class[cl$inst == "ldir" & cl$particle_id == "A1"], "below_cutoff")
+  expect_equal(cl$class[cl$inst == "raman" & cl$particle_id == "R7"], "below_cutoff")
+  expect_equal(cl$class[cl$particle_id == "A2"], "not_found")
+  expect_false("A3" %in% cl$particle_id)
+  expect_null(g$overlay_partner_class(NULL, "ldir"))
+})
