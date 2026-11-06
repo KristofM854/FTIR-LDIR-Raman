@@ -378,6 +378,8 @@ ui <- fluidPage(
                         "Show Raman partners + match lines (aligned)", value = FALSE),
           checkboxInput("ldir_hide_unmatched",
                         "Hide unmatched (single-instrument) particles", value = FALSE),
+          checkboxInput("ldir_show_outlines",
+                        "Particle outlines (from the LDIR project file)", value = TRUE),
           hr(),
           div(class = "info-box",
               h5("Summary"), textOutput("ldir_summary_text")),
@@ -474,6 +476,8 @@ ui <- fluidPage(
             uiOutput("overlay_combo_ui")),
           checkboxInput("overlay_show_all_labels", "Number all particles",
                         value = FALSE),
+          checkboxInput("overlay_show_ldir_outlines",
+                        "LDIR particle outlines (from the LDIR project file)", value = TRUE),
           conditionalPanel(
             condition = "input.overlay_show_all_labels",
             sliderInput("overlay_label_size", "Label size",
@@ -3930,8 +3934,19 @@ server <- function(input, output, session) {
     # orientation for side-by-side comparison.  Aligned mode is already in
     # Raman space, so nothing applies there.  Display-only.
     vt <- if (aligned) list(deg = 0L, flip = FALSE) else ldir_view_tf()
+    # Particle outlines (.sam), in the same frame as df_disp before the view turn
+    outl <- if (isTRUE(input$ldir_show_outlines) && nrow(df_disp) > 0) {
+      full_o <- ldir_df_full()
+      if (aligned && !is.null(full_o)) {
+        # the fit uses all particles; the anchors the shown ones
+        full_o <- full_o[is.finite(full_o$x), , drop = FALSE]
+        po <- ldir_outline_polygons(run_data_gated()$ldir_outlines, full_o, aligned = TRUE)
+        if (!is.null(po)) po[po$particle_id %in% df_disp$particle_id, , drop = FALSE]
+      } else ldir_outline_polygons(run_data_gated()$ldir_outlines, df_disp, aligned = FALSE)
+    } else NULL
     img     <- .apply_view_tf_img(img, vt)
     df_disp <- .apply_view_tf(df_disp, vt)
+    outl    <- .apply_view_tf(outl, vt)
 
     # All LDIR particles in the same display frame as df_disp — the reference
     # for the default viewport, so filtering never re-fits the axes.
@@ -4035,6 +4050,12 @@ server <- function(input, output, session) {
                             stroke = 0.5)
     }
 
+    # Particle outlines under the points (the points keep hover and click)
+    if (!is.null(outl) && nrow(outl) > 0)
+      p <- p + geom_polygon(data = outl, aes(x = x, y = y, group = particle_id),
+                            fill = INSTRUMENT_COLOURS[["ldir"]], colour = INSTRUMENT_COLOURS[["ldir"]],
+                            alpha = 0.45, linewidth = 0.25, inherit.aes = FALSE)
+
     # Excel-joined particles (main layer). "Show all detected" draws every
     # particle one colour with no matched/unmatched distinction.
     if (nrow(df_disp) > 0) {
@@ -4128,6 +4149,7 @@ server <- function(input, output, session) {
     selected_run_dir(), is.null(uploaded_data()),
     ldir_filtered(), ldir_extracted_pts(), ldir_view_tf(),
     input$ldir_bg_image, input$ldir_coord_mode, input$ldir_hide_unmatched,
+    input$ldir_show_outlines,
     input$ldir_overlay_mode, input$ldir_show_raman_partners,
     input$ldir_show_all_detected, input$ldir_colour_confidence,
     input$ldir_show_all_labels, input$ldir_label_size,
@@ -4612,6 +4634,22 @@ server <- function(input, output, session) {
 
   # Symbol layers: outline circles and filled quarters, radius a fixed share
   # of the view so symbols keep their screen size when zooming.
+  # LDIR particle outlines (.sam) of the shown LDIR particles, in the shared
+  # (aligned) frame, drawn under the points / symbols
+  .overlay_ldir_outlines <- function(p, ids) {
+    if (!isTRUE(input$overlay_show_ldir_outlines) || !length(ids)) return(p)
+    full_o <- ldir_df_full()
+    if (is.null(full_o)) return(p)
+    full_o <- full_o[is.finite(full_o$x), , drop = FALSE]
+    po <- ldir_outline_polygons(run_data_gated()$ldir_outlines, full_o, aligned = TRUE)
+    if (is.null(po)) return(p)
+    po <- po[po$particle_id %in% ids, , drop = FALSE]
+    if (!nrow(po)) return(p)
+    p + geom_polygon(data = po, aes(x = x, y = y, group = particle_id),
+                     fill = INSTRUMENT_COLOURS[["ldir"]], colour = INSTRUMENT_COLOURS[["ldir"]],
+                     alpha = 0.45, linewidth = 0.25, inherit.aes = FALSE)
+  }
+
   .add_symbol_layers <- function(p, st, bounds, inst, rel) {
     sym <- st$sym
     if (is.null(sym) || nrow(sym) == 0) return(p)
@@ -4767,9 +4805,13 @@ server <- function(input, output, session) {
 
     p <- add_image_bg(p, overlay_image_info())
 
-    if (!identical(input$overlay_view, "raw"))
-      return(.overlay_marks(.add_symbol_layers(p, overlay_symbols_shown(), bounds, inst, rel),
-                            dfs, bounds))
+    if (!identical(input$overlay_view, "raw")) {
+      st_o <- overlay_symbols_shown()
+      if (!is.null(st_o))
+        p <- .overlay_ldir_outlines(p, st_o$nodes$id[st_o$nodes$inst == "ldir" &
+                                                      st_o$nodes$group %in% st_o$sym$group])
+      return(.overlay_marks(.add_symbol_layers(p, st_o, bounds, inst, rel), dfs, bounds))
+    }
 
     # Match lines
     if ("lines" %in% rel) {
@@ -4930,6 +4972,7 @@ server <- function(input, output, session) {
       both <- both[is.finite(both$x) & is.finite(both$y), , drop = FALSE]
       if (nrow(both) > 0) {
         size_limits <- safe_size_limits(both$feret_max)
+        p <- .overlay_ldir_outlines(p, both$particle_id[both$instrument == "LDIR"])
         p <- p + geom_point(data = both,
                              aes(x=x, y=y, size=feret_max, colour=instrument, shape=match_status),
                              alpha = 0.65) +
@@ -5003,6 +5046,7 @@ server <- function(input, output, session) {
     input$overlay_ftir_particles, input$overlay_raman_particles,
     input$overlay_ldir_particles, input$overlay_ftir_bruker_particles,
     input$overlay_show_all_labels, input$overlay_label_size,
+    input$overlay_show_ldir_outlines,
     zoom$overlay, pinned_overlay(), img_key(overlay_image_info())
   )
   output$overlay_summary_text <- renderText({

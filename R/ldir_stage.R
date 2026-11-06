@@ -172,8 +172,22 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     if (is.null(ldir_with_coords))
       ldir_with_coords <- join_ldir_coords(ldir_raw, ldir_image_particles, config = config)
     # Apply any manual coordinate-join corrections (config$ldir_coord_swaps)
-    ldir_with_coords <- apply_ldir_coord_swaps(ldir_with_coords, config)
+    # (Not after the exact .sam join: the corrections fix the image join and
+    # would move rows that now sit on their own particle.)
+    if (!any(ldir_with_coords$coord_source %in% "sam")) {
+      ldir_with_coords <- apply_ldir_coord_swaps(ldir_with_coords, config)
+    } else if (length(config$ldir_coord_swaps)) {
+      log_message("  Manual LDIR join corrections ignored: the .sam join places every row by its ",
+                  "own outline", level = "WARN")
+    }
     write.csv(ldir_with_coords, file.path(.out_dirs$joined, "ldir_joined_raw.csv"), row.names = FALSE)
+    # Particle outlines from the .sam file (native LDIR frame), for the viewer
+    if (!is.null(attr(ldir_with_coords, "outlines"))) {
+      write.csv(attr(ldir_with_coords, "outlines"),
+                file.path(.out_dirs$joined, "ldir_outlines.csv"), row.names = FALSE)
+      log_message("  LDIR particle outlines written: ldir_outlines.csv (",
+                  length(unique(attr(ldir_with_coords, "outlines")$particle_id)), " particles)")
+    }
 
     # The join itself is checked against Raman after alignment (12h-bis).
 

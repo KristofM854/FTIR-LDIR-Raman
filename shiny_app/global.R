@@ -461,6 +461,7 @@ load_run_data <- function(run_info) {
                                 "unmatched_ldir.csv"),
       triplets             = c("05_matches/triplets_3way.csv",
                                 "triplets_3way.csv"),
+      ldir_outlines        = c("02_joined/ldir_outlines.csv", ""),
       ldir_image_extracted = c("02_joined/ldir_image_extracted.csv",
                                 "ldir_image_extracted.csv")
     )
@@ -2565,6 +2566,34 @@ add_particle_labels <- function(p, df, bounds, id_col = "particle_id",
     geom_text(data = lab, aes(x = x, y = .ly, label = .lbl),
               vjust = 0, size = size, colour = "white", fontface = "bold",
               inherit.aes = FALSE)
+}
+
+# LDIR particle outlines (from the .sam file, 02_joined/ldir_outlines.csv,
+# native LDIR frame) for the particles of `df`, in the frame `df` is shown in.
+# Native: the outline as stored. Aligned: each outline is anchored on its
+# particle's aligned position and turned / scaled with the linear part of the
+# native -> aligned map (fitted over all particles), so local refinements
+# (TPS) move the outline with its particle.
+# @param outlines data.frame(particle_id, x_um, y_um) (vertices in order)
+# @param df particles with particle_id, x_orig / y_orig (native) and x / y
+# @param aligned TRUE for the aligned (Raman) frame
+# @return data.frame(particle_id, x, y) or NULL
+ldir_outline_polygons <- function(outlines, df, aligned = FALSE) {
+  if (is.null(outlines) || !nrow(outlines) || is.null(df) || !nrow(df)) return(NULL)
+  ol <- outlines[outlines$particle_id %in% df$particle_id, , drop = FALSE]
+  if (!nrow(ol)) return(NULL)
+  if (!aligned) return(data.frame(particle_id = ol$particle_id, x = ol$x_um, y = ol$y_um,
+                                  stringsAsFactors = FALSE))
+  ok <- is.finite(df$x_orig) & is.finite(df$y_orig) & is.finite(df$x) & is.finite(df$y)
+  if (sum(ok) < 3) return(NULL)
+  X <- cbind(df$x_orig[ok] - mean(df$x_orig[ok]), df$y_orig[ok] - mean(df$y_orig[ok]))
+  Y <- cbind(df$x[ok] - mean(df$x[ok]), df$y[ok] - mean(df$y[ok]))
+  M <- qr.solve(X, Y)                                   # 2 x 2: native offsets -> aligned
+  k <- match(ol$particle_id, df$particle_id)
+  dx <- ol$x_um - df$x_orig[k]; dy <- ol$y_um - df$y_orig[k]
+  data.frame(particle_id = ol$particle_id,
+             x = df$x[k] + dx * M[1, 1] + dy * M[2, 1],
+             y = df$y[k] + dx * M[1, 2] + dy * M[2, 2], stringsAsFactors = FALSE)
 }
 
 # Overlay numbering: each instrument's particle_id in its own corner of the

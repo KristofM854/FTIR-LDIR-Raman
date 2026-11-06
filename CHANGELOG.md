@@ -285,6 +285,14 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - Viewer overlay: "Number all particles" puts each instrument's ID in its
   corner of the marker (the symbol view's corners) in the instrument's
   colour, so a matched pair's IDs no longer overprint (`add_overlay_labels()`).
+- LDIR particle outlines: with the exact `.sam` join the run writes
+  `02_joined/ldir_outlines.csv` (each particle's outline, native LDIR frame;
+  `read_ldir_sam_particles()` keeps the vertices, `join_ldir_by_sam()`
+  converts them with the overlay's pixel -> um map). The viewer draws them as
+  filled shapes under the points in the LDIR tab (native and aligned) and in
+  both overlay views (`ldir_outline_polygons()`: in the aligned frame each
+  outline is anchored on its particle and turned with the native -> aligned
+  map). Manual LDIR join corrections are not applied after the `.sam` join.
 - Viewer: the four instrument tabs and the overlay open with only the
   synthetic material families ticked (all families when the data has no
   synthetic one); the overlay's microplastics choice defaults to "Synthetic
