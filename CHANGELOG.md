@@ -285,6 +285,16 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - Viewer overlay: "Number all particles" puts each instrument's ID in its
   corner of the marker (the symbol view's corners) in the instrument's
   colour, so a matched pair's IDs no longer overprint (`add_overlay_labels()`).
+- LDIR join from the Clarity project file (`.sam`): the file (decoded from
+  Clarity 1.7.27) stores each particle's ID, outline (pixels of the IR scan
+  image = the analyzed overlay's grid, y from the bottom) and area / width /
+  height. `read_ldir_sam_particles()` scans it for the particle records;
+  `join_ldir_by_sam()` picks the particle group whose IDs and areas match
+  the Excel table and gives each row the overlay blob its outline covers
+  (`coord_source = "sam"`). Used automatically when the only `.sam` next to
+  the LDIR Excel (or `ldir_sam_path`) fits; else the size / shape / colour
+  join. Faanui: A1's outline 337-467 x 1884-1920 px = 650 x 180 um, area
+  39300, the Excel values, on the overlay particle at the same pixels.
 - LDIR join: colour classes of the analyzed image. The LDIR "analyzed"
   export colours every particle by its identification class (palette
   reused when there are more classes than colours). `ldir_colour_classes()`

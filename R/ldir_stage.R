@@ -144,8 +144,23 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     # Save raw image-extracted coordinates (before join) for Shiny viewer
     ldir_image_extracted <- ldir_image_particles
 
+    # Exact join from the Clarity project file (.sam) when it is there: each
+    # row takes the analyzed-image blob its own outline covers. Otherwise (or
+    # when the file does not fit the table) the size / shape / colour join.
+    ldir_with_coords <- NULL
+    sam_path <- if (!is.null(processed_img)) find_ldir_sam(config) else NULL
+    if (!is.null(sam_path)) {
+      log_message("Reading LDIR particle outlines from the project file: ", basename(sam_path))
+      sam <- tryCatch(read_ldir_sam_particles(sam_path), error = function(e) {
+        log_message("  Could not read ", basename(sam_path), ": ", conditionMessage(e),
+                    level = "WARN"); NULL })
+      if (!is.null(sam))
+        ldir_with_coords <- join_ldir_by_sam(ldir_raw, sam, ldir_image_particles,
+                                             .ldir_circle_info$height)
+    }
     # Join image coordinates with RAW Excel data via size-based Hungarian matching
-    ldir_with_coords <- join_ldir_coords(ldir_raw, ldir_image_particles, config = config)
+    if (is.null(ldir_with_coords))
+      ldir_with_coords <- join_ldir_coords(ldir_raw, ldir_image_particles, config = config)
     # Apply any manual coordinate-join corrections (config$ldir_coord_swaps)
     ldir_with_coords <- apply_ldir_coord_swaps(ldir_with_coords, config)
     write.csv(ldir_with_coords, file.path(.out_dirs$joined, "ldir_joined_raw.csv"), row.names = FALSE)

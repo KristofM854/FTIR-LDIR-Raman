@@ -28,6 +28,7 @@ pipeline_modules <- c(
   "ftir_segments.R",
   "utils_python.R",
   "01c_ingest_ldir.R",
+  "ldir_sam.R",
   "02_prefilter.R",
   "03_normalize.R",
   "03b_landmark_align.R",

@@ -397,6 +397,10 @@ make_config <- function(ftir_path  = NULL,
     # count; ldir_colour_classes()). High enough that materials do not move
     # between similar-sized particles; 0 switches the term off.
     ldir_join_weight_colour_class = 5,
+    # Clarity project file (.sam) of the LDIR scan: its particle outlines give
+    # an exact join (join_ldir_by_sam()). NULL: the only .sam next to the LDIR
+    # table, if there is exactly one.
+    ldir_sam_path = NULL,
 
     # ldir_processed_image_min_brightness: per-pixel RGB sum threshold
     #   below which a pixel is treated as background (pure black = 0).
