@@ -285,6 +285,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - Viewer overlay: "Number all particles" puts each instrument's ID in its
   corner of the marker (the symbol view's corners) in the instrument's
   colour, so a matched pair's IDs no longer overprint (`add_overlay_labels()`).
+- Viewer: the four instrument tabs and the overlay open with only the
+  synthetic material families ticked (all families when the data has no
+  synthetic one); the overlay's microplastics choice defaults to "Synthetic
+  only". The "all" / "plastics" links and the radio buttons widen it.
 - LDIR join from the Clarity project file (`.sam`): the file (decoded from
   Clarity 1.7.27) stores each particle's ID, outline (pixels of the IR scan
   image = the analyzed overlay's grid, y from the bottom) and area / width /
