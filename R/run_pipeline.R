@@ -630,12 +630,14 @@ run_pipeline <- function(config, report = TRUE) {
     pairs[[p$labels$stem]] <- list(src = p$aligned, match = p$match, icp = p$icp,
                                    method = p$method, landmark = p$landmark,
                                    ransac = p$ransac, labels = p$labels,
-                                   determined = !isFALSE(p$alignment_determined))
+                                   determined = !isFALSE(p$alignment_determined),
+                                   pose_p = p$pose_p %||% NA_real_)
   if (.ldir_usable)
     pairs[[ldir_results$labels$stem]] <- list(
       src = ldir_results$ldir_aligned, match = ldir_results$ldir_ref_match,
       icp = ldir_results$ldir_icp, method = ldir_results$ldir_aligned$align_method[1],
-      labels = ldir_results$labels)
+      labels = ldir_results$labels, determined = TRUE,
+      pose_p = ldir_results$ldir_landmark$p_chance %||% NA_real_)
   if (length(pairs) == 0)
     stop("No instrument could be aligned to ", ref$name, " (too few particles, or no ",
          "LDIR coordinates); nothing to match.", call. = FALSE)
@@ -747,6 +749,14 @@ run_pipeline <- function(config, report = TRUE) {
 
   # Use stage-based output directories for remaining exports
   .export_dirs <- get_output_dirs(config$output_dir)
+
+  # One line per aligned instrument: how it was put into the shared frame
+  # (viewer Summary "Alignment check", report)
+  .al <- alignment_summary_table(pairs, ref$name)
+  if (nrow(.al)) {
+    write.csv(.al, file.path(.export_dirs$alignment, "alignment_summary.csv"), row.names = FALSE)
+    log_message("  Wrote alignment_summary.csv")
+  }
 
   # Export cross-instrument matches (Bruker<->Perkin, Bruker<->LDIR). Perkin<->LDIR
   # is written by export_ldir_results() as matched_ldir_ftir_perkin.csv.

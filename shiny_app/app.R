@@ -63,7 +63,6 @@ make_detail_row <- function(label, value) {
 
 instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_max,
                                 quality_step, size_max = 1200,
-                                match_choices = c("matched", "unmatched"),
                                 coord_toggle = FALSE, quality_default = NULL,
                                 true_size_toggle = FALSE) {
   if (is.null(quality_default)) quality_default <- c(quality_min, quality_max)
@@ -82,20 +81,10 @@ instrument_panel_ui <- function(id_prefix, quality_label, quality_min, quality_m
       div(id = paste0(id_prefix, "_tour_material"),
         material_filter_ui(paste0(id_prefix, "_material_filter"), "Materials")),
       div(id = paste0(id_prefix, "_tour_match"),
-        checkboxGroupInput(paste0(id_prefix, "_match_filter"), "Match Status",
-                           choices = match_choices,
-                           selected = unname(match_choices), inline = TRUE),
-        # ON by default: a viewer should open showing every particle the
-        # instrument detected. Tick it off to colour the points by match status
-        # and honour the Match Status boxes above.
-        checkboxInput(paste0(id_prefix, "_show_all_detected"),
-                      "Show all detected (ignore match status)",
-                      value = TRUE),
-        conditionalPanel(
-          condition = paste0("!input.", id_prefix, "_show_all_detected"),
-          checkboxInput(paste0(id_prefix, "_colour_confidence"),
-                        "Colour matched particles by pair confidence",
-                        value = FALSE)),
+        helpText(style = "font-size:11px;",
+                 "Filled: above the quality cutoff (the pipeline matches only these); ",
+                 "open: below it (lower the quality slider to see them). ",
+                 "How the instruments agree: Overlay and Summary tabs."),
         checkboxInput(paste0(id_prefix, "_show_all_labels"),
                       "Number all particles",
                       value = FALSE),
@@ -278,8 +267,6 @@ ui <- fluidPage(
     tabPanel("FTIR (PerkinElmer)",
       div(id = "ftir_viewer",
         instrument_panel_ui("ftir", "AAU Quality", 0, 1, 0.01, 800,
-          match_choices = c("Matched \u2194 Raman" = "matched",
-                            "Unmatched (vs Raman)" = "unmatched"),
           coord_toggle = TRUE, quality_default = c(0.7, 1),
           true_size_toggle = TRUE))
     ),
@@ -288,8 +275,6 @@ ui <- fluidPage(
     tabPanel("FTIR (Bruker)",
       div(id = "ftir_bruker_viewer",
         instrument_panel_ui("ftir_bruker", "AAU Quality", 0, 1, 0.01, 800,
-          match_choices = c("Matched \u2194 Raman" = "matched",
-                            "Unmatched (vs Raman)" = "unmatched"),
           coord_toggle = TRUE, quality_default = c(0.7, 1),
           true_size_toggle = TRUE))
     ),
@@ -298,8 +283,6 @@ ui <- fluidPage(
     tabPanel("Raman",
       div(id = "raman_viewer",
         instrument_panel_ui("raman", "HQI", 0, 100, 1, 1200,
-          match_choices = c("Matched \u2194 FTIR" = "matched",
-                            "Unmatched (vs FTIR)" = "unmatched"),
           quality_default = c(70, 100)))
     ),
 
@@ -315,15 +298,9 @@ ui <- fluidPage(
                       min = 0, max = 1200,
                       value = c(DEFAULT_MIN_SIZE_UM, 1200), step = 5),
           material_filter_ui("ldir_material_filter", "Materials"),
-          # ON by default, same as the other instrument tabs.
-          checkboxInput("ldir_show_all_detected",
-                        "Show all detected (ignore match status)",
-                        value = TRUE),
-          conditionalPanel(
-            condition = "!input.ldir_show_all_detected",
-            checkboxInput("ldir_colour_confidence",
-                          "Colour matched particles by pair confidence",
-                          value = FALSE)),
+          helpText(style = "font-size:11px;",
+                   "Filled: above the quality cutoff (the pipeline matches only these); ",
+                   "open: below it. How the instruments agree: Overlay and Summary tabs."),
           checkboxInput("ldir_show_all_labels",
                         "Number all particles",
                         value = FALSE),
@@ -331,12 +308,6 @@ ui <- fluidPage(
             condition = "input.ldir_show_all_labels",
             sliderInput("ldir_label_size", "Label size",
                         min = 2, max = 10, value = 3, step = 0.5)),
-          checkboxGroupInput("ldir_match_filter", "Match Status",
-                             choices = c("Matched \u2194 Raman" = "matched",
-                                         "Unmatched (vs Raman)" = "unmatched"),
-                             selected = c("matched", "unmatched"), inline = TRUE),
-          sliderInput("ldir_score_range", "Match Score (LDIR\u2194Raman)",
-                      min = 0, max = 20, value = c(0, 20), step = 0.1),
           sliderInput("ldir_coord_cost_range", "Coord Match Cost (image\u2194Excel)",
                       min = 0, max = 10, value = c(0, 10), step = 0.05),
           selectizeInput("ldir_highlight_particle", "Highlight Particle",
@@ -373,11 +344,6 @@ ui <- fluidPage(
                                   "Raman image" = "raman",
                                   "None" = "none"),
                       selected = "auto"),
-          # Readable-overlay aids for LDIR<->Raman matches
-          checkboxInput("ldir_show_raman_partners",
-                        "Show Raman partners + match lines (aligned)", value = FALSE),
-          checkboxInput("ldir_hide_unmatched",
-                        "Hide unmatched (single-instrument) particles", value = FALSE),
           checkboxInput("ldir_show_outlines",
                         "Particle outlines (from the LDIR project file)", value = TRUE),
           hr(),
@@ -457,8 +423,7 @@ ui <- fluidPage(
               checkboxGroupInput("overlay_relationships", NULL,
                                  choices = c("Matched particles"           = "matched",
                                              "Unmatched particles"         = "unmatched",
-                                             "Match lines"                 = "lines",
-                                             "Multi-instrument (3+/4)"     = "multi"),
+                                             "Match lines"                 = "lines"),
                                  selected = c("matched", "unmatched"))
             )
           ),
@@ -639,8 +604,9 @@ ui <- fluidPage(
                 "Applies to every panel on this tab — the comparison bar chart, ",
                 "the material table, the pie charts and the size distributions. ",
                 "Pick the second option to make this tab follow the quality / ",
-                "size / material / match-status filters you set on the FTIR, ",
-                "Raman, Bruker and LDIR tabs."))
+                "size / material filters you set on the FTIR, Raman, Bruker and ",
+                "LDIR tabs. The alignment and agreement sections always use the ",
+                "whole run, as the pipeline matched it."))
             )
           ),
           div(class = "info-box", style = "margin-top: 12px;",
@@ -660,6 +626,18 @@ ui <- fluidPage(
             )
           ),
           hr(),
+          div(class = "info-box", style = "margin-top: 20px;",
+            h4("1. Alignment check (whole run)"),
+            p(class = "text-muted",
+              "How each instrument was put into the shared frame. Read this first: if an ",
+              "alignment is not fixed by the data, its pairs below mean nothing. Residual: ",
+              "remaining distance after the fit; positional error \u03c3: spread of true ",
+              "partners (99% lie within 3\u03c3); pose by chance: probability that a random ",
+              "arrangement gives as many anchor pairs."),
+            uiOutput("summary_alignment_table")
+          ),
+          hr(),
+          h3("2. What each instrument found", style = "margin-left: 4px;"),
           div(class = "info-box", style = "margin-top: 20px;",
             h4("Material Comparison Across Instruments", summary_scope_badge()),
             fluidRow(
@@ -707,8 +685,7 @@ ui <- fluidPage(
           div(class = "info-box",
             h4("Size Distribution by Instrument", summary_scope_badge()),
             p(class = "text-muted",
-              "Histogram of particle Feret Max (µm) per instrument.",
-              "Solid bars: matched particles. Outline bars: unmatched."),
+              "Histogram of particle Feret Max (\u00b5m) per instrument."),
             fluidRow(
               column(4, plotOutput("size_hist_ftir",    height = "280px")),
               column(4, plotOutput("size_hist_raman",   height = "280px")),
@@ -716,7 +693,65 @@ ui <- fluidPage(
             ),
             hr(),
             h5("Size Statistics"),
+            p(class = "text-muted", style = "font-size: 12px;",
+              "Above / below each instrument's quality cutoff (the run's settings): ",
+              "the pipeline matches only particles above it."),
             uiOutput("size_stats_table")
+          ),
+          hr(),
+          h3("3. How the instruments agree (whole run)", style = "margin-left: 4px;"),
+          div(class = "info-box",
+            h4("Pair matrix"),
+            p(class = "text-muted",
+              "Row instrument's particles (above its quality cutoff, \u2265 the minimum size, ",
+              "inside the area the column instrument covered): the share the column ",
+              "instrument also has. Identified: paired with a particle above the column ",
+              "instrument's cutoff. Detected: any particle of it within the distance gate, ",
+              "whatever its quality. In brackets: 95% interval."),
+            fluidRow(
+              column(6, radioButtons("summary_matrix_measure", NULL,
+                                     choices = c("Identified" = "identified", "Detected" = "detected"),
+                                     selected = "identified", inline = TRUE)),
+              column(6, radioButtons("summary_matrix_group", NULL,
+                                     choices = c("All particles" = "all", "Plastics" = "plastics"),
+                                     selected = "all", inline = TRUE))),
+            uiOutput("summary_pair_matrix"),
+            h5("Matching quality per pair"),
+            uiOutput("summary_matching_table")
+          ),
+          hr(),
+          div(class = "info-box",
+            h4("Why particles are not matched"),
+            p(class = "text-muted",
+              "For each instrument and partner: what the partner has at the instrument's ",
+              "particles, whatever the quality. Below cutoff: the partner found a particle ",
+              "there but its spectrum did not pass the cutoff (or this particle's did not). ",
+              "Paired elsewhere: a partner particle is nearby but is paired with another one."),
+            checkboxInput("summary_status_passing", "Only particles above their own quality cutoff",
+                          value = TRUE),
+            plotOutput("summary_partner_status", height = "520px")
+          ),
+          hr(),
+          div(class = "info-box",
+            h4("Particle groups"),
+            p(class = "text-muted",
+              "Particles linked through the pairs of any two instruments, counted by the ",
+              "instruments that found them (each above its quality cutoff). One instrument ",
+              "alone: found by it and matched by none of the others. Same groups as the ",
+              "overlay's symbol view."),
+            radioButtons("summary_groups_scope", NULL,
+                         choices = c("All particles" = "all", "Groups with a synthetic polymer" = "synthetic"),
+                         selected = "all", inline = TRUE),
+            plotOutput("summary_particle_groups", height = "420px")
+          ),
+          hr(),
+          div(class = "info-box",
+            h4("Material concordance"),
+            p(class = "text-muted",
+              "For one instrument pair: material family the first instrument assigned ",
+              "(rows) against the second (columns), over their pairs. Diagonal: agreement."),
+            selectInput("summary_concordance_pair", "Instrument pair", choices = character(0)),
+            uiOutput("summary_concordance_table")
           ),
           hr(),
           div(class = "info-box",
@@ -769,32 +804,6 @@ ui <- fluidPage(
     ),
 
     # Tab 7: Data Upload (fallback)
-    tabPanel("Upload Data",
-      div(id = "upload_panel",
-      fluidRow(
-        column(6, offset = 3,
-          div(class = "info-box", style = "margin-top: 20px;",
-            h4("Upload Pipeline Output"),
-            p("If the app cannot find pipeline output automatically, you can
-               upload the CSV files here. At minimum, upload ",
-              code("matched_particles.csv"), "."),
-            hr(),
-            fileInput("upload_matched", "matched_particles.csv (required)",
-                      accept = ".csv"),
-            fileInput("upload_unmatched_ftir", "unmatched_ftir.csv (optional)",
-                      accept = ".csv"),
-            fileInput("upload_unmatched_raman", "unmatched_raman.csv (optional)",
-                      accept = ".csv"),
-            fileInput("upload_transform", "transform_params.txt (optional)",
-                      accept = ".txt"),
-            hr(),
-            uiOutput("upload_status")
-          )
-        )
-      )
-      ) # end div#upload_panel
-    ),
-
     # Tab 8: Multi-Run reproducibility view
     tabPanel("Multi-Run",
       div(id = "multirun_panel",
@@ -989,7 +998,7 @@ server <- function(input, output, session) {
           "The tour starts on the <strong>FTIR tab</strong>. Use <em>Next</em> to walk through the controls.")),
         # Steps 2–9: FTIR tab link + sidebar controls (all visible on FTIR tab)
         list(element = "a[data-value='FTIR (PerkinElmer)']",
-             intro   = "The <strong>FTIR (PerkinElmer)</strong> tab displays particles detected by the PerkinElmer FTIR instrument. Each dot is colour-coded by match status with Raman."),
+             intro   = "The <strong>FTIR (PerkinElmer)</strong> tab displays particles detected by the PerkinElmer FTIR instrument. Each dot is one particle in the instrument's colour: filled above the quality cutoff, open below."),
         list(element = "#ftir_tour_quality",
              intro   = "The <strong>Quality slider</strong> filters particles by spectral match score (AAU for FTIR/LDIR, HQI for Raman). Drag either handle to set a minimum/maximum range."),
         list(element = "#ftir_tour_size",
@@ -997,7 +1006,7 @@ server <- function(input, output, session) {
         list(element = "#ftir_tour_material",
              intro   = "The <strong>Materials</strong> list has one checkbox per material family found on this sample — polymers plus <em>unknown</em>. Untick any to hide those particles; the <em>all</em> / <em>none</em> links toggle the whole list. Every viewer and the Overlay tab has its own copy."),
         list(element = "#ftir_tour_match",
-             intro   = "The <strong>Match Status</strong> checkboxes toggle visibility of matched particles (spatially paired with Raman) and unmatched particles. Both are shown by default."),
+             intro   = "Filled points pass the quality cutoff (the pipeline matches only these); open points are below it. How the instruments agree is shown in the <strong>Overlay</strong> and <strong>Summary</strong> tabs."),
         list(element = "#ftir_tour_highlight",
              intro   = "Use <strong>Highlight Particle</strong> to visually emphasise a particle by ID, or type a range (1\u201310) or wildcard pattern (MP_*) in the text box and click Apply. Selected particles are ringed in gold."),
         list(element = "#ftir_tour_image",
@@ -1006,17 +1015,15 @@ server <- function(input, output, session) {
              intro   = "<strong>Navigate the map</strong>: drag to zoom in on a region, double-click to reset the view. Click any particle dot to add it to the selection panel below the plot. Hover to see quick-look details."),
         # Steps 10–15: remaining tabs via always-visible navbar links
         list(element = "a[data-value='Raman']",
-             intro   = "The <strong>Raman</strong> tab shows particles from Raman spectroscopy, colour-coded by their match status with FTIR. The same sidebar controls apply (quality shown as HQI)."),
+             intro   = "The <strong>Raman</strong> tab shows particles from Raman spectroscopy, drawn the same way. The same sidebar controls apply (quality shown as HQI)."),
         list(element = "a[data-value='LDIR']",
-             intro   = "The <strong>LDIR</strong> tab displays particles from the Agilent 8700 Laser Direct Infrared instrument. Two extra sliders let you filter by LDIR\u2194Raman match score and image\u2194Excel coordinate match cost."),
+             intro   = "The <strong>LDIR</strong> tab displays particles from the Agilent 8700 Laser Direct Infrared instrument. An extra slider filters by the image\u2194Excel coordinate match cost; particle outlines come from the LDIR project file."),
         list(element = "a[data-value='Overlay']",
              intro   = "The <strong>Overlay</strong> tab superimposes FTIR, Raman, and LDIR particles on a single spatial map with connecting lines between matched pairs \u2014 useful for assessing spatial alignment quality."),
         list(element = "a[data-value='Summary']",
-             intro   = "The <strong>Summary</strong> tab shows aggregate material counts and per-instrument pie charts. Toggle <em>Apply instrument filters</em> to reflect your current sidebar settings."),
+             intro   = "The <strong>Summary</strong> tab shows the alignment check, what each instrument found and how the instruments agree. Toggle <em>Apply instrument filters</em> to reflect your current sidebar settings."),
         list(element = "a[data-value='Run Info']",
-             intro   = "The <strong>Run Info</strong> tab shows metadata for the currently loaded pipeline run: timestamp, git commit hash, and input file provenance."),
-        list(element = "a[data-value='Upload Data']",
-             intro   = "The <strong>Upload Data</strong> tab lets you load a pipeline output CSV bundle directly from disk without needing a run directory on this server.")
+             intro   = "The <strong>Run Info</strong> tab shows metadata for the currently loaded pipeline run: timestamp, git commit hash, and input file provenance.")
       )
     ))
   })
@@ -1030,7 +1037,7 @@ server <- function(input, output, session) {
   if (length(all_runs_available) == 0) {
     message("[Particle Viewer] No pipeline output found in ../output/")
     message("[Particle Viewer] Working directory: ", getwd())
-    message("[Particle Viewer] Use the 'Upload Data' tab to load CSV files manually.")
+    message("[Particle Viewer] Run the pipeline, or pick a run folder in the Run Info tab.")
   } else {
     message("[Particle Viewer] Found ", length(all_runs_available), " run(s). Newest: ",
             names(all_runs_available)[1])
@@ -1039,7 +1046,8 @@ server <- function(input, output, session) {
                       selected = all_runs_available[1])
   }
 
-  # Reactive value that can be updated by CSV uploads
+  # Always NULL since the Upload Data tab was removed; kept as the "loaded
+  # from a run folder" switch the caches and captions key on
   uploaded_data <- reactiveVal(NULL)
 
   # Reactive value: currently selected run directory (responds to selector + reload)
@@ -1499,6 +1507,86 @@ server <- function(input, output, session) {
       tags$tbody(rows))
   }) |> bindCache(summary_size_stats_df())
 
+  # ---- Summary: alignment check and agreement (whole run, from its files) ----
+  .html_df_table <- function(tbl, empty = "Not available for this run") {
+    if (is.null(tbl) || nrow(tbl) == 0) return(tags$p(class = "text-muted", empty))
+    cols <- names(tbl)
+    tags$table(class = "table table-condensed",
+      tags$thead(tags$tr(lapply(cols, tags$th))),
+      tags$tbody(lapply(seq_len(nrow(tbl)), function(i) tags$tr(lapply(seq_along(cols), function(j) {
+        v <- as.character(tbl[[j]][i])
+        if (j == 1L) tags$td(tags$b(v))
+        else if (identical(v, "NOT DETERMINED")) tags$td(tags$b(style = "color:#b02a37;", v))
+        else tags$td(v)
+      })))))
+  }
+  output$summary_alignment_table <- renderUI(.html_df_table(
+    summary_alignment_table(selected_run_dir()),
+    "No alignment_summary.csv in this run (re-run the pipeline)."))
+  output$summary_matching_table <- renderUI(.html_df_table(
+    tryCatch(report_matching_table(selected_run_dir()), error = function(e) data.frame())))
+  output$summary_pair_matrix <- renderUI({
+    pm <- summary_pair_matrix(selected_run_dir(), input$summary_matrix_group %||% "all")
+    if (is.null(pm)) return(tags$p(class = "text-muted", "No detection_rates.csv in this run."))
+    meas <- input$summary_matrix_measure %||% "identified"
+    txt <- pm[[meas]]; val <- pm[[paste0(meas, "_pct")]]
+    shade <- function(v) if (is.na(v)) "#f4f4f4" else
+      grDevices::rgb(grDevices::colorRamp(c("#FDEDEC", "#D6EAF8", "#2E86C1"))(v / 100), maxColorValue = 255)
+    tags$table(class = "table table-condensed table-bordered", style = "width:auto;",
+      tags$thead(tags$tr(tags$th("Particles of \u2193 / found by \u2192"),
+                         lapply(colnames(txt), tags$th))),
+      tags$tbody(lapply(seq_len(nrow(txt)), function(i) tags$tr(
+        tags$td(tags$b(rownames(txt)[i]), tags$br(),
+                tags$span(style = "font-size:11px; color:#888;",
+                          paste0("n = ", max(pm$n[i, ], na.rm = TRUE)))),
+        lapply(seq_len(ncol(txt)), function(j) {
+          if (i == j) return(tags$td(style = "background:#eee;", "\u2014"))
+          v <- val[i, j]
+          tags$td(style = paste0("background:", shade(v), "; color:",
+                                 if (!is.na(v) && v > 70) "white" else "black", ";"),
+                  if (is.na(txt[i, j])) "\u2013" else txt[i, j])
+        })))))
+  })
+  output$summary_partner_status <- renderPlot({
+    g <- plot_partner_status(summary_partner_status_counts(
+      selected_run_dir(), passing_only = isTRUE(input$summary_status_passing)))
+    if (is.null(g)) g <- ggplot() + annotate("text", x = 0, y = 0, size = 5, colour = "grey50",
+      label = "No partner_status.csv in this run (re-run the pipeline)") + theme_void()
+    g
+  })
+  output$summary_particle_groups <- renderPlot({
+    g <- plot_particle_groups(summary_particle_groups(
+      selected_run_dir(), synthetic_only = identical(input$summary_groups_scope, "synthetic")))
+    if (is.null(g)) g <- ggplot() + annotate("text", x = 0, y = 0, size = 5, colour = "grey50",
+      label = "No particles") + theme_void()
+    g
+  })
+  observeEvent(selected_run_dir(), {
+    ch <- summary_concordance_choices(selected_run_dir())
+    updateSelectInput(session, "summary_concordance_pair", choices = ch,
+                      selected = if (length(ch)) ch[[1]] else character(0))
+  })
+  output$summary_concordance_table <- renderUI({
+    stem <- input$summary_concordance_pair
+    if (is.null(stem) || !nzchar(stem)) return(tags$p(class = "text-muted", "No pairs in this run."))
+    tb <- summary_concordance(selected_run_dir(), stem)
+    if (is.null(tb)) return(tags$p(class = "text-muted", "No pairs for this instrument pair."))
+    dn <- names(dimnames(tb)); rn <- rownames(tb); cn <- colnames(tb)
+    agree <- sum(tb[cbind(match(intersect(rn, cn), rn), match(intersect(rn, cn), cn))])
+    tagList(
+      tags$p(style = "font-size:12px;",
+             sprintf("%d pairs; same family: %d (%.0f%%).", sum(tb), agree, 100 * agree / max(1, sum(tb)))),
+      tags$div(style = "overflow-x:auto;",
+        tags$table(class = "table table-condensed table-bordered", style = "width:auto; font-size:12px;",
+          tags$thead(tags$tr(tags$th(paste(dn[1], "\u2193 /", dn[2], "\u2192")), lapply(cn, tags$th))),
+          tags$tbody(lapply(rn, function(r) tags$tr(tags$td(tags$b(r)), lapply(cn, function(c) {
+            v <- tb[r, c]
+            tags$td(style = if (r == c && v > 0) "background:#D5F5E3; font-weight:bold;"
+                            else if (v > 0) "background:#FADBD8;" else "color:#ccc;", v)
+          }))))))
+    )
+  })
+
   # ==================================================================
   # PDF REPORT
   # ==================================================================
@@ -1513,14 +1601,9 @@ server <- function(input, output, session) {
   # saying nothing was selected.
   .or_none <- function(x) if (length(x) == 0) "none" else paste(x, collapse = ", ")
 
-  # How the view treated match status. Worth stating explicitly: the viewers
-  # default to "show all detected", so a report page shows every particle the
-  # instrument found, not only those matched to another instrument.
-  .report_match_desc <- function(prefix) {
-    if (isTRUE(input[[paste0(prefix, "_show_all_detected")]]))
-      return("all detected (match status ignored)")
-    paste0("match status: ", .or_none(input[[paste0(prefix, "_match_filter")]]))
-  }
+  # The single-instrument pages show every particle the filters keep:
+  # filled above the quality cutoff, open below
+  .report_match_desc <- function(prefix) "filled: above the quality cutoff, open: below"
 
   .fmt_range <- function(rng, unit = "", digits = 2) {
     if (is.null(rng) || length(rng) != 2 || any(!is.finite(rng))) return(NA_character_)
@@ -1635,22 +1718,15 @@ server <- function(input, output, session) {
       size_plots <- c(size_plots, list(plot_size_distribution(dfs$ldir, "LDIR")))
     pages <- c(pages, list(report_grid_page(
       size_plots, "Size Distribution by Instrument",
-      paste0("Feret Max (um) per instrument. Solid bars: matched. Outline bars: ",
-             "unmatched. Scope: ", scope, "."),
+      paste0("Feret Max (um) per instrument. Scope: ", scope, "."),
       ncol = if (length(size_plots) == 4) 2 else min(3, max(1, length(size_plots))))))
 
     pages <- c(pages, list(report_table_page(
       summary_size_stats_df(), "Size Statistics",
       paste0("Feret Max summary statistics per instrument. Scope: ", scope, "."))))
 
-    mt <- tryCatch(report_matching_table(selected_run_dir()), error = function(e) data.frame())
-    if (nrow(mt) > 0)
-      pages <- c(pages, list(report_table_page(
-        mt, "Matching Quality per Instrument Pair",
-        paste0("Pairs found within the distance gate (particles passing their quality ",
-               "cutoff only), for the whole run. By chance: pairs a random arrangement ",
-               "would also give, and their share of the pairs; above ~20% the pairs ",
-               "cannot be told from chance."))))
+    .agr <- tryCatch(report_agreement_pages(selected_run_dir()), error = function(e) list())
+    pages <- c(pages, .agr$main)
     pages <- c(pages, tryCatch(report_detection_pages(selected_run_dir()),
                                error = function(e) list()))
 
@@ -1701,6 +1777,7 @@ server <- function(input, output, session) {
       paste0("Instruments shown: ", .or_none(input$overlay_instruments),
              ". Relationships: ", .or_none(input$overlay_relationships), "."))))
 
+    pages <- c(pages, .agr$appendix)
     Filter(Negate(is.null), pages)
   }
 
@@ -1999,22 +2076,13 @@ server <- function(input, output, session) {
     else                      hideTab("main_tabs", "Overlay")
   })
 
-  # What "matched" means on each instrument tab: the run's partners
-  partner_lbl <- reactive(list(
-    ftir        = match_partner_label(ftir_df_full(),        "Raman"),
-    raman       = match_partner_label(raman_df_full(),       "FTIR"),
-    ldir        = match_partner_label(ldir_df_full(),        "Raman"),
-    ftir_bruker = match_partner_label(ftir_bruker_df_full(), "Raman")))
-  observeEvent(partner_lbl(), {
-    pl <- partner_lbl()
-    for (k in names(pl)) {
-      id <- paste0(k, "_match_filter")
-      updateCheckboxGroupInput(session, id,
-        choiceNames  = c(paste0("Matched \u2194 ", pl[[k]]), paste0("Unmatched (vs ", pl[[k]], ")")),
-        choiceValues = c("matched", "unmatched"),
-        selected = isolate(input[[id]]) %||% c("matched", "unmatched"), inline = TRUE)
-    }
-  })
+  # Single-tab summary line: particles shown, how many above the quality
+  # cutoff, materials
+  .inst_summary_line <- function(df) {
+    n_ok <- if ("passes_cutoff" %in% names(df)) sum(df$passes_cutoff %in% TRUE) else nrow(df)
+    paste0(nrow(df), " particles | ", n_ok, " above the quality cutoff | ",
+           length(unique(df$material)), " materials")
+  }
 
   # Overlay instrument choices: only the instruments the run has
   observeEvent(has_device(), {
@@ -2043,7 +2111,6 @@ server <- function(input, output, session) {
   raman_size_range_d          <- debounce(reactive(input$raman_size_range), 300)
   ldir_quality_range_d        <- debounce(reactive(input$ldir_quality_range), 300)
   ldir_size_range_d           <- debounce(reactive(input$ldir_size_range), 300)
-  ldir_score_range_d          <- debounce(reactive(input$ldir_score_range), 300)
   ldir_coord_cost_range_d     <- debounce(reactive(input$ldir_coord_cost_range), 300)
   ftir_bruker_quality_range_d <- debounce(reactive(input$ftir_bruker_quality_range), 300)
   ftir_bruker_size_range_d    <- debounce(reactive(input$ftir_bruker_size_range), 300)
@@ -2114,53 +2181,6 @@ server <- function(input, output, session) {
                                overlay_ftir_bruker_size_d()))
   })
 
-  # ------------------------------------------------------------------
-  # Handle CSV uploads (fallback)
-  # ------------------------------------------------------------------
-  observeEvent(input$upload_matched, {
-    matched_path <- input$upload_matched$datapath
-    uf_path <- if (!is.null(input$upload_unmatched_ftir))
-                 input$upload_unmatched_ftir$datapath else NULL
-    ur_path <- if (!is.null(input$upload_unmatched_raman))
-                 input$upload_unmatched_raman$datapath else NULL
-    tp_path <- if (!is.null(input$upload_transform))
-                 input$upload_transform$datapath else NULL
-
-    tryCatch({
-      data <- load_uploaded_data(matched_path, uf_path, ur_path, tp_path)
-      uploaded_data(data)
-      message("[Particle Viewer] Loaded uploaded data: ",
-              nrow(data$matched), " matched particles")
-    }, error = function(e) {
-      message("[Particle Viewer] Upload error: ", conditionMessage(e))
-    })
-  })
-
-  output$upload_status <- renderUI({
-    if (has_data()) {
-      d <- run_data()
-      n_m <- if (!is.null(d$matched)) nrow(d$matched) else 0
-      n_uf <- if (!is.null(d$unmatched_ftir)) nrow(d$unmatched_ftir) else 0
-      n_ur <- if (!is.null(d$unmatched_raman)) nrow(d$unmatched_raman) else 0
-      has_t <- !is.null(d$transform)
-      tags$div(class = "alert alert-success",
-        tags$b("Data loaded successfully"),
-        tags$ul(
-          tags$li(paste0(n_m, " matched particles")),
-          tags$li(paste0(n_uf, " unmatched FTIR")),
-          tags$li(paste0(n_ur, " unmatched Raman")),
-          tags$li(paste0("Transform: ", if (has_t) "available" else "not loaded"))
-        )
-      )
-    } else {
-      src <- if (!is.null(uploaded_data())) "uploaded" else "auto-detected"
-      tags$div(class = "alert alert-warning",
-        tags$b("No data loaded"),
-        tags$p(paste0("No pipeline output was ", src, ". Upload ",
-                      code("matched_particles.csv"), " to get started."))
-      )
-    }
-  })
 
   # Full transform matrix (FTIR original -> Raman coords), or NULL
   M_full <- reactive({
@@ -2752,13 +2772,6 @@ server <- function(input, output, session) {
         updateSliderInput(session, "ldir_size_range", min = 0, max = s_max,
                           value = c(min(DEFAULT_MIN_SIZE_UM, s_max), s_max))
       }
-      score_max <- if ("match_score" %in% names(ldir)) {
-        ceiling(max(ldir$match_score, na.rm = TRUE) * 10) / 10
-      } else NA_real_
-      if (is.finite(score_max) && score_max > 0) {
-        updateSliderInput(session, "ldir_score_range",
-                          min = 0, max = score_max, value = c(0, score_max))
-      }
       cost_max <- if ("coord_match_cost" %in% names(ldir) &&
                       any(is.finite(ldir$coord_match_cost))) {
         ceiling(max(ldir$coord_match_cost, na.rm = TRUE) * 20) / 20
@@ -2937,19 +2950,10 @@ server <- function(input, output, session) {
     updateTextInput(session, "ftir_bruker_highlight_pattern", value = "")
   })
 
-  # Effective match-status filter for a viewer: when its "Show all detected"
-  # box is ticked, ignore the Match Status checkboxes and keep every status.
-  eff_match_filter <- function(prefix) {
-    if (isTRUE(input[[paste0(prefix, "_show_all_detected")]]))
-      return(c("matched", "unmatched"))
-    input[[paste0(prefix, "_match_filter")]]
-  }
-
   # ==================================================================
   # Helper: generic instrument filter
   # ==================================================================
-  filter_instrument <- function(df, quality_range, size_range, mat_filter,
-                                 match_filter) {
+  filter_instrument <- function(df, quality_range, size_range, mat_filter) {
     df <- df[!is.na(df$quality) &
              df$quality >= quality_range[1] &
              df$quality <= quality_range[2], ]
@@ -2960,7 +2964,6 @@ server <- function(input, output, session) {
     # none, when every box is unchecked). See mat_keep().
     if (!is.null(mat_filter))
       df <- df[df$material_family %in% mat_filter, ]
-    df <- df[df$match_status %in% match_filter, ]
     df
   }
 
@@ -3128,7 +3131,8 @@ server <- function(input, output, session) {
                       paste0("(", round(row$x_orig, 1), ", ", round(row$y_orig, 1), ")")),
       make_detail_row("Position (aligned)",
                       paste0("(", round(row$x, 1), ", ", round(row$y, 1), ")")),
-      make_detail_row("Match Status", row$match_status)
+      make_detail_row("Quality cutoff", if (isFALSE(row$passes_cutoff))
+        tags$span(style = "color:#B9770E;", "below: not confidently identified") else "above")
     )
   }
 
@@ -3378,7 +3382,7 @@ server <- function(input, output, session) {
     df <- ftir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, ftir_quality_range_d(), ftir_size_range_d(),
-                      mat_keep("ftir_material_filter"), eff_match_filter("ftir"))
+                      mat_keep("ftir_material_filter"))
   })
 
   # ------------------------------------------------------------------
@@ -3591,15 +3595,12 @@ server <- function(input, output, session) {
 
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR Particles (", nrow(df_disp), " shown)", title_suffix),
-                 match_colours = c(matched = INSTRUMENT_COLOURS[["ftir_pe"]], unmatched = UNMATCHED_COLOUR),
-                 match_labels  = c(matched = paste("matched to", partner_lbl()$ftir), unmatched = "unmatched"),
+                 colour = INSTRUMENT_COLOURS[["ftir_pe"]],
                  highlight_id  = hl_ids,
                  full_df       = full_ftir,
-                 plain         = isTRUE(input$ftir_show_all_detected),
                  show_labels   = isTRUE(input$ftir_show_all_labels),
                  label_size    = input$ftir_label_size %||% 3,
-                 true_size     = isTRUE(input$ftir_true_size),
-                 colour_by_confidence = isTRUE(input$ftir_colour_confidence))
+                 true_size     = isTRUE(input$ftir_true_size))
   })
 
   output$ftir_plot <- renderPlot(ftir_plot_obj()) |> bindCache(
@@ -3611,17 +3612,15 @@ server <- function(input, output, session) {
     ftir_filtered(), input$ftir_coord_mode,
     input$ftir_view_rotation, input$ftir_view_flip_y,
     input$ftir_highlight_particle, single_highlight_ids$ftir,
-    input$ftir_show_all_detected, input$ftir_show_all_labels, input$ftir_label_size, zoom$ftir,
-    input$ftir_true_size, input$ftir_colour_confidence,
+    input$ftir_show_all_labels, input$ftir_label_size, zoom$ftir,
+    input$ftir_true_size,
     img_key(ftir_native_image_info()), img_key(overlay_image_info())
   )
 
   output$ftir_summary_text <- renderText({
     df <- ftir_filtered()
     if (nrow(df) == 0) return("No pipeline data loaded")
-    paste0(nrow(df), " particles | ",
-           sum(df$match_status == "matched"), " matched to ", partner_lbl()$ftir, " | ",
-           length(unique(df$material)), " materials")
+    .inst_summary_line(df)
   })
 
   observeEvent(input$ftir_hover, {
@@ -3652,7 +3651,7 @@ server <- function(input, output, session) {
     df <- raman_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, raman_quality_range_d(), raman_size_range_d(),
-                      mat_keep("raman_material_filter"), eff_match_filter("raman"))
+                      mat_keep("raman_material_filter"))
   })
 
   raman_plot_obj <- reactive({
@@ -3703,32 +3702,26 @@ server <- function(input, output, session) {
     }
     make_scatter(df_disp, img, bounds,
                  paste0("Raman Particles (", nrow(df_disp), " shown)"),
-                 match_colours = c(matched = INSTRUMENT_COLOURS[["raman"]], unmatched = UNMATCHED_COLOUR),
-                 match_labels = c(matched = paste("matched to", partner_lbl()$raman), unmatched = "unmatched"),
+                 colour = INSTRUMENT_COLOURS[["raman"]],
                  highlight_id = hl_ids,
                  full_df = full_raman,
-                 plain = isTRUE(input$raman_show_all_detected),
                  show_labels = isTRUE(input$raman_show_all_labels),
                  label_size = input$raman_label_size %||% 3,
-                 subtitle = raman_scale_warning(),
-                 colour_by_confidence = isTRUE(input$raman_colour_confidence))
+                 subtitle = raman_scale_warning())
   })
 
   output$raman_plot <- renderPlot(raman_plot_obj()) |> bindCache(
     selected_run_dir(), is.null(uploaded_data()),
     raman_filtered(), raman_scale_warning(),
     input$raman_highlight_particle, single_highlight_ids$raman,
-    input$raman_show_all_detected, input$raman_show_all_labels, input$raman_label_size, zoom$raman,
-    input$raman_colour_confidence,
+    input$raman_show_all_labels, input$raman_label_size, zoom$raman,
     img_key(raman_native_image_info())
   )
 
   output$raman_summary_text <- renderText({
     df <- raman_filtered()
     if (nrow(df) == 0) return("No pipeline data loaded")
-    paste0(nrow(df), " particles | ",
-           sum(df$match_status == "matched"), " matched to ", partner_lbl()$raman, " | ",
-           length(unique(df$material)), " materials")
+    .inst_summary_line(df)
   })
 
   observeEvent(input$raman_hover, {
@@ -3766,13 +3759,7 @@ server <- function(input, output, session) {
     df <- ldir_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     df <- filter_instrument(df, ldir_quality_range_d(), ldir_size_range_d(),
-                            mat_keep("ldir_material_filter"), eff_match_filter("ldir"))
-    # Apply match score filter (LDIR↔Raman): keep NA (unmatched) + within range
-    if ("match_score" %in% names(df) && !is.null(ldir_score_range_d())) {
-      score_r <- ldir_score_range_d()
-      df <- df[is.na(df$match_score) |
-               (df$match_score >= score_r[1] & df$match_score <= score_r[2]), ]
-    }
+                            mat_keep("ldir_material_filter"))
     # Apply coord match cost filter (image↔Excel): keep NA + within range
     if ("coord_match_cost" %in% names(df) && !is.null(ldir_coord_cost_range_d())) {
       cost_r <- ldir_coord_cost_range_d()
@@ -3905,9 +3892,6 @@ server <- function(input, output, session) {
         df_disp$y <- df_disp$y_orig
       }
     }
-    # Optionally drop unmatched (single-instrument) particles for a clean view
-    if (isTRUE(input$ldir_hide_unmatched) && nrow(df_disp) > 0)
-      df_disp <- df_disp[df_disp$match_status == "matched", ]
 
     # Background image. "auto" = LDIR image in native mode, Raman image in
     # aligned mode. The explicit choices let the user test whether LDIR points
@@ -4016,34 +4000,6 @@ server <- function(input, output, session) {
     # Background image
     p <- add_image_bg(p, img)
 
-    # Raman partners + match lines (aligned mode): draw each matched LDIR
-    # particle's Raman partner as a hollow blue circle and connect the two, so
-    # a match reads as "two dots joined by a short line" and the residual
-    # LDIR<->Raman centroid scatter (~130 um) is visible rather than mistaken
-    # for misalignment.
-    if (aligned && isTRUE(input$ldir_show_raman_partners)) {
-      rd <- tryCatch(run_data_gated()$ldir_raman_matched, error = function(e) NULL)
-      need <- c("ldir_particle_id", "ldir_x_aligned", "ldir_y_aligned",
-                "raman_x_norm", "raman_y_norm")
-      if (!is.null(rd) && nrow(rd) > 0 && all(need %in% names(rd))) {
-        # Genuine matches only: a partner line for a forced over-gate pair would
-        # contradict its "unmatched" status elsewhere.
-        if ("within_gate" %in% names(rd))
-          rd <- rd[!is.na(rd$within_gate) & rd$within_gate, , drop = FALSE]
-        if (nrow(rd) > 0 && nrow(df_disp) > 0)
-          rd <- rd[rd$ldir_particle_id %in% df_disp$particle_id, , drop = FALSE]
-        if (nrow(rd) > 0) {
-          seg <- data.frame(x = rd$ldir_x_aligned, y = rd$ldir_y_aligned,
-                            xend = rd$raman_x_norm, yend = rd$raman_y_norm)
-          p <- p +
-            geom_segment(data = seg, aes(x = x, y = y, xend = xend, yend = yend),
-                         colour = "#00CED1", linewidth = 0.4, alpha = 0.85) +
-            geom_point(data = seg, aes(x = xend, y = yend), shape = 1,
-                       colour = INSTRUMENT_COLOURS[["raman"]], size = 3, stroke = 1)
-        }
-      }
-    }
-
     # Image-extracted particles (before join): small open circles
     if ("extracted_pts" %in% overlay_mode && n_extracted > 0) {
       ext_df <- data.frame(x = extracted$x_um, y = extracted$y_um,
@@ -4061,33 +4017,15 @@ server <- function(input, output, session) {
                             fill = INSTRUMENT_COLOURS[["ldir"]], colour = INSTRUMENT_COLOURS[["ldir"]],
                             alpha = 0.45, linewidth = 0.25, inherit.aes = FALSE)
 
-    # Excel-joined particles (main layer). "Show all detected" draws every
-    # particle one colour with no matched/unmatched distinction.
+    # Excel-joined particles (main layer): filled above the quality cutoff,
+    # open below
     if (nrow(df_disp) > 0) {
-      if (isTRUE(input$ldir_show_all_detected)) {
-        p <- p + geom_point(data = df_disp,
-                              aes(x = x, y = y, size = feret_max),
-                              colour = INSTRUMENT_COLOURS[["ldir"]], alpha = 0.7)
-      } else if (isTRUE(input$ldir_colour_confidence) && "p_true" %in% names(df_disp) &&
-                 any(!is.na(df_disp$p_true))) {
-        um <- df_disp$match_status != "matched" | is.na(df_disp$p_true)
-        p <- p +
-          geom_point(data = df_disp[um, , drop = FALSE], aes(x = x, y = y, size = feret_max),
-                     colour = "grey60", alpha = 0.5) +
-          geom_point(data = df_disp[!um, , drop = FALSE],
-                     aes(x = x, y = y, colour = p_true, size = feret_max), alpha = 0.85) +
-          scale_colour_viridis_c(limits = c(0, 1),
-                                 name = "Pair confidence\n(p_true)")
-      } else {
-        p <- p + geom_point(data = df_disp,
-                              aes(x = x, y = y, colour = match_status,
-                                  size = feret_max),
-                              alpha = 0.7) +
-          scale_colour_manual(values = c(matched = INSTRUMENT_COLOURS[["ldir"]],
-                                          unmatched = UNMATCHED_COLOUR),
-                               labels = c(matched = paste("matched to", partner_lbl()$ldir),
-                                          unmatched = "unmatched"))
-      }
+      df_disp$cutoff <- ifelse(df_disp$passes_cutoff %in% FALSE, "below", "above")
+      p <- p + geom_point(data = df_disp, aes(x = x, y = y, size = feret_max, shape = cutoff),
+                          colour = INSTRUMENT_COLOURS[["ldir"]], alpha = 0.7, stroke = 1) +
+        scale_shape_manual(name = NULL, values = c(above = 19, below = 1),
+                           labels = c(above = "Above quality cutoff (filled)",
+                                      below = "Below quality cutoff (open)"))
     }
 
     # Size legend (single scale for all layers). Union the Feret values of the
@@ -4153,10 +4091,9 @@ server <- function(input, output, session) {
     # the three image sources are folded in cheaply via img_key().
     selected_run_dir(), is.null(uploaded_data()),
     ldir_filtered(), ldir_extracted_pts(), ldir_view_tf(),
-    input$ldir_bg_image, input$ldir_coord_mode, input$ldir_hide_unmatched,
+    input$ldir_bg_image, input$ldir_coord_mode,
     input$ldir_show_outlines,
-    input$ldir_overlay_mode, input$ldir_show_raman_partners,
-    input$ldir_show_all_detected, input$ldir_colour_confidence,
+    input$ldir_overlay_mode,
     input$ldir_show_all_labels, input$ldir_label_size,
     input$ldir_highlight_particle,
     single_highlight_ids$ldir, zoom$ldir,
@@ -4170,7 +4107,7 @@ server <- function(input, output, session) {
     n_ext <- if (!is.null(extracted)) nrow(extracted) else 0
     if (nrow(df) == 0 && n_ext == 0) return("No LDIR data loaded")
     paste0(nrow(df), " shown | ",
-           sum(df$match_status == "matched"), " matched to ", partner_lbl()$ldir, " | ",
+           sum(df$passes_cutoff %in% TRUE), " above the quality cutoff | ",
            n_ext, " image-extracted | ",
            length(unique(df$material)), " materials")
   })
@@ -4210,7 +4147,7 @@ server <- function(input, output, session) {
     df <- ftir_bruker_df_full()
     if (is.null(df) || nrow(df) == 0) return(data.frame())
     filter_instrument(df, ftir_bruker_quality_range_d(), ftir_bruker_size_range_d(),
-                      mat_keep("ftir_bruker_material_filter"), eff_match_filter("ftir_bruker"))
+                      mat_keep("ftir_bruker_material_filter"))
   })
 
   ftir_bruker_plot_obj <- reactive({
@@ -4272,15 +4209,12 @@ server <- function(input, output, session) {
 
     make_scatter(df_disp, img, bounds,
                  paste0("FTIR (Bruker) Particles (", nrow(df_disp), " shown)", title_suffix),
-                 match_colours = c(matched = INSTRUMENT_COLOURS[["ftir_bruker"]], unmatched = UNMATCHED_COLOUR),
-                 match_labels  = c(matched = paste("matched to", partner_lbl()$ftir_bruker), unmatched = "unmatched"),
+                 colour = INSTRUMENT_COLOURS[["ftir_bruker"]],
                  highlight_id  = hl_ids,
                  full_df       = full_fb,
-                 plain         = isTRUE(input$ftir_bruker_show_all_detected),
                  show_labels   = isTRUE(input$ftir_bruker_show_all_labels),
                  label_size    = input$ftir_bruker_label_size %||% 3,
-                 true_size     = isTRUE(input$ftir_bruker_true_size),
-                 colour_by_confidence = isTRUE(input$ftir_bruker_colour_confidence))
+                 true_size     = isTRUE(input$ftir_bruker_true_size))
   })
 
   output$ftir_bruker_plot <- renderPlot(ftir_bruker_plot_obj()) |> bindCache(
@@ -4288,21 +4222,15 @@ server <- function(input, output, session) {
     ftir_bruker_filtered(), input$ftir_bruker_coord_mode,
     input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
     input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
-    input$ftir_bruker_show_all_detected, input$ftir_bruker_show_all_labels, input$ftir_bruker_label_size,
-    input$ftir_bruker_true_size, input$ftir_bruker_colour_confidence,
+    input$ftir_bruker_show_all_labels, input$ftir_bruker_label_size,
+    input$ftir_bruker_true_size,
     zoom$ftir_bruker,
     img_key(ftir_bruker_native_image_info()), img_key(overlay_image_info())
   )
   output$ftir_bruker_summary_text <- renderText({
     df <- ftir_bruker_filtered()
     if (nrow(df) == 0) return("No FTIR (Bruker) data loaded")
-    n_matched <- sum(df$match_status == "matched", na.rm = TRUE)
-    if (n_matched > 0) {
-      paste0(nrow(df), " particles | ", n_matched, " matched to ", partner_lbl()$ftir_bruker, " | ",
-             length(unique(df$material)), " materials")
-    } else {
-      paste0(nrow(df), " particles | ", length(unique(df$material)), " materials")
-    }
+    .inst_summary_line(df)
   })
 
   observeEvent(input$ftir_bruker_hover, {
@@ -5059,18 +4987,6 @@ server <- function(input, output, session) {
         if (isTRUE(input$overlay_show_all_labels))
           p <- add_overlay_labels(p, both, bounds, size = input$overlay_label_size %||% 3)
       }
-    }
-
-    # Multi-instrument highlights (3+): every particle of a group linked by the
-    # shown pairs -- with Raman or direct (link_groups()) -- that spans three
-    # or more instruments. Uses the filtered (for LDIR within-gate) pairs the
-    # overlay draws.
-    if ("multi" %in% rel) {
-      grp <- link_groups(overlay_legs(inst, matched, bruker_m, ldir_m, cross_active))
-      multi_df <- if (!is.null(grp)) grp[grp$n_inst >= 3 & is.finite(grp$x) & is.finite(grp$y), ]
-      if (!is.null(multi_df) && nrow(multi_df) > 0)
-        p <- p + geom_point(data = multi_df, aes(x=x, y=y),
-                             shape=21, size=6, stroke=1.5, fill=NA, colour="#FFD700", alpha=0.9)
     }
 
     p <- p + scale_size_continuous(name = "Feret Max (µm)", range = c(2, 12),
@@ -5913,7 +5829,7 @@ server <- function(input, output, session) {
     }
 
     # Run visibility: same "empty selection -> empty result" convention as the
-    # instrument tabs' match-status checkboxGroupInput (eff_match_filter());
+    # material checkboxes (mat_keep());
     # NULL (widget not yet populated on initial load) is treated as "no
     # filter yet" so data isn't hidden before repro_data()'s observer runs.
     vis <- input$repro_run_visibility
