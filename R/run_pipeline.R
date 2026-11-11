@@ -207,6 +207,8 @@ run_pipeline <- function(config, report = TRUE) {
   if (!is.null(.raman_image_info)) {
     .witec_file <- find_witec_image_placement(config$raman_image, config, raman_raw)
     .witec <- if (!is.null(.witec_file)) read_witec_image_placement(.witec_file)
+    if (!is.null(.witec)) note_supporting_file(config, "raman_placement", .witec_file,
+      "Places the Raman image on the stage (its width, height and corner in um)")
     .user_set <- all(!vapply(config[c("raman_image_width_um", "raman_image_height_um",
                                       "raman_image_center_x_um", "raman_image_center_y_um")],
                              is.null, logical(1)))
@@ -421,6 +423,8 @@ run_pipeline <- function(config, report = TRUE) {
         for (i in seq_along(keys)) config[[keys[i]]] <<- vals[[i]]
         upd <- setNames(vals, keys); upd <- upd[!vapply(upd, is.null, logical(1))]
         update_manifest_config_snapshot(config$output_dir, upd)
+        note_supporting_file(config, paste0(prefix, "_placement"), meta$path,
+          paste(label, "image placement (width, height and centre in um)"))
         log_message(sprintf("  %s image placement from %s: %.0f x %.0f um", label,
                             basename(meta$path), meta$width_um, meta$height_um))
       }

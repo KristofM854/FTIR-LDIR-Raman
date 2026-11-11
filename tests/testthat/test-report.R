@@ -370,3 +370,16 @@ test_that("material concordance cross-tabulates the families of a pair", {
   expect_true(length(pg$main) >= 3)
   expect_length(pg$appendix, 1L)
 })
+
+test_that("the supporting-files table lists every side file of the run's instruments", {
+  env <- .load_report_helpers()
+  d <- withr::local_tempdir()
+  dir.create(file.path(d, "00_manifest"))
+  utils::write.csv(data.frame(kind = "ldir_sam", file = "run_(1).sam", path = "x/run_(1).sam",
+                              used_for = "exact join"),
+                   file.path(d, "00_manifest", "supporting_files.csv"), row.names = FALSE)
+  sf <- env$supporting_files_table(d, c("raman", "ldir"))
+  expect_setequal(sf$kind, c("raman_placement", "ldir_analyzed_image", "ldir_sam", "ldir_coord_swaps"))
+  expect_equal(sf$file[sf$kind == "ldir_sam"], "run_(1).sam")
+  expect_true(is.na(sf$file[sf$kind == "raman_placement"]))
+})

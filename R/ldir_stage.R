@@ -110,6 +110,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     if (!is.null(processed_img)) {
       log_message("Using LDIR processed image for coordinate extraction: ",
                   basename(processed_img))
+      note_supporting_file(config, "ldir_analyzed_image", processed_img,
+        "Particle positions: the LDIR table has none, so its rows are joined to the particles of this image")
       ldir_proc_result     <- extract_ldir_processed_image_coords(
         processed_img, scan_bounds = ldir_scan_bounds,
         expected_count = nrow(ldir_raw),
@@ -151,6 +153,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     sam_path <- if (!is.null(processed_img)) find_ldir_sam(config) else NULL
     if (!is.null(sam_path)) {
       log_message("Reading LDIR particle outlines from the project file: ", basename(sam_path))
+      note_supporting_file(config, "ldir_sam", sam_path,
+        "Exact LDIR join: each row's own outline (particle ID) picks its particle on the analyzed image; outlines drawn in the viewer")
       sam <- tryCatch(read_ldir_sam_particles(sam_path), error = function(e) {
         log_message("  Could not read ", basename(sam_path), ": ", conditionMessage(e),
                     level = "WARN"); NULL })

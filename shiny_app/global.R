@@ -2080,7 +2080,7 @@ report_matching_table <- function(run_dir) {
     if (undetermined) fam <- fam_hc <- "not determined"
     sig <- ch$position_sigma_um[i] %||% NA
     data.frame(
-      pair = pair_name(stem), gate = ch$gate_um[i], n = ch$n_matched[i],
+      pair = pair_name(stem), gate = round(ch$gate_um[i], 1), n = ch$n_matched[i],
       sigma = if (is.na(sig)) "\u2013" else sprintf("%.1f", sig),
       dist = if (length(d))
         sprintf("%.1f / %.1f", stats::median(d), stats::quantile(d, 0.9)) else "\u2013",
@@ -4242,4 +4242,55 @@ report_agreement_pages <- function(run_dir) {
               dn[1], dn[2], sum(tb), agree, 100 * agree / max(1, sum(tb))))))
   }
   list(main = main, appendix = appendix)
+}
+
+
+# ---- Run Info: supporting files ----------------------------------------------
+# Side files the pipeline looks for next to each instrument's data, and what
+# it does with them. The run records the ones it used in
+# 00_manifest/supporting_files.csv (note_supporting_file()).
+SUPPORTING_FILES <- data.frame(
+  kind = c("ftir_segments", "ftir_image_placement", "ftir_bruker_image_placement",
+           "raman_placement", "ldir_analyzed_image", "ldir_sam", "ldir_coord_swaps"),
+  instrument = c("ftir", "ftir", "ftir_bruker", "raman", "ldir", "ldir", "ldir"),
+  label = c("Scan segments", "Image placement", "Image placement", "Image placement (WITec)",
+            "Analyzed image", "Project file (.sam)", "Coordinate swaps"),
+  expected = c(
+    "All segments of one scan: <name>_M1.csv ... _Mn.csv with <name>_M1.bmp ... _Mn.bmp, in one folder",
+    "<image name>.txt next to the FTIR image (written by tools/stitch_ftir_segments.R)",
+    "<image name>.txt next to the Bruker image; or the OPUS values in config$opus_ftir_bruker_image",
+    "<image name>.txt next to the Raman image (the WITec export; a _small / _resized suffix is ignored)",
+    "<LDIR image name>_analyzed.png next to the LDIR image (Clarity export with coloured particles)",
+    "The Clarity project file next to the LDIR table (the only .sam there, or config$ldir_sam_path)",
+    "<LDIR table name>_coord_swaps.csv, or any .csv / .txt there named with 'coord' and 'swap'"),
+  used_for = c(
+    "Stitched into one table and one image before the run",
+    "Places the FTIR image exactly (width, height, centre in um); without it the image is registered on its particles",
+    "Places the Bruker image exactly; without it the image is registered on its particles",
+    "Places the Raman image exactly (width, height, top-left corner in um); without it the placement is estimated",
+    "Gives the LDIR particles positions (the LDIR table has none); without it the LDIR image is analysed directly",
+    "Exact LDIR join: each row's own outline (by particle ID) picks its particle; also the outlines drawn in the viewer",
+    "Manual corrections of the LDIR join (pairs of IDs whose positions are swapped)"),
+  stringsAsFactors = FALSE)
+
+#' Supporting files of a run: every kind for the run's instruments, with the
+#' file the run used (or NA)
+#' @param run_dir Run folder
+#' @param instruments Manifest input names of the run (ftir, ftir_bruker, raman, ldir)
+supporting_files_table <- function(run_dir, instruments) {
+  sf <- SUPPORTING_FILES[SUPPORTING_FILES$instrument %in% instruments, , drop = FALSE]
+  if (!nrow(sf)) return(sf)
+  f <- file.path(run_dir %||% "", "00_manifest", "supporting_files.csv")
+  used <- if (!is.null(run_dir) && file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE) else NULL
+  sf$file <- if (is.null(used)) NA_character_ else used$file[match(sf$kind, used$kind)]
+  # The OPUS values in the config place the Bruker image without a file:
+  # images.json records that placement as "metadata"
+  ij <- file.path(run_dir %||% "", "00_manifest", "images.json")
+  if (!is.null(run_dir) && file.exists(ij) && requireNamespace("jsonlite", quietly = TRUE)) {
+    im <- tryCatch(jsonlite::fromJSON(ij, simplifyVector = FALSE), error = function(e) NULL)
+    i <- which(sf$kind == "ftir_bruker_image_placement")
+    if (length(i) && is.na(sf$file[i]) && identical(im$ftir_bruker$provenance, "metadata"))
+      sf$file[i] <- "OPUS values in the config"
+  }
+  sf
 }

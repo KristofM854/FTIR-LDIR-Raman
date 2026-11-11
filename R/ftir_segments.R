@@ -190,6 +190,8 @@ resolve_ftir_segments <- function(config) {
                              say = function(...) log_message(...))
   config$ftir_segment_tables <- tables
   config$ftir_segment_images <- images
+  note_supporting_file(config, "ftir_segments", c(tables, images),
+    sprintf("Segmented PerkinElmer scan: %d tables and images stitched into one", length(tables)))
   config$ftir_path  <- st$csv
   config$ftir_image <- st$png
   config
