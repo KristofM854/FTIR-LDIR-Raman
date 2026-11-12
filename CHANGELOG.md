@@ -108,6 +108,15 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   only particles above their quality cutoff and the minimum size.
 - L-04: viewer: the always-empty `uploaded_data` state left from the removed
   Upload Data tab is gone (cache keys, report captions, file names).
+- L-05: `transform_params_ldir_<ref>.txt` holds the full transform: the LDIR
+  normalisation (centroid, pre-rotation, y flip, scale), the reference
+  centroid, the 3x3 matrix and whether a TPS refinement was applied.
+  `alignment_summary.csv` names the LDIR method like the FTIR ones
+  ("landmark", "ransac").
+- L-09: `manifest.json` no longer records the user name; the run's own images
+  are recorded relative to the run folder (a run folder can be moved and still
+  opens in the viewer) and input files under the working directory relative to
+  it. A file picked from elsewhere keeps its full path.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

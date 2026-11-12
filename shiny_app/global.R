@@ -238,6 +238,14 @@ load_run_manifest <- function(run_dir) {
   tryCatch({
     m <- jsonlite::fromJSON(m_path, simplifyVector = FALSE)
     m$is_missing <- FALSE
+    # The run's own images are recorded relative to the run folder (so a run
+    # can be moved or shared); older manifests hold absolute paths
+    for (a in names(m$image_assets)) for (k in names(m$image_assets[[a]])) {
+      p <- m$image_assets[[a]][[k]]$path
+      if (is.character(p) && length(p) == 1 && nzchar(p) && !file.exists(p) &&
+          file.exists(file.path(run_dir, p)))
+        m$image_assets[[a]][[k]]$path <- file.path(run_dir, p)
+    }
     m
   }, error = function(e) {
     list(is_missing = TRUE, run_id = basename(run_dir),
