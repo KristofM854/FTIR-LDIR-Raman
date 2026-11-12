@@ -666,7 +666,7 @@ All decisions were the author's (answers to 20 questions); the commits are on
 
 | ID | Decision | Commit | Changes results |
 |---|---|---|---|
-| M-12 | Extent rule (one centre inside the other particle) and additional pairs (several particles of one instrument on one of another); dataset A may change | `327242d` | yes |
+| M-12 | Extent rule (one centre inside the other particle) and additional pairs (several particles of one instrument on one of another); dataset A may change | `327242d`, `0815c5a` | yes |
 | M-08 | New status `partner_not_matchable` | `41a11e2`, `e998b66` | partner status only |
 | M-09 | Native cellulose natural, "Regenerated cellulose" semi-synthetic; natural polyamide is Protein | `843a2de` | yes (field samples) |
 | M-15 | `opus_ftir_bruker_image = NULL`; sample names stay | `8dd0281` | runs that relied on the default |
@@ -690,7 +690,7 @@ All decisions were the author's (answers to 20 questions); the commits are on
   Feret max agree within a factor 2, and the Poisson chance of an unrelated particle of
   comparable size within that radius is at most 20%. The assignment stays one-to-one.
 - **Additional pairs.** After the assignment, a particle without a partner whose centre
-  lies within the extent of an already paired particle (same chance limit, size ratio
+  lies within the extent of an already paired particle (chance at most 5%, size ratio
   ≤ 5) is attached to it. Both particles stay separate rows; `pair_type` is
   `additional`. Agreement and triplets use the primary pairs; detection rates and
   partner status count every paired particle as found.
@@ -703,7 +703,7 @@ All decisions were the author's (answers to 20 questions); the commits are on
   |---|---|---|
   | FTIR (PE) – Raman pairs | 31 | 33 (`MP_10`–`1` at 112 µm, `MP_1`–`80` at 81 µm) |
   | LDIR – Raman pairs | 28 | 31 (`A1`–`1`, `A4`–`80`, `A13`–`97`) |
-  | FTIR (Bruker) – Raman pairs | 18 | 21 (two by extent; one additional: `MP_26` on Raman `1`, which already has `MP_27`) |
+  | FTIR (Bruker) – Raman pairs | 18 | 20 (two by extent) |
   | Triplets | 28 | 31, all with full agreement |
   | FTIR (PE) particles > 200 µm found by Raman | 11 of 13 | 13 of 13 |
   | LDIR particles > 200 µm found by Raman | 7 of 10 | 10 of 10 |
@@ -711,7 +711,15 @@ All decisions were the author's (answers to 20 questions); the commits are on
   | Raman particles found by LDIR, all sizes | 77.8% | 86.1% |
 
   These are exactly the particles traced by hand in section 2. `p_true` of the new
-  pairs is 0.98–0.99 (0.70 for the additional pair).
+  pairs is 0.98–0.99.
+- **Additional pairs are limited to a 5% chance, and dataset A has none at that
+  limit.** With the 20% limit of the extent rule, the full suite failed in the synthetic
+  run with known pairs: a particle whose true partner was excluded (below the quality
+  cutoff) was attached to a large neighbour, one wrong pair per ~100 particles in three
+  instrument pairs. At 5% that run is correct again. The one additional pair dataset A
+  had at 20% (FTIR (Bruker) `MP_26` on Raman `1`, 166 µm from its centre, chance 11%) is
+  therefore not made; `match_additional_max_chance` can be raised per run. The viewer
+  also showed such a particle twice; it now keeps one row per particle.
 - **Limits.** The extent is approximated by half the major axis around the centre, not
   the real outline. With the `.sam` outlines an LDIR pair could be tested by
   point-in-outline instead; that needs a real `.sam` file to build and test against.
@@ -732,7 +740,7 @@ All decisions were the author's (answers to 20 questions); the commits are on
   commit (`c952773` → `ef36576`, `41a11e2` → `e998b66`); history was not amended.
 - **Not verified in a browser:** the viewer after L-04, M-08, M-13 and L-09. Checked
   headlessly: a dataset A run and a moved copy of it load, the overlay summary reads
-  "33 FTIR↔Raman pairs | 0 FTIR unmatched | 5 Raman unmatched | 21 Bruker↔Raman pairs |
-  4 Bruker unmatched | 31/40 LDIR↔Raman matched", which matches the log.
+  "33 FTIR↔Raman pairs | 0 FTIR unmatched | 5 Raman unmatched | 20 Bruker↔Raman pairs |
+  5 Bruker unmatched | 31/40 LDIR↔Raman matched", which matches the log.
 
-Full suite on the branch head (`7a7383e`): result added in the next commit.
+Full suite on `7a7383e`: 12 failures, all in `test-pipeline-synthetic.R`, from the additional pairs described above. Full suite after `0815c5a`: 0 failures; the only skips are the two `writexl` tests.
