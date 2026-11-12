@@ -93,6 +93,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   sample it was pre-filled with are kept as a commented example. A Bruker
   image is registered on its particles unless the run sets its own OPUS
   values.
+- M-14: `00_manifest/session_info.txt` records the versions of Python, numpy,
+  scipy and Pillow when the run used the Python detector.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

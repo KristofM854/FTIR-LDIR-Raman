@@ -923,6 +923,11 @@ write_run_environment <- function(run_dir, config) {
   writeLines(c(
     paste0("git_commit: ", current_git_commit()),
     paste0("python:     ", if (nzchar(py)) py else "(not configured)"),
+    {
+      pv <- if (exists("python_versions", mode = "function")) python_versions() else NULL
+      if (length(pv)) paste0("python packages: ", paste(names(pv), pv, collapse = ", "))
+      else "python packages: (Python detector not used in this run)"
+    },
     "",
     utils::capture.output(print(utils::sessionInfo()))), ses_path)
   invisible(c(cfg_path, ses_path))

@@ -78,6 +78,13 @@ setup_python_detector <- function() {
   .python_state$detector <- new.env(parent = emptyenv())
   reticulate::source_python(detector_path, envir = .python_state$detector)
   .python_state$loaded <- TRUE
+  # Versions of the interpreter and the packages the detector uses, for the
+  # run's session_info.txt (python_versions())
+  .python_state$versions <- tryCatch({
+    v <- vapply(names(.python_required), function(m)
+      as.character(reticulate::import(m)[["__version__"]]), character(1))
+    c(python = as.character(reticulate::py_config()$version), v)
+  }, error = function(e) NULL)
   log_message("  Python particle detector loaded (", reticulate::py_config()$python, ")")
   invisible(TRUE)
 }
@@ -265,4 +272,12 @@ detect_ldir_scan_circle_python <- function(image_path) {
     detected    = TRUE,
     method      = met
   )
+}
+
+
+#' Versions of Python and of the detector's packages, once the detector has
+#' been loaded in this session (NULL before, and in runs without an LDIR
+#' image). Named character vector: python, numpy, scipy, PIL.
+python_versions <- function() {
+  if (exists(".python_state", inherits = TRUE)) .python_state$versions else NULL
 }
