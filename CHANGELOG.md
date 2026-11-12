@@ -35,6 +35,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   Multi-Run), the output table (`alignment_summary.csv`, `partner_status.csv`,
   `supporting_files.csv`, `ldir_outlines.csv`, `debug/`) and the module list
   follow the current code.
+- L-03: config comments and README say what the code does for the LDIR gate
+  (20 um only against the reference without a fit; 50 um for LDIR with another
+  aligned instrument) and for mirrored poses (FTIR: never; LDIR: excluded in
+  Tier 2 only).
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

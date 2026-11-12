@@ -543,6 +543,10 @@ make_config <- function(ftir_path  = NULL,
     ransac_n_iterations    = 2000,
     ransac_min_samples     = 3,
     ransac_inlier_dist_um  = 200,
+    # Mirrored poses are searched too. Per instrument: align_pose_limits
+    # switches this off for both FTIR types; for LDIR, ldir_allow_reflection
+    # governs Tier 2 only (see AUDIT.md M-07: the LDIR landmark tier and ICP
+    # still follow this value).
     ransac_allow_mirror    = TRUE,
 
     # --- ICP refinement ---
@@ -590,7 +594,12 @@ make_config <- function(ftir_path  = NULL,
     # 13 mm filter, 43% of particles have a chance partner within 100 um,
     # 13% within 50 um.
     match_dist_threshold_um    = 50,
-    # Dedicated gate for any pairing that involves LDIR. The positional error
+    # Fixed gate for LDIR against the reference, used when the run has no
+    # positional-error fit (see match_gate_from_sigma below; with a fit the
+    # gate is 3 sigma). Pairs of LDIR with another aligned instrument
+    # (LDIR <-> FTIR when Raman is the reference) take the wider
+    # match_dist_threshold_um: both sides carry an alignment error
+    # (match_aligned_pair()). The positional error
     # of LDIR against Raman, fitted per run (position_error_window_um), was
     # sigma = 7.1 um on dataset A and 7.3 um on a field sample (Faanui SW1L
     # R4 A); 20 um is ~3 sigma, which holds ~99% of true pairs. On the field

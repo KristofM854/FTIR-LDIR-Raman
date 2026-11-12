@@ -488,7 +488,8 @@ match_dist_threshold_ldir_um = 20  # ... for LDIR against the reference
 
 # RANSAC
 ransac_inlier_dist_um     = 200    # Inlier distance threshold (µm)
-ransac_allow_mirror        = TRUE  # Also search mirrored poses (FTIR; LDIR never)
+ransac_allow_mirror        = TRUE  # Also search mirrored poses (off for both FTIR types via
+                                   # align_pose_limits; LDIR: off in Tier 2 only)
 ftir_use_global_register  = TRUE   # Tier 2 also runs global registration
                                    # (rotation x scale sweep + translation
                                    # voting); the transform pairing more
