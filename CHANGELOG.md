@@ -24,6 +24,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - M-05: `00_manifest/supporting_files.csv` records the MD5 of every side file
   the run used (LDIR coordinate swaps, analyzed image, .sam, placement files),
   like the input files in the manifest.
+- L-01: `writexl` declared in `Suggests`: the two Excel tests of the
+  column-mapping reader need it and were skipped wherever only the declared
+  packages are installed (the CI workflow).
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
