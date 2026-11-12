@@ -125,7 +125,8 @@ test_that("partner_status() tells a partner paired elsewhere from one that canno
                                                  material = "PET", stringsAsFactors = FALSE)
   raman <- mk(paste0("R", 1:5), c(0, 1000, 0, 1000, 500), c(0, 0, 1000, 1000, 500),
               c(100, 8, 100, 100, 100), 90)
-  ldir <- mk(paste0("L", 1:6), c(3, 1004, 12, 1003, 503, 2), c(0, 0, 1000, 1000, 500, 1004),
+  # (every LDIR particle inside the hull of the Raman particles)
+  ldir <- mk(paste0("L", 1:6), c(3, 996, 12, 997, 503, 2), c(2, 2, 996, 997, 500, 994),
              c(100, 40, 100, 100, 100, 90), 0.95)
   # L1-R1, L4-R4, L5-R5 and L6-R3 paired; L2 sits on R2 (8 um: below the size
   # limit); L3 sits on R3, which is paired with L6
