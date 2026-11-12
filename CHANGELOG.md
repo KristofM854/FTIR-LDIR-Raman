@@ -121,6 +121,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   chance pairs / gate / sigma, detection rates, partner-status counts, the
   alignment verdict and pose p, and the LDIR join positions (918 values, was
   183). A change to any of these now needs a deliberate fingerprint update.
+- L-06: tests that cut a block out of `main.R`, `app.R`, `global.R` or
+  `tools/reproducibility.R` by its marker lines fail when the block is not
+  found, instead of skipping.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

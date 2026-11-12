@@ -12,7 +12,8 @@
   src <- readLines(apath, warn = FALSE)
   i <- grep("^  \\.MIN_SPAN <- ", src)[1]
   j <- grep("^  observeEvent\\(input\\$ftir_brush,", src)[1]
-  skip_if(is.na(i) || is.na(j), "viewport guards not found in app.R")
+  if (is.na(i) || is.na(j))
+    stop("The viewport guards were not found in app.R: their marker lines changed; update this test.")
   env <- new.env(parent = globalenv())
   eval(parse(text = gsub("^  ", "", paste(src[i:(j - 1)], collapse = "\n"))),
        envir = env)
@@ -24,8 +25,8 @@
         as.character(e[[2]]) %in% c("sanitize_bounds", ".MIN_SPAN"))
       eval(e, envir = env)
   }
-  skip_if_not(exists("sanitize_bounds", envir = env, inherits = FALSE),
-              "sanitize_bounds not found in global.R")
+  if (!exists("sanitize_bounds", envir = env, inherits = FALSE))
+    stop("sanitize_bounds() was not found in global.R; update this test.")
   env
 }
 
