@@ -385,7 +385,34 @@ export_ldir_results <- function(ldir_results, dirs) {
       paste0("reflected:    ", lp$reflected),
       paste0("icp_converged:  ", ldir_results$ldir_icp$converged),
       paste0("icp_final_rms:  ",
-             round(tail(ldir_results$ldir_icp$rms_history, 1), 4), " um")
+             round(tail(ldir_results$ldir_icp$rms_history, 1), 4), " um"),
+      # Everything needed to recompute aligned_ldir.csv from the joined table:
+      #   x_c = x_um - centroid_x, y_c = y_um - centroid_y; rotate by
+      #   pre_rotation_deg (counter-clockwise positive); y -> -y if y_flip;
+      #   divide by norm_scale; apply the matrix; the result is in the
+      #   reference frame (reference coordinates minus its centroid).
+      {
+        np <- ldir_results$norm_params; rc <- ldir_results$ref_centroid
+        M <- ldir_results$ldir_icp$transform
+        c("",
+          "# Normalization of the LDIR coordinates (applied before the transform)",
+          paste0("ldir_centroid_x:   ", if (is.null(np)) NA else round(np$centroid_x, 4)),
+          paste0("ldir_centroid_y:   ", if (is.null(np)) NA else round(np$centroid_y, 4)),
+          paste0("pre_rotation_deg:  ", if (is.null(np)) NA else np$rotate_deg_applied),
+          paste0("y_flip:            ", if (is.null(np)) NA else isTRUE(np$y_flip_applied)),
+          paste0("norm_scale:        ", if (is.null(np)) NA else np$scale_factor),
+          paste0("ref_centroid_x:    ", if (is.null(rc)) NA else round(rc[1], 4)),
+          paste0("ref_centroid_y:    ", if (is.null(rc)) NA else round(rc[2], 4)),
+          paste0("tps_refined:       ", isTRUE(ldir_results$tps_refined),
+                 if (isTRUE(ldir_results$tps_refined))
+                   "   # aligned_ldir.csv holds the locally warped coordinates, not this transform alone"),
+          "",
+          paste0("# 3x3 Transform matrix (homogeneous, LDIR_norm -> ", ref_name, "_norm)"),
+          if (is.matrix(M)) c(
+            paste0("matrix_row1: ", paste(round(M[1, ], 8), collapse = ", ")),
+            paste0("matrix_row2: ", paste(round(M[2, ], 8), collapse = ", ")),
+            paste0("matrix_row3: ", paste(round(M[3, ], 8), collapse = ", "))))
+      }
     ), file.path(dirs$alignment, paste0("transform_params_", stem, ".txt")))
   }
 

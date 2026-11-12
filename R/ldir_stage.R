@@ -245,6 +245,8 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
   # landmarks are; a Tier 2 pose must pass pose_significance())
   ldir_determined      <- TRUE
   ldir_pose_p          <- NA_real_
+  ldir_norm_params     <- NULL
+  ldir_tps_refined     <- FALSE
 
   if (has_ldir_coords) {
     log_message("LDIR spatial matching enabled")
@@ -789,6 +791,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
                         warp$n, " controls)")
             ldir_aligned     <- ldir_tps
             ldir_raman_match <- match2
+            ldir_tps_refined <- TRUE
           } else {
             log_message("  LDIR TPS refinement: no gain (", n0, " vs ",
                         max(n1, 0L), ") \u2014 keeping global alignment")
@@ -856,6 +859,9 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     ldir_landmark        = ldir_landmark_result,
     alignment_determined = ldir_determined,
     pose_p               = ldir_pose_p,
+    norm_params          = ldir_norm_params,
+    ref_centroid         = ref$centroid,
+    tps_refined          = ldir_tps_refined,
     ldir_alignment_method = if (isTRUE(use_ldir_landmark)) "landmark" else "ransac",
     triplets             = triplets,
     has_coords           = has_ldir_coords,

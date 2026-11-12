@@ -644,7 +644,10 @@ run_pipeline <- function(config, report = TRUE) {
   if (.ldir_usable)
     pairs[[ldir_results$labels$stem]] <- list(
       src = ldir_results$ldir_aligned, match = ldir_results$ldir_ref_match,
-      icp = ldir_results$ldir_icp, method = ldir_results$ldir_aligned$align_method[1],
+      icp = ldir_results$ldir_icp,
+      # the method names of the FTIR alignments ("landmark", "ransac")
+      method = c(landmark_ransac = "landmark", ransac_icp = "ransac")[
+        ldir_results$ldir_aligned$align_method[1]] %||% ldir_results$ldir_aligned$align_method[1],
       labels = ldir_results$labels, determined = .ldir_determined,
       pose_p = ldir_results$pose_p %||% NA_real_)
   if (length(pairs) == 0)
