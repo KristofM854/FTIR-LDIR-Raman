@@ -62,6 +62,22 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - M-11 (documentation): README states that the LDIR join without a `.sam`
   file is not exact, what the join check cannot see, and that the example
   dataset needs its manual corrections.
+- **(results)** M-12: **extent rule for large particles.** Two particles of
+  similar size (Feret max within 2x) also pair when one centre lies within the
+  other's extent (distance <= 0.5 x the larger major axis), and a particle
+  without a partner that lies on an already paired particle becomes an
+  *additional* pair of it (several particles of one instrument on one of
+  another; both stay separate rows). Both only where an unrelated particle of
+  comparable size within that radius is unlikely (<= 20%), so not on dense
+  fields. New columns `pair_type` and `match_rule` in the match tables; new
+  config `match_extent_factor` (0 = off), `match_extent_max_size_ratio`,
+  `match_extent_max_chance`. Agreement and triplets use the primary pairs.
+  Extent pairs are left out of the TPS distortion check and the LDIR TPS
+  control points. Dataset A: pairs with Raman 31 / 18 / 28 -> 33 / 21 / 31
+  (FTIR PerkinElmer, FTIR Bruker incl. 1 additional, LDIR), triplets 28 -> 31,
+  FTIR (Bruker) with FTIR (PerkinElmer) 16 -> 17, with LDIR 14 -> 17; detection
+  of particles > 200 um by Raman 85% / 70% -> 100% / 100% (FTIR PerkinElmer /
+  LDIR particles). Regression fingerprint regenerated.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

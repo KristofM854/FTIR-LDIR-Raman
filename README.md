@@ -239,6 +239,22 @@ aspect-ratio difference). These add less than 1.5 µm even for a tenfold size
 difference, so **matching is effectively by distance**: size and shape only
 decide between candidates whose distances differ by about a micrometre.
 
+**Large particles (extent rule).** Instruments place the centre of a large or
+elongated particle differently (example dataset: 50–110 µm apart for particles
+of 200–450 µm), so the distance gate alone leaves the same particle unmatched
+on both sides. Two particles therefore also pair when one centre lies within
+the other's extent (distance ≤ 0.5 × the larger major axis,
+`match_extent_factor`) and their sizes are similar (Feret max within a factor
+2, `match_extent_max_size_ratio`). An instrument may also list one particle as
+several: a particle left without a partner whose centre lies within the extent
+of an already paired particle is attached to it as an *additional* pair. Both
+rules apply only where an unrelated particle of comparable size within that
+radius is unlikely (≤ 20%, `match_extent_max_chance`), so they switch
+themselves off on a dense field. The match tables say how each pair was made
+(`match_rule`: `distance` / `extent`; `pair_type`: `primary` / `additional`).
+The primary pairs are one-to-one; agreement and triplets use only those, the
+detection rates count every paired particle as found.
+
 Every run estimates, for every instrument pair, how many of its pairs a
 random arrangement would also give (reference density within the gate;
 logged, `07_diagnostics/chance_pairs.csv`, WARN above 20%). On a dense field
@@ -334,7 +350,7 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `04_alignment/transform_params_<pair>.txt` | Transform into the shared frame (scale, rotation, translation, 3×3 matrix, ICP) |
 | `04_alignment/aligned_<instrument>.csv` | Every particle of the instrument in the shared frame (`x_aligned`, `y_aligned`) |
 | `04_alignment/alignment_summary.csv` | One row per aligned instrument: method, scale, rotation, mirror, residual, pose p-value, whether the pose is determined |
-| `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns and the distance |
+| `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns, the distance, `p_true`, `pair_type` (primary / additional) and `match_rule` (distance / extent) |
 | `05_matches/unmatched_<a>_vs_<b>.csv` | Particles without a partner |
 | `05_matches/partner_status.csv` | For every particle (>= the size limit, any quality) and every other instrument: matched, partner below its cutoff, this particle below its cutoff, both below, partner paired elsewhere, nothing found, outside the partner's area |
 | `05_matches/triplets_3way.csv`, `composite_matches.csv` | Three-way matches; 1:many FTIR→Raman fragments |

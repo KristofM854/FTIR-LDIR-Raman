@@ -295,6 +295,10 @@ plot_residual_vectors <- function(match_result, magnification = 5) {
 #' @return List with systematic_distortion flag, quadrant residuals, recommend_tps
 assess_tps_need <- function(match_result) {
   matched <- match_result$matched
+  # Pairs made by the extent rule differ by the centre offset of a large
+  # particle, not by a distortion of the frame
+  if (!is.null(matched) && "match_rule" %in% names(matched))
+    matched <- matched[!matched$match_rule %in% "extent", , drop = FALSE]
   if (nrow(matched) < 20) {
     return(list(systematic_distortion = FALSE, recommend_tps = FALSE,
                 quadrant_residuals = NULL, message = "Too few matches"))

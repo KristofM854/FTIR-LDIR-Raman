@@ -135,6 +135,14 @@ test_that("ldir_acceptance_gate uses the gate the run recorded in chance_pairs.c
   expect_equal(data$ldir_match_gate_um, 21.2)
 })
 
+test_that("pairs made by the matcher's extent rule stay matched in the viewer", {
+  env <- .load_global_helpers()
+  m <- .synthetic_ldir_match(c(113, 113))
+  m$ldir_major_um <- c(349, 349); m$match_rule <- c("extent", "distance")
+  data <- env$annotate_ldir_gate(list(ldir_raman_matched = m), "dummy")
+  expect_equal(data$ldir_raman_matched$within_gate, c(TRUE, FALSE))
+})
+
 test_that("large LDIR particles keep the matcher's widened gate in the viewer", {
   env <- .load_global_helpers()
   # Dataset A: a 428 um particle matched at 58 um (gate 0.15 x 428 = 64 um)

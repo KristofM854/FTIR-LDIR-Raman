@@ -607,7 +607,10 @@ regate_ldir <- function(data, gate) {
   major <- if ("ldir_major_um" %in% names(m)) suppressWarnings(as.numeric(m$ldir_major_um))
            else rep(NA_real_, nrow(m))
   g <- pmax(gate, factor * ifelse(is.na(major), 0, major))
-  !is.na(m$match_distance) & m$match_distance <= g
+  # A pair the matcher made by its extent rule (a large particle whose centre
+  # the two instruments place differently) is not judged by the distance gate
+  by_extent <- if ("match_rule" %in% names(m)) m$match_rule %in% "extent" else rep(FALSE, nrow(m))
+  !is.na(m$match_distance) & (m$match_distance <= g | by_extent)
 }
 
 .ldir_adaptive_factor <- function(run_dir) {

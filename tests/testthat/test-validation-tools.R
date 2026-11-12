@@ -54,6 +54,7 @@ test_that("null model leaves the caller's RNG state unchanged", {
 
 test_that("gate sensitivity: baseline gate keeps every baseline pair", {
   cfg <- make_config()
+  cfg$match_extent_factor <- 0   # the distance gate alone (the extent rule does not depend on it)
   p <- .pair_from_field(.field(50, 5000, 4))
   p$matched <- suppressMessages(match_particles(p$src, p$ref, cfg))$matched
   g <- suppressMessages(sensitivity_gate(p, cfg, gates = c(5, 100)))

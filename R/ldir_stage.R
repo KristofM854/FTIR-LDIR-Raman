@@ -748,7 +748,10 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
           !is.null(ldir_raman_match$matched) &&
           nrow(ldir_raman_match$matched) >= (config$ldir_tps_min_controls %||% 6)) {
         mm <- ldir_raman_match$matched
-        warp <- tryCatch(
+        # Control points: pairs within the distance gate only (an extent-rule
+        # pair carries a large particle's centre offset, not a distortion)
+        if ("match_rule" %in% names(mm)) mm <- mm[!mm$match_rule %in% "extent", , drop = FALSE]
+        warp <- if (nrow(mm) < (config$ldir_tps_min_controls %||% 6)) NULL else tryCatch(
           tps_fit_warp(mm$ldir_x_aligned, mm$ldir_y_aligned,
                        mm[[paste0(ref_lbl, "_x_norm")]], mm[[paste0(ref_lbl, "_y_norm")]],
                        lambda = config$ldir_tps_lambda %||% 0.5),

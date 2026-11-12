@@ -114,6 +114,7 @@ test_that("matching per group of nearby particles equals one dense assignment", 
     a$x_aligned <- a$x; a$y_aligned <- a$y; b$x_norm <- b$x; b$y_norm <- b$y
     cfg <- make_config()
     cfg$match_gate_from_sigma <- FALSE         # the fixed gate the reference below uses
+    cfg$match_extent_factor <- 0               # distance gate only, as the reference below
     m <- suppressMessages(match_particles(a, b, cfg))$matched
     # Dense reference: the same cost as the matcher, BIG outside the gate
     n <- max(ns, nr); C <- matrix(1e12, n, n)
@@ -268,4 +269,68 @@ test_that("pair confidence does not call distant true pairs chance on a sparse f
   # Expected wrong pairs (sum of 1 - p_true) stays near the chance estimate of
   # the same match, not at the number of tail pairs
   expect_lt(sum(1 - m$matched$p_true), m$match_stats$chance_expected + 1.5)
+})
+
+
+# AUDIT M-12: instruments place the centre of a large particle differently
+# (dataset A: 50-110 um for particles of 200-450 um). The extent rule pairs
+# two particles of similar size when one centre lies within the other's
+# extent, where an unrelated particle of that size is unlikely.
+.ext_tbl <- function(id, x, y, len) data.frame(
+  particle_id = id, x_aligned = x, y_aligned = y, x_norm = x, y_norm = y,
+  feret_max_um = len, major_um = len, minor_um = len / 4, area_um2 = len^2 / 5,
+  stringsAsFactors = FALSE)
+
+test_that("the extent rule pairs large particles whose centres differ, and can be switched off", {
+  ref <- .ext_tbl(paste0("R", 1:6), c(0, 2000, 4000, 0, 2000, 4000), c(0, 0, 0, 3000, 3000, 3000),
+                  c(340, 300, 60, 40, 50, 45))
+  src <- .ext_tbl(paste0("S", 1:6), c(110, 2080, 4005, 3, 2004, 4002), c(0, 10, 0, 3000, 3001, 3004),
+                  c(370, 320, 62, 41, 48, 44))
+  cfg <- make_config(); cfg$match_gate_from_sigma <- FALSE
+  m <- suppressMessages(match_particles(src, ref, cfg, "ftir", "raman"))$matched
+  expect_equal(nrow(m), 6)
+  expect_equal(m$match_rule[match(c("S1", "S2", "S3"), m$ftir_particle_id)],
+               c("extent", "extent", "distance"))
+  expect_equal(m$raman_particle_id[match(c("S1", "S2"), m$ftir_particle_id)], c("R1", "R2"))
+  expect_true(all(m$pair_type == "primary"))
+  cfg$match_extent_factor <- 0
+  m0 <- suppressMessages(match_particles(src, ref, cfg, "ftir", "raman"))$matched
+  expect_equal(sort(m0$ftir_particle_id), paste0("S", 3:6))
+})
+
+test_that("the extent rule needs similar sizes and a low chance of an unrelated particle", {
+  # 110 um apart, but a 370 um particle against a 120 um one: not the same particle
+  ref <- .ext_tbl(paste0("R", 1:4), c(0, 3000, 0, 3000), c(0, 0, 3000, 3000), c(120, 50, 50, 50))
+  src <- .ext_tbl(paste0("S", 1:4), c(110, 3002, 2, 3001), c(0, 0, 3000, 3000), c(370, 50, 50, 50))
+  cfg <- make_config(); cfg$match_gate_from_sigma <- FALSE
+  m <- suppressMessages(match_particles(src, ref, cfg, "ftir", "raman"))$matched
+  expect_false("S1" %in% m$ftir_particle_id)
+  # A dense field of large particles: an unrelated one within the extent is
+  # likely, so two unrelated clouds gain no pair from the rule
+  set.seed(5)
+  mk <- function(n, p) .ext_tbl(paste0(p, seq_len(n)), runif(n, 0, 3000), runif(n, 0, 3000),
+                                runif(n, 250, 400))
+  a <- mk(120, "S"); b <- mk(120, "R")
+  with_rule <- suppressMessages(match_particles(a, b, cfg, "ftir", "raman"))$matched
+  cfg0 <- cfg; cfg0$match_extent_factor <- 0
+  without <- suppressMessages(match_particles(a, b, cfg0, "ftir", "raman"))$matched
+  expect_equal(nrow(with_rule), nrow(without))
+})
+
+test_that("a second particle of one instrument on a paired particle is an additional pair", {
+  # R1 (340 um) is listed by the other instrument as two particles: S1 at its
+  # centre and S2 near its end
+  ref <- .ext_tbl(paste0("R", 1:4), c(0, 3000, 0, 3000), c(0, 0, 3000, 3000), c(340, 50, 50, 50))
+  src <- .ext_tbl(paste0("S", 1:5), c(5, 150, 3002, 2, 3001), c(0, 5, 0, 3000, 3000),
+                  c(130, 200, 50, 50, 50))
+  cfg <- make_config(); cfg$match_gate_from_sigma <- FALSE
+  r <- suppressMessages(match_particles(src, ref, cfg, "ftir", "raman"))
+  m <- r$matched
+  expect_equal(m$pair_type[m$ftir_particle_id == "S2"], "additional")
+  expect_equal(m$raman_particle_id[m$ftir_particle_id == "S2"], "R1")
+  expect_equal(sum(m$raman_particle_id == "R1"), 2)          # both particles stay separate rows
+  expect_equal(r$match_stats$n_additional, 1)
+  expect_equal(r$match_stats$n_unmatched_src, 0)
+  expect_equal(sum(m$pair_type == "primary"), 4)             # the primary pairs stay one-to-one
+  expect_false(any(duplicated(m$raman_particle_id[m$pair_type == "primary"])))
 })

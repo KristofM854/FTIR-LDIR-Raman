@@ -632,6 +632,25 @@ make_config <- function(ftir_path  = NULL,
     # that instrument are skipped.
     align_determined_p         = 0.01,
     match_adaptive_dist_factor = 0.15,
+    # Extent rule for large particles. Instruments place the centre of a large
+    # or elongated particle differently (dataset A: 50-110 um apart for
+    # particles of 200-450 um, all three other instruments agreeing on the
+    # place), so the distance gate alone leaves the same particle unmatched on
+    # both sides. Two particles also pair when one centre lies within the
+    # other's extent (distance <= match_extent_factor x the larger major axis)
+    # and their Feret max differ by at most match_extent_max_size_ratio. An
+    # instrument may also list one particle as several: a particle without a
+    # partner whose centre lies within the extent of an already paired
+    # particle becomes an additional pair of it (pair_type "additional" in the
+    # match tables; agreement and triplets use the primary, one-to-one pairs).
+    # match_extent_factor = 0 switches both off.
+    # Both apply only where chance is low: the probability of an unrelated
+    # particle of comparable size within that radius (Poisson, density of the
+    # comparable particles) must not exceed match_extent_max_chance. On a
+    # dense field sample the rule therefore switches itself off.
+    match_extent_factor         = 0.5,
+    match_extent_max_size_ratio = 2,
+    match_extent_max_chance     = 0.2,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",
 

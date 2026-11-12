@@ -540,6 +540,10 @@ build_triplets <- function(ftir_match, ldir_match, raman_for_match, config,
                            ldir_ftir_match = NULL) {
   fm <- ftir_match$matched; lm <- ldir_match$matched
   if (is.null(fm) || is.null(lm) || nrow(fm) == 0 || nrow(lm) == 0) return(data.frame())
+  # Triplets are built from the primary (one-to-one) pairs
+  prim <- function(d) if ("pair_type" %in% names(d)) d[!d$pair_type %in% "additional", , drop = FALSE] else d
+  fm <- prim(fm); lm <- prim(lm)
+  if (nrow(fm) == 0 || nrow(lm) == 0) return(data.frame())
   col <- function(d, k) if (k %in% names(d)) d[[k]] else rep(NA, nrow(d))
   triplets <- merge(
     data.frame(raman_particle_id = fm$raman_particle_id,
