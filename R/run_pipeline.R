@@ -622,8 +622,13 @@ run_pipeline <- function(config, report = TRUE) {
   if (!is.null(bruker_perkin_match))
     log_message("FTIR (Bruker) <-> FTIR (PerkinElmer): ",
                 bruker_perkin_match$match_stats$n_matched, " matched")
-  bruker_ldir_match <- match_aligned_pair(bruker_aligned, ldir_results$ldir_aligned, config,
-                                          "ftir_bruker", "ldir")
+  .ldir_determined <- !isFALSE(ldir_results$alignment_determined)
+  if (!.ldir_determined && .determined(bruker_pair))
+    log_message("FTIR (Bruker) \u2194 LDIR skipped: the LDIR alignment is not determined",
+                level = "WARN")
+  bruker_ldir_match <- match_aligned_pair(bruker_aligned,
+                                          if (.ldir_determined) ldir_results$ldir_aligned,
+                                          config, "ftir_bruker", "ldir")
   if (!is.null(bruker_ldir_match))
     log_message("FTIR (Bruker) <-> LDIR: ",
                 bruker_ldir_match$match_stats$n_matched, " matched")
@@ -640,8 +645,8 @@ run_pipeline <- function(config, report = TRUE) {
     pairs[[ldir_results$labels$stem]] <- list(
       src = ldir_results$ldir_aligned, match = ldir_results$ldir_ref_match,
       icp = ldir_results$ldir_icp, method = ldir_results$ldir_aligned$align_method[1],
-      labels = ldir_results$labels, determined = TRUE,
-      pose_p = ldir_results$ldir_landmark$p_chance %||% NA_real_)
+      labels = ldir_results$labels, determined = .ldir_determined,
+      pose_p = ldir_results$pose_p %||% NA_real_)
   if (length(pairs) == 0)
     stop("No instrument could be aligned to ", ref$name, " (too few particles, or no ",
          "LDIR coordinates); nothing to match.", call. = FALSE)

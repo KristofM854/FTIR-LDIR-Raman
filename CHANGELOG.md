@@ -45,6 +45,13 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   now Disagree (as the README describes); "Polyethylene (chlorinated)" against
   PE likewise. Abbreviations in brackets ("Polycarbonate (PC)") are unified as
   before. Dataset A: unchanged (all scored pairs are PET).
+- **(results)** H-02: the LDIR alignment gets the chance test of the FTIR
+  alignments. A Tier 2 LDIR pose (landmarks not accepted) counts as determined
+  only when its anchor pairs exceed what the pose search finds by chance
+  (`align_determined_p`); otherwise the LDIR pairs are written but not scored,
+  LDIR is paired with no other instrument, and no triplets are built.
+  `alignment_summary.csv` records that test's p (it held the p of the rejected
+  landmark attempt, with `determined = TRUE`). Dataset A: unchanged (landmarks).
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

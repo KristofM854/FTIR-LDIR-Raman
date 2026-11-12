@@ -214,7 +214,8 @@ Landmark alignment (Tier 1) is purely **geometric**. The fallback (Tier 2) align
 
 3. **ICP refinement**: Iterative Closest Point polishes the transform using all particles ≥ 20 µm, with reciprocal nearest-neighbour filtering and 10% trimming of worst pairs.
 
-The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**.
+The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**,
+with the same test of whether the pose is determined.
 Without Raman the same steps align every instrument to FTIR (PerkinElmer),
 else FTIR (Bruker); the Raman-only alignment filters (`align_raman_min_size_um`,
 the HQI filter on anchors) then do not apply.
