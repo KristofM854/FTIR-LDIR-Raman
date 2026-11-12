@@ -615,5 +615,9 @@ Can wait:
   `supporting_files.csv` (49 files identical; compared file by file, which is stricter
   than the fingerprint).
 - The targeted test files of each fix pass at its commit.
-- Full suite per fix commit: in progress when this file was first committed; the result
-  is added below in a follow-up commit.
+- Full suite (`testthat::test_dir("tests/testthat")`, including the dataset A
+  fingerprint test) run on a checkout of each fix commit: `4d920a2`, `ef36576`,
+  `df209bd`, `24a964d`, `b32317f`, `e040384` and `81b8a13` all finish with 0 failures;
+  the only skips are the two `writexl` tests. `c952773` was not run on its own: its new
+  test had a broken fixture, corrected in `ef36576`. `eba49d8`, `389ec3a` and `3c3c218`
+  change no code and are covered by the run of the next commit.
