@@ -5060,9 +5060,15 @@ server <- function(input, output, session) {
     if (nrow(m) == 0 && nrow(bm) == 0 &&
         all(vapply(dfs, function(d) is.null(d) || nrow(d) == 0, logical(1))))
       return("No pipeline data loaded")
-    n_um_f    <- if (!is.null(dfs$ftir))        sum(dfs$ftir$match_status == "unmatched")        else 0
-    n_um_r    <- if (!is.null(dfs$raman))       sum(dfs$raman$match_status == "unmatched")       else 0
-    n_um_fb   <- if (!is.null(dfs$ftir_bruker)) sum(dfs$ftir_bruker$match_status == "unmatched") else 0
+    # Unmatched as the run log counts them: particles the pipeline could have
+    # matched (above the quality cutoff and the minimum size)
+    .cfg  <- tryCatch(active_manifest()$config_snapshot, error = function(e) NULL)
+    .cut  <- quality_cutoffs(.cfg)
+    .ms   <- suppressWarnings(as.numeric(unlist(.cfg$min_particle_size_um)))
+    .ms   <- if (length(.ms) && is.finite(.ms[1])) .ms[1] else 20
+    n_um_f    <- count_unmatched_matchable(dfs$ftir,        .cut$ftir,        .ms)
+    n_um_r    <- count_unmatched_matchable(dfs$raman,       .cut$raman,       .ms)
+    n_um_fb   <- count_unmatched_matchable(dfs$ftir_bruker, .cut$ftir_bruker, .ms)
     n_ldir    <- if (!is.null(dfs$ldir))        nrow(dfs$ldir)                                   else 0
     n_trip    <- nrow(triplets)
     # Genuine matches only, against the run's LDIR gate: over-gate forced

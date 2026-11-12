@@ -1145,6 +1145,21 @@ quality_cutoffs <- function(cfg = NULL) {
        ldir = v("ldir_hqi_unknown_threshold", 0.85))
 }
 
+#' Unmatched particles that the pipeline could have matched: above the
+#' instrument's quality cutoff and the minimum size, as the run log counts
+#' them (a particle below either is never offered to the matcher).
+#' @param df Viewer instrument frame (match_status, quality, feret_max)
+#' @param cutoff Quality cutoff of the instrument (0 / NULL: none)
+#' @param min_size min_particle_size_um of the run
+count_unmatched_matchable <- function(df, cutoff = 0, min_size = 20) {
+  if (is.null(df) || !nrow(df)) return(0L)
+  q <- suppressWarnings(as.numeric(df$quality))
+  q_ok <- if (is.null(cutoff) || cutoff <= 0 || all(is.na(q))) rep(TRUE, nrow(df)) else !is.na(q) & q >= cutoff
+  s <- suppressWarnings(as.numeric(df$feret_max))
+  s_ok <- if (is.null(s) || !length(s)) rep(TRUE, nrow(df)) else is.na(s) | s >= min_size
+  sum(df$match_status == "unmatched" & q_ok & s_ok)
+}
+
 INSTRUMENT_DISPLAY <- c(raman = "Raman", ftir_perkin = "FTIR", ldir = "LDIR",
                         ftir_bruker = "FTIR (Bruker)")
 

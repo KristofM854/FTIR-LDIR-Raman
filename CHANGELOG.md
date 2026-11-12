@@ -104,6 +104,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   search. Landmark poses reported the uncorrected p (dataset A: 2.9e-25 ->
   1.8e-19 for FTIR PerkinElmer). Which poses are accepted is unchanged. The
   viewer's verdict follows the pipeline's `determined`.
+- M-13: the overlay summary counts unmatched particles like the run log:
+  only particles above their quality cutoff and the minimum size.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

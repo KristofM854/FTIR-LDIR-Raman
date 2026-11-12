@@ -364,3 +364,15 @@ test_that("partner status: hover fill and colour classes", {
   expect_false("A3" %in% cl$particle_id)
   expect_null(g$overlay_partner_class(NULL, "ldir"))
 })
+
+
+# AUDIT M-13: the overlay summary counts unmatched particles like the run log:
+# only those above the quality cutoff and the minimum size.
+test_that("unmatched counts cover the particles the pipeline could have matched", {
+  env <- .load_global_helpers()
+  df <- data.frame(match_status = c("matched", "unmatched", "unmatched", "unmatched", "unmatched"),
+                   quality = c(90, 90, 40, 90, NA), feret_max = c(100, 100, 100, 8, 50))
+  expect_equal(env$count_unmatched_matchable(df, 70, 20), 1L)
+  expect_equal(env$count_unmatched_matchable(df, 0, 0), 4L)
+  expect_equal(env$count_unmatched_matchable(NULL, 70, 20), 0L)
+})
