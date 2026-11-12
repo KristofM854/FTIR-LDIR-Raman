@@ -170,7 +170,6 @@ R/
   09_diagnostics.R              # Overlay plots, histograms, confusion matrix
   10_export.R                   # CSV/PDF/TXT export
   load.R                        # load_pipeline(): packages + modules
-  particle_contract.R, 01_readers.R are listed above; further modules:
   align_helpers.R               # Pose search primitives, anchors, chance of a random partner, pose significance
   rate_intervals.R              # Wilson intervals
   detection_rates.R             # Detection rates by size, partner status
