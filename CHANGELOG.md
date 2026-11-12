@@ -39,6 +39,12 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   (20 um only against the reference without a fit; 50 um for LDIR with another
   aligned instrument) and for mirrored poses (FTIR: never; LDIR: excluded in
   Tier 2 only).
+- **(results)** H-01: a bracketed qualifier is no longer dropped from the
+  exact-polymer name, and an Exact agreement needs the two families to agree.
+  LDIR "Polyamide (naturally occurring)" against PA was scored Exact and is
+  now Disagree (as the README describes); "Polyethylene (chlorinated)" against
+  PE likewise. Abbreviations in brackets ("Polycarbonate (PC)") are unified as
+  before. Dataset A: unchanged (all scored pairs are PET).
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
