@@ -371,7 +371,8 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
   aligned_all <- apply_ftir_transform(clean, icp$transform)
 
   match <- match_particles(aligned, ref$for_match, config,
-                           src_label = labels$src_prefix, ref_label = labels$ref_prefix)
+                           src_label = labels$src_prefix, ref_label = labels$ref_prefix,
+                           src_name = label, ref_name = ref_name)
   ms <- match$match_stats
   log_message(label, " \u2194 ", ref_name, ": ", ms$n_matched, " matched, ",
               ms$n_unmatched_src, " unmatched ", label, ", ", ms$n_unmatched_ref,

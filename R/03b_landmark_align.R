@@ -114,13 +114,13 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
 
   # --- Select landmarks ---
   ftir_lm_mask  <- select_landmarks(ftir_df, config, src_label)
-  raman_lm_mask <- select_landmarks(raman_df, config, "Raman")
+  raman_lm_mask <- select_landmarks(raman_df, config, ref_label)
 
   n_ftir_lm  <- sum(ftir_lm_mask)
   n_raman_lm <- sum(raman_lm_mask)
 
   log_message("  ", src_label, " landmarks:  ", n_ftir_lm, " / ", nrow(ftir_df))
-  log_message("  Raman landmarks: ", n_raman_lm, " / ", nrow(raman_df))
+  log_message("  ", ref_label, " landmarks: ", n_raman_lm, " / ", nrow(raman_df))
 
   min_count <- config$landmark_min_count
 
@@ -143,7 +143,7 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
                 round(max(ftir_lm$feret_max_um, na.rm = TRUE)), " µm")
   }
   if (any(!is.na(raman_lm$feret_max_um))) {
-    log_message("  Raman landmark sizes: ",
+    log_message("  ", ref_label, " landmark sizes: ",
                 round(min(raman_lm$feret_max_um, na.rm = TRUE)), " – ",
                 round(max(raman_lm$feret_max_um, na.rm = TRUE)), " µm")
   }

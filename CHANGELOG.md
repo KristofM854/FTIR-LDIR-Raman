@@ -127,6 +127,13 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - L-07: the built-in readers look a column up by the start of its name before
   falling back to any substring ("Area" no longer depends on coming before
   "Convex Area" in the export).
+- L-08: a particle without a size is in the base of the detection rates and
+  the partner status, as it is in the matching ("all sizes" only).
+- L-11: log labels: the matcher names the instruments ("FTIR (Bruker) ->
+  Raman", was "ftir -> raman" for both FTIR types); landmark lines name the
+  actual reference; the viewer no longer says "WITec extent" for an
+  auto-calibrated Raman image; the BOM in the coordinate-swap reader is
+  matched by its bytes (ASCII source, any locale).
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

@@ -28,8 +28,11 @@
 #' @param ref_label Label for the reference instrument (default "raman")
 #' @return List with matched, unmatched_src, unmatched_ref, match_stats
 match_particles <- function(src_df, ref_df, config,
-                            src_label = "ftir", ref_label = "raman") {
-  log_message("Matching particles (", src_label, " -> ", ref_label, ")")
+                            src_label = "ftir", ref_label = "raman",
+                            src_name = src_label, ref_name = ref_label) {
+  # src_name / ref_name: the instruments' names for the log (the labels are
+  # column prefixes: both FTIR types are "ftir" against Raman)
+  log_message("Matching particles (", src_name, " -> ", ref_name, ")")
 
   method <- config$match_method %||% "hungarian"
 

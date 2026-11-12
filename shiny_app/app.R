@@ -2337,7 +2337,7 @@ server <- function(input, output, session) {
       if (!is.null(raman_df)) raman_df$x_orig else numeric(0),
       if (!is.null(raman_df)) raman_df$y_orig else numeric(0))
     if (!is.null(ext)) {
-      message("[Particle Viewer] Raman image placed from WITec extent (",
+      message("[Particle Viewer] Raman image placed from the run's recorded extent (",
               if (isTRUE(ext$y_negated))
                 "Center Y negated: video frame -> stage frame"
               else "Center Y as reported",
