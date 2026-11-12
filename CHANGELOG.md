@@ -11,6 +11,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - M-01: `detection_rates()` no longer stops ("missing value where TRUE/FALSE
   needed") when `min_particle_size_um` is below 20 and a particle is smaller
   than the first size class; such particles count in "all sizes" only.
+- M-02: a run in which every particle of one instrument is below its quality
+  cutoff (or no particle is left to match) no longer stops in the matcher
+  ("no points in query!"); the pair is written with 0 matches.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

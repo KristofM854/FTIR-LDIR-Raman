@@ -219,3 +219,25 @@ test_that("the gate is set per run from the fitted positional error (LDIR; FTIR 
   res4 <- suppressMessages(match_particles(src, ref, cfg, src_label = "ftir", ref_label = "raman"))
   expect_equal(res4$match_stats$chance_gate_um, 50)
 })
+
+
+# AUDIT M-02: with every particle of one instrument below its quality cutoff
+# the matcher was called with an empty table and stopped in the neighbour
+# search ("no points in query!"), ending the run.
+test_that("match_particles() returns an empty result when one side has no particles", {
+  mk <- function(n) data.frame(particle_id = paste0("P", seq_len(n)), x_aligned = seq_len(n) * 100,
+                               y_aligned = rep(0, n), x_norm = seq_len(n) * 100, y_norm = rep(0, n),
+                               feret_max_um = rep(50, n), major_um = rep(50, n), minor_um = rep(20, n),
+                               area_um2 = rep(800, n), stringsAsFactors = FALSE)
+  for (method in c("hungarian", "greedy")) {
+    cfg <- make_config(); cfg$match_method <- method
+    for (case in list(c(0, 5), c(5, 0), c(0, 0))) {
+      r <- suppressMessages(match_particles(mk(case[1]), mk(case[2]), cfg, "ftir", "raman"))
+      expect_equal(r$match_stats$n_matched, 0)
+      expect_equal(nrow(r$matched), 0)
+      expect_equal(nrow(r$unmatched_src), case[1])
+      expect_equal(nrow(r$unmatched_ref), case[2])
+      expect_true(is.na(r$match_stats$chance_share))
+    }
+  }
+})

@@ -264,6 +264,11 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   ref_y  <- ref_df$y_norm
   n_src  <- nrow(src_df)
   n_ref  <- nrow(ref_df)
+  # Nothing to pair (e.g. every particle of one instrument is below its
+  # quality cutoff): an empty result, not an error from the neighbour search
+  if (n_src == 0 || n_ref == 0)
+    return(.assemble_match_result(src_df, ref_df, list(), logical(n_src), logical(n_ref),
+                                  src_label, ref_label))
 
   # Per-particle adaptive threshold (ignored when force_complete = TRUE)
   src_thresh <- rep(dist_thresh, n_src)
@@ -436,6 +441,9 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   ref_y  <- ref_df$y_norm
   n_src  <- nrow(src_df)
   n_ref  <- nrow(ref_df)
+  if (n_src == 0 || n_ref == 0)
+    return(.assemble_match_result(src_df, ref_df, list(), logical(n_src), logical(n_ref),
+                                  src_label, ref_label))
 
   # Per-particle adaptive threshold
   src_thresh <- rep(dist_thresh, n_src)
