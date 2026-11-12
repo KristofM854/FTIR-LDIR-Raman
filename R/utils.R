@@ -1589,13 +1589,22 @@ note_supporting_file <- function(config, kind, path, used_for) {
   dir <- config$output_dir
   if (is.null(dir) || !nzchar(dir) || is.null(path) || !length(path)) return(invisible(NULL))
   f <- file.path(dir, "00_manifest", "supporting_files.csv")
+  # MD5 like the input files in the manifest: these files change results
+  # (the coordinate swaps move LDIR particles), so a run records which
+  # version it used
+  md5 <- vapply(path, function(p) {
+    h <- tryCatch(file_md5(p), error = function(e) NA_character_)
+    if (is.null(h) || !length(h)) NA_character_ else as.character(h)[1]
+  }, character(1))
   row <- data.frame(kind = kind, file = paste(basename(path), collapse = "; "),
                     path = paste(path, collapse = "; "), used_for = used_for,
+                    md5 = paste(md5, collapse = "; "),
                     stringsAsFactors = FALSE)
   tryCatch({
     dir.create(dirname(f), showWarnings = FALSE, recursive = TRUE)
     old <- if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE) else NULL
     if (!is.null(old)) old <- old[old$kind != kind, , drop = FALSE]
+    if (!is.null(old) && !"md5" %in% names(old)) old$md5 <- rep(NA_character_, nrow(old))
     utils::write.csv(rbind(old, row), f, row.names = FALSE)
   }, error = function(e) NULL)
   invisible(NULL)

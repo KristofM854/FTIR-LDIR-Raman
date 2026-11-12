@@ -21,6 +21,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   names the right gate.
 - M-04: the Summary tab's and the report's alignment check shows the fitted
   positional error also for runs whose reference is an FTIR (it was "-").
+- M-05: `00_manifest/supporting_files.csv` records the MD5 of every side file
+  the run used (LDIR coordinate swaps, analyzed image, .sam, placement files),
+  like the input files in the manifest.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

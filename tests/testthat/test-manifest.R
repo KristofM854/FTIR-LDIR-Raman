@@ -53,3 +53,23 @@ test_that("the config snapshot names exist in the config", {
   expect_true(length(keys) > 10)
   expect_identical(setdiff(keys, names(make_config())), character(0))
 })
+
+
+# AUDIT M-05: side files that change results (coordinate swaps, analyzed image,
+# .sam) were recorded by name only; a run could not tell which version it used.
+test_that("supporting files are recorded with their MD5", {
+  run <- withr::local_tempdir()
+  f <- file.path(run, "LDIR_coord_swaps.csv"); writeLines(c("id_clarity,id_R", "A1,A2"), f)
+  cfg <- list(output_dir = run)
+  note_supporting_file(cfg, "ldir_coord_swaps", f, "manual corrections")
+  sf <- utils::read.csv(file.path(run, "00_manifest", "supporting_files.csv"), stringsAsFactors = FALSE)
+  expect_equal(sf$md5, unname(tools::md5sum(f)))
+  # A second kind is appended; a repeated kind replaces its row
+  g <- file.path(run, "img_analyzed.png"); writeBin(as.raw(1:10), g)
+  note_supporting_file(cfg, "ldir_analyzed_image", g, "positions")
+  writeLines(c("id_clarity,id_R", "A1,A3"), f)
+  note_supporting_file(cfg, "ldir_coord_swaps", f, "manual corrections")
+  sf <- utils::read.csv(file.path(run, "00_manifest", "supporting_files.csv"), stringsAsFactors = FALSE)
+  expect_equal(sort(sf$kind), c("ldir_analyzed_image", "ldir_coord_swaps"))
+  expect_equal(sf$md5[sf$kind == "ldir_coord_swaps"], unname(tools::md5sum(f)))
+})
