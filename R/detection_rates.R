@@ -102,7 +102,9 @@ detection_rates <- function(aligned, matches, config, gates = list()) {
       for (grp in c("all", "plastics")) {
         g <- if (grp == "all") rep(TRUE, nrow(b)) else fam %in% plastic_fams
         for (sc in c(DETECTION_SIZE_LABELS, "all sizes")) {
-          s <- g & (sc == "all sizes" | size_class == sc)
+          # A particle below the first size class (min_particle_size_um < 20)
+          # has no class: it counts in "all sizes" only
+          s <- g & (sc == "all sizes" | (!is.na(size_class) & size_class == sc))
           n <- sum(s); k <- sum(found & s)
           ci <- wilson_interval(k, n)
           k_true <- if (all(is.na(p_true[found & s])) && k > 0) NA_real_

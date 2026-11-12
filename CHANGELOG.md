@@ -7,6 +7,11 @@ change results on existing data are marked **(results)**.
 
 Pre-release audit and portability refactor (branch `audit/pre-release`).
 
+### Fixed (audit, branch `audit/fable-fixes`; see AUDIT.md)
+- M-01: `detection_rates()` no longer stops ("missing value where TRUE/FALSE
+  needed") when `min_particle_size_um` is below 20 and a particle is smaller
+  than the first size class; such particles count in "all sizes" only.
+
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
   for next to each instrument's data (FTIR scan segments and placement .txt,

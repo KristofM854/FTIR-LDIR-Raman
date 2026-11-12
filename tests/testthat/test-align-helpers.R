@@ -90,3 +90,28 @@ test_that("wilson_interval: inside 0-1, exact for 0% and 100%", {
   expect_equal(format_rate_ci(5, 10), "50% (24-76%)")
   expect_equal(format_rate_ci(0, 0), "-")
 })
+
+
+# AUDIT M-01: min_particle_size_um = 0 ("no size limit") lets particles below
+# the first size class (20 um) into the base; they have no size class and
+# made detection_rates() stop with "missing value where TRUE/FALSE needed".
+test_that("detection_rates() counts particles below the first size class in 'all sizes' only", {
+  local({
+    for (m in c("08_agreement.R", "08b_material_map.R", "align_and_match.R", "detection_rates.R"))
+      sys.source(file.path(REPO_ROOT, "R", m), envir = globalenv())
+  })
+  mk <- function(ids, x, feret) data.frame(particle_id = ids, x_aligned = x, y_aligned = c(0, 500, 0, 500, 250)[seq_along(x)],
+                                           feret_max_um = feret, major_um = feret, quality = 90,
+                                           material = "PET", stringsAsFactors = FALSE)
+  raman <- mk(paste0("R", 1:5), c(0, 0, 1000, 1000, 500), c(8, 30, 60, 150, 12))
+  ldir  <- mk(paste0("L", 1:5), c(2, 2, 1002, 1002, 502), c(25, 30, 60, 150, 40)); ldir$quality <- 0.95
+  m <- data.frame(ldir_particle_id = paste0("L", 1:5), raman_particle_id = paste0("R", 1:5),
+                  p_true = 0.99, stringsAsFactors = FALSE)
+  cfg <- make_config(); cfg$min_particle_size_um <- 0
+  d <- suppressMessages(detection_rates(list(raman = raman, ldir = ldir), list(ldir_raman = m), cfg,
+                                        gates = list(ldir_raman = 20)))
+  r <- d[d$of == "raman" & d$group == "all", ]
+  expect_equal(r$n_base[r$size_class == "all sizes"], 5)       # incl. the 8 and 12 um particles
+  expect_equal(sum(r$n_base[r$size_class != "all sizes"]), 3)  # the classes hold only >= 20 um
+  expect_false(anyNA(r$n_base))
+})
