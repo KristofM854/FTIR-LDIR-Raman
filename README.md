@@ -273,6 +273,18 @@ the particle its own outline covers (log line "Exact LDIR join from the .sam
 file"). The size / shape / colour join is used when there is no `.sam` file or
 it does not fit the table.
 
+> **Without a `.sam` file the LDIR join is not exact.** The size / shape /
+> colour join places every row on a particle, but it can exchange particles of
+> similar size and the same colour class, and the join check does not see such
+> exchanges (it compares size ranks, which an exchange between similar
+> particles leaves unchanged). On the example dataset, which has no `.sam`
+> file, 16 of the 40 LDIR rows needed a manual correction
+> (`LDIR_coord_swaps.csv`, 10 rows); without it the join check reads the same
+> (size Spearman 0.97). Export the Clarity project file with the scan whenever
+> possible; a run without it logs no "Exact LDIR join" line, and its LDIR
+> positions should be checked by eye in the viewer's LDIR tab before the LDIR
+> pairs are used.
+
 Pixel centroids are mapped to µm with the image's placement (scan circle =
 scan diameter, or the calibrated overlay), recorded per run in
 `00_manifest/images.json`. Manual corrections of the join can be given in a

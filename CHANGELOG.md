@@ -59,6 +59,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   / 0.1); pairs with p_true >= 0.9: 29 / 14 / 26 -> 30 / 16 / 28;
   chance-corrected identified rate FTIR (Bruker) -> Raman 62.4% -> 73.6% (raw
   75.0%). The fitted sigma, the gates and the pairs are unchanged.
+- M-11 (documentation): README states that the LDIR join without a `.sam`
+  file is not exact, what the join check cannot see, and that the example
+  dataset needs its manual corrections.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
