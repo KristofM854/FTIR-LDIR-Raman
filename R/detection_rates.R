@@ -63,8 +63,10 @@ detection_rates <- function(aligned, matches, config, gates = list()) {
       base <- aligned[[base_role]]; other <- aligned[[other_role]]
       if (is.null(base) || is.null(other) || nrow(base) == 0 || nrow(other) < 3) next
       prefix <- if (base_role == "ftir_perkin") "ftir" else base_role
+      # (a particle without a size is matched, so it is in the base as well;
+      # it has no size class and counts in "all sizes" only)
       keep <- quality_passes(base, prefix, config) &
-        !is.na(base$feret_max_um) & base$feret_max_um >= min_size &
+        (is.na(base$feret_max_um) | base$feret_max_um >= min_size) &
         is.finite(base$x_aligned) & is.finite(base$y_aligned)
       # Inside the area the other instrument covered (its convex hull)
       ox <- other$x_aligned; oy <- other$y_aligned
@@ -168,7 +170,7 @@ partner_status <- function(aligned, matches, config, gates = list()) {
     for (dir in 1:2) {
       base <- aligned[[roles[dir]]]; other <- aligned[[roles[3 - dir]]]
       if (is.null(base) || is.null(other) || nrow(base) == 0 || nrow(other) < 3) next
-      b <- base[!is.na(base$feret_max_um) & base$feret_max_um >= min_size &
+      b <- base[(is.na(base$feret_max_um) | base$feret_max_um >= min_size) &
                 is.finite(base$x_aligned) & is.finite(base$y_aligned), , drop = FALSE]
       o <- other[is.finite(other$x_aligned) & is.finite(other$y_aligned), , drop = FALSE]
       if (nrow(b) == 0 || nrow(o) < 3) next
