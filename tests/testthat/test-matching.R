@@ -241,3 +241,31 @@ test_that("match_particles() returns an empty result when one side has no partic
     }
   }
 })
+
+
+# AUDIT H-03: with a non-normal positional error (a few true pairs far out, as
+# for large particles) the fitted mixing weight called those pairs chance. The
+# share of true pairs now follows from the reference density.
+test_that("pair confidence does not call distant true pairs chance on a sparse filter", {
+  set.seed(31)
+  W <- 5000; n <- 40
+  ref <- data.frame(particle_id = paste0("R", 1:n), x_norm = runif(n, 0, W), y_norm = runif(n, 0, W),
+                    feret_max_um = 100, major_um = 100, minor_um = 60, area_um2 = 5000,
+                    stringsAsFactors = FALSE)
+  far <- 1:4                                   # four true pairs 35-45 um out, the rest N(0, 7)
+  dx <- rnorm(n, 0, 7); dy <- rnorm(n, 0, 7)
+  dx[far] <- c(35, -40, 0, 30); dy[far] <- c(0, 10, 45, -28)
+  src <- data.frame(particle_id = paste0("S", 1:n), x_aligned = ref$x_norm + dx,
+                    y_aligned = ref$y_norm + dy, feret_max_um = 100, major_um = 100,
+                    minor_um = 60, area_um2 = 5000, stringsAsFactors = FALSE)
+  rho <- chance_partner_rate(ref$x_norm, ref$y_norm, 1)$density
+  pe <- .position_error(src$x_aligned, src$y_aligned, ref$x_norm, ref$y_norm, rho, 75)
+  expect_gt(pe$w, 0.98)                        # the density allows almost no chance neighbour
+  expect_lt(pe$w_fit, pe$w)                    # the fitted weight had absorbed the tail
+  m <- suppressMessages(match_particles(src, ref, make_config(), "ftir", "raman"))
+  ok <- sub("S", "", m$matched$ftir_particle_id) == sub("R", "", m$matched$raman_particle_id)
+  expect_true(all(ok)); expect_equal(nrow(m$matched), n)
+  # Expected wrong pairs (sum of 1 - p_true) stays near the chance estimate of
+  # the same match, not at the number of tail pairs
+  expect_lt(sum(1 - m$matched$p_true), m$match_stats$chance_expected + 1.5)
+})

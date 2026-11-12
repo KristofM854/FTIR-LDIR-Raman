@@ -108,8 +108,8 @@ match_particles <- function(src_df, ref_df, config,
 #' Probability that a matched pair is the true partner and not a chance
 #' neighbour, from the positional-error fit (.position_error()): the 2-D normal
 #' error density at the pair's distance against the chance nearest-neighbour
-#' density, each normalised over the fit window and weighted by the fitted
-#' share of true pairs. Large particles have a larger centroid error: sigma is
+#' density, each normalised over the fit window and weighted by the share of
+#' true pairs the reference density implies (.position_error()). Large particles have a larger centroid error: sigma is
 #' at least adaptive_factor / 3 x the major axis, the widening the gate gets
 #' (0.15 x major = 3 sigma). NA without a fit.
 #'
@@ -202,6 +202,9 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
 #' partner, offset by a 2-D normal error (Rayleigh with sigma), or a chance
 #' neighbour of the reference at its density rho (nearest-neighbour law
 #' 2 pi rho r exp(-pi rho r^2)); the mixture is fitted by maximum likelihood.
+#' sigma is the fitted spread (the core of the error distribution); w, the
+#' share of true partners used by pair_confidence(), follows from the density
+#' (w_fit is the fitted mixing weight, for reference).
 #' Fewer than 20 distances, or no density: sigma NA.
 .position_error <- function(sx, sy, rx, ry, rho, window) {
   out <- list(sigma = NA_real_, w = NA_real_, rho = rho, n = 0L, window = window)
@@ -223,7 +226,19 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   # A sigma at the window edge means no peak of true pairs was found
   if (fit$convergence == 0 && s < W / 3) {
     out$sigma <- s
-    out$w <- stats::plogis(fit$par[2])
+    out$w_fit <- stats::plogis(fit$par[2])
+    # Share of true partners among the distances in the window, from the
+    # reference density (not the fitted weight): of the n_src source particles,
+    # those without a true partner have a chance neighbour within W with
+    # p_c = 1 - exp(-pi rho W^2), so n_window = n_true + (n_src - n_true) p_c.
+    # The fitted weight also absorbs true pairs in the tail of a non-normal
+    # error (large particles, whose centres differ between instruments) and
+    # then calls them chance: on dataset A it put 2-6 chance neighbours in the
+    # window where the density allows 0.1-0.2.
+    p_c <- 1 - exp(-pi * rho * W^2)
+    out$w <- if (1 - p_c > 1e-6)
+      min(1, max(0, (length(r) - sum(ok) * p_c) / (1 - p_c) / length(r)))
+    else out$w_fit
   }
   out
 }

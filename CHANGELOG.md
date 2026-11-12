@@ -52,6 +52,13 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   LDIR is paired with no other instrument, and no triplets are built.
   `alignment_summary.csv` records that test's p (it held the p of the rejected
   landmark attempt, with `determined = TRUE`). Dataset A: unchanged (landmarks).
+- **(results)** H-03: pair confidence `p_true` takes the share of true pairs
+  from the reference density instead of the fitted mixing weight, which
+  counted distant true pairs of large particles as chance. Dataset A: expected
+  wrong pairs 1.4 / 3.0 / 1.0 -> 0.25 / 0.35 / 0.05 (chance estimate 0.6 / 0.5
+  / 0.1); pairs with p_true >= 0.9: 29 / 14 / 26 -> 30 / 16 / 28;
+  chance-corrected identified rate FTIR (Bruker) -> Raman 62.4% -> 73.6% (raw
+  75.0%). The fitted sigma, the gates and the pairs are unchanged.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

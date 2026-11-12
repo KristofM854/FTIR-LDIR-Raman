@@ -147,9 +147,16 @@ further apart, median 16.6 µm).
 **Pair confidence and detection rates.** The positional-error fit also gives
 each pair its probability of being the true partner (`p_true`): the 2-D
 normal density at the pair's distance against the chance nearest-neighbour
-density at the reference density, weighted by the fitted share of true pairs.
-On the synthetic field sample (`test-pipeline-field.R`) the expected number of
-wrong pairs, Σ(1 − p_true), was 2.5 against 2 actual. Detection rates
+density at the reference density, weighted by the share of true pairs that
+the reference density implies (of the particles without a true partner, the
+share with a chance neighbour inside the fit window). The mixing weight of
+the fit is not used for this: where the error is not normal (large particles,
+whose centres differ between instruments) it counts distant true pairs as
+chance. On dataset A the expected wrong pairs, Σ(1 − p_true), are 0.25 / 0.35
+/ 0.05 (FTIR PerkinElmer, FTIR Bruker, LDIR with Raman), below the chance
+estimate of 0.6 / 0.5 / 0.1 pairs; with the fitted weight they were 1.4 / 3.0
+/ 1.0. The synthetic field sample (`test-pipeline-field.R`) checks that
+Σ(1 − p_true) stays within 3 of the actual number of wrong pairs. Detection rates
 (`07_diagnostics/detection_rates.csv`) give, per instrument pair and
 direction, the share of one instrument's particles that the other also found,
 by size class, with Wilson 95% intervals; dataset A, all sizes: LDIR finds
