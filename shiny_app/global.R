@@ -536,12 +536,23 @@ RUN_DATA_TABLES <- c(
 # acceptance gate. Classifying here, once, keeps the summary, the overlay plot,
 # and the hover/tables perfectly consistent -- the image agrees with the table.
 
-# Return the LDIR<->Raman acceptance gate (um) for a run. Read from the run
-# manifest's config snapshot; falls back to the pipeline default (20 um) for
-# runs whose manifest predates the gate being recorded.
+# Return the LDIR<->Raman acceptance gate (um) for a run: the gate the run
+# used (07_diagnostics/chance_pairs.csv), else the configured one in the run
+# manifest's config snapshot, else the pipeline default (20 um).
 ldir_acceptance_gate <- function(run_dir) {
   default_gate <- 20    # make_config() match_dist_threshold_ldir_um
   if (is.null(run_dir) || !nzchar(run_dir)) return(default_gate)
+  # The gate the run matched LDIR <-> Raman with: since the per-run gate
+  # (match_gate_from_sigma, 10-50 um) it is not the configured value but the
+  # one recorded in 07_diagnostics/chance_pairs.csv. Re-gating with the
+  # configured 20 um would drop pairs the pipeline made and scored.
+  ch_path <- file.path(run_dir, "07_diagnostics", "chance_pairs.csv")
+  if (file.exists(ch_path)) {
+    ch <- tryCatch(utils::read.csv(ch_path, stringsAsFactors = FALSE), error = function(e) NULL)
+    g <- suppressWarnings(as.numeric(ch$gate_um[ch$pair %in% "ldir_raman"]))
+    g <- g[is.finite(g) & g > 0]
+    if (length(g)) return(g[1])
+  }
   man <- tryCatch(load_run_manifest(run_dir), error = function(e) NULL)
   cs  <- if (!is.null(man)) man$config_snapshot else NULL
   g <- NULL

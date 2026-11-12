@@ -14,6 +14,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - M-02: a run in which every particle of one instrument is below its quality
   cutoff (or no particle is left to match) no longer stops in the matcher
   ("no points in query!"); the pair is written with 0 matches.
+- M-03: the viewer and the report classify LDIR-Raman pairs with the gate the
+  run used (`07_diagnostics/chance_pairs.csv`) instead of the configured
+  20 um; a run whose fitted gate was wider no longer loses pairs in the
+  overlay, particle groups and concordance tables, and the overlay summary
+  names the right gate.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

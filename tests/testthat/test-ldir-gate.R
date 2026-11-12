@@ -115,6 +115,26 @@ test_that("ldir_acceptance_gate falls back to the 20 um default when unrecorded"
   expect_equal(env$ldir_acceptance_gate("dummy"), 20)
 })
 
+# AUDIT M-03: the pipeline's LDIR gate is fitted per run (3 sigma, 10-50 um)
+# and recorded in chance_pairs.csv; the viewer re-gated with the configured
+# 20 um and would drop a pair the run made at e.g. 20.8 um.
+test_that("ldir_acceptance_gate uses the gate the run recorded in chance_pairs.csv", {
+  env <- .load_global_helpers()
+  env$load_run_manifest <- function(run_dir)
+    list(config_snapshot = list(match_dist_threshold_ldir_um = 20))
+  run <- withr::local_tempdir()
+  expect_equal(env$ldir_acceptance_gate(run), 20)           # no file: the configured gate
+  dir.create(file.path(run, "07_diagnostics"))
+  utils::write.csv(data.frame(pair = c("ftir_perkin_raman", "ldir_raman"), gate_um = c(50, 21.2)),
+                   file.path(run, "07_diagnostics", "chance_pairs.csv"), row.names = FALSE)
+  expect_equal(env$ldir_acceptance_gate(run), 21.2)
+  m <- .synthetic_ldir_match(c(20.8, 25))
+  m$ldir_major_um <- c(30, 30)
+  data <- env$annotate_ldir_gate(list(ldir_raman_matched = m), run)
+  expect_equal(data$ldir_raman_matched$within_gate, c(TRUE, FALSE))
+  expect_equal(data$ldir_match_gate_um, 21.2)
+})
+
 test_that("large LDIR particles keep the matcher's widened gate in the viewer", {
   env <- .load_global_helpers()
   # Dataset A: a 428 um particle matched at 58 um (gate 0.15 x 428 = 64 um)

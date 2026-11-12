@@ -5076,7 +5076,7 @@ server <- function(input, output, session) {
                  else 0
     gate      <- gd$ldir_match_gate_um
     ldir_lbl  <- if (!is.null(gate) && is.finite(gate))
-                   paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched (\u2264", gate, "\u00b5m)")
+                   paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched (\u2264", round(gate, 1), "\u00b5m)")
                  else
                    paste0(n_ldir_m, "/", n_ldir, " LDIR\u2194Raman matched")
     # Cross-instrument (non-Raman) pair counts \u2014 only shown when present.
