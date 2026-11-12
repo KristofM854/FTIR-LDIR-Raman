@@ -31,6 +31,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   `cairo_pdf` (as the report), so dashes and "µ" in plot titles are no longer
   replaced by dots outside a UTF-8 locale; the device is closed when a plot
   fails.
+- L-02: README: the viewer's tab list (FTIR (Bruker), Summary, Run Info,
+  Multi-Run), the output table (`alignment_summary.csv`, `partner_status.csv`,
+  `supporting_files.csv`, `ldir_outlines.csv`, `debug/`) and the module list
+  follow the current code.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

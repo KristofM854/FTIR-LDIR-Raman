@@ -170,6 +170,15 @@ R/
   09_diagnostics.R              # Overlay plots, histograms, confusion matrix
   10_export.R                   # CSV/PDF/TXT export
   load.R                        # load_pipeline(): packages + modules
+  particle_contract.R, 01_readers.R are listed above; further modules:
+  align_helpers.R               # Pose search primitives, anchors, chance of a random partner, pose significance
+  rate_intervals.R              # Wilson intervals
+  detection_rates.R             # Detection rates by size, partner status
+  ldir_sam.R                    # LDIR particle outlines from the Clarity project file (.sam)
+  ftir_image_placement.R        # FTIR image placement, image spots
+  ftir_segments.R               # Segmented PerkinElmer exports (temporary)
+  10_alignment_diagnostics.R    # LDIR alignment residuals and audit
+  reproducibility.R, precision_study.R   # Multi-run tools (tools/*.R)
   ldir_join_check.R             # LDIR image join checked against Raman
   measure_raman_placement.R     # Raman image placement (WITec file, auto-calibration)
   align_and_match.R             # Reference frame (Raman, else FTIR); align + match + agreement per pair; triplets
@@ -306,13 +315,16 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `00_manifest/manifest.json` | Run ID, git commit, input files with MD5, image assets, stage |
 | `00_manifest/config_full.json`, `session_info.txt` | Every parameter as run; R and package versions |
 | `00_manifest/images.json` | Placement of every image (pixel size, origin, extent, how it was obtained) |
+| `00_manifest/supporting_files.csv` | Side files the run used (LDIR analyzed image, `.sam`, coordinate swaps, placement files) with their MD5 |
 | `01_ingested/<instrument>_ingested.csv` | Canonical particle table per instrument, as read |
-| `02_joined/ldir_joined_raw.csv`, `ldir_image_extracted.csv`, `ldir_coord_quality.csv` | LDIR: image blobs, the joined table, per-particle join cost |
+| `02_joined/ldir_joined_raw.csv`, `ldir_image_extracted.csv`, `ldir_coord_quality.csv`, `ldir_outlines.csv` | LDIR: image blobs, the joined table, per-particle join cost; particle outlines when the run had a `.sam` file |
 | `03_prefiltered/<instrument>_prefiltered.csv` | After the coordinate / size / quality prefilter |
 | `04_alignment/transform_params_<pair>.txt` | Transform into the shared frame (scale, rotation, translation, 3×3 matrix, ICP) |
 | `04_alignment/aligned_<instrument>.csv` | Every particle of the instrument in the shared frame (`x_aligned`, `y_aligned`) |
+| `04_alignment/alignment_summary.csv` | One row per aligned instrument: method, scale, rotation, mirror, residual, pose p-value, whether the pose is determined |
 | `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns and the distance |
 | `05_matches/unmatched_<a>_vs_<b>.csv` | Particles without a partner |
+| `05_matches/partner_status.csv` | For every particle (>= the size limit, any quality) and every other instrument: matched, partner below its cutoff, this particle below its cutoff, both below, partner paired elsewhere, nothing found, outside the partner's area |
 | `05_matches/triplets_3way.csv`, `composite_matches.csv` | Three-way matches; 1:many FTIR→Raman fragments |
 | `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored pair: tier, exact polymers, families, LDIR join warning |
 | `06_agreement/agreement_by_material_<pair>.csv`, `agreement_by_category.csv`, `agreement_summary.csv` | Counts and rates per material / category |
@@ -322,6 +334,7 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `07_diagnostics/detection_rates.csv` | Per pair and direction, by size class, with 95% intervals: share of one instrument's particles the other *identified* (paired with a particle passing its quality cutoff) and *detected* (any particle within the gate, chance-corrected) |
 | `07_diagnostics/plots/` | Overlays, confusion matrices, distance histogram, ICP convergence, residuals; `all_diagnostics.pdf` |
 | `inputs/` | The run's images (copied; downsized above `raman_image_max_px`), previews |
+| `debug/` | LDIR alignment diagnostics written by every LDIR run (residuals, overlay, transform audit incl. the LDIR normalisation); more with `debug = TRUE` |
 | `particle_report.pdf`, `particle_report.html` | Report (same pages as the viewer's) |
 
 ## Shiny viewer
@@ -332,10 +345,13 @@ shiny::runApp("shiny_app/")
 ```
 
 The viewer includes:
-- **FTIR tab**: Native coordinate view with chemical absorption image overlay
+- **FTIR (PerkinElmer) and FTIR (Bruker) tabs**: Native coordinate view with the instrument's image
 - **Raman tab**: Native coordinate view
-- **LDIR tab**: Native coordinate view with raw / processed / extracted-points image layers
+- **LDIR tab**: Native coordinate view with raw / processed / extracted-points image layers (and the particle outlines when the run had a `.sam` file)
 - **Overlay tab**: All instruments in the shared coordinate frame, with layers for individual instruments, matched pairs, and triple matches (gold rings). The Raman image is the background when the run has Raman; runs without Raman have no overlay background yet
+- **Summary tab**: alignment check per instrument; what each instrument found (materials, sizes); how the instruments agree (pair matrix, matching quality, why particles are not matched, particle groups, material concordance, detection rates by size); the PDF report download
+- **Run Info tab**: the run's manifest (input files, parameters) and the supporting files it looked for and used
+- **Multi-Run tab**: particles linked between replicate runs of one instrument (below)
 - **Precision tab**: results of a precision study (below)
 
 ### Precision study (repeatability and reproducibility)
