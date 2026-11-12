@@ -1071,6 +1071,16 @@ build_instrument_dfs <- function(data) {
     result[[inst]]$p_true <- ifelse(d$match_status == "matched", best, NA_real_)
   }
 
+  # One row per particle: a particle with an additional pair (two particles
+  # of one instrument on one of another) appears twice in its match table.
+  # The primary pair comes first in the table and is the row kept.
+  for (inst in names(result)) {
+    d <- result[[inst]]
+    if (is.null(d) || nrow(d) == 0 || !"particle_id" %in% names(d)) next
+    dup <- duplicated(as.character(d$particle_id))
+    if (any(dup)) result[[inst]] <- d[!dup, , drop = FALSE]
+  }
+
   # Above / below the instrument's quality cutoff (the run's settings): the
   # pipeline matches only particles above it
   cut <- quality_cutoffs(tryCatch(load_run_manifest(data$run_dir)$config_snapshot,

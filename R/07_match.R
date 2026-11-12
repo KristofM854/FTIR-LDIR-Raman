@@ -305,6 +305,9 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   # (<= match_extent_max_chance, Poisson at the density of the comparable
   # particles of the other table). On a dense field the rule is thereby off.
   ext_pmax <- cfg_value(config, "match_extent_max_chance")
+  # ... and a stricter limit for additional pairs: a distinct particle that
+  # merely lies next to a large one would otherwise be attached to it
+  add_pmax <- cfg_value(config, "match_additional_max_chance")
   area_of <- function(x, y) { a <- chance_partner_rate(x, y, 1)$area_um2; if (is.finite(a) && a > 0) a else NA_real_ }
   ref_area <- area_of(ref_df$x_norm, ref_df$y_norm)
   src_area <- area_of(src_df$x_aligned, src_df$y_aligned)
@@ -463,7 +466,7 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   # (distance <= match_extent_factor x that particle's major axis, the size
   # ratio limit as for every pair) is attached to it as an additional pair.
   # Both particles stay separate rows; the primary pairs stay one-to-one.
-  if (ext_f > 0 && length(ei) > 0 && any(src_taken)) {
+  if (ext_f > 0 && add_pmax > 0 && length(ei) > 0 && any(src_taken)) {
     d_edge <- sqrt((src_x[ei] - ref_x[ej])^2 + (src_y[ei] - ref_y[ej])^2)
     add <- function(i, j, d, cost) {
       match_rows[[length(match_rows) + 1]] <<- data.frame(
@@ -475,7 +478,7 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
     for (i in which(!prim_src)) {
       e <- which(ei == i & prim_ref[ej] & d_edge <= ext_f * ref_len[ej])
       e <- e[vapply(e, function(q) ext_chance(ref_fer[ej[q]], src_fer, src_area,
-                                              ext_f * ref_len[ej[q]], max_ratio) <= ext_pmax,
+                                              ext_f * ref_len[ej[q]], max_ratio) <= add_pmax,
                     logical(1))]
       if (!length(e)) next
       e <- e[which.min(ec[e])]
@@ -485,7 +488,7 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
     for (j in which(!prim_ref)) {
       e <- which(ej == j & prim_src[ei] & d_edge <= ext_f * src_len[ei])
       e <- e[vapply(e, function(q) ext_chance(src_fer[ei[q]], ref_fer, ref_area,
-                                              ext_f * src_len[ei[q]], max_ratio) <= ext_pmax,
+                                              ext_f * src_len[ei[q]], max_ratio) <= add_pmax,
                     logical(1))]
       if (!length(e)) next
       e <- e[which.min(ec[e])]

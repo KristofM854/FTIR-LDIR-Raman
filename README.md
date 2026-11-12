@@ -249,8 +249,9 @@ the other's extent (distance ≤ 0.5 × the larger major axis,
 several: a particle left without a partner whose centre lies within the extent
 of an already paired particle is attached to it as an *additional* pair. Both
 rules apply only where an unrelated particle of comparable size within that
-radius is unlikely (≤ 20%, `match_extent_max_chance`), so they switch
-themselves off on a dense field. The match tables say how each pair was made
+radius is unlikely (≤ 20%, `match_extent_max_chance`; ≤ 5% for an additional
+pair, `match_additional_max_chance`), so they switch themselves off on a
+dense field. The match tables say how each pair was made
 (`match_rule`: `distance` / `extent`; `pair_type`: `primary` / `additional`).
 The primary pairs are one-to-one; agreement and triplets use only those, the
 detection rates count every paired particle as found.

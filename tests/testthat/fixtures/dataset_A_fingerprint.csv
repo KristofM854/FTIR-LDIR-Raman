@@ -112,11 +112,11 @@
 "detection","ftir_bruker|raman|all|50-100:n_detected",4
 "detection","ftir_bruker|raman|all|50-100:n_found",4
 "detection","ftir_bruker|raman|all|>200:n_base",2
-"detection","ftir_bruker|raman|all|>200:n_detected",2
-"detection","ftir_bruker|raman|all|>200:n_found",2
+"detection","ftir_bruker|raman|all|>200:n_detected",1
+"detection","ftir_bruker|raman|all|>200:n_found",1
 "detection","ftir_bruker|raman|all|all sizes:n_base",24
-"detection","ftir_bruker|raman|all|all sizes:n_detected",22
-"detection","ftir_bruker|raman|all|all sizes:n_found",21
+"detection","ftir_bruker|raman|all|all sizes:n_detected",21
+"detection","ftir_bruker|raman|all|all sizes:n_found",20
 "detection","ftir_bruker|raman|plastics|100-200:n_base",15
 "detection","ftir_bruker|raman|plastics|100-200:n_detected",14
 "detection","ftir_bruker|raman|plastics|100-200:n_found",14
@@ -127,11 +127,11 @@
 "detection","ftir_bruker|raman|plastics|50-100:n_detected",4
 "detection","ftir_bruker|raman|plastics|50-100:n_found",4
 "detection","ftir_bruker|raman|plastics|>200:n_base",2
-"detection","ftir_bruker|raman|plastics|>200:n_detected",2
-"detection","ftir_bruker|raman|plastics|>200:n_found",2
+"detection","ftir_bruker|raman|plastics|>200:n_detected",1
+"detection","ftir_bruker|raman|plastics|>200:n_found",1
 "detection","ftir_bruker|raman|plastics|all sizes:n_base",24
-"detection","ftir_bruker|raman|plastics|all sizes:n_detected",22
-"detection","ftir_bruker|raman|plastics|all sizes:n_found",21
+"detection","ftir_bruker|raman|plastics|all sizes:n_detected",21
+"detection","ftir_bruker|raman|plastics|all sizes:n_found",20
 "detection","ftir_perkin|ftir_bruker|all|100-200:n_base",11
 "detection","ftir_perkin|ftir_bruker|all|100-200:n_detected",11
 "detection","ftir_perkin|ftir_bruker|all|100-200:n_found",6
@@ -405,13 +405,13 @@
 "detection_pct","ftir_bruker|raman|all|100-200:rate_true_pct",92.3
 "detection_pct","ftir_bruker|raman|all|20-50:rate_true_pct",26.7
 "detection_pct","ftir_bruker|raman|all|50-100:rate_true_pct",99.9
-"detection_pct","ftir_bruker|raman|all|>200:rate_true_pct",84.3
-"detection_pct","ftir_bruker|raman|all|all sizes:rate_true_pct",84.7
+"detection_pct","ftir_bruker|raman|all|>200:rate_true_pct",49.3
+"detection_pct","ftir_bruker|raman|all|all sizes:rate_true_pct",81.8
 "detection_pct","ftir_bruker|raman|plastics|100-200:rate_true_pct",92.3
 "detection_pct","ftir_bruker|raman|plastics|20-50:rate_true_pct",26.7
 "detection_pct","ftir_bruker|raman|plastics|50-100:rate_true_pct",99.9
-"detection_pct","ftir_bruker|raman|plastics|>200:rate_true_pct",84.3
-"detection_pct","ftir_bruker|raman|plastics|all sizes:rate_true_pct",84.7
+"detection_pct","ftir_bruker|raman|plastics|>200:rate_true_pct",49.3
+"detection_pct","ftir_bruker|raman|plastics|all sizes:rate_true_pct",81.8
 "detection_pct","ftir_perkin|ftir_bruker|all|20-50:rate_true_pct",0
 "detection_pct","ftir_perkin|ftir_bruker|plastics|20-50:rate_true_pct",0
 "detection_pct","ftir_perkin|ldir|all|100-200:rate_true_pct",90
@@ -568,7 +568,7 @@
 "ldir_position","A9:y_um",1582.49764540733
 "n_additional","matched_ftir_bruker_ftir_perkin.csv",0
 "n_additional","matched_ftir_bruker_ldir.csv",0
-"n_additional","matched_ftir_bruker_raman.csv",1
+"n_additional","matched_ftir_bruker_raman.csv",0
 "n_additional","matched_ftir_perkin_raman.csv",0
 "n_additional","matched_ldir_ftir_perkin.csv",0
 "n_additional","matched_ldir_raman.csv",0
@@ -582,13 +582,13 @@
 "n_rows","03_prefiltered/raman_prefiltered.csv",43
 "n_rows","05_matches/matched_ftir_bruker_ftir_perkin.csv",17
 "n_rows","05_matches/matched_ftir_bruker_ldir.csv",17
-"n_rows","05_matches/matched_ftir_bruker_raman.csv",21
+"n_rows","05_matches/matched_ftir_bruker_raman.csv",20
 "n_rows","05_matches/matched_ftir_perkin_raman.csv",33
 "n_rows","05_matches/matched_ldir_ftir_perkin.csv",31
 "n_rows","05_matches/matched_ldir_raman.csv",31
 "n_rows","05_matches/partner_status.csv",456
 "n_rows","05_matches/triplets_3way.csv",31
-"n_rows","05_matches/unmatched_ftir_bruker_vs_raman.csv",4
+"n_rows","05_matches/unmatched_ftir_bruker_vs_raman.csv",5
 "n_rows","05_matches/unmatched_ldir_vs_raman.csv",1
 "n_rows","05_matches/unmatched_raman_vs_ftir_perkin.csv",5
 "p_true","matched_ftir_bruker_raman.csv|MP_0|93",0.9994
@@ -598,7 +598,6 @@
 "p_true","matched_ftir_bruker_raman.csv|MP_20|8",0.8012
 "p_true","matched_ftir_bruker_raman.csv|MP_21|57",0.986
 "p_true","matched_ftir_bruker_raman.csv|MP_24|31",0.9994
-"p_true","matched_ftir_bruker_raman.csv|MP_26|1",0.6999
 "p_true","matched_ftir_bruker_raman.csv|MP_27|1",0.9993
 "p_true","matched_ftir_bruker_raman.csv|MP_28|92",0.9983
 "p_true","matched_ftir_bruker_raman.csv|MP_29|72",0.9986
@@ -748,7 +747,6 @@
 "pair","matched_ftir_bruker_raman.csv|MP_20|8",43.3250122450373
 "pair","matched_ftir_bruker_raman.csv|MP_21|57",56.8131498826861
 "pair","matched_ftir_bruker_raman.csv|MP_24|31",6.1975018341371
-"pair","matched_ftir_bruker_raman.csv|MP_26|1",166.168976601595
 "pair","matched_ftir_bruker_raman.csv|MP_27|1",10.7209048948299
 "pair","matched_ftir_bruker_raman.csv|MP_28|92",19.1266168758295
 "pair","matched_ftir_bruker_raman.csv|MP_29|72",17.4422360892492
@@ -866,8 +864,8 @@
 "partner_status","ftir_bruker|ldir|outside_area",2
 "partner_status","ftir_bruker|ldir|partner_below_cutoff",1
 "partner_status","ftir_bruker|ldir|this_below_cutoff",8
-"partner_status","ftir_bruker|raman|matched",21
-"partner_status","ftir_bruker|raman|not_found",9
+"partner_status","ftir_bruker|raman|matched",20
+"partner_status","ftir_bruker|raman|not_found",10
 "partner_status","ftir_bruker|raman|outside_area",3
 "partner_status","ftir_bruker|raman|partner_not_matchable",1
 "partner_status","ftir_bruker|raman|this_below_cutoff",7

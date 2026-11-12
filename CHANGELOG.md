@@ -72,9 +72,12 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   fields. New columns `pair_type` and `match_rule` in the match tables; new
   config `match_extent_factor` (0 = off), `match_extent_max_size_ratio`,
   `match_extent_max_chance`. Agreement and triplets use the primary pairs.
-  Extent pairs are left out of the TPS distortion check and the LDIR TPS
-  control points. Dataset A: pairs with Raman 31 / 18 / 28 -> 33 / 21 / 31
-  (FTIR PerkinElmer, FTIR Bruker incl. 1 additional, LDIR), triplets 28 -> 31,
+  Additional pairs need a chance <= 5% (`match_additional_max_chance`): at 20%
+  the synthetic run with known pairs gained a wrong one. The viewer keeps one
+  row per particle. Extent pairs are left out of the TPS distortion check and
+  the LDIR TPS control points. Dataset A: pairs with Raman 31 / 18 / 28 ->
+  33 / 20 / 31 (FTIR PerkinElmer, FTIR Bruker, LDIR; no additional pair at
+  the 5% limit), triplets 28 -> 31,
   FTIR (Bruker) with FTIR (PerkinElmer) 16 -> 17, with LDIR 14 -> 17; detection
   of particles > 200 um by Raman 85% / 70% -> 100% / 100% (FTIR PerkinElmer /
   LDIR particles). Regression fingerprint regenerated.

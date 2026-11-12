@@ -655,6 +655,11 @@ make_config <- function(ftir_path  = NULL,
     match_extent_factor         = 0.5,
     match_extent_max_size_ratio = 2,
     match_extent_max_chance     = 0.2,
+    # Additional pairs need a lower chance: a particle that only lies next to
+    # a large one (not a part of it) would otherwise be attached to it. At
+    # 0.2 a synthetic run with known pairs gained a wrong additional pair per
+    # ~100 particles. 0 = no additional pairs.
+    match_additional_max_chance = 0.05,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",
 
