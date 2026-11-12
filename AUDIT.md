@@ -658,3 +658,81 @@ Can wait:
 - Statistical review, updated: the chance-corrected identified rate is now consistent
   with `chance_pairs.csv` and can be quoted; `p_true` still assumes a normal error for
   the distance term, so it remains conservative for individual distant pairs.
+
+## Follow-up 2: decisions on the open findings
+
+All decisions were the author's (answers to 20 questions); the commits are on
+`audit/fable-fixes`. Entries marked **(results)** in the CHANGELOG change numbers.
+
+| ID | Decision | Commit | Changes results |
+|---|---|---|---|
+| M-12 | Extent rule (one centre inside the other particle) and additional pairs (several particles of one instrument on one of another); dataset A may change | `327242d` | yes |
+| M-08 | New status `partner_not_matchable` | `41a11e2`, `e998b66` | partner status only |
+| M-09 | Native cellulose natural, "Regenerated cellulose" semi-synthetic; natural polyamide is Protein | `843a2de` | yes (field samples) |
+| M-15 | `opus_ftir_bruker_image = NULL`; sample names stay | `8dd0281` | runs that relied on the default |
+| M-14 | Python package versions in `session_info.txt` | `d5a6b3e` | no |
+| M-07 | Mirrored LDIR pose accepted and flagged (WARN) | `d5b49ea` | no |
+| M-11 | WARN for a join without `.sam`; join check unchanged | `d5b49ea` | no |
+| M-10 | One search-corrected `pose_p`; verdict from `determined` | `3074fe3` | `pose_p` values |
+| M-13 | Overlay counts unmatched like the log | `8673f90` | viewer only |
+| L-04 | `uploaded_data` removed | `5cb06d9` | viewer only |
+| L-05 | Full LDIR transform file; one method name | `e3e27cb` | no |
+| L-09 | Manifest paths relative, no user name | `8c79e57` | no |
+| M-16 | Fingerprint extended to 918 values | `87843d4` | no |
+| L-06, L-07, L-08, L-11 | Fixed | `8008eee`, `4f5fc41`, `31c6f84`, `7a7383e` | no on dataset A |
+| L-10 | Deferred by the author (ORCID, release date) | | |
+| H-04 | The author removes the file from the history | | |
+
+### M-12 in detail
+
+- **Rule.** A candidate outside the distance gate is accepted when the distance is at
+  most 0.5 × the larger major axis (one centre lies inside the other particle), the
+  Feret max agree within a factor 2, and the Poisson chance of an unrelated particle of
+  comparable size within that radius is at most 20%. The assignment stays one-to-one.
+- **Additional pairs.** After the assignment, a particle without a partner whose centre
+  lies within the extent of an already paired particle (same chance limit, size ratio
+  ≤ 5) is attached to it. Both particles stay separate rows; `pair_type` is
+  `additional`. Agreement and triplets use the primary pairs; detection rates and
+  partner status count every paired particle as found.
+- **The chance limit was added after a test.** Without it, two unrelated random clouds
+  of 5–150 particles gained up to 61 pairs from the rule. With it, a dense synthetic
+  field of 120 + 120 large particles gains none.
+- **Dataset A.**
+
+  | | before | after |
+  |---|---|---|
+  | FTIR (PE) – Raman pairs | 31 | 33 (`MP_10`–`1` at 112 µm, `MP_1`–`80` at 81 µm) |
+  | LDIR – Raman pairs | 28 | 31 (`A1`–`1`, `A4`–`80`, `A13`–`97`) |
+  | FTIR (Bruker) – Raman pairs | 18 | 21 (two by extent; one additional: `MP_26` on Raman `1`, which already has `MP_27`) |
+  | Triplets | 28 | 31, all with full agreement |
+  | FTIR (PE) particles > 200 µm found by Raman | 11 of 13 | 13 of 13 |
+  | LDIR particles > 200 µm found by Raman | 7 of 10 | 10 of 10 |
+  | FTIR (PE) particles found by Raman, all sizes | 93.9% | 100% |
+  | Raman particles found by LDIR, all sizes | 77.8% | 86.1% |
+
+  These are exactly the particles traced by hand in section 2. `p_true` of the new
+  pairs is 0.98–0.99 (0.70 for the additional pair).
+- **Limits.** The extent is approximated by half the major axis around the centre, not
+  the real outline. With the `.sam` outlines an LDIR pair could be tested by
+  point-in-outline instead; that needs a real `.sam` file to build and test against.
+  The greedy matcher (`match_method = "greedy"`) does not use the rule.
+  `docs/validation.md` still quotes the dataset A pair counts from before this change in
+  places; re-run `examples/validate_example_A.R` to refresh it.
+
+### Notes on the other items
+
+- **M-10.** The landmark acceptance still uses the uncorrected p < 1e-8. With very many
+  landmarks on both sides the corrected p of an accepted pose can exceed 0.01; the
+  verdict then still follows `determined`.
+- **L-09.** A file chosen with the file picker outside the working directory keeps its
+  full path in the manifest: the multi-run tools read raw files through it.
+- **L-11.** An escaped `"\ufeff"` in `sub()` fails in a C locale ("input string 1 is
+  invalid"); the BOM is matched by bytes instead.
+- Three commits carried a test whose fixture was wrong and were followed by a correcting
+  commit (`c952773` → `ef36576`, `41a11e2` → `e998b66`); history was not amended.
+- **Not verified in a browser:** the viewer after L-04, M-08, M-13 and L-09. Checked
+  headlessly: a dataset A run and a moved copy of it load, the overlay summary reads
+  "33 FTIR↔Raman pairs | 0 FTIR unmatched | 5 Raman unmatched | 21 Bruker↔Raman pairs |
+  4 Bruker unmatched | 31/40 LDIR↔Raman matched", which matches the log.
+
+Full suite on the branch head (`7a7383e`): result added in the next commit.
