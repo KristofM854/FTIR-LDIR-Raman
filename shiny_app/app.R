@@ -802,8 +802,7 @@ ui <- fluidPage(
       ) # end div#runinfo_panel
     ),
 
-    # Tab 7: Data Upload (fallback)
-    # Tab 8: Multi-Run reproducibility view
+    # Multi-Run reproducibility view
     tabPanel("Multi-Run",
       div(id = "multirun_panel",
       sidebarLayout(
@@ -1045,10 +1044,6 @@ server <- function(input, output, session) {
                       selected = all_runs_available[1])
   }
 
-  # Always NULL since the Upload Data tab was removed; kept as the "loaded
-  # from a run folder" switch the caches and captions key on
-  uploaded_data <- reactiveVal(NULL)
-
   # Reactive value: currently selected run directory (responds to selector + reload)
   selected_run_dir <- reactiveVal(
     if (length(all_runs_available) > 0) all_runs_available[[1]] else NULL
@@ -1059,7 +1054,6 @@ server <- function(input, output, session) {
     if (!is.null(chosen) && nzchar(chosen) && dir.exists(chosen)) {
       message("[Particle Viewer] Switching to run: ", chosen)
       selected_run_dir(chosen)
-      uploaded_data(NULL)   # clear any uploaded data when selecting a run
     }
   })
 
@@ -1068,15 +1062,10 @@ server <- function(input, output, session) {
     chosen <- input$run_selector
     if (!is.null(chosen) && nzchar(chosen) && dir.exists(chosen)) {
       selected_run_dir(chosen)
-      uploaded_data(NULL)
     }
   }, ignoreInit = TRUE)
 
   run_data <- reactive({
-    # User uploads take priority
-    ud <- uploaded_data()
-    if (!is.null(ud)) return(ud)
-
     # Use selected run directory
     run_dir <- selected_run_dir()
     if (is.null(run_dir) || !dir.exists(run_dir)) {
@@ -1088,12 +1077,10 @@ server <- function(input, output, session) {
 
     run_info_sel <- list(dir = run_dir, format = "subdir")
     load_run_data(run_info_sel)
-  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
+  }) |> bindCache(selected_run_dir())
 
   # Active manifest (changes with run selection)
   active_manifest <- reactive({
-    ud <- uploaded_data()
-    if (!is.null(ud)) return(list(is_missing = TRUE, run_id = "uploaded"))
     run_dir <- selected_run_dir()
     if (is.null(run_dir)) return(list(is_missing = TRUE))
     load_run_manifest(run_dir)
@@ -1626,8 +1613,7 @@ server <- function(input, output, session) {
     m        <- active_manifest()
     scope    <- if (summary_filtered()) "each tab's active filters"
                 else "all particles in the run"
-    run_lbl  <- if (!is.null(uploaded_data())) "uploaded data"
-                else basename(selected_run_dir() %||% "unknown")
+    run_lbl  <- basename(selected_run_dir() %||% "unknown")
     analyst  <- trimws(input$report_analyst_name %||% "")
     run_id   <- m$run_id %||% "unknown"
     run_id_line <- if (nzchar(analyst))
@@ -1653,12 +1639,8 @@ server <- function(input, output, session) {
         paste0("  LDIR              : ", n_of("ldir")),
         "",
         # Source files for this run, from the manifest. Same helper the
-        # pipeline report uses, so both list them identically. An uploaded
-        # session has no run manifest, so this reports that rather than
-        # inventing filenames.
-        if (!is.null(uploaded_data()))
-          c("Input files:", "  (data uploaded in the viewer; no run manifest)")
-        else report_input_file_lines(m),
+        # pipeline report uses, so both list them identically.
+        report_input_file_lines(m),
         "",
         "Every figure reproduces the corresponding viewer tab exactly as it was",
         "displayed when this report was generated. Each figure caption records",
@@ -1849,8 +1831,7 @@ server <- function(input, output, session) {
 
   output$download_report <- downloadHandler(
     filename = function() {
-      run <- if (!is.null(uploaded_data())) "uploaded"
-             else basename(selected_run_dir() %||% "run")
+      run <- basename(selected_run_dir() %||% "run")
       paste0("particle_report_", run, "_",
              format(Sys.time(), "%Y%m%d_%H%M%S"),
              if (.can_zip()) ".zip" else ".html")
@@ -1858,8 +1839,7 @@ server <- function(input, output, session) {
     contentType = if (.can_zip()) "application/zip" else "text/html",
     content = function(file) {
       stem <- isolate({
-        run <- if (!is.null(uploaded_data())) "uploaded"
-               else basename(selected_run_dir() %||% "run")
+        run <- basename(selected_run_dir() %||% "run")
         paste0("particle_report_", run, "_",
                format(Sys.time(), "%Y%m%d_%H%M%S"))
       })
@@ -2076,7 +2056,7 @@ server <- function(input, output, session) {
     if (!has_data()) return(list(ftir = NULL, raman = NULL, ldir = NULL,
                                  ftir_bruker = NULL))
     build_instrument_dfs(run_data())
-  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()))
+  }) |> bindCache(selected_run_dir())
 
   # Per-instrument full-data reactives (avoid repeated instrument_dfs()$X calls)
   ftir_df_full        <- reactive({ instrument_dfs()$ftir })
@@ -2277,7 +2257,7 @@ server <- function(input, output, session) {
   # to their distance from a fixed point.)
   .ftir_stored_registration <- function(key) {
     run <- selected_run_dir()
-    if (is.null(run) || !is.null(uploaded_data())) return(NULL)
+    if (is.null(run)) return(NULL)
     read_ftir_image_placement(file.path(run, FTIR_PLACEMENT_FILES[[key]]))
   }
   .place_native_ftir <- function(raw, d, key, prefix) {
@@ -2329,7 +2309,7 @@ server <- function(input, output, session) {
                    "particle areas imply ~%.2f µm/px (%.1f× off). ",
                    "Check the per-dataset raman_image_* values in 00_config.R."),
             placed, est, if (ratio > 1) ratio else 1 / ratio)
-  }) |> bindCache(selected_run_dir(), is.null(uploaded_data()),
+  }) |> bindCache(selected_run_dir(),
                   img_key(raman_native_image_info()))
 
   raman_native_image_info <- reactive({
@@ -3635,7 +3615,7 @@ server <- function(input, output, session) {
     # serves a stale plot and stops the render invalidating. ftir_filtered()
     # transitively captures the FTIR quality/size/material filters; run-scoped
     # data (df_full, manifest) and image pixels are captured by selected_run_dir().
-    selected_run_dir(), is.null(uploaded_data()),
+    selected_run_dir(),
     ftir_filtered(), input$ftir_coord_mode,
     input$ftir_view_rotation, input$ftir_view_flip_y,
     input$ftir_highlight_particle, single_highlight_ids$ftir,
@@ -3738,7 +3718,7 @@ server <- function(input, output, session) {
   })
 
   output$raman_plot <- renderPlot(raman_plot_obj()) |> bindCache(
-    selected_run_dir(), is.null(uploaded_data()),
+    selected_run_dir(),
     raman_filtered(), raman_scale_warning(),
     input$raman_highlight_particle, single_highlight_ids$raman,
     input$raman_show_all_labels, input$raman_label_size, zoom$raman,
@@ -4116,7 +4096,7 @@ server <- function(input, output, session) {
     # ldir_filtered() captures the LDIR filters; ldir_view_tf() and
     # ldir_extracted_pts() are reactives whose values fold in their own inputs;
     # the three image sources are folded in cheaply via img_key().
-    selected_run_dir(), is.null(uploaded_data()),
+    selected_run_dir(),
     ldir_filtered(), ldir_extracted_pts(), ldir_view_tf(),
     input$ldir_bg_image, input$ldir_coord_mode,
     input$ldir_show_outlines,
@@ -4245,7 +4225,7 @@ server <- function(input, output, session) {
   })
 
   output$ftir_bruker_plot <- renderPlot(ftir_bruker_plot_obj()) |> bindCache(
-    selected_run_dir(), is.null(uploaded_data()),
+    selected_run_dir(),
     ftir_bruker_filtered(), input$ftir_bruker_coord_mode,
     input$ftir_bruker_view_rotation, input$ftir_bruker_view_flip_y,
     input$ftir_bruker_highlight_particle, single_highlight_ids$ftir_bruker,
@@ -5036,7 +5016,7 @@ server <- function(input, output, session) {
     # the UNMATCHED points, and a slider move that drops only unmatched
     # particles leaves overlay_matched() byte-identical -- so keying on the
     # matched frames alone served a stale plot and the sliders looked dead.
-    selected_run_dir(), is.null(uploaded_data()),
+    selected_run_dir(),
     overlay_ftir_quality_d(), overlay_ftir_size_d(),
     overlay_raman_quality_d(), overlay_raman_size_d(),
     overlay_ldir_quality_d(), overlay_ldir_size_d(),

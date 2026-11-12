@@ -106,6 +106,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   viewer's verdict follows the pipeline's `determined`.
 - M-13: the overlay summary counts unmatched particles like the run log:
   only particles above their quality cutoff and the minimum size.
+- L-04: viewer: the always-empty `uploaded_data` state left from the removed
+  Upload Data tab is gone (cache keys, report captions, file names).
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
