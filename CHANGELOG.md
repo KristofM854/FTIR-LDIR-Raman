@@ -89,6 +89,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   occurring)" is Protein (was Natural): it agrees with wool / silk / protein
   and disagrees with PA. Changes the "plastics" counts and rates of field
   samples; dataset A is unchanged.
+- M-15: `opus_ftir_bruker_image` defaults to `NULL`; the values of the field
+  sample it was pre-filled with are kept as a commented example. A Bruker
+  image is registered on its particles unless the run sets its own OPUS
+  values.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

@@ -157,14 +157,15 @@ make_config <- function(ftir_path  = NULL,
     # for the image, block "Data Parameters AB/Multiple" for the map origin).
     # The image is then placed exactly. The values are checked against the
     # image (size_x_px / size_y_px) and the particles (90% must fall inside);
-    # values left from another scan are ignored with a warning. Set to NULL to
-    # use the registration instead. Pre-filled: Faanui SW1L R4, measured
-    # 2026-07-27.
-    opus_ftir_bruker_image = list(
-      pixel_size_x_um = 7.907902, pixel_size_y_um = 7.908996,  # Bitmap: PixelSizeX / Y
-      pos_x_px = 6110.180843, pos_y_px = 604.290875,          # Bitmap: Pos. X / Pos. Y
-      size_x_px = 2048, size_y_px = 1949,                     # Bitmap: Size X / Y
-      map_origin_x_um = 49564, map_origin_y_um = 6050.38),    # Data Parameters: Map Origin X / Y
+    # values left from another scan are ignored with a warning. NULL (default):
+    # the image is registered on its particles. Example (field sample Faanui
+    # SW1L R4, measured 2026-07-27):
+    #   opus_ftir_bruker_image = list(
+    #     pixel_size_x_um = 7.907902, pixel_size_y_um = 7.908996,  # Bitmap: PixelSizeX / Y
+    #     pos_x_px = 6110.180843, pos_y_px = 604.290875,          # Bitmap: Pos. X / Pos. Y
+    #     size_x_px = 2048, size_y_px = 1949,                     # Bitmap: Size X / Y
+    #     map_origin_x_um = 49564, map_origin_y_um = 6050.38)     # Data Parameters: Map Origin X / Y
+    opus_ftir_bruker_image = NULL,
     ftir_image_width_um    = NULL,
     ftir_image_height_um   = NULL,
     ftir_image_center_x_um = NULL,
