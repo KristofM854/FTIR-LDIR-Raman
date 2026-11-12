@@ -8,6 +8,15 @@ Python 3.13 with numpy 2.5.3 / scipy 1.18.1 / Pillow 12.3.0, C locale, no displa
 
 ## 1. Summary
 
+> **Update after the author's review.** H-01, H-02 and H-03 were implemented on
+> request (commits `44f5149`, `c7bef98`, `56ba751`; they change results and are marked
+> **(results)** in the CHANGELOG). The README now states the limits of the LDIR join
+> without a `.sam` file (`d09a467`). Both open questions (paraffin, tin(II) chloride)
+> stay as they are: unresolved. The sections below describe the state at the base
+> commit; "Follow-up" at the end gives the numbers after these changes. H-04 is not
+> done: the file is no longer in the tree, and removing it from the history means
+> rewriting the history of `main`.
+
 The pipeline is in good shape for an archive. The baseline test suite passes
 (1468 passed, 0 failed, 2 skipped for a missing package). Dataset A runs end to end,
 two runs give byte-identical tables, the transforms reproduce the aligned coordinates
@@ -144,9 +153,9 @@ Status "fixed" gives the commit on `audit/fable-fixes`.
 
 | ID | Sev. | Area | File:line (base) | Summary | Evidence | Status |
 |---|---|---|---|---|---|---|
-| H-01 | High | Material | `R/08b_material_map.R:682-693`, `:772-773` | A trailing bracket is dropped before the exact-polymer comparison, and Exact overrides the family: "Polyamide (naturally occurring)" = PA, "Polyethylene (chlorinated)" = PE | CONFIRMED | open |
-| H-02 | High | Alignment | `R/run_pipeline.R:643-644`, `R/ldir_stage.R:346-429` | LDIR Tier 2 pose has no chance test; recorded as determined with the failed landmark p | CONFIRMED | open |
-| H-03 | High | Statistics | `R/07_match.R:120-131`, `:206-229`; `R/detection_rates.R:110-118` | `p_true` and the "chance-corrected" identified rate count heavy-tailed true pairs as chance | CONFIRMED | open |
+| H-01 | High | Material | `R/08b_material_map.R:682-693`, `:772-773` | A trailing bracket is dropped before the exact-polymer comparison, and Exact overrides the family: "Polyamide (naturally occurring)" = PA, "Polyethylene (chlorinated)" = PE | CONFIRMED | fixed `44f5149` |
+| H-02 | High | Alignment | `R/run_pipeline.R:643-644`, `R/ldir_stage.R:346-429` | LDIR Tier 2 pose has no chance test; recorded as determined with the failed landmark p | CONFIRMED | fixed `c7bef98` |
+| H-03 | High | Statistics | `R/07_match.R:120-131`, `:206-229`; `R/detection_rates.R:110-118` | `p_true` and the "chance-corrected" identified rate count heavy-tailed true pairs as chance | CONFIRMED | fixed `56ba751` |
 | H-04 | High | Hygiene | git history `9dec7f6` | `processed_data_ftir_20260211_102404.xlsx` (150 particles, samples UW1M1–5) added and later deleted | CONFIRMED | open (report only) |
 | M-01 | Medium | Statistics | `R/detection_rates.R:105` | Run stops when `min_particle_size_um` < 20 and a particle is below 20 µm | CONFIRMED | fixed `4d920a2` |
 | M-02 | Medium | Matching | `R/07_match.R:276-277` | Run stops ("no points in query!") when all particles of an instrument are below its cutoff | CONFIRMED | fixed `c952773`, `ef36576` |
@@ -158,7 +167,7 @@ Status "fixed" gives the commit on `audit/fable-fixes`.
 | M-08 | Medium | Statistics | `R/detection_rates.R:192` | `paired_elsewhere` also labels partners that are paired with nothing (below the size limit, size ratio > 5) | CONFIRMED | open |
 | M-09 | Medium | Material | `R/08b_material_map.R:145-149`, `:233` | Every "Cellulos…" label is Semi-synthetic and so in the "plastics" group, including natural cellulose | CONFIRMED (classification); judgement | open |
 | M-10 | Medium | Statistics | `R/03b_landmark_align.R:205`, `R/align_helpers.R:225`, `shiny_app/global.R:4007` | `pose_p` holds two different quantities under one name and one verdict threshold | CONFIRMED | open |
-| M-11 | Medium | LDIR join | `R/ldir_join_check.R`, `examples/dataset_A/LDIR_coord_swaps.csv` | Join check blind to swaps among similar-sized particles; dataset A needs 10 manual rows | CONFIRMED | open |
+| M-11 | Medium | LDIR join | `R/ldir_join_check.R`, `examples/dataset_A/LDIR_coord_swaps.csv` | Join check blind to swaps among similar-sized particles; dataset A needs 10 manual rows | CONFIRMED | documented in the README `d09a467`; check itself open |
 | M-12 | Medium | Matching | `R/07_match.R:268-273` | Centroid-based gate fails for particles > 200 µm; lowers the rates of that class | CONFIRMED | open |
 | M-13 | Medium | Viewer | `shiny_app/app.R:5063-5065` | Overlay "unmatched" counts use all particles; the pipeline's use the matchable ones (12 vs 7 Raman, 24 vs 7 Bruker) | CONFIRMED | open |
 | M-14 | Medium | Provenance | `R/utils.R:925` | Python package versions not recorded in the run | CONFIRMED | open |
@@ -621,3 +630,31 @@ Can wait:
   the only skips are the two `writexl` tests. `c952773` was not run on its own: its new
   test had a broken fixture, corrected in `ef36576`. `eba49d8`, `389ec3a` and `3c3c218`
   change no code and are covered by the run of the next commit.
+
+## Follow-up: H-01 to H-03 implemented
+
+- **H-01** (`44f5149`). Only an abbreviation in a trailing bracket (upper case / digits,
+  "(PC)") is dropped from the exact-polymer name; Exact needs equal families.
+  "Polyamide (naturally occurring)" vs PA and "Polyethylene (chlorinated)" vs PE are now
+  *Disagree*; "Paraffin (PE)" vs PE is *Unresolved*. Not changed: natural polyamide
+  against Protein / Wool / Silk is still *Disagree* (family Natural vs Protein).
+- **H-02** (`c7bef98`). The LDIR Tier 2 pose is tested with `pose_significance()` after
+  ICP. The 12 unrelated particles are now `determined = FALSE`, `pose_p = 1` as LDIR as
+  well; nothing is scored or paired through them. Accepted landmark poses are unchanged.
+- **H-03** (`56ba751`). The share of true pairs in `p_true` comes from the reference
+  density; the fitted σ, the gates and the pairs are unchanged. Dataset A:
+
+  | Pair | Σ(1 − p_true) before → after | Chance estimate | Pairs with p_true ≥ 0.9 | Identified, chance-corrected (raw) |
+  |---|---|---|---|---|
+  | FTIR (PE) – Raman | 1.44 → 0.25 | 0.6 | 29 → 30 of 31 | 89.6% → 93.2% (93.9%) |
+  | FTIR (Bruker) – Raman | 3.03 → 0.35 | 0.5 | 14 → 16 of 18 | 62.4% → 73.6% (75.0%) |
+  | LDIR – Raman | 0.96 → 0.05 | 0.1 | 26 → 28 of 28 | 87.2% → 90.2% (90.3%) |
+
+  The three pairs still below 0.9 are `MP_8`–`97` (0.78) and the Bruker pairs `MP_20`–`8`
+  and `MP_4`–`42`: distant pairs of large or mis-sized particles (M-12).
+- Dataset A after the three changes: every pair, distance, transform and agreement tier
+  is identical to the baseline; only the `p_true` columns (match and agreement files) and
+  `n_found_true` / `rate_true_pct` in `detection_rates.csv` differ.
+- Statistical review, updated: the chance-corrected identified rate is now consistent
+  with `chance_pairs.csv` and can be quoted; `p_true` still assumes a normal error for
+  the distance term, so it remains conservative for individual distant pairs.
