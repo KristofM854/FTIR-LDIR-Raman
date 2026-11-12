@@ -117,6 +117,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   are recorded relative to the run folder (a run folder can be moved and still
   opens in the viewer) and input files under the working directory relative to
   it. A file picked from elsewhere keeps its full path.
+- M-16: the dataset A regression fingerprint also covers pair confidence,
+  chance pairs / gate / sigma, detection rates, partner-status counts, the
+  alignment verdict and pose p, and the LDIR join positions (918 values, was
+  183). A change to any of these now needs a deliberate fingerprint update.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

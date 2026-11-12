@@ -37,7 +37,11 @@ test_that("the example dataset reproduces the reference results", {
   key <- function(d) paste(d$kind, d$key)
   expect_setequal(key(got), key(ref))
   m <- merge(ref, got, by = c("kind", "key"), suffixes = c(".ref", ".got"))
-  tol <- c(n_rows = 0, agreement = 0, pair = 0.01, transform = 1e-3)
+  tol <- c(n_rows = 0, agreement = 0, pair = 0.01, transform = 1e-3,
+           # statistics and the LDIR join (AUDIT M-16)
+           p_true = 0.005, n_additional = 0, chance = 0.11, detection = 0,
+           detection_pct = 0.2, partner_status = 0, alignment = 0,
+           alignment_log10p = 0.5, ldir_position = 0.05)
   bad <- m[abs(m$value.ref - m$value.got) > tol[m$kind], ]
   expect(nrow(bad) == 0,
          paste0(nrow(bad), " value(s) differ from the reference:\n",
