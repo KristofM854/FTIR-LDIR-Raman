@@ -84,6 +84,11 @@ find_column <- function(df, patterns) {
     idx <- which(col_norm == pat_norm)
     if (length(idx) > 0) return(col_names[idx[1]])
 
+    # A column that starts with the pattern ("Area" -> "Area [um2]") before
+    # one that merely contains it ("Convex Area [um2]"), so the result does
+    # not depend on the column order of the export
+    idx <- which(startsWith(col_norm, pat_norm))
+    if (length(idx) > 0) return(col_names[idx[1]])
     # Substring match
     idx <- which(grepl(pat_norm, col_norm, fixed = TRUE))
     if (length(idx) > 0) return(col_names[idx[1]])

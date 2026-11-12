@@ -124,6 +124,9 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - L-06: tests that cut a block out of `main.R`, `app.R`, `global.R` or
   `tools/reproducibility.R` by its marker lines fail when the block is not
   found, instead of skipping.
+- L-07: the built-in readers look a column up by the start of its name before
+  falling back to any substring ("Area" no longer depends on coming before
+  "Convex Area" in the export).
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
