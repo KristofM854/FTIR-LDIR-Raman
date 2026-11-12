@@ -19,6 +19,8 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   20 um; a run whose fitted gate was wider no longer loses pairs in the
   overlay, particle groups and concordance tables, and the overlay summary
   names the right gate.
+- M-04: the Summary tab's and the report's alignment check shows the fitted
+  positional error also for runs whose reference is an FTIR (it was "-").
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

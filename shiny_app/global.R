@@ -3986,7 +3986,10 @@ summary_alignment_table <- function(run_dir) {
   sig <- rep(NA_real_, nrow(a))
   if (file.exists(ch_path)) {
     ch <- utils::read.csv(ch_path, stringsAsFactors = FALSE)
-    stem <- paste0(a$instrument, "_", tolower(a$reference))
+    # The reference is recorded by its display name ("FTIR (PerkinElmer)");
+    # the pair stem uses its file name ("ldir_ftir_perkin")
+    ref_file <- names(ROLE_LABELS)[match(a$reference, ROLE_LABELS)]
+    stem <- paste0(a$instrument, "_", ifelse(is.na(ref_file), tolower(a$reference), ref_file))
     sig <- ch$position_sigma_um[match(stem, ch$pair)]
   }
   method <- c(landmark = "Landmarks (largest particles)", landmark_ransac = "Landmarks + RANSAC",
