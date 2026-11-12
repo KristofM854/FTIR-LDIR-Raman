@@ -102,12 +102,17 @@ export_results <- function(pairs, primary, diagnostics, config,
     # Combined PDF
     tryCatch({
       pdf_path <- file.path(plot_dir, "all_diagnostics.pdf")
-      grDevices::pdf(pdf_path,
-                     width = config$plot_width, height = config$plot_height)
-      for (plot_name in names(diagnostics)) {
-        print(diagnostics[[plot_name]])
-      }
-      grDevices::dev.off()
+      # cairo_pdf (as the report): pdf() cannot draw the dashes and "µ" of the
+      # plot titles outside a UTF-8 locale ("FTIR...Raman Particle Overlay")
+      if (isTRUE(capabilities("cairo")))
+        grDevices::cairo_pdf(pdf_path, width = config$plot_width,
+                             height = config$plot_height, onefile = TRUE)
+      else
+        grDevices::pdf(pdf_path, width = config$plot_width, height = config$plot_height)
+      dev_id <- grDevices::dev.cur()
+      # Close the device also when a plot fails, so later plots do not go into it
+      tryCatch(for (plot_name in names(diagnostics)) print(diagnostics[[plot_name]]),
+               finally = grDevices::dev.off(dev_id))
       log_message("  Wrote all_diagnostics.pdf")
     }, error = function(e) {
       log_message("  Warning: Could not save combined PDF: ", e$message,

@@ -27,6 +27,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - L-01: `writexl` declared in `Suggests`: the two Excel tests of the
   column-mapping reader need it and were skipped wherever only the declared
   packages are installed (the CI workflow).
+- M-06: `07_diagnostics/plots/all_diagnostics.pdf` is written with
+  `cairo_pdf` (as the report), so dashes and "µ" in plot titles are no longer
+  replaced by dots outside a UTF-8 locale; the device is closed when a plot
+  fails.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
