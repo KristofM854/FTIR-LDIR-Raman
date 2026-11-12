@@ -95,6 +95,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   values.
 - M-14: `00_manifest/session_info.txt` records the versions of Python, numpy,
   scipy and Pillow when the run used the Python detector.
+- M-07: a mirrored LDIR pose is accepted and flagged: the run logs a WARN
+  (the alignment check already showed "Mirrored: yes").
+- M-11: a run that joins the LDIR table without a `.sam` file logs a WARN
+  saying that the join is not exact and what to check.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

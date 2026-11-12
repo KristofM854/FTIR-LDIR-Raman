@@ -173,8 +173,13 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       }
     }
     # Join image coordinates with RAW Excel data via size-based Hungarian matching
-    if (is.null(ldir_with_coords))
+    if (is.null(ldir_with_coords)) {
+      log_message("  LDIR join WITHOUT the Clarity project file (.sam): rows are placed by ",
+                  "size, shape and colour class, which can exchange similar particles and ",
+                  "which the join check cannot see. Check the LDIR positions in the viewer, ",
+                  "or put the scan's .sam file next to the LDIR table.", level = "WARN")
       ldir_with_coords <- join_ldir_coords(ldir_raw, ldir_image_particles, config = config)
+    }
     # Apply any manual coordinate-join corrections (config$ldir_coord_swaps)
     # (Not after the exact .sam join: the corrections fix the image join and
     # would move rows that now sit on their own particle.)
@@ -569,6 +574,16 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
                       "inspection but not scored, and pairs through it are skipped.",
                       level = "WARN")
       }
+
+      # A mirrored LDIR pose is accepted (the landmark tier and ICP may find
+      # one) but never silently: the instruments image the same filter side,
+      # so a mirror means the LDIR image or table is flipped, or the pose is
+      # wrong.
+      if (isTRUE(ldir_icp$params$reflected))
+        log_message("  LDIR \u2192 ", ref_name, ": the pose is MIRRORED. LDIR and ", ref_name,
+                    " image the same side of the filter, so check the LDIR image export ",
+                    "(flipped?) and the pairs in the viewer; the alignment check lists it ",
+                    "as 'Mirrored: yes'.", level = "WARN")
 
       # Quality check
       ldir_final_rms <- if (length(ldir_icp$rms_history) > 0)

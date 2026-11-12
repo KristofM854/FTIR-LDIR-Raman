@@ -182,7 +182,10 @@ make_config <- function(ftir_path  = NULL,
     # (observed: 5 inliers where 23 are achievable). TRUE = enabled.
     ldir_use_global_register = TRUE,
 
-    # Allow a reflection (mirror) in the LDIR->Raman transform. FALSE by
+    # Allow a reflection (mirror) in the Tier 2 search of the LDIR transform.
+    # (The landmark tier and ICP accept a mirrored pose when the data fits
+    # only mirrored; the run then logs a WARN and the alignment check shows
+    # "Mirrored: yes".) FALSE by
     # default: both instruments image the same filter from the same side, so
     # there is no physical mirror between them. Allowing one lets the aligner
     # pick a spurious reflected optimum on sparse data (matching particles to
@@ -546,8 +549,8 @@ make_config <- function(ftir_path  = NULL,
     ransac_inlier_dist_um  = 200,
     # Mirrored poses are searched too. Per instrument: align_pose_limits
     # switches this off for both FTIR types; for LDIR, ldir_allow_reflection
-    # governs Tier 2 only (see AUDIT.md M-07: the LDIR landmark tier and ICP
-    # still follow this value).
+    # governs Tier 2 only: a mirrored LDIR pose from the landmark tier is
+    # accepted and flagged with a WARN.
     ransac_allow_mirror    = TRUE,
 
     # --- ICP refinement ---
