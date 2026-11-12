@@ -115,3 +115,26 @@ test_that("detection_rates() counts particles below the first size class in 'all
   expect_equal(sum(r$n_base[r$size_class != "all sizes"]), 3)  # the classes hold only >= 20 um
   expect_false(anyNA(r$n_base))
 })
+
+
+# AUDIT M-08: a partner that passes its cutoff but is in no pair (here: below
+# the size limit) is "partner_not_matchable", not "paired_elsewhere".
+test_that("partner_status() tells a partner paired elsewhere from one that cannot be paired", {
+  mk <- function(ids, x, y, feret, q) data.frame(particle_id = ids, x_aligned = x, y_aligned = y,
+                                                 feret_max_um = feret, major_um = feret, quality = q,
+                                                 material = "PET", stringsAsFactors = FALSE)
+  raman <- mk(paste0("R", 1:5), c(0, 1000, 0, 1000, 500), c(0, 0, 1000, 1000, 500),
+              c(100, 8, 100, 100, 100), 90)
+  ldir <- mk(paste0("L", 1:6), c(3, 1004, 12, 1003, 503, 2), c(0, 0, 1000, 1000, 500, 1004),
+             c(100, 40, 100, 100, 100, 90), 0.95)
+  # L1-R1, L4-R4, L5-R5 and L6-R3 paired; L2 sits on R2 (8 um: below the size
+  # limit); L3 sits on R3, which is paired with L6
+  m <- data.frame(ldir_particle_id = c("L1", "L4", "L5", "L6"),
+                  raman_particle_id = c("R1", "R4", "R5", "R3"), stringsAsFactors = FALSE)
+  ps <- partner_status(list(raman = raman, ldir = ldir), list(ldir_raman = m), make_config(),
+                       gates = list(ldir_raman = 20))
+  st <- function(id) ps$status[ps$of == "ldir" & ps$particle_id == id]
+  expect_equal(st("L2"), "partner_not_matchable")
+  expect_equal(st("L3"), "paired_elsewhere")
+  expect_equal(st("L1"), "matched")
+})

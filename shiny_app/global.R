@@ -3823,15 +3823,18 @@ PARTNER_ROLE_TO_OV <- c(ftir_perkin = "ftir_pe", ftir_bruker = "ftir_bruker",
 PARTNER_STATUS_LABELS <- c(
   below_cutoff     = "Partner found, below quality cutoff",
   paired_elsewhere = "Partner nearby, paired with another",
+  not_matchable    = "Partner nearby, not matchable (size)",
   not_found        = "Nothing found by the partner",
   outside_area     = "Outside the partner's scanned area")
 PARTNER_STATUS_COLOURS <- c(below_cutoff = "#F0A202", paired_elsewhere = "#9B59B6",
+                            not_matchable = "#16A085",
                             not_found = "#E74C3C", outside_area = "#95A5A6")
 
 partner_status_class <- function(status) {
   out <- rep(NA_character_, length(status))
   out[status %in% c("partner_below_cutoff", "this_below_cutoff", "both_below_cutoff")] <- "below_cutoff"
   out[status == "paired_elsewhere"] <- "paired_elsewhere"
+  out[status == "partner_not_matchable"] <- "not_matchable"
   out[status == "not_found"] <- "not_found"
   out[status == "outside_area"] <- "outside_area"
   out
@@ -3908,6 +3911,9 @@ partner_fill_note <- function(f, q_name = "") {
                                            "cutoff: not confidently identified (", where, ")")))
   if (identical(f$status, "paired_elsewhere"))
     return(list(warn = TRUE, text = paste0("Nearest particle, paired with another (", where, ")")))
+  if (identical(f$status, "partner_not_matchable"))
+    return(list(warn = TRUE, text = paste0("Nearest particle; not matched: below the size limit or ",
+                                           "too different in size (", where, ")")))
   if (identical(f$status, "this_below_cutoff"))
     return(list(warn = TRUE, text = paste0("Found here; the other particle is below its cutoff (", where, ")")))
   list(warn = FALSE, text = paste0("Paired in the pipeline; hidden by the viewer filters (", where, ")"))
@@ -3929,11 +3935,13 @@ MATCH_FILE_ROLES <- list(
 PARTNER_STATUS_ORDER <- c(
   matched = "Matched", partner_below_cutoff = "Partner below its cutoff",
   this_below_cutoff = "This particle below its cutoff", both_below_cutoff = "Both below cutoff",
-  paired_elsewhere = "Partner paired elsewhere", not_found = "Nothing found",
+  paired_elsewhere = "Partner paired elsewhere",
+  partner_not_matchable = "Partner not matchable (size)", not_found = "Nothing found",
   outside_area = "Outside the partner's area")
 PARTNER_STATUS_FILL <- c(matched = "#2E86C1", partner_below_cutoff = "#F0A202",
                          this_below_cutoff = "#F7CB6B", both_below_cutoff = "#FBE3A8",
-                         paired_elsewhere = "#9B59B6", not_found = "#E74C3C",
+                         paired_elsewhere = "#9B59B6", partner_not_matchable = "#16A085",
+                         not_found = "#E74C3C",
                          outside_area = "#BDC3C7")
 
 .role_label <- function(r) unname(ifelse(r %in% names(ROLE_LABELS), ROLE_LABELS[r], r))

@@ -352,7 +352,7 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `04_alignment/alignment_summary.csv` | One row per aligned instrument: method, scale, rotation, mirror, residual, pose p-value, whether the pose is determined |
 | `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns, the distance, `p_true`, `pair_type` (primary / additional) and `match_rule` (distance / extent) |
 | `05_matches/unmatched_<a>_vs_<b>.csv` | Particles without a partner |
-| `05_matches/partner_status.csv` | For every particle (>= the size limit, any quality) and every other instrument: matched, partner below its cutoff, this particle below its cutoff, both below, partner paired elsewhere, nothing found, outside the partner's area |
+| `05_matches/partner_status.csv` | For every particle (>= the size limit, any quality) and every other instrument: matched, partner below its cutoff, this particle below its cutoff, both below, partner paired elsewhere, partner not matchable (below the size limit or too different in size), nothing found, outside the partner's area |
 | `05_matches/triplets_3way.csv`, `composite_matches.csv` | Three-way matches; 1:many FTIR→Raman fragments |
 | `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored pair: tier, exact polymers, families, LDIR join warning |
 | `06_agreement/agreement_by_material_<pair>.csv`, `agreement_by_category.csv`, `agreement_summary.csv` | Counts and rates per material / category |

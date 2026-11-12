@@ -140,7 +140,11 @@ detection_rates <- function(aligned, matches, config, gates = list()) {
 #'                         identified a particle there
 #'   both_below_cutoff     both found a particle there, neither identified it
 #'   paired_elsewhere      both pass, but the other's particle is paired with
-#'                         another particle (or lies just outside this one's gate)
+#'                         another particle
+#'   partner_not_matchable both pass their quality cutoff, but the other's
+#'                         particle is in no pair: it is below the size limit
+#'                         (min_particle_size_um) or the two sizes differ by
+#'                         more than match_max_size_ratio
 #'   not_found             nothing of the other within the gate
 #'   outside_area          outside the area the other instrument covered
 #' with p_chance, the chance of an unrelated particle of the other within the
@@ -189,7 +193,12 @@ partner_status <- function(aligned, matches, config, gates = list()) {
             ifelse(!near, "not_found",
             ifelse(b_pass & !o_pass[j], "partner_below_cutoff",
             ifelse(!b_pass & o_pass[j], "this_below_cutoff",
-            ifelse(!b_pass & !o_pass[j], "both_below_cutoff", "paired_elsewhere"))))))
+            ifelse(!b_pass & !o_pass[j], "both_below_cutoff",
+            # both pass: the other's particle is paired with another particle,
+            # or it cannot be paired at all (below the size limit, or the two
+            # sizes differ by more than match_max_size_ratio)
+            ifelse(as.character(o$particle_id[j]) %in% ids_o, "paired_elsewhere",
+                   "partner_not_matchable")))))))
       rho <- chance_partner_rate(o$x_aligned, o$y_aligned, 1)$density
       keep_p <- near & st != "outside_area"
       rows[[length(rows) + 1]] <- data.frame(

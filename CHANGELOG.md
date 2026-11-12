@@ -78,6 +78,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   FTIR (Bruker) with FTIR (PerkinElmer) 16 -> 17, with LDIR 14 -> 17; detection
   of particles > 200 um by Raman 85% / 70% -> 100% / 100% (FTIR PerkinElmer /
   LDIR particles). Regression fingerprint regenerated.
+- M-08: partner status `partner_not_matchable`: the other instrument has a
+  particle there that passes its quality cutoff but is in no pair (below the
+  size limit, or the sizes differ by more than `match_max_size_ratio`). Such
+  rows were labelled `paired_elsewhere`. Own colour in the viewer and report.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
