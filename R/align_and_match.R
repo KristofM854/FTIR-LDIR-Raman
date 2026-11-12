@@ -319,7 +319,7 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
     # list (e.g. one already filtered to plastics) against a dense reference
     # cannot fix a pose.
     if (identical(method, "landmark")) {
-      determined <- TRUE; pose_p <- landmark$p_chance %||% NA_real_
+      determined <- TRUE; pose_p <- landmark$p_pose %||% landmark$p_chance %||% NA_real_
     } else {
       r_pose <- config$match_dist_threshold_um
       n_pose <- align_transform_inliers(icp$transform, src_align$x_norm, src_align$y_norm,

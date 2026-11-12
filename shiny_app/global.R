@@ -4014,8 +4014,9 @@ summary_alignment_table <- function(run_dir) {
     res = ifelse(is.na(a$icp_rms_um), "\u2013", sprintf("%.1f", a$icp_rms_um)),
     sig = ifelse(is.na(sig), "\u2013", sprintf("%.1f", sig)),
     p = ifelse(is.na(a$pose_p), "\u2013", format(signif(a$pose_p, 2))),
+    # The pipeline's own decision (determined), not a second threshold on p
     Verdict = ifelse(a$determined %in% FALSE, "NOT DETERMINED",
-                     ifelse(!is.na(a$pose_p) & a$pose_p < 1e-3, "fixed by the data", "check")),
+                     ifelse(a$determined %in% TRUE, "fixed by the data", "check")),
     stringsAsFactors = FALSE)
   names(out) <- c("Instrument", "Aligned onto", "Method", "Scale", "Rotation (\u00b0)", "Mirrored",
                   "Residual (\u00b5m)", "Positional error \u03c3 (\u00b5m)", "Pose by chance (p)",
@@ -4214,7 +4215,8 @@ report_agreement_pages <- function(run_dir) {
     paste0("How each instrument was put into the shared frame. Residual: distance left ",
            "after the fit; positional error sigma: spread of true partners (99% within ",
            "3 sigma); pose by chance: probability that a random arrangement gives as many ",
-           "anchor pairs. A pose NOT DETERMINED makes that instrument's pairs meaningless."))))
+           "anchor pairs, corrected for the poses searched. A pose NOT DETERMINED makes ",
+           "that instrument's pairs meaningless."))))
   for (g in c("all", "plastics")) {
     pm <- summary_pair_matrix(run_dir, g)
     if (is.null(pm)) next

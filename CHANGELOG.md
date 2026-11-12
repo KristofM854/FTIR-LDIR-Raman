@@ -99,6 +99,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   (the alignment check already showed "Mirrored: yes").
 - M-11: a run that joins the LDIR table without a `.sam` file logs a WARN
   saying that the join is not exact and what to check.
+- M-10: `pose_p` (`alignment_summary.csv`, Summary tab, report) is one
+  quantity for every alignment tier: the chance p corrected for the pose
+  search. Landmark poses reported the uncorrected p (dataset A: 2.9e-25 ->
+  1.8e-19 for FTIR PerkinElmer). Which poses are accepted is unchanged. The
+  viewer's verdict follows the pipeline's `determined`.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

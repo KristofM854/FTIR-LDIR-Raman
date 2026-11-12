@@ -552,7 +552,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       # every FTIR-type alignment gets (align_and_match()). Otherwise the
       # pairs are written but not scored and nothing is paired through LDIR.
       if (use_ldir_landmark) {
-        ldir_pose_p <- ldir_landmark_result$p_chance %||% NA_real_
+        ldir_pose_p <- ldir_landmark_result$p_pose %||% ldir_landmark_result$p_chance %||% NA_real_
       } else if (!use_procrustes_final && exists("ldir_for_align", inherits = FALSE)) {
         r_pose <- config$match_dist_threshold_um
         n_pose <- align_transform_inliers(ldir_icp$transform, ldir_for_align$x_norm,
