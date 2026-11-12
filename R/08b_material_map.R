@@ -142,10 +142,20 @@ default_polymer_families <- list(
     "\\bLATEX\\b", "ELASTOMER"
   ),
   # --- Semi-synthetic -----------------------------------------------------------
+  # Regenerated or derivatised cellulose: man-made fibres and films. Listed
+  # before "Cellulose" so that "Cellulose acetate" lands here.
+  "Regenerated cellulose" = c(
+    "CELLULOS\\w*\\s*(DI|TRI)?\\s*(ACETATE|NITRATE|PROPIONATE|BUTYRATE|XANTHATE)",
+    "(ACETATE|NITRATE|PROPIONATE|BUTYRATE).*CELLULOS", "NITRO\\s*CELLULOSE",
+    "(METHYL|ETHYL|PROPYL|CARBOXY\\w*)\\s*CELLULOSE", "REGENERATED\\s*CELLULOS",
+    "^CAB$", "CARMELLOSE", "CELLOPHANE",
+    "Rayon", "Viscose", "Lyocell", "\\bMODAL\\b"
+  ),
+  # --- Natural / organic ------------------------------------------------------------
+  # Native cellulose (paper, cotton, plant fibre; LDIR "Cellulosic"): its own
+  # family, so cellulose hits of two instruments agree, but not a plastic.
   Cellulose = c(
-    "Cellulos",     # matches Cellulose, Cellulosic, Cellulose Acetate, CAB
-    "^CAB$", "CARMELLOSE",
-    "Rayon", "Viscose", "Lyocell"
+    "Cellulos", "Cotton"
   ),
   Acrylate = c(
     # Acrylic polymers only — the monomers (butyl acrylate, acrylic acid, ...)
@@ -156,6 +166,9 @@ default_polymer_families <- list(
   ),
   # --- Natural / organic ------------------------------------------------------------
   Protein = c(
+    # LDIR "Polyamide (naturally occurring)": natural polyamide is protein
+    # (wool, silk, skin); listed here so it agrees with those, not with nylon
+    "POLYAMIDE.*NATURAL", "NATURAL.*POLYAMIDE",
     "Protein", "Keratin", "Silk", "^Wool$",
     "COLLAGEN", "\\bGELATINE?\\b", "CASEIN", "ALBUMIN", "FIBROIN"
   ),
@@ -163,8 +176,7 @@ default_polymer_families <- list(
     "Chitin", "Chitosan"
   ),
   Natural = c(
-    "naturally\\s*occurring",   # covers "Polyamide (naturally occurring)" from LDIR
-    "Cotton",
+    "naturally\\s*occurring",
     "^Natural$", "^Organic$", "^Biofilm$",
     "^(?!GLUE).*\\bWOOD\\b", "LIGNIN", "STARCH", "POLYSACCHARID", "\\bPECTINE?\\b", "POLYGALACTURON",
     "CARRAGEENAN", "\\bAGAR\\b", "ALGINATE", "CAROTEN", "CHLOROPHYLL",
@@ -228,10 +240,11 @@ default_polymer_families <- list(
 synthetic_families    <- c("PET", "PP", "PE", "PS", "PVC", "PA", "PC",
                            "PMMA", "PU", "PTFE", "ABS", "Rubber",
                            "EVA", "POM", "Epoxy", "Acrylate", "Other polymer")
-# Regenerated cellulose (rayon, viscose, cellulose acetate) only. Acrylic
-# polymers, polyacrylonitrile included, are synthetic.
-semi_synthetic_families <- c("Cellulose")
-natural_families      <- c("Protein", "Chitin", "Natural")
+# Regenerated cellulose (rayon, viscose, cellulose acetate) only; native
+# cellulose is natural. Acrylic polymers, polyacrylonitrile included, are
+# synthetic.
+semi_synthetic_families <- c("Regenerated cellulose")
+natural_families      <- c("Cellulose", "Protein", "Chitin", "Natural")
 additive_families     <- c("Additive", "Pigment")
 inorganic_families    <- c("Mineral", "Inorganic")
 other_compound_families <- c("Other compound")

@@ -534,8 +534,8 @@ do not matter (`POLY(ETHYLENE TEREPHTHALATE)` = `Polyethylene terephthalate` →
 | Category | Families |
 |---|---|
 | Synthetic | PE, PP, PET (incl. PBT/polyester), PS, PVC, PA, PC, PMMA, PU, PTFE, ABS (incl. SAN/ASA), EVA, POM, Epoxy, Rubber, Acrylate (acrylic polymers incl. polyacrylonitrile), Other polymer |
-| Semi-synthetic | Cellulose (regenerated: rayon, viscose, cellulose acetate) |
-| Natural/Organic | Protein, Chitin, Natural |
+| Semi-synthetic | Regenerated cellulose (rayon, viscose, lyocell, cellulose acetate and other cellulose derivatives) |
+| Natural/Organic | Cellulose (native: "Cellulose", LDIR "Cellulosic", cotton), Protein (incl. LDIR "Polyamide (naturally occurring)"), Chitin, Natural |
 | Additive/Pigment | Additive (PEG/surfactants, plasticisers, antioxidants, slip agents, flame retardants), Pigment (TiO₂, iron oxides, organic pigments, dyes) |
 | Inorganic | Mineral (carbonates, silicates/clays, talc, quartz, sulfates), Inorganic |
 | Other | Other compound (a known library substance that is none of the above) |
@@ -586,7 +586,7 @@ to switch the index off).
 
 - **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Translate dataset-specific names in `inst/materials/<role>.csv` (see `tools/material_vocabulary.R` for the labels a run could not classify).
 
-- **"Polyamide (naturally occurring)" from LDIR**: This LDIR material name refers to biological polyamides (silk, protein-like), not synthetic nylon (PA6, PA12). It is classified into the "Natural" polymer family (not "PA") to avoid false material-agreement matches between synthetic and biological materials.
+- **"Polyamide (naturally occurring)" from LDIR**: this label means biological polyamides (wool, silk, skin), not synthetic nylon. It is classified as Protein, so it agrees with a Raman or FTIR "Wool" / "Silk" / "Protein" at family level and disagrees with PA.
 
 - **LDIR scan-circle radius**: on optical LDIR images without the analyzed overlay, the scan-circle detector overestimates the radius (~12% on a synthetic disk) and needs the circle to cover < 20% of the image; the radius sets the µm-per-pixel scale. Untested on real data with a visible circle. Prefer exporting the analyzed overlay (`<image>_analyzed.png`).
 

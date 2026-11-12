@@ -134,7 +134,7 @@ CONFIG <- list(
   c("POM",       "Polyoxymethylene / polyacetal (POM)"),
   c("Epoxy",     "Epoxy resin"),
   c("Other polymer", "Other synthetic polymer (PVDF, PEEK, silicone, ...)"),
-  c("Cellulose", "Cellulose (rayon, viscose, cellulose acetate)"),
+  c("Regenerated cellulose", "Regenerated cellulose (rayon, viscose, cellulose acetate)"),
   c("Acrylate",  "Acrylate / polyacrylamide")
 )
 

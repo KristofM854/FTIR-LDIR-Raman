@@ -3098,7 +3098,7 @@ FAMILY_COLOURS <- c(
   PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
   PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
   PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-  Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
+  Cellulose = "#bcbd22", "Regenerated cellulose" = "#8c9a1a", Acrylate = "#17becf", EVA = "#b15928",
   POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
   Other = "#e5c494",
   Natural = "#d9c89e", Chitin = "#a6d854", Protein = "#1b9e77",

@@ -82,6 +82,13 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   particle there that passes its quality cutoff but is in no pair (below the
   size limit, or the sizes differ by more than `match_max_size_ratio`). Such
   rows were labelled `paired_elsewhere`. Own colour in the viewer and report.
+- **(results)** M-09: native cellulose ("Cellulose", LDIR "Cellulosic", cotton)
+  is the natural family Cellulose and no longer counts as a plastic; rayon,
+  viscose, lyocell, cellulose acetate and other derivatives are the
+  semi-synthetic family "Regenerated cellulose". LDIR "Polyamide (naturally
+  occurring)" is Protein (was Natural): it agrees with wool / silk / protein
+  and disagrees with PA. Changes the "plastics" counts and rates of field
+  samples; dataset A is unchanged.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

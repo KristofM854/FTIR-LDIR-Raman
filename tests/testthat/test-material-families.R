@@ -18,7 +18,16 @@ test_that("instrument names used so far keep their family", {
           "Nylon 12", "HDPE", "LDPE", "Polystyrene", "PVC", "Cellulose acetate",
           "Polyamide (naturally occurring)", "Polyurethane", "PTFE")),
     c("PET", "PET", "PP", "PP", "PP", "PC", "PA", "PE", "PE", "PS", "PVC",
-      "Cellulose", "Natural", "PU", "PTFE"))
+      "Regenerated cellulose", "Protein", "PU", "PTFE"))
+  # Native cellulose is natural, its derivatives semi-synthetic; LDIR's
+  # natural polyamide is protein (AUDIT M-09)
+  expect_identical(fam(c("Cellulose", "Cellulosic", "Cotton", "Viscose", "Wool")),
+                   c("Cellulose", "Cellulose", "Cellulose", "Regenerated cellulose", "Protein"))
+  expect_identical(classify_category_vec(c("Cellulose", "Regenerated cellulose", "Protein")),
+                   c("Natural/Organic", "Semi-synthetic", "Natural/Organic"))
+  expect_identical(score_tiered_agreement_vec(
+    c("Polyamide (naturally occurring)", "Polyamide (naturally occurring)", "Cellulosic"),
+    c("Wool", "Polyamide (PA)", "Cellulose")), c("Family", "Disagree", "Family"))
 })
 
 test_that("upper/lower case and bracket spelling do not change the family", {

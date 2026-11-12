@@ -224,11 +224,11 @@ test_that("precision view: one-instrument groups marked and left out of Mandel; 
   env <- .load_global_helpers()
   sys.source(file.path(REPO_ROOT, "R", "08b_material_map.R"), envir = env)
   inst <- c("ftir", "ftir_bruker", "raman", "ldir")
-  grp <- c("All particles", "Plastics", "Synthetic", "PC", "Cellulose", "Protein")
+  grp <- c("All particles", "Plastics", "Synthetic", "PC", "Regenerated cellulose", "Protein")
   counts <- expand.grid(instrument = inst, replicate = 1:3, group = grp, size_class = "all sizes",
                         stringsAsFactors = FALSE)
   counts$count <- ifelse(counts$group == "Protein", ifelse(counts$instrument == "ftir", 6, 0),
-                  ifelse(counts$group == "Cellulose", ifelse(counts$instrument %in% c("ftir", "ldir"), 1, 0),
+                  ifelse(counts$group == "Regenerated cellulose", ifelse(counts$instrument %in% c("ftir", "ldir"), 1, 0),
                          20 + counts$replicate))
   ins <- stats::aggregate(count ~ instrument + group + size_class, counts, mean)
   names(ins)[4] <- "mean"; ins$h <- 0.5; ins$k <- 1
@@ -238,7 +238,7 @@ test_that("precision view: one-instrument groups marked and left out of Mandel; 
                                r_limit = 2.8, R_limit = 4, cv_r_pct = 1, cv_L_pct = 1, cv_R_pct = 1),
               critical = list(h_5 = 1.42, h_1 = 1.49, k_5 = 1.59, k_1 = 1.77))
   expect_equal(env$precision_single_groups(res), "Protein")
-  expect_equal(env$precision_groups(res, mode = "plastics", category = "both"), c("Plastics", "PC", "Cellulose"))
+  expect_equal(env$precision_groups(res, mode = "plastics", category = "both"), c("Plastics", "PC", "Regenerated cellulose"))
   expect_equal(env$precision_groups(res, mode = "plastics", category = "synthetic"), c("Synthetic", "PC"))
   expect_true("Protein *" %in% env$precision_iso_table(res)$Group)
   h <- env$precision_mandel_plot(res, "h", groups = grp[-3])

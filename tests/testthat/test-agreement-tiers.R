@@ -99,7 +99,7 @@ test_that("LDIR quality uses the Agilent unknown threshold; join warnings are co
 })
 
 test_that("only plastic families pair with fillers", {
-  expect_true(all(is_filler_pigment_pair(c("PE", "Cellulose", "Other polymer"),
+  expect_true(all(is_filler_pigment_pair(c("PE", "Regenerated cellulose", "Other polymer"),
                                          c("Pigment", "Mineral", "Additive"))))
   expect_false(any(is_filler_pigment_pair(
     c("Natural", "Unknown", "Mineral", "Inorganic", "Other compound"),

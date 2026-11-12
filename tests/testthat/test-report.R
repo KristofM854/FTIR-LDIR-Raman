@@ -71,7 +71,7 @@ test_that("the plastics table drops empty devices and excludes Unknown", {
 
 test_that("the plastics table orders synthetic families before semi-synthetic", {
   env <- .load_report_helpers()
-  tbl <- env$report_plastics_table(list(A = .pdf_particles(c("Cellulose", "PET"))))
+  tbl <- env$report_plastics_table(list(A = .pdf_particles(c("Viscose", "PET"))))
   body <- tbl[tbl$Family != "Total", ]
   expect_equal(body$Category, c("Synthetic", "Semi-synthetic"))
 })
