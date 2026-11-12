@@ -225,10 +225,10 @@ test_that("the gate is set per run from the fitted positional error (LDIR; FTIR 
 # the matcher was called with an empty table and stopped in the neighbour
 # search ("no points in query!"), ending the run.
 test_that("match_particles() returns an empty result when one side has no particles", {
-  mk <- function(n) data.frame(particle_id = paste0("P", seq_len(n)), x_aligned = seq_len(n) * 100,
-                               y_aligned = rep(0, n), x_norm = seq_len(n) * 100, y_norm = rep(0, n),
-                               feret_max_um = rep(50, n), major_um = rep(50, n), minor_um = rep(20, n),
-                               area_um2 = rep(800, n), stringsAsFactors = FALSE)
+  five <- data.frame(particle_id = paste0("P", 1:5), x_aligned = 1:5 * 100, y_aligned = 0,
+                     x_norm = 1:5 * 100, y_norm = 0, feret_max_um = 50, major_um = 50,
+                     minor_um = 20, area_um2 = 800, stringsAsFactors = FALSE)
+  mk <- function(n) five[seq_len(n), , drop = FALSE]
   for (method in c("hungarian", "greedy")) {
     cfg <- make_config(); cfg$match_method <- method
     for (case in list(c(0, 5), c(5, 0), c(0, 0))) {
