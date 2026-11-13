@@ -3902,54 +3902,221 @@ overlay_partner_class <- function(ps, shown) {
              stringsAsFactors = FALSE)
 }
 
-#' Fill the instruments of a hover table that have no particle: the partner
-#' each shown particle's own instrument found at its position (any quality).
-#' @param ps partner_status.csv table
-#' @param ids named list, instrument key -> particle id (the shown particles)
-#' @param shown overlay instrument keys
-#' @return named list, instrument key -> list(id, status, passes, distance,
-#'   p_chance, from) for the filled instruments; and for the shown particles
-#'   (key -> list(passes)) under attr "own"
-partner_fill <- function(ps, ids, shown) {
-  ps <- partner_status_shown(ps, shown)
-  out <- list(); own <- list()
-  if (is.null(ps) || !length(ids)) return(structure(out, own = own))
-  for (m in names(ids)) {
-    r <- ps[ps$of_key == m & ps$particle_id == as.character(ids[[m]]), , drop = FALSE]
-    if (nrow(r) && "passes" %in% names(r)) own[[m]] <- list(passes = as.logical(r$passes[1]))
+# ---- Overlay detail table: what every instrument has at a spot --------------
+# The overlay's hover and click pick only the particles it draws (the viewer
+# filters apply). The detail table then looks at ALL particles of the other
+# instruments, whatever their quality, size or the filters: for each, the
+# pipeline's partner if there is one, else the nearest particle at that spot
+# with a warning saying why it was not paired (below its quality cutoff,
+# below the size limit, paired with another particle), else "nothing found".
+
+# Overlay key -> run file role (pair stems in chance_pairs.csv / match files)
+OV_TO_ROLE <- c(ftir_pe = "ftir_perkin", ftir_bruker = "ftir_bruker",
+                raman = "raman", ldir = "ldir")
+
+#' Settings of a run the spot lookup needs: the distance gate of every
+#' instrument pair (07_diagnostics/chance_pairs.csv, else the configured
+#' gate), the minimum size, the gate widening for large particles and the
+#' extent factor.
+spot_settings <- function(run_dir) {
+  cfg <- tryCatch(load_run_manifest(run_dir)$config_snapshot, error = function(e) NULL)
+  num <- function(k, d) {
+    v <- suppressWarnings(as.numeric(unlist(cfg[[k]])))
+    if (length(v) && is.finite(v[1])) v[1] else d
   }
-  for (k in setdiff(shown, names(ids))) {
-    for (m in names(ids)) {
-      r <- ps[ps$of_key == m & ps$particle_id == as.character(ids[[m]]) & ps$by_key == k &
-                !is.na(ps$partner_id), , drop = FALSE]
-      if (!nrow(r)) next
-      out[[k]] <- list(id = r$partner_id[1], status = r$status[1],
-                       passes = as.logical(r$partner_passes[1]),
-                       distance = r$partner_distance_um[1], p_chance = r$p_chance[1],
-                       material = r$partner_material[1], quality = r$partner_quality[1],
-                       from = m)
-      break
-    }
-  }
-  structure(out, own = own)
+  ch_path <- file.path(run_dir %||% "", "07_diagnostics", "chance_pairs.csv")
+  ch <- if (!is.null(run_dir) && file.exists(ch_path))
+    tryCatch(utils::read.csv(ch_path, stringsAsFactors = FALSE), error = function(e) NULL)
+  list(gates = if (!is.null(ch) && "gate_um" %in% names(ch)) stats::setNames(ch$gate_um, ch$pair),
+       gate_default = num("match_dist_threshold_um", 50),
+       min_size = num("min_particle_size_um", 20),
+       adapt = num("match_adaptive_dist_factor", 0.15),
+       extent = num("match_extent_factor", 0.5))
 }
 
-#' The note under a hover-table column filled from the partner status
-partner_fill_note <- function(f, q_name = "") {
-  if (is.null(f)) return(NULL)
-  where <- sprintf("%s \u00b5m away, %s%% chance of an unrelated particle",
-                   format(round(f$distance, 1)), format(round(100 * f$p_chance, 1)))
-  if (isFALSE(f$passes))
-    return(list(warn = TRUE, text = paste0("\u26a0 Below the ", if (nzchar(q_name)) q_name else "quality", " ",
-                                           "cutoff: not confidently identified (", where, ")")))
-  if (identical(f$status, "paired_elsewhere"))
-    return(list(warn = TRUE, text = paste0("Nearest particle, paired with another (", where, ")")))
-  if (identical(f$status, "partner_not_matchable"))
-    return(list(warn = TRUE, text = paste0("Nearest particle; not matched: below the size limit or ",
-                                           "too different in size (", where, ")")))
-  if (identical(f$status, "this_below_cutoff"))
-    return(list(warn = TRUE, text = paste0("Found here; the other particle is below its cutoff (", where, ")")))
-  list(warn = FALSE, text = paste0("Paired in the pipeline; hidden by the viewer filters (", where, ")"))
+#' The distance gate of an instrument pair (either order of the stem)
+spot_gate <- function(settings, role_a, role_b) {
+  g <- settings$gates
+  for (st in c(paste0(role_a, "_", role_b), paste0(role_b, "_", role_a)))
+    if (!is.null(g) && st %in% names(g) && is.finite(g[[st]])) return(as.numeric(g[[st]]))
+  settings$gate_default
+}
+
+.in_hull <- function(x, y, hx, hy) {
+  ok <- is.finite(hx) & is.finite(hy); hx <- hx[ok]; hy <- hy[ok]
+  if (length(hx) < 3 || !is.finite(x) || !is.finite(y)) return(NA)
+  h <- grDevices::chull(hx, hy); px <- hx[h]; py <- hy[h]
+  n <- length(px); inside <- FALSE; j <- n
+  for (i in seq_len(n)) {
+    if (((py[i] > y) != (py[j] > y)) &&
+        (x < (px[j] - px[i]) * (y - py[i]) / (py[j] - py[i] + 1e-300) + px[i]))
+      inside <- !inside
+    j <- i
+  }
+  inside
+}
+
+#' What one instrument has around a position, from all its particles.
+#'
+#' A particle counts as "at this spot" within the pair's distance gate, widened
+#' like the matcher's: 0.15 x the anchor's length for large particles, and
+#' 0.5 x the larger of the two lengths (one centre inside the other particle).
+#'
+#' @param x,y,len Anchor position (overlay frame) and length (um)
+#' @param other Full particle table of the other instrument (x, y,
+#'   particle_id, feret_max, major_um, quality, material, passes_cutoff)
+#' @param gate Distance gate of the pair (um)
+#' @return list(found, id, material, quality, feret, distance, radius,
+#'   passes_quality, passes_size, n_within, p_chance, inside_area)
+spot_lookup <- function(x, y, len, other, gate, settings) {
+  out <- list(found = FALSE, radius = gate, n_within = 0L, p_chance = NA_real_,
+              inside_area = NA)
+  if (is.null(other) || !nrow(other) || !is.finite(x) || !is.finite(y)) return(out)
+  ox <- other$x; oy <- other$y
+  ok <- is.finite(ox) & is.finite(oy)
+  if (!any(ok)) return(out)
+  lenf <- function(d) {
+    m <- if ("major_um" %in% names(d)) suppressWarnings(as.numeric(d$major_um)) else NA_real_
+    f <- suppressWarnings(as.numeric(d$feret_max))
+    ifelse(is.finite(m) & m > 0, m, f)
+  }
+  L <- ifelse(is.finite(len), len, 0)
+  lo <- lenf(other); lo[!is.finite(lo)] <- 0
+  r_i <- pmax(gate, settings$adapt * L, settings$extent * pmax(L, lo))
+  d <- sqrt((ox - x)^2 + (oy - y)^2)
+  within <- ok & d <= r_i
+  out$radius <- max(gate, settings$adapt * L, settings$extent * L)
+  out$inside_area <- .in_hull(x, y, ox, oy)
+  # Chance of an unrelated particle of this instrument within the radius
+  hx <- ox[ok]; hy <- oy[ok]
+  if (length(hx) >= 3) {
+    h <- grDevices::chull(hx, hy)
+    area <- abs(sum(hx[h] * c(hy[h][-1], hy[h][1]) - c(hx[h][-1], hx[h][1]) * hy[h])) / 2
+    if (area > 0) out$p_chance <- 1 - exp(-length(hx) / area * pi * out$radius^2)
+  }
+  if (!any(within)) return(out)
+  i <- which(within)[which.min(d[within])]
+  q <- suppressWarnings(as.numeric(other$quality[i]))
+  fer <- suppressWarnings(as.numeric(other$feret_max[i]))
+  c(out[c("radius", "p_chance", "inside_area")],
+    list(found = TRUE, id = as.character(other$particle_id[i]),
+         material = as.character(other$material[i]), quality = q, feret = fer,
+         distance = d[i], n_within = sum(within),
+         passes_quality = if ("passes_cutoff" %in% names(other)) !isFALSE(other$passes_cutoff[i]) else NA,
+         passes_size = !is.finite(fer) || fer >= settings$min_size))
+}
+
+#' The detail table's entries for every instrument: the shown particles, their
+#' pipeline partners, and for the rest what spot_lookup() finds.
+#'
+#' @param ids named list, overlay key -> particle id (the particles the hover
+#'   or click picked)
+#' @param full named list, overlay key -> full particle table (all particles)
+#' @param pairs run_pair_matches() of the run
+#' @param settings spot_settings() of the run
+#' @return named list per overlay key: list(id, kind = "shown" / "partner" /
+#'   "spot" / "none" / "absent", lookup (spot_lookup() result), from (key))
+spot_partners <- function(ids, full, pairs, settings) {
+  keys <- names(OV_TO_ROLE)
+  out <- list()
+  for (k in names(ids)) out[[k]] <- list(id = as.character(ids[[k]]), kind = "shown")
+  # The pipeline's partners of the shown particles (one step)
+  for (m in pairs) {
+    if (!nrow(m)) next
+    for (k in names(ids)) {
+      role <- OV_TO_ROLE[[k]]; id <- as.character(ids[[k]])
+      hit_a <- m$role_a == role & m$id_a == id
+      hit_b <- m$role_b == role & m$id_b == id
+      for (j in which(hit_a | hit_b)) {
+        p_role <- if (hit_a[j]) m$role_b[j] else m$role_a[j]
+        p_id   <- if (hit_a[j]) m$id_b[j] else m$id_a[j]
+        pk <- names(OV_TO_ROLE)[OV_TO_ROLE == p_role]
+        if (length(pk) && is.null(out[[pk]]))
+          out[[pk]] <- list(id = p_id, kind = "partner", from = k)
+      }
+    }
+  }
+  # Everything else: what is at the spot, whatever its quality or size
+  for (k in setdiff(keys, names(out))) {
+    other <- full[[k]]
+    if (is.null(other) || !nrow(other)) { out[[k]] <- list(kind = "absent"); next }
+    best <- NULL
+    for (a in names(ids)) {
+      d <- full[[a]]
+      r <- if (!is.null(d)) d[as.character(d$particle_id) == as.character(ids[[a]]), , drop = FALSE]
+      if (is.null(r) || !nrow(r)) next
+      len <- suppressWarnings(as.numeric(if (is.finite(r$major_um[1] %||% NA)) r$major_um[1] else r$feret_max[1]))
+      lk <- spot_lookup(r$x[1], r$y[1], len, other,
+                        spot_gate(settings, OV_TO_ROLE[[a]], OV_TO_ROLE[[k]]), settings)
+      lk$from <- a
+      if (is.null(best) || (isTRUE(lk$found) && (!isTRUE(best$found) || lk$distance < best$distance)))
+        best <- lk
+    }
+    if (is.null(best)) { out[[k]] <- list(kind = "none"); next }
+    # Paired with another particle by the pipeline?
+    if (isTRUE(best$found)) {
+      role <- OV_TO_ROLE[[k]]; from_role <- OV_TO_ROLE[[best$from]]
+      for (m in pairs) {
+        if (!nrow(m)) next
+        j <- which((m$role_a == role & m$id_a == best$id & m$role_b == from_role) |
+                   (m$role_b == role & m$id_b == best$id & m$role_a == from_role))
+        if (length(j)) {
+          best$paired_with <- if (m$role_a[j[1]] == role) m$id_b[j[1]] else m$id_a[j[1]]
+          break
+        }
+      }
+    }
+    out[[k]] <- list(id = if (isTRUE(best$found)) best$id, kind = if (isTRUE(best$found)) "spot" else "none",
+                     lookup = best, from = best$from)
+  }
+  out
+}
+
+#' The note under a column of the detail table.
+#' @param e spot_partners() entry; @param q_name quality name ("HQI", "AAU", "")
+#' @param own_row the particle's row in the full table (for a shown particle)
+#' @param min_size the run's size limit
+#' @return list(warn, text) or NULL
+spot_note <- function(e, q_name = "", own_row = NULL, min_size = 20) {
+  qn <- if (nzchar(q_name)) q_name else "quality"
+  fmt <- function(v, dig = 1) format(round(v, dig))
+  if (is.null(e) || identical(e$kind, "absent"))
+    return(list(warn = FALSE, text = "Not measured in this run"))
+  if (e$kind %in% c("shown", "partner")) {
+    w <- character(0)
+    if (!is.null(own_row) && nrow(own_row)) {
+      if (isFALSE(own_row$passes_cutoff[1]))
+        w <- c(w, paste0("\u26a0 Below the ", qn, " cutoff: not confidently identified"))
+      f <- suppressWarnings(as.numeric(own_row$feret_max[1]))
+      if (is.finite(f) && f < min_size)
+        w <- c(w, paste0("\u26a0 Below the size limit (", fmt(f), " < ", fmt(min_size, 0), " \u00b5m)"))
+    }
+    if (identical(e$kind, "partner"))
+      w <- c(w, "Paired by the pipeline")
+    return(if (length(w)) list(warn = any(startsWith(w, "\u26a0")), text = paste(w, collapse = "; ")))
+  }
+  lk <- e$lookup
+  chance <- if (is.finite(lk$p_chance %||% NA))
+    sprintf("; %s%% chance of an unrelated particle this close", fmt(100 * lk$p_chance))
+  else ""
+  if (identical(e$kind, "none")) {
+    if (isFALSE(lk$inside_area))
+      return(list(warn = FALSE, text = "Outside the area this instrument scanned"))
+    return(list(warn = TRUE, text = sprintf("Nothing found within %s \u00b5m (any quality, any size)",
+                                            fmt(lk$radius, 0))))
+  }
+  why <- c(
+    if (isFALSE(lk$passes_quality))
+      paste0("below the ", qn, " cutoff: detected here but not confidently identified"),
+    if (isFALSE(lk$passes_size))
+      sprintf("below the size limit (%s < %s \u00b5m)", fmt(lk$feret), fmt(min_size, 0)),
+    if (!is.null(lk$paired_with)) paste0("paired with ", lk$paired_with, " instead"))
+  if (!length(why)) why <- "not paired by the pipeline (size ratio or distance)"
+  list(warn = TRUE, text = paste0("\u26a0 Not matched: ", paste(why, collapse = "; "),
+                                  sprintf(" (%s \u00b5m away", fmt(lk$distance)),
+                                  if (lk$n_within > 1) sprintf(", %d particles within %s \u00b5m",
+                                                               lk$n_within, fmt(lk$radius, 0)),
+                                  chance, ")"))
 }
 
 

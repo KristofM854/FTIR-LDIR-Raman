@@ -330,7 +330,7 @@ test_that("LDIR outlines follow their particle into the aligned frame", {
 })
 
 
-test_that("partner status: hover fill and colour classes", {
+test_that("partner status: colour classes", {
   g <- .load_global_helpers()
   ps <- data.frame(
     of = c("ldir", "ldir", "raman", "ldir", "ldir"),
@@ -344,18 +344,6 @@ test_that("partner status: hover fill and colour classes", {
     partner_passes = c(FALSE, NA, TRUE, NA, TRUE),
     partner_distance_um = c(12, NA, 12, NA, 3), gate_um = 50, p_chance = c(0.02, NA, 0.03, NA, 0.01),
     stringsAsFactors = FALSE)
-  # The user's case: LDIR PET hovered, Raman shown without a match
-  f <- g$partner_fill(ps, list(ldir = "A1"), c("ldir", "raman"))
-  expect_equal(f$raman$id, "R7")
-  expect_false(f$raman$passes)
-  n <- g$partner_fill_note(f$raman, "HQI")
-  expect_true(n$warn)
-  expect_match(n$text, "Below the HQI cutoff: not confidently identified")
-  # FTIR not shown: nothing filled for it; nothing found: no fill
-  expect_null(f$ftir_pe)
-  expect_length(g$partner_fill(ps, list(ldir = "A2"), c("ldir", "raman")), 0)
-  # The hovered particle's own cutoff state
-  expect_false(attr(g$partner_fill(ps, list(raman = "R7"), c("ldir", "raman")), "own")$raman$passes)
   # Colour classes: best over the shown partners, matched gives none
   cl <- g$overlay_partner_class(ps, c("ldir", "raman", "ftir_pe"))
   expect_equal(cl$class[cl$inst == "ldir" & cl$particle_id == "A1"], "below_cutoff")
@@ -375,4 +363,51 @@ test_that("unmatched counts cover the particles the pipeline could have matched"
   expect_equal(env$count_unmatched_matchable(df, 70, 20), 1L)
   expect_equal(env$count_unmatched_matchable(df, 0, 0), 4L)
   expect_equal(env$count_unmatched_matchable(NULL, 70, 20), 0L)
+})
+
+
+# The overlay's detail table looks at ALL particles of the other instruments
+# (any quality, size or viewer filter): the pipeline partner, else what lies at
+# the spot with the reason it was not paired, else "nothing found".
+test_that("the detail table shows what every instrument has at the spot, whatever its quality", {
+  g <- .load_global_helpers()
+  mk <- function(ids, x, y, fer, q, pass) data.frame(particle_id = ids, x = x, y = y,
+    feret_max = fer, major_um = fer, quality = q, material = "PET", passes_cutoff = pass,
+    stringsAsFactors = FALSE)
+  # The user's case: LDIR A775 (PE, 0.93) and Raman 9829 (HQI 42.9) 1.6 um apart,
+  # FTIR with nothing there, Bruker not in the run
+  full <- list(ldir  = mk(c("A775", "A9"), c(-3246, 0), c(5043.1, 0), c(39, 50), c(0.927, 0.9), TRUE),
+               raman = mk(c("9829", "R2", "R3", "R4"), c(-3247.5, 0, 500, 2000), c(5043.6, 0, 500, 2000),
+                          c(46.1, 50, 50, 8), c(42.89, 90, 90, 90), c(FALSE, TRUE, TRUE, TRUE)),
+               # FTIR scanned the spot (it lies inside its particles' hull) but has nothing there
+               ftir_pe = mk(paste0("F", 1:4), c(-4000, -2500, -2500, -4000), c(4000, 4000, 6000, 6000),
+                            50, 0.9, TRUE),
+               ftir_bruker = NULL)
+  pairs <- list(ldir_raman = data.frame(role_a = "ldir", id_a = "A9", material_a = "PET",
+                                        role_b = "raman", id_b = "R2", material_b = "PET",
+                                        stringsAsFactors = FALSE))
+  st <- list(gates = c(ldir_raman = 21.2), gate_default = 50, min_size = 20, adapt = 0.15, extent = 0.5)
+  e <- g$spot_partners(list(ldir = "A775"), full, pairs, st)
+  expect_equal(e$raman$kind, "spot")
+  expect_equal(e$raman$id, "9829")
+  n <- g$spot_note(e$raman, "HQI", NULL, 20)
+  expect_true(n$warn)
+  expect_match(n$text, "below the HQI cutoff")
+  expect_match(n$text, "(1.6 ", fixed = TRUE)
+  expect_equal(e$ftir_pe$kind, "none")
+  expect_match(g$spot_note(e$ftir_pe, "AAU")$text, "Nothing found within 50")
+  expect_equal(e$ftir_bruker$kind, "absent")
+  expect_match(g$spot_note(e$ftir_bruker)$text, "Not measured")
+  # A pipeline pair is shown as the partner, not looked up
+  e2 <- g$spot_partners(list(ldir = "A9"), full, pairs, st)
+  expect_equal(e2$raman$kind, "partner"); expect_equal(e2$raman$id, "R2")
+  # A particle below the size limit is reported as such
+  full$ldir <- rbind(full$ldir, mk("A10", 2000, 2003, 40, 0.9, TRUE))
+  e3 <- g$spot_partners(list(ldir = "A10"), full, pairs, st)
+  expect_equal(e3$raman$id, "R4")
+  expect_match(g$spot_note(e3$raman, "HQI", NULL, 20)$text, "below the size limit")
+  # Outside the other instrument's area
+  full$ldir <- rbind(full$ldir, mk("A11", 9000, 9000, 40, 0.9, TRUE))
+  e4 <- g$spot_partners(list(ldir = "A11"), full, pairs, st)
+  expect_match(g$spot_note(e4$raman, "HQI")$text, "Outside the area")
 })
