@@ -4086,14 +4086,14 @@ spot_note <- function(e, q_name = "", own_row = NULL, min_size = 20) {
     w <- character(0)
     if (!is.null(own_row) && nrow(own_row)) {
       if (isFALSE(own_row$passes_cutoff[1]))
-        w <- c(w, paste0("⚠ Below the ", qn, " cutoff: not confidently identified"))
+        w <- c(w, paste0("\u26a0 Below the ", qn, " cutoff: not confidently identified"))
       f <- suppressWarnings(as.numeric(own_row$feret_max[1]))
       if (is.finite(f) && f < min_size)
-        w <- c(w, paste0("⚠ Below the size limit (", fmt(f), " < ", fmt(min_size, 0), " µm)"))
+        w <- c(w, paste0("\u26a0 Below the size limit (", fmt(f), " < ", fmt(min_size, 0), " \u00b5m)"))
     }
     if (identical(e$kind, "partner"))
       w <- c(w, "Paired by the pipeline")
-    return(if (length(w)) list(warn = any(startsWith(w, "⚠")), text = paste(w, collapse = "; ")))
+    return(if (length(w)) list(warn = any(startsWith(w, "\u26a0")), text = paste(w, collapse = "; ")))
   }
   lk <- e$lookup
   chance <- if (is.finite(lk$p_chance %||% NA))
@@ -4102,19 +4102,19 @@ spot_note <- function(e, q_name = "", own_row = NULL, min_size = 20) {
   if (identical(e$kind, "none")) {
     if (isFALSE(lk$inside_area))
       return(list(warn = FALSE, text = "Outside the area this instrument scanned"))
-    return(list(warn = TRUE, text = sprintf("Nothing found within %s µm (any quality, any size)",
+    return(list(warn = TRUE, text = sprintf("Nothing found within %s \u00b5m (any quality, any size)",
                                             fmt(lk$radius, 0))))
   }
   why <- c(
     if (isFALSE(lk$passes_quality))
       paste0("below the ", qn, " cutoff: detected here but not confidently identified"),
     if (isFALSE(lk$passes_size))
-      sprintf("below the size limit (%s < %s µm)", fmt(lk$feret), fmt(min_size, 0)),
+      sprintf("below the size limit (%s < %s \u00b5m)", fmt(lk$feret), fmt(min_size, 0)),
     if (!is.null(lk$paired_with)) paste0("paired with ", lk$paired_with, " instead"))
   if (!length(why)) why <- "not paired by the pipeline (size ratio or distance)"
-  list(warn = TRUE, text = paste0("⚠ Not matched: ", paste(why, collapse = "; "),
-                                  sprintf(" (%s µm away", fmt(lk$distance)),
-                                  if (lk$n_within > 1) sprintf(", %d particles within %s µm",
+  list(warn = TRUE, text = paste0("\u26a0 Not matched: ", paste(why, collapse = "; "),
+                                  sprintf(" (%s \u00b5m away", fmt(lk$distance)),
+                                  if (lk$n_within > 1) sprintf(", %d particles within %s \u00b5m",
                                                                lk$n_within, fmt(lk$radius, 0)),
                                   chance, ")"))
 }
