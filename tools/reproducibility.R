@@ -379,10 +379,20 @@ for (i in seq_along(runs))
 ref_fam <- if (!is.null(CONFIG$reference_material))
              unique(classify_family_vec(CONFIG$reference_material)) else NULL
 
+# The instrument's quality cutoff (Raman HQI, FTIR AAU, LDIR quality), as in
+# the pipeline's matching and agreement
+q_cut <- .agreement_quality_cutoff(if (startsWith(CONFIG$instrument, "ftir")) "ftir"
+                                   else CONFIG$instrument, cfg)
+# Run names: the file names (two identifications of one scan against
+# different libraries are told apart by them), unique
+run_labels <- make.unique(vapply(CONFIG$runs, function(r)
+  r$label %||% tools::file_path_sans_ext(basename(r$raw_file %||% r$file)), character(1)), sep = "_")
+
 res <- run_reproducibility(runs,
                            gate = CONFIG$match_gate_um,
                            align_gate = CONFIG$align_gate_um,
-                           reference_family = ref_fam, config = cfg)
+                           reference_family = ref_fam, config = cfg,
+                           quality_cutoff = q_cut)
 
 # --- write outputs -----------------------------------------------------------
 # Each run goes in its own timestamped subfolder so results are never
@@ -404,6 +414,16 @@ summary_df <- data.frame(
   detected_in_all       = s$detected_in_all,
   detected_in_all_frac  = round(s$detected_in_all_frac, 4),
   material_concordance  = round(s$material_concordance, 4),
+  # Exact polymer as well as family; and both over the particles every run
+  # identified above the quality cutoff
+  polymer_concordance   = round(s$polymer_concordance, 4),
+  quality_cutoff        = q_cut,
+  n_all_pass            = s$n_all_pass,
+  n_some_below          = s$n_some_below,
+  n_none_pass           = s$n_none_pass,
+  family_concordance_all_pass  = round(s$family_concordance_all_pass, 4),
+  polymer_concordance_all_pass = round(s$polymer_concordance_all_pass, 4),
+  link                  = s$link,
   accuracy_vs_reference = if (is.na(s$accuracy_vs_reference)) NA else round(s$accuracy_vs_reference, 4),
   median_feret_cv       = round(s$median_feret_cv, 4),
   median_pos_jitter_um  = round(s$median_pos_jitter_um, 2),
@@ -418,6 +438,13 @@ summary_df <- data.frame(
 write.csv(summary_df, file.path(out, "reproducibility_summary.csv"), row.names = FALSE)
 if (!is.null(s$run_pairs))
   write.csv(s$run_pairs, file.path(out, "reproducibility_run_pairs.csv"), row.names = FALSE)
+# Material family of run 1 against each other run (two libraries: what B
+# calls what A called PET)
+xt <- do.call(rbind, lapply(seq_along(runs)[-1], function(j) repro_family_crosstab(res$consensus, 1, j)))
+if (!is.null(xt) && nrow(xt)) {
+  xt$label_a <- run_labels[xt$run_a]; xt$label_b <- run_labels[xt$run_b]
+  write.csv(xt, file.path(out, "reproducibility_crosstab.csv"), row.names = FALSE)
+}
 
 # Viewer-ready long table (per run × consensus particle, aligned frame).
 long <- repro_long_table(res)
@@ -494,6 +521,7 @@ if (identical(CONFIG$instrument, "ldir")) {
     meta[[paste0("ldir_run", i, "_detected")]]        <- isTRUE(rci$detected)
   }
 }
+for (i in seq_along(run_labels)) meta[[paste0("run", i, "_label")]] <- run_labels[i]
 # Each replicate's registration onto run 1: rotation and how it started
 for (i in seq_along(res$runs)[-1]) {
   tf <- attr(res$runs[[i]], "transform"); ip <- attr(res$runs[[i]], "initial_pose")
@@ -512,7 +540,16 @@ log_message("  Runs / counts:        ", paste(s$counts_per_run, collapse = ", ")
 log_message("  Physical particles:   ", s$n_consensus)
 log_message("  Detected in all runs: ", s$detected_in_all,
             " (", round(100 * s$detected_in_all_frac, 1), "%)")
-log_message("  Material concordance: ", round(100 * s$material_concordance, 1), "%")
+log_message("  Runs:                 ", paste(sprintf("%d = %s", seq_along(run_labels), run_labels),
+                                             collapse = ", "))
+log_message("  Linked by:            ", if (identical(s$link, "particle_id"))
+              "particle ID (one scan, several identifications)" else "position (replicates)")
+log_message("  Material concordance: ", round(100 * s$material_concordance, 1), "% family, ",
+            round(100 * s$polymer_concordance, 1), "% exact polymer")
+log_message("  Above the cutoff (", q_cut, ") in every run: ", s$n_all_pass, " particles, ",
+            "concordance ", round(100 * s$family_concordance_all_pass, 1), "% family, ",
+            round(100 * s$polymer_concordance_all_pass, 1), "% exact; below it in some run: ",
+            s$n_some_below, " (in none: ", s$n_none_pass, ")")
 if (!is.na(s$accuracy_vs_reference))
   log_message("  Accuracy vs {", paste(CONFIG$reference_material, collapse = ", "), "}: ",
               round(100 * s$accuracy_vs_reference, 1), "%")

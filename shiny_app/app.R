@@ -5796,7 +5796,10 @@ server <- function(input, output, session) {
     rd <- function(f) tryCatch(read.csv(file.path(dir, f), stringsAsFactors = FALSE),
                                error = function(e) NULL)
     list(points = pts, meta = rd("reproducibility_meta.csv"),
-         summary = rd("reproducibility_summary.csv"), dir = dir)
+         summary = rd("reproducibility_summary.csv"),
+         crosstab = if (file.exists(file.path(dir, "reproducibility_crosstab.csv")))
+                      rd("reproducibility_crosstab.csv"),
+         dir = dir)
   })
 
   observeEvent(repro_data(), {
@@ -5812,7 +5815,7 @@ server <- function(input, output, session) {
     # so setNames() below would fail its length check unless run_ids is
     # empty is handled explicitly first.
     run_choices <- if (length(run_ids) > 0)
-                     setNames(as.character(run_ids), paste("Run", run_ids))
+                     setNames(as.character(run_ids), .rlab(run_ids))
                    else character(0)
     updateCheckboxGroupInput(session, "repro_run_visibility",
                              choices = run_choices, selected = run_choices)
@@ -5871,7 +5874,7 @@ server <- function(input, output, session) {
 
     pts$status <- ifelse(!as.logical(pts$material_concordant), "discordant",
                   ifelse(pts$n_runs_detected < n_runs, "missing", "consensus"))
-    pts$run_lbl <- paste("Run", pts$run)
+    pts$run_lbl <- .rlab(pts$run)
 
     if (isTRUE(input$repro_only_nonrepro)) {
       keep <- unique(pts$consensus_id[pts$status != "consensus"])
@@ -6043,8 +6046,8 @@ server <- function(input, output, session) {
     }
     bounds <- sanitize_bounds(bounds)
 
-    run_levels <- paste("Run", sort(unique(pts$run)))
-    run_pal <- .REPRO_RUN_PALETTE[run_levels]
+    run_levels <- .rlab(sort(unique(pts$run)))
+    run_pal <- .repro_run_palette(sort(unique(pts$run)))
 
     show_miss <- isTRUE(input$repro_show_missing_ring)
     show_disc <- isTRUE(input$repro_show_discordant_ring)
@@ -6163,7 +6166,7 @@ server <- function(input, output, session) {
       lapply(seq_len(nrow(rows)), function(i) {
         r <- rows[i, ]
         tags$tr(
-          tags$td(tags$b(paste("Run", r$run))),
+          tags$td(tags$b(.rlab(r$run))),
           tags$td(r$particle_id),
           tags$td(r$material),
           tags$td(paste0(round(r$feret_max_um, 1), " µm")),
@@ -6261,7 +6264,7 @@ server <- function(input, output, session) {
 
     rows <- lapply(run_ids, function(i) {
       tags$tr(
-        tags$td(tags$b(paste("Run", i))),
+        tags$td(tags$b(.rlab(i))),
         tags$td(paste0("(", fmt_num(g(i, "cx_px")), ", ", fmt_num(g(i, "cy_px")), ")")),
         tags$td(fmt_num(g(i, "radius_px"))),
         tags$td(fmt_num(g(i, "scale_um_per_px"), 4)),
@@ -6308,7 +6311,18 @@ server <- function(input, output, session) {
 
   # Run colour palette shared by the counts bar chart and the main scatter.
   .repro_run_palette <- function(run_levels) {
-    .REPRO_RUN_PALETTE[paste("Run", run_levels)]
+    stats::setNames(unname(.REPRO_RUN_PALETTE[paste("Run", run_levels)]), .rlab(run_levels))
+  }
+
+  # Display name of a run: "Run 2 (Raman_libB)" when the output records the
+  # run's file name (run<i>_label in reproducibility_meta.csv), else "Run 2"
+  .rlab <- function(i) {
+    m <- tryCatch(repro_data()$meta, error = function(e) NULL)
+    lab <- vapply(i, function(k) {
+      v <- if (!is.null(m)) m[[paste0("run", k, "_label")]] else NULL
+      if (is.null(v) || !length(v) || is.na(v[1]) || !nzchar(v[1])) "" else as.character(v[1])
+    }, character(1))
+    ifelse(nzchar(lab), paste0("Run ", i, " (", lab, ")"), paste("Run", i))
   }
 
   # Total particles detected per run — the raw, unfiltered per-run counts
@@ -6327,7 +6341,7 @@ server <- function(input, output, session) {
     run_pal    <- .repro_run_palette(run_levels)
     counts     <- as.integer(table(factor(pts$run, levels = run_levels)))
     bar_df <- data.frame(
-      run_lbl = factor(paste("Run", run_levels), levels = paste("Run", run_levels)),
+      run_lbl = factor(.rlab(run_levels), levels = .rlab(run_levels)),
       count   = counts, stringsAsFactors = FALSE
     )
     ggplot2::ggplot(bar_df, ggplot2::aes(x = run_lbl, y = count, fill = run_lbl)) +
@@ -6364,7 +6378,7 @@ server <- function(input, output, session) {
 
     run_levels <- sort(unique(pts$run))
     df <- data.frame(run = pts$run[keep], material = fam[keep], stringsAsFactors = FALSE)
-    df$run_lbl <- factor(paste("Run", df$run), levels = paste("Run", run_levels))
+    df$run_lbl <- factor(.rlab(df$run), levels = .rlab(run_levels))
 
     agg <- as.data.frame(table(run_lbl = df$run_lbl, material = df$material))
     names(agg) <- c("run_lbl", "material", "count")
@@ -6379,7 +6393,7 @@ server <- function(input, output, session) {
     strip_n <- setNames(paste0(totals$run_lbl, "\n(n = ", totals$run_total, ")"),
                         totals$run_lbl)
     agg$strip_lbl <- factor(strip_n[as.character(agg$run_lbl)],
-                            levels = strip_n[paste("Run", run_levels)])
+                            levels = strip_n[.rlab(run_levels)])
 
     fam_colors <- .pie_palette[sort(unique(as.character(agg$material)))]
     fam_colors[is.na(fam_colors)] <- "#cccccc"
@@ -6419,14 +6433,53 @@ server <- function(input, output, session) {
       tags$tr(tags$td("Detected in all"),
               tags$td(paste0(val("detected_in_all"), " (", pct(val("detected_in_all_frac")), ")"))),
       tags$tr(tags$td("Count CV"), tags$td(pct(val("count_cv")))),
-      tags$tr(tags$td("Material concordance"), tags$td(pct(val("material_concordance")))),
+      if (!is.na(val("link")))
+        tags$tr(tags$td("Linked by"), tags$td(if (identical(val("link"), "particle_id"))
+          "particle ID (one scan, several identifications)" else "position (replicates)")),
+      tags$tr(tags$td("Material concordance"),
+              tags$td(paste0(pct(val("material_concordance")), " family",
+                             if (!is.na(val("polymer_concordance")))
+                               paste0(", ", pct(val("polymer_concordance")), " exact")))),
+      if (!is.na(val("n_all_pass")))
+        tags$tr(tags$td(paste0("Above the cutoff (", val("quality_cutoff"), ") in every run")),
+                tags$td(paste0(val("n_all_pass"), " particles: ",
+                               pct(val("family_concordance_all_pass")), " family, ",
+                               pct(val("polymer_concordance_all_pass")), " exact"))),
+      if (!is.na(val("n_some_below")))
+        tags$tr(tags$td("Below the cutoff in some run"),
+                tags$td(paste0(val("n_some_below"), " (in none: ", val("n_none_pass"), ")"))),
       tags$tr(tags$td("Accuracy vs reference"), tags$td(pct(val("accuracy_vs_reference")))),
       tags$tr(tags$td("Median Feret CV"), tags$td(pct(val("median_feret_cv")))),
       tags$tr(tags$td("Median jitter"),
               tags$td(if (is.na(val("median_pos_jitter_um"))) "\u2014"
-                      else paste0(round(val("median_pos_jitter_um"), 1), " \u00b5m")))
+                      else paste0(round(val("median_pos_jitter_um"), 1), " \u00b5m"))),
+      repro_crosstab_ui(d$crosstab)
     )
   })
+
+  # Material family of run 1 (rows) against another run (columns), over the
+  # particles both identified; in brackets how many both identified above the
+  # quality cutoff (reproducibility_crosstab.csv)
+  repro_crosstab_ui <- function(xt) {
+    if (is.null(xt) || !nrow(xt)) return(NULL)
+    lapply(split(xt, xt$run_b), function(x) {
+      fa <- sort(unique(x$family_a)); fb <- sort(unique(x$family_b))
+      cell <- function(a, b) {
+        r <- x[x$family_a == a & x$family_b == b, , drop = FALSE]
+        if (!nrow(r)) "\u2014" else paste0(r$n, " (", r$n_both_pass, ")")
+      }
+      la <- if ("label_a" %in% names(x)) x$label_a[1] else paste("Run", x$run_a[1])
+      lb <- if ("label_b" %in% names(x)) x$label_b[1] else paste("Run", x$run_b[1])
+      tags$tr(tags$td(colspan = 2,
+        tags$div(style = "margin-top: 8px;", tags$b(paste0(la, " (rows) vs ", lb, " (columns)"))),
+        do.call(tags$table, c(list(class = "hover-tbl"),
+          list(do.call(tags$tr, c(list(tags$th("")), lapply(fb, tags$th)))),
+          lapply(fa, function(a) do.call(tags$tr, c(list(tags$td(tags$b(a))),
+                                                     lapply(fb, function(b) tags$td(cell(a, b)))))))),
+        tags$div(class = "text-muted", style = "font-size: 11px;",
+                 "Particles; in brackets: both above the quality cutoff")))
+    })
+  }
 }
 
 # ============================================================================
