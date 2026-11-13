@@ -137,6 +137,16 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   actual reference; the viewer no longer says "WITec extent" for an
   auto-calibrated Raman image; the BOM in the coordinate-swap reader is
   matched by its bytes (ASCII source, any locale).
+- Viewer, overlay **Match Details**: the table is filled from all particles of
+  every instrument, whatever the viewer filters (the hover still picks only
+  drawn particles). An instrument without a pipeline partner shows the
+  particle it has at that spot, with the reason it was not matched (below its
+  quality cutoff, below the size limit, paired with another particle), the
+  distance and the chance of an unrelated particle that close, or "Nothing
+  found within ... um" / "Outside the area this instrument scanned". It no
+  longer depends on `partner_status.csv` (which a run may lack and which
+  covers only instruments ticked in the overlay), so the Note row is no longer
+  empty where an instrument found a particle below its cutoff.
 
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks

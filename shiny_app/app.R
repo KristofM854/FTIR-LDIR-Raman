@@ -5444,6 +5444,12 @@ server <- function(input, output, session) {
     }
   })
 
+  # Spot lookup context of the run: gates, size limit, the pipeline's pairs
+  spot_ctx <- reactive({
+    rd <- selected_run_dir()
+    list(settings = spot_settings(rd), pairs = tryCatch(run_pair_matches(rd), error = function(e) list()))
+  })
+
   # Clear pin button
   # Clear button: the pin and the highlighted particles (the per-instrument
   # selections on the left, which a click adds to).
@@ -5536,24 +5542,29 @@ server <- function(input, output, session) {
 
     full <- overlay_dfs_full()
     dash <- "\u2014"
-    # Instruments shown without a particle here: what that instrument has at
-    # this position whatever its quality (05_matches/partner_status.csv)
-    fill <- partner_fill(run_data_gated()$partner_status, ids,
-                         input$overlay_instruments %||% character(0))
-    own <- attr(fill, "own")
+    # Every instrument, from ALL its particles (the hover / click picked a
+    # drawn particle; the table ignores the viewer filters): the shown
+    # particles, their pipeline partners, else what lies at that spot with a
+    # warning (below the quality cutoff, below the size limit, paired with
+    # another particle) or "nothing found" (spot_partners(), global.R).
+    st <- spot_ctx()
+    full_k <- stats::setNames(lapply(names(.OV_INST), function(k) full[[.OV_INST[[k]]$df]]),
+                              names(.OV_INST))
+    ent <- if (length(ids)) spot_partners(ids, full_k, st$pairs, st$settings) else list()
+    shown_now <- overlay_shown_dfs()
     cols <- lapply(names(.OV_INST), function(k) {
-      oi <- .OV_INST[[k]]; id <- ids[[k]]; f <- fill[[k]]
-      if (is.null(id) && !is.null(f)) id <- f$id
-      note <- if (!is.null(f)) partner_fill_note(f, oi$q)
-              else if (!is.null(ids[[k]]) && isFALSE(own[[k]]$passes))
-                list(warn = TRUE, text = paste0("\u26a0 Below the ", if (nzchar(oi$q)) oi$q else "quality", " ",
-                                                "cutoff: not confidently identified"))
+      oi <- .OV_INST[[k]]; e <- ent[[k]]; id <- e$id
       d <- full[[oi$df]]
       r <- if (!is.null(id) && !is.null(d)) d[as.character(d$particle_id) == id, , drop = FALSE]
+      note <- if (length(ids)) spot_note(e, oi$q, r, st$settings$min_size)
+      # A pipeline partner that the viewer filters hide
+      if (identical(e$kind, "partner") && !is.null(shown_now[[oi$df]]) &&
+          !id %in% as.character(shown_now[[oi$df]]$particle_id))
+        note <- list(warn = isTRUE(note$warn),
+                     text = paste0(c(note$text, "hidden by the viewer filters"), collapse = "; "))
       if (is.null(r) || nrow(r) == 0)
-        return(list(k = k, id = id %||% dash, mat = f$material %||% dash,
-                    q = if (!is.null(f$quality) && is.finite(f$quality)) f$quality else dash,
-                    feret = dash, pos = dash, note = note))
+        return(list(k = k, id = id %||% dash, mat = dash, q = dash, feret = dash, pos = dash,
+                    note = note, kind = e$kind %||% ""))
       r <- r[1, ]
       num <- function(v, digits) if (is.null(v) || is.na(v)) NA else round(v, digits)
       q <- num(r$quality, if (k == "raman") 2 else 3)
@@ -5562,12 +5573,13 @@ server <- function(input, output, session) {
            q = if (is.na(q)) dash else paste0(if (nzchar(oi$q)) paste0(oi$q, " ") else "", q),
            feret = if (is.na(num(r$feret_max, 1))) dash else paste0(num(r$feret_max, 1), " \u00b5m"),
            pos = if (is.na(num(r$x, 1))) dash else paste0("(", num(r$x, 1), ", ", num(r$y, 1), ")"),
-           note = note)
+           note = note, kind = e$kind %||% "")
     })
     # A filled column is shown in italics; its note says how sure it is
+    # A particle found at the spot but not paired is shown in italics
     mk <- function(label, f) do.call(tags$tr, c(list(tags$td(tags$b(label))),
       lapply(cols, function(c) tags$td(c[[f]], title = c[[f]],
-                                       style = if (!is.null(fill[[c$k]])) "font-style: italic;"))))
+                                       style = if (identical(c$kind, "spot")) "font-style: italic;"))))
     note_row <- do.call(tags$tr, c(list(tags$td(tags$b("Note"))), lapply(cols, function(c) {
       n <- c$note
       if (is.null(n)) return(tags$td(dash))
