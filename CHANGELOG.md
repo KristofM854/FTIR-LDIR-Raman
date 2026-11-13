@@ -149,6 +149,16 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   empty where an instrument found a particle below its cutoff.
 
 ### Added
+- **Library comparison in the multi-run tool** (`tools/reproducibility.R`,
+  Multi-Run tab): tables of one scan identified against different spectral
+  libraries are linked by particle ID (detected from equal IDs at equal
+  positions; replicates are linked by position as before). New: concordance
+  at exact-polymer level besides family; both over the particles every run
+  identified above the quality cutoff, with the number identified below it in
+  some run; `reproducibility_crosstab.csv` (family of run 1 against each other
+  run, with how many both identified above the cutoff); runs named after their
+  files (`run<i>_label` in `reproducibility_meta.csv`); per-run quality and
+  cutoff state in `reproducibility_particles.csv` / `_points.csv`.
 - **Run Info: supporting files.** A table of the side files the pipeline looks
   for next to each instrument's data (FTIR scan segments and placement .txt,
   Bruker placement / OPUS values, Raman WITec placement .txt, LDIR analyzed

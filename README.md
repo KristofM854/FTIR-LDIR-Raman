@@ -428,6 +428,24 @@ search on the largest particles; the links use the pipeline's matcher with a
 gate of 3x the positional error fitted to each pair of runs (10-75 µm), and
 a link that would join two particles of the same run is skipped and counted.
 
+**Comparing spectral libraries.** The same tool compares one scan identified
+against different libraries: export the particle table once per library and
+pass them as runs, e.g.
+
+```bash
+Rscript tools/reproducibility.R raman Raman_libraryA.csv Raman_libraryB.csv
+```
+
+Tables of one scan carry the same particle IDs at the same positions; the tool
+recognises this and links the particles by ID (exact; a remounted filter is
+linked by position as before). It reports, per particle and overall, whether
+the libraries agree at family and at exact-polymer level, both over all
+particles and over those both libraries identified above the instrument's
+quality cutoff (Raman HQI 70), and how many each library identified only below
+it. `reproducibility_crosstab.csv` and the Multi-Run tab show library A's
+family against library B's (e.g. what B calls the particles A called PET);
+runs are named after their files.
+
 ### PDF report
 
 The **Summary** tab has a **Download PDF report** button that writes one

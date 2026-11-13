@@ -175,3 +175,35 @@ test_that("dense, remounted replicates: rotation found, per-run gate, no particl
   truth_all <- length(Reduce(intersect, lapply(runs, `[[`, "tid")))
   expect_equal(res$summary$detected_in_all, truth_all, tolerance = 0.02 * truth_all)
 })
+
+
+# One scan identified against two spectral libraries: same particle IDs and
+# positions, different identifications and quality.
+test_that("two identifications of one scan are linked by particle ID and compared by library", {
+  libA <- .base_filter(n = 10)
+  libA$quality <- 90
+  libB <- libA
+  libB$material[1:2] <- "Polyester"                   # same family (PET), other polymer
+  libB$material[3]   <- "Calcium carbonate"; libB$quality[3] <- 50   # below the HQI cutoff
+  libB <- libB[c(10:1), ]                              # row order must not matter
+  expect_true(repro_same_scan(list(libA, libB)))
+  res <- suppressMessages(run_reproducibility(list(libA, libB), quality_cutoff = 70))
+  s <- res$summary
+  expect_equal(s$link, "particle_id")
+  expect_equal(s$n_consensus, 10)
+  expect_equal(s$material_concordance, 0.9)            # 9 of 10 same family
+  expect_equal(s$polymer_concordance, 0.7)             # 7 of 10 same polymer
+  expect_equal(s$n_all_pass, 9); expect_equal(s$n_some_below, 1)
+  expect_equal(s$family_concordance_all_pass, 1)
+  expect_equal(s$polymer_concordance_all_pass, 7 / 9)
+  xt <- repro_family_crosstab(res$consensus, 1, 2)
+  expect_equal(xt$n[xt$family_a == "PET" & xt$family_b == "PET"], 9)
+  expect_equal(xt$n[xt$family_b == "Mineral"], 1)
+  expect_equal(xt$n_both_pass[xt$family_b == "Mineral"], 0)
+  # Replicates of a remounted filter carry the same IDs but other positions:
+  # linked spatially
+  moved <- .move(libA, deg = 3, tx = 120, ty = -80, seed = 2)
+  expect_false(repro_same_scan(list(libA, moved)))
+  r2 <- suppressMessages(run_reproducibility(list(libA, moved), gate = 50))
+  expect_equal(r2$summary$link, "spatial")
+})

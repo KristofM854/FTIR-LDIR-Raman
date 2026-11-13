@@ -240,6 +240,44 @@ repro_link_runs <- function(runs, gate = 75, config = NULL) {
   memb
 }
 
+# ---- linking by particle ID (one scan, several identifications) --------------
+
+#' Are the runs one scan identified more than once (e.g. against different
+#' spectral libraries)? Then they carry the same particle IDs at the same
+#' positions, and linking by ID is exact. TRUE when, for every run after the
+#' first, at least `min_share` of its IDs occur in run 1 and the particles of
+#' equal ID lie within `max_dist_um` of each other (median, raw coordinates).
+#' Replicate measurements (a remounted filter) fail the position test and are
+#' linked spatially.
+repro_same_scan <- function(runs, min_share = 0.9, max_dist_um = 5) {
+  if (length(runs) < 2) return(FALSE)
+  r1 <- runs[[1]]; id1 <- as.character(r1$particle_id)
+  if (!length(id1) || anyDuplicated(id1)) return(FALSE)
+  for (r in runs[-1]) {
+    id <- as.character(r$particle_id)
+    if (!length(id) || anyDuplicated(id)) return(FALSE)
+    k <- match(id, id1)
+    if (mean(!is.na(k)) < min_share) return(FALSE)
+    ok <- !is.na(k)
+    d <- sqrt((r$x_um[ok] - r1$x_um[k[ok]])^2 + (r$y_um[ok] - r1$y_um[k[ok]])^2)
+    if (!any(is.finite(d)) || stats::median(d, na.rm = TRUE) > max_dist_um) return(FALSE)
+  }
+  TRUE
+}
+
+#' Membership matrix (consensus particle x run -> row index) by particle ID,
+#' in the same form as repro_link_runs().
+repro_link_by_id <- function(runs) {
+  ids <- unique(unlist(lapply(runs, function(r) as.character(r$particle_id))))
+  memb <- vapply(runs, function(r) match(ids, as.character(r$particle_id)), integer(length(ids)))
+  memb <- matrix(memb, nrow = length(ids))
+  attr(memb, "n_link_conflicts") <- 0L
+  attr(memb, "n_links") <- sum(rowSums(!is.na(memb)) >= 2)
+  attr(memb, "pairs") <- NULL
+  attr(memb, "link") <- "particle_id"
+  memb
+}
+
 # ---- consensus attributes + aggregate metrics -------------------------------
 
 .repro_family <- function(mat) {
@@ -248,7 +286,7 @@ repro_link_runs <- function(runs, gate = 75, config = NULL) {
 
 #' Per-consensus-particle table: presence, material and size per run, plus
 #' concordance / CV / positional-jitter summaries (vectorised over particles).
-repro_consensus_table <- function(runs, memb) {
+repro_consensus_table <- function(runs, memb, cutoff = 0) {
   n_runs <- length(runs); nc <- nrow(memb)
   col <- function(name, cast) {
     m <- matrix(cast(NA), nc, n_runs)
@@ -263,9 +301,20 @@ repro_consensus_table <- function(runs, memb) {
   xs <- col("x_aligned", as.numeric); ys <- col("y_aligned", as.numeric)
   fams <- matrix(.repro_family(as.vector(mats)), nc, n_runs)
   fams[is.na(mats)] <- NA
+  # Exact polymer (spelling variants unified), and whether each run's
+  # identification passes the instrument's quality cutoff (HQI / AAU)
+  pols <- matrix(if (exists("canonical_polymer_vec")) canonical_polymer_vec(as.vector(mats))
+                 else toupper(as.vector(mats)), nc, n_runs)
+  pols[is.na(mats)] <- NA
+  qual <- col("quality", function(v) suppressWarnings(as.numeric(v)))
+  passes <- if (is.null(cutoff) || !is.finite(cutoff) || cutoff <= 0) !is.na(mats)
+            else !is.na(qual) & qual >= cutoff
+  passes[is.na(mats)] <- NA
   present <- !is.na(memb)
   n_det <- rowSums(present)
   concordant <- apply(fams, 1, function(f) length(unique(f[!is.na(f)])) <= 1)
+  polymer_concordant <- apply(pols, 1, function(f) length(unique(f[!is.na(f)])) <= 1)
+  n_pass <- rowSums(matrix(passes %in% TRUE, nc, n_runs))
   consensus_mat <- apply(fams, 1, function(f) {
     f <- f[!is.na(f)]; if (!length(f)) NA_character_ else names(sort(table(f), decreasing = TRUE))[1] })
   fm <- rowMeans(feret, na.rm = TRUE)
@@ -278,10 +327,14 @@ repro_consensus_table <- function(runs, memb) {
   }
   out <- data.frame(consensus_id = seq_len(nc), n_runs_detected = n_det,
                     material_consensus = consensus_mat, material_concordant = concordant,
+                    polymer_concordant = polymer_concordant, n_runs_passing = n_pass,
                     feret_cv = fsd / fm, pos_jitter_um = jitter, stringsAsFactors = FALSE)
   for (r in seq_len(n_runs)) {
     out[[paste0("run", r, "_detected")]] <- present[, r]
     out[[paste0("run", r, "_material")]] <- mats[, r]
+    out[[paste0("run", r, "_family")]] <- fams[, r]
+    out[[paste0("run", r, "_quality")]] <- qual[, r]
+    out[[paste0("run", r, "_passes")]] <- passes[, r]
     out[[paste0("run", r, "_feret_um")]] <- feret[, r]
   }
   out
@@ -299,7 +352,12 @@ repro_summary <- function(runs, consensus, reference_family = NULL, memb = NULL)
   multi   <- consensus[det >= 2, , drop = FALSE]
 
   concord_rate <- if (nrow(multi) > 0) mean(multi$material_concordant) else NA_real_
-
+  rate <- function(v) if (length(v)) mean(v) else NA_real_
+  # The same split by the quality cutoff: particles every run identified
+  # above its cutoff, and those at least one run identified below it
+  n_det <- consensus$n_runs_detected
+  all_pass <- if ("n_runs_passing" %in% names(multi)) multi$n_runs_passing == multi$n_runs_detected
+              else rep(NA, nrow(multi))
   accuracy <- NA_real_
   if (!is.null(reference_family) && length(reference_family) > 0) {
     all_fams <- unlist(lapply(runs, function(d) .repro_family(d$material)))
@@ -318,6 +376,14 @@ repro_summary <- function(runs, consensus, reference_family = NULL, memb = NULL)
     detected_in_all_frac   = if (nrow(consensus) > 0) mean(det == n_runs) else NA_real_,
     detection_breakdown    = table(factor(det, levels = seq_len(n_runs))),
     material_concordance   = concord_rate,
+    polymer_concordance    = if ("polymer_concordant" %in% names(multi)) rate(multi$polymer_concordant) else NA_real_,
+    n_all_pass             = sum(all_pass %in% TRUE),
+    n_some_below           = sum(all_pass %in% FALSE),
+    n_none_pass            = if ("n_runs_passing" %in% names(multi)) sum(multi$n_runs_passing == 0) else NA_integer_,
+    family_concordance_all_pass  = rate(multi$material_concordant[all_pass %in% TRUE]),
+    polymer_concordance_all_pass = if ("polymer_concordant" %in% names(multi))
+                                     rate(multi$polymer_concordant[all_pass %in% TRUE]) else NA_real_,
+    link                   = if (!is.null(memb)) attr(memb, "link") %||% "spatial" else NA_character_,
     accuracy_vs_reference  = accuracy,
     median_feret_cv        = stats::median(consensus$feret_cv, na.rm = TRUE),
     median_pos_jitter_um   = stats::median(consensus$pos_jitter_um, na.rm = TRUE),
@@ -332,17 +398,53 @@ repro_summary <- function(runs, consensus, reference_family = NULL, memb = NULL)
 #' @param config Pipeline config (NULL = make_config()); replicate settings
 #'   (no mirror, scale 1) are applied on top (repro_config()).
 run_reproducibility <- function(runs, gate = 75, align_gate = 300,
-                                 reference_family = NULL, config = NULL) {
+                                 reference_family = NULL, config = NULL,
+                                 link = c("auto", "spatial", "particle_id"),
+                                 quality_cutoff = 0) {
   stopifnot(length(runs) >= 2)
+  link      <- match.arg(link)
   cfg       <- repro_config(config)
-  runs      <- repro_align_runs(runs, gate = align_gate, config = cfg)
-  memb      <- repro_link_runs(runs, gate = gate, config = cfg)
-  consensus <- repro_consensus_table(runs, memb)
+  # One scan identified more than once (e.g. two spectral libraries): the
+  # runs share particle IDs and positions; link them by ID, exactly
+  by_id <- identical(link, "particle_id") || (identical(link, "auto") && repro_same_scan(runs))
+  if (by_id) {
+    log_message("  Runs share particle IDs and positions (one scan, several identifications): ",
+                "linked by particle ID")
+    runs <- lapply(runs, function(r) { r$x_aligned <- r$x_um; r$y_aligned <- r$y_um; r })
+    memb <- repro_link_by_id(runs)
+  } else {
+    runs <- repro_align_runs(runs, gate = align_gate, config = cfg)
+    memb <- repro_link_runs(runs, gate = gate, config = cfg)
+    attr(memb, "link") <- "spatial"
+  }
+  consensus <- repro_consensus_table(runs, memb, cutoff = quality_cutoff)
   summary   <- repro_summary(runs, consensus, reference_family = reference_family, memb = memb)
   if (summary$n_link_conflicts > 0)
     log_message("  ", summary$n_link_conflicts, " run-to-run link(s) skipped: they would have ",
                 "joined two particles of the same run", level = "WARN")
   list(runs = runs, membership = memb, consensus = consensus, summary = summary)
+}
+
+# ---- run x run material table ------------------------------------------------
+
+#' Material family of run a against run b, over the particles both identified
+#' (for two libraries: what library B calls what library A called PET). One
+#' row per family pair with the number of particles, and how many of them
+#' both runs identified above the quality cutoff.
+#' @return data.frame(run_a, run_b, family_a, family_b, n, n_both_pass)
+repro_family_crosstab <- function(consensus, a = 1, b = 2) {
+  fa <- consensus[[paste0("run", a, "_family")]]; fb <- consensus[[paste0("run", b, "_family")]]
+  if (is.null(fa) || is.null(fb)) return(data.frame())
+  pa <- consensus[[paste0("run", a, "_passes")]] %||% rep(TRUE, length(fa))
+  pb <- consensus[[paste0("run", b, "_passes")]] %||% rep(TRUE, length(fb))
+  ok <- !is.na(fa) & !is.na(fb)
+  if (!any(ok)) return(data.frame())
+  d <- data.frame(family_a = fa[ok], family_b = fb[ok], both = (pa[ok] %in% TRUE) & (pb[ok] %in% TRUE),
+                  stringsAsFactors = FALSE)
+  agg <- stats::aggregate(list(n = rep(1L, nrow(d)), n_both_pass = as.integer(d$both)),
+                          d[c("family_a", "family_b")], sum)
+  agg <- agg[order(-agg$n, agg$family_a, agg$family_b), , drop = FALSE]
+  cbind(data.frame(run_a = a, run_b = b), agg, row.names = NULL)
 }
 
 # ---- viewer-ready long table ------------------------------------------------
@@ -380,6 +482,8 @@ repro_long_table <- function(res) {
       # (AAU / HQI, scale depends on instrument). NA for a run whose ingester
       # did not supply it; the viewer hides its slider in that case.
       quality             = opt("quality"),
+      passes_cutoff       = if (!is.null(cons[[paste0("run", r, "_passes")]]))
+                              cons[[paste0("run", r, "_passes")]][ci] else NA,
       feret_max_um        = d$feret_max_um[idx],
       area_um2            = opt("area_um2"),
       major_um            = opt("major_um"),
