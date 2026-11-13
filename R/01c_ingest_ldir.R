@@ -2144,7 +2144,7 @@ load_ldir_coord_swaps <- function(ldir_path, config = NULL) {
   }
 
   # Strip a UTF-8 BOM off the first header name so id_clarity still matches.
-  names(tab) <- sub("^﻿", "", names(tab))
+  names(tab) <- sub("^\xef\xbb\xbf", "", names(tab), useBytes = TRUE)
   nm <- tolower(trimws(names(tab)))
   ia <- which(nm %in% c("id_a", "a", "from", "id1", "particle_a",
                         "id_clarity", "clarity", "software", "correct", "true"))[1]

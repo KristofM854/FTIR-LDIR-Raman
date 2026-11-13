@@ -16,7 +16,7 @@
   skip_if_not(file.exists(gpath), "shiny_app/global.R not found")
   src <- readLines(gpath, warn = FALSE)
   i <- grep("^image_scale_from_particle_area <- function", src)[1]
-  skip_if(is.na(i), "helper not found in global.R")
+  if (is.na(i)) stop("The image-scale helper was not found in global.R; update this test.")
   j <- i + which(src[(i + 1):length(src)] == "}")[1]
   env <- new.env(parent = globalenv())
   eval(parse(text = paste(src[i:j], collapse = "\n")), envir = env)

@@ -116,3 +116,32 @@ test_that("a dense field sample: LDIR pairs are right, sigma is recovered, a sho
                                      "agreement_pairwise_ftir_bruker_raman.csv")))
   expect_false(file.exists(file.path(run, "05_matches", "matched_ftir_bruker_ldir.csv")))
 })
+
+
+# AUDIT H-02: an LDIR table with no counterpart in the reference took a Tier 2
+# pose without the chance test an FTIR table gets, and the run recorded it as
+# determined with the p of the rejected landmark attempt.
+test_that("an LDIR table that cannot fix a pose is reported as not determined", {
+  dir <- withr::local_tempdir(); out <- withr::local_tempdir()
+  .field_inputs(dir)
+  set.seed(77)
+  utils::write.csv(data.frame(ID = paste0("U", 1:12), x = stats::runif(12, 1000, 4000),
+                              y = stats::runif(12, 4000, 7000),
+                              size = round(stats::runif(12, 25, 60)),
+                              Identification = "PET", Quality = 0.95),
+                   file.path(dir, "ldir.csv"), row.names = FALSE)
+  cfg <- .field_config(dir, out)
+  cfg$ftir_bruker_path <- NULL; cfg$ftir_bruker_column_map <- NULL
+  r <- withCallingHandlers(
+    suppressMessages(run_pipeline(cfg, report = FALSE)),
+    warning = function(w) invokeRestart("muffleWarning"))
+  run <- list.dirs(out, recursive = FALSE)
+  expect_false(r$ldir$alignment_determined)
+  expect_gte(r$ldir$pose_p, 0.01)
+  al <- utils::read.csv(file.path(run, "04_alignment", "alignment_summary.csv"))
+  expect_false(al$determined[al$instrument == "ldir"])
+  ch <- utils::read.csv(file.path(run, "07_diagnostics", "chance_pairs.csv"))
+  expect_false(ch$alignment_determined[ch$pair == "ldir_raman"])
+  expect_equal(r$ldir$ldir_ref_agreement$tiered_rates$n_total, 0)
+  expect_false(file.exists(file.path(run, "07_diagnostics", "detection_rates.csv")))
+})

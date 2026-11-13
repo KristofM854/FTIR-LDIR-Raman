@@ -319,7 +319,7 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
     # list (e.g. one already filtered to plastics) against a dense reference
     # cannot fix a pose.
     if (identical(method, "landmark")) {
-      determined <- TRUE; pose_p <- landmark$p_chance %||% NA_real_
+      determined <- TRUE; pose_p <- landmark$p_pose %||% landmark$p_chance %||% NA_real_
     } else {
       r_pose <- config$match_dist_threshold_um
       n_pose <- align_transform_inliers(icp$transform, src_align$x_norm, src_align$y_norm,
@@ -371,7 +371,8 @@ align_and_match <- function(src_raw, ref, config, label, src_role = "ftir",
   aligned_all <- apply_ftir_transform(clean, icp$transform)
 
   match <- match_particles(aligned, ref$for_match, config,
-                           src_label = labels$src_prefix, ref_label = labels$ref_prefix)
+                           src_label = labels$src_prefix, ref_label = labels$ref_prefix,
+                           src_name = label, ref_name = ref_name)
   ms <- match$match_stats
   log_message(label, " \u2194 ", ref_name, ": ", ms$n_matched, " matched, ",
               ms$n_unmatched_src, " unmatched ", label, ", ", ms$n_unmatched_ref,
@@ -540,6 +541,10 @@ build_triplets <- function(ftir_match, ldir_match, raman_for_match, config,
                            ldir_ftir_match = NULL) {
   fm <- ftir_match$matched; lm <- ldir_match$matched
   if (is.null(fm) || is.null(lm) || nrow(fm) == 0 || nrow(lm) == 0) return(data.frame())
+  # Triplets are built from the primary (one-to-one) pairs
+  prim <- function(d) if ("pair_type" %in% names(d)) d[!d$pair_type %in% "additional", , drop = FALSE] else d
+  fm <- prim(fm); lm <- prim(lm)
+  if (nrow(fm) == 0 || nrow(lm) == 0) return(data.frame())
   col <- function(d, k) if (k %in% names(d)) d[[k]] else rep(NA, nrow(d))
   triplets <- merge(
     data.frame(raman_particle_id = fm$raman_particle_id,

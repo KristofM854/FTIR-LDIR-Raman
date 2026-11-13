@@ -41,7 +41,8 @@ Suggests:
     pdftools,
     testthat (>= 3.0.0),
     tiff,
-    withr
+    withr,
+    writexl
 SystemRequirements: Python (>= 3.9) with numpy, scipy and Pillow
     (inst/python/requirements.txt). Required for LDIR image analysis;
     FTIR/Raman-only runs do not need Python.

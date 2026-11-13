@@ -142,10 +142,20 @@ default_polymer_families <- list(
     "\\bLATEX\\b", "ELASTOMER"
   ),
   # --- Semi-synthetic -----------------------------------------------------------
+  # Regenerated or derivatised cellulose: man-made fibres and films. Listed
+  # before "Cellulose" so that "Cellulose acetate" lands here.
+  "Regenerated cellulose" = c(
+    "CELLULOS\\w*\\s*(DI|TRI)?\\s*(ACETATE|NITRATE|PROPIONATE|BUTYRATE|XANTHATE)",
+    "(ACETATE|NITRATE|PROPIONATE|BUTYRATE).*CELLULOS", "NITRO\\s*CELLULOSE",
+    "(METHYL|ETHYL|PROPYL|CARBOXY\\w*)\\s*CELLULOSE", "REGENERATED\\s*CELLULOS",
+    "^CAB$", "CARMELLOSE", "CELLOPHANE",
+    "Rayon", "Viscose", "Lyocell", "\\bMODAL\\b"
+  ),
+  # --- Natural / organic ------------------------------------------------------------
+  # Native cellulose (paper, cotton, plant fibre; LDIR "Cellulosic"): its own
+  # family, so cellulose hits of two instruments agree, but not a plastic.
   Cellulose = c(
-    "Cellulos",     # matches Cellulose, Cellulosic, Cellulose Acetate, CAB
-    "^CAB$", "CARMELLOSE",
-    "Rayon", "Viscose", "Lyocell"
+    "Cellulos", "Cotton"
   ),
   Acrylate = c(
     # Acrylic polymers only — the monomers (butyl acrylate, acrylic acid, ...)
@@ -156,6 +166,9 @@ default_polymer_families <- list(
   ),
   # --- Natural / organic ------------------------------------------------------------
   Protein = c(
+    # LDIR "Polyamide (naturally occurring)": natural polyamide is protein
+    # (wool, silk, skin); listed here so it agrees with those, not with nylon
+    "POLYAMIDE.*NATURAL", "NATURAL.*POLYAMIDE",
     "Protein", "Keratin", "Silk", "^Wool$",
     "COLLAGEN", "\\bGELATINE?\\b", "CASEIN", "ALBUMIN", "FIBROIN"
   ),
@@ -163,8 +176,7 @@ default_polymer_families <- list(
     "Chitin", "Chitosan"
   ),
   Natural = c(
-    "naturally\\s*occurring",   # covers "Polyamide (naturally occurring)" from LDIR
-    "Cotton",
+    "naturally\\s*occurring",
     "^Natural$", "^Organic$", "^Biofilm$",
     "^(?!GLUE).*\\bWOOD\\b", "LIGNIN", "STARCH", "POLYSACCHARID", "\\bPECTINE?\\b", "POLYGALACTURON",
     "CARRAGEENAN", "\\bAGAR\\b", "ALGINATE", "CAROTEN", "CHLOROPHYLL",
@@ -228,10 +240,11 @@ default_polymer_families <- list(
 synthetic_families    <- c("PET", "PP", "PE", "PS", "PVC", "PA", "PC",
                            "PMMA", "PU", "PTFE", "ABS", "Rubber",
                            "EVA", "POM", "Epoxy", "Acrylate", "Other polymer")
-# Regenerated cellulose (rayon, viscose, cellulose acetate) only. Acrylic
-# polymers, polyacrylonitrile included, are synthetic.
-semi_synthetic_families <- c("Cellulose")
-natural_families      <- c("Protein", "Chitin", "Natural")
+# Regenerated cellulose (rayon, viscose, cellulose acetate) only; native
+# cellulose is natural. Acrylic polymers, polyacrylonitrile included, are
+# synthetic.
+semi_synthetic_families <- c("Regenerated cellulose")
+natural_families      <- c("Cellulose", "Protein", "Chitin", "Natural")
 additive_families     <- c("Additive", "Pigment")
 inorganic_families    <- c("Mineral", "Inorganic")
 other_compound_families <- c("Other compound")
@@ -668,8 +681,10 @@ is_unidentified <- function(x) {
 
 #' Canonical (exact) polymer name for raw material labels.
 #'
-#' Tries the whole name, then the name without a trailing bracket, then the
-#' abbreviation in that bracket ("Polycarbonate (PC)"). Unidentified labels return "UNKNOWN".
+#' Tries the whole name, then, when the trailing bracket holds an abbreviation
+#' ("Polycarbonate (PC)"), the name without it and the abbreviation itself. A
+#' bracketed qualifier ("(naturally occurring)") is kept. Unidentified labels
+#' return "UNKNOWN".
 #'
 #' @param names Character vector of raw material names
 #' @param synonyms Named list: canonical name -> regex patterns
@@ -683,8 +698,14 @@ canonical_polymer_vec <- function(names, synonyms = default_polymer_synonyms) {
     n <- sub("\\s+lab bench\\s*$", "", n, ignore.case = TRUE)   # FTIR library suffix
     abbr <- regmatches(n, regexpr("\\(([A-Za-z0-9 ]+)\\)\\s*$", n))
     base <- trimws(sub("\\(([A-Za-z0-9 ]+)\\)\\s*$", "", n))
-    for (k in unique(c(.polymer_key(n), .polymer_key(base),
-                       .polymer_key(gsub("[()]", "", abbr))))) {
+    # Only an abbreviation in the trailing bracket ("Polycarbonate (PC)") may
+    # be dropped. A qualifier ("Polyamide (naturally occurring)",
+    # "Polyethylene (chlorinated)") names another material: such a name keeps
+    # its own flattened form and is not unified with the plain polymer.
+    is_abbr <- length(abbr) == 1 && grepl("^\\([A-Z0-9]{1,8}\\)\\s*$", abbr)
+    keys <- if (is_abbr) c(.polymer_key(n), .polymer_key(base), .polymer_key(gsub("[()]", "", abbr)))
+            else .polymer_key(n)
+    for (k in unique(keys)) {
       if (!nzchar(k)) next
       for (cn in names(synonyms))
         if (any(grepl(paste0("(?:", synonyms[[cn]], ")", collapse = "|"), k, perl = TRUE)))
@@ -769,7 +790,10 @@ score_tiered_agreement_vec <- function(names_a, names_b,
                 (fam_a == "Other polymer" & fam_b == "Other polymer")
   result[unresolved] <- "Unresolved"
   result[family_agrees(fam_a, fam_b)] <- "Family"
-  exact <- pol_a == pol_b & !is_unidentified(names_a) & !is_unidentified(names_b)
+  # Exact: the same polymer name AND the same family. The family rules can
+  # separate two names the polymer synonyms would unify; they decide.
+  exact <- pol_a == pol_b & fam_a == fam_b &
+    !is_unidentified(names_a) & !is_unidentified(names_b)
   result[exact] <- "Exact"
   result
 }

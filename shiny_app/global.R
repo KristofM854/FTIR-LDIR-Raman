@@ -238,6 +238,14 @@ load_run_manifest <- function(run_dir) {
   tryCatch({
     m <- jsonlite::fromJSON(m_path, simplifyVector = FALSE)
     m$is_missing <- FALSE
+    # The run's own images are recorded relative to the run folder (so a run
+    # can be moved or shared); older manifests hold absolute paths
+    for (a in names(m$image_assets)) for (k in names(m$image_assets[[a]])) {
+      p <- m$image_assets[[a]][[k]]$path
+      if (is.character(p) && length(p) == 1 && nzchar(p) && !file.exists(p) &&
+          file.exists(file.path(run_dir, p)))
+        m$image_assets[[a]][[k]]$path <- file.path(run_dir, p)
+    }
     m
   }, error = function(e) {
     list(is_missing = TRUE, run_id = basename(run_dir),
@@ -536,12 +544,23 @@ RUN_DATA_TABLES <- c(
 # acceptance gate. Classifying here, once, keeps the summary, the overlay plot,
 # and the hover/tables perfectly consistent -- the image agrees with the table.
 
-# Return the LDIR<->Raman acceptance gate (um) for a run. Read from the run
-# manifest's config snapshot; falls back to the pipeline default (20 um) for
-# runs whose manifest predates the gate being recorded.
+# Return the LDIR<->Raman acceptance gate (um) for a run: the gate the run
+# used (07_diagnostics/chance_pairs.csv), else the configured one in the run
+# manifest's config snapshot, else the pipeline default (20 um).
 ldir_acceptance_gate <- function(run_dir) {
   default_gate <- 20    # make_config() match_dist_threshold_ldir_um
   if (is.null(run_dir) || !nzchar(run_dir)) return(default_gate)
+  # The gate the run matched LDIR <-> Raman with: since the per-run gate
+  # (match_gate_from_sigma, 10-50 um) it is not the configured value but the
+  # one recorded in 07_diagnostics/chance_pairs.csv. Re-gating with the
+  # configured 20 um would drop pairs the pipeline made and scored.
+  ch_path <- file.path(run_dir, "07_diagnostics", "chance_pairs.csv")
+  if (file.exists(ch_path)) {
+    ch <- tryCatch(utils::read.csv(ch_path, stringsAsFactors = FALSE), error = function(e) NULL)
+    g <- suppressWarnings(as.numeric(ch$gate_um[ch$pair %in% "ldir_raman"]))
+    g <- g[is.finite(g) & g > 0]
+    if (length(g)) return(g[1])
+  }
   man <- tryCatch(load_run_manifest(run_dir), error = function(e) NULL)
   cs  <- if (!is.null(man)) man$config_snapshot else NULL
   g <- NULL
@@ -596,7 +615,10 @@ regate_ldir <- function(data, gate) {
   major <- if ("ldir_major_um" %in% names(m)) suppressWarnings(as.numeric(m$ldir_major_um))
            else rep(NA_real_, nrow(m))
   g <- pmax(gate, factor * ifelse(is.na(major), 0, major))
-  !is.na(m$match_distance) & m$match_distance <= g
+  # A pair the matcher made by its extent rule (a large particle whose centre
+  # the two instruments place differently) is not judged by the distance gate
+  by_extent <- if ("match_rule" %in% names(m)) m$match_rule %in% "extent" else rep(FALSE, nrow(m))
+  !is.na(m$match_distance) & (m$match_distance <= g | by_extent)
 }
 
 .ldir_adaptive_factor <- function(run_dir) {
@@ -1049,6 +1071,16 @@ build_instrument_dfs <- function(data) {
     result[[inst]]$p_true <- ifelse(d$match_status == "matched", best, NA_real_)
   }
 
+  # One row per particle: a particle with an additional pair (two particles
+  # of one instrument on one of another) appears twice in its match table.
+  # The primary pair comes first in the table and is the row kept.
+  for (inst in names(result)) {
+    d <- result[[inst]]
+    if (is.null(d) || nrow(d) == 0 || !"particle_id" %in% names(d)) next
+    dup <- duplicated(as.character(d$particle_id))
+    if (any(dup)) result[[inst]] <- d[!dup, , drop = FALSE]
+  }
+
   # Above / below the instrument's quality cutoff (the run's settings): the
   # pipeline matches only particles above it
   cut <- quality_cutoffs(tryCatch(load_run_manifest(data$run_dir)$config_snapshot,
@@ -1129,6 +1161,21 @@ quality_cutoffs <- function(cfg = NULL) {
   ftir <- v("ftir_agreement_min_quality", 0.70)
   list(ftir = ftir, ftir_bruker = ftir, raman = v("raman_hqi_threshold", 70),
        ldir = v("ldir_hqi_unknown_threshold", 0.85))
+}
+
+#' Unmatched particles that the pipeline could have matched: above the
+#' instrument's quality cutoff and the minimum size, as the run log counts
+#' them (a particle below either is never offered to the matcher).
+#' @param df Viewer instrument frame (match_status, quality, feret_max)
+#' @param cutoff Quality cutoff of the instrument (0 / NULL: none)
+#' @param min_size min_particle_size_um of the run
+count_unmatched_matchable <- function(df, cutoff = 0, min_size = 20) {
+  if (is.null(df) || !nrow(df)) return(0L)
+  q <- suppressWarnings(as.numeric(df$quality))
+  q_ok <- if (is.null(cutoff) || cutoff <= 0 || all(is.na(q))) rep(TRUE, nrow(df)) else !is.na(q) & q >= cutoff
+  s <- suppressWarnings(as.numeric(df$feret_max))
+  s_ok <- if (is.null(s) || !length(s)) rep(TRUE, nrow(df)) else is.na(s) | s >= min_size
+  sum(df$match_status == "unmatched" & q_ok & s_ok)
 }
 
 INSTRUMENT_DISPLAY <- c(raman = "Raman", ftir_perkin = "FTIR", ldir = "LDIR",
@@ -3084,7 +3131,7 @@ FAMILY_COLOURS <- c(
   PE = "#e41a1c", PP = "#377eb8", PS = "#4daf4a", PET = "#984ea3",
   PVC = "#ff7f00", PA = "#a65628", PU = "#f781bf", PC = "#999999",
   PMMA = "#66c2a5", PTFE = "#fc8d62", ABS = "#e78ac3", Rubber = "#7570b3",
-  Cellulose = "#bcbd22", Acrylate = "#17becf", EVA = "#b15928",
+  Cellulose = "#bcbd22", "Regenerated cellulose" = "#8c9a1a", Acrylate = "#17becf", EVA = "#b15928",
   POM = "#6a3d9a", Epoxy = "#b2df8a", "Other polymer" = "#8c8c8c",
   Other = "#e5c494",
   Natural = "#d9c89e", Chitin = "#a6d854", Protein = "#1b9e77",
@@ -3809,15 +3856,18 @@ PARTNER_ROLE_TO_OV <- c(ftir_perkin = "ftir_pe", ftir_bruker = "ftir_bruker",
 PARTNER_STATUS_LABELS <- c(
   below_cutoff     = "Partner found, below quality cutoff",
   paired_elsewhere = "Partner nearby, paired with another",
+  not_matchable    = "Partner nearby, not matchable (size)",
   not_found        = "Nothing found by the partner",
   outside_area     = "Outside the partner's scanned area")
 PARTNER_STATUS_COLOURS <- c(below_cutoff = "#F0A202", paired_elsewhere = "#9B59B6",
+                            not_matchable = "#16A085",
                             not_found = "#E74C3C", outside_area = "#95A5A6")
 
 partner_status_class <- function(status) {
   out <- rep(NA_character_, length(status))
   out[status %in% c("partner_below_cutoff", "this_below_cutoff", "both_below_cutoff")] <- "below_cutoff"
   out[status == "paired_elsewhere"] <- "paired_elsewhere"
+  out[status == "partner_not_matchable"] <- "not_matchable"
   out[status == "not_found"] <- "not_found"
   out[status == "outside_area"] <- "outside_area"
   out
@@ -3894,6 +3944,9 @@ partner_fill_note <- function(f, q_name = "") {
                                            "cutoff: not confidently identified (", where, ")")))
   if (identical(f$status, "paired_elsewhere"))
     return(list(warn = TRUE, text = paste0("Nearest particle, paired with another (", where, ")")))
+  if (identical(f$status, "partner_not_matchable"))
+    return(list(warn = TRUE, text = paste0("Nearest particle; not matched: below the size limit or ",
+                                           "too different in size (", where, ")")))
   if (identical(f$status, "this_below_cutoff"))
     return(list(warn = TRUE, text = paste0("Found here; the other particle is below its cutoff (", where, ")")))
   list(warn = FALSE, text = paste0("Paired in the pipeline; hidden by the viewer filters (", where, ")"))
@@ -3915,11 +3968,13 @@ MATCH_FILE_ROLES <- list(
 PARTNER_STATUS_ORDER <- c(
   matched = "Matched", partner_below_cutoff = "Partner below its cutoff",
   this_below_cutoff = "This particle below its cutoff", both_below_cutoff = "Both below cutoff",
-  paired_elsewhere = "Partner paired elsewhere", not_found = "Nothing found",
+  paired_elsewhere = "Partner paired elsewhere",
+  partner_not_matchable = "Partner not matchable (size)", not_found = "Nothing found",
   outside_area = "Outside the partner's area")
 PARTNER_STATUS_FILL <- c(matched = "#2E86C1", partner_below_cutoff = "#F0A202",
                          this_below_cutoff = "#F7CB6B", both_below_cutoff = "#FBE3A8",
-                         paired_elsewhere = "#9B59B6", not_found = "#E74C3C",
+                         paired_elsewhere = "#9B59B6", partner_not_matchable = "#16A085",
+                         not_found = "#E74C3C",
                          outside_area = "#BDC3C7")
 
 .role_label <- function(r) unname(ifelse(r %in% names(ROLE_LABELS), ROLE_LABELS[r], r))
@@ -3975,7 +4030,10 @@ summary_alignment_table <- function(run_dir) {
   sig <- rep(NA_real_, nrow(a))
   if (file.exists(ch_path)) {
     ch <- utils::read.csv(ch_path, stringsAsFactors = FALSE)
-    stem <- paste0(a$instrument, "_", tolower(a$reference))
+    # The reference is recorded by its display name ("FTIR (PerkinElmer)");
+    # the pair stem uses its file name ("ldir_ftir_perkin")
+    ref_file <- names(ROLE_LABELS)[match(a$reference, ROLE_LABELS)]
+    stem <- paste0(a$instrument, "_", ifelse(is.na(ref_file), tolower(a$reference), ref_file))
     sig <- ch$position_sigma_um[match(stem, ch$pair)]
   }
   method <- c(landmark = "Landmarks (largest particles)", landmark_ransac = "Landmarks + RANSAC",
@@ -3989,8 +4047,9 @@ summary_alignment_table <- function(run_dir) {
     res = ifelse(is.na(a$icp_rms_um), "\u2013", sprintf("%.1f", a$icp_rms_um)),
     sig = ifelse(is.na(sig), "\u2013", sprintf("%.1f", sig)),
     p = ifelse(is.na(a$pose_p), "\u2013", format(signif(a$pose_p, 2))),
+    # The pipeline's own decision (determined), not a second threshold on p
     Verdict = ifelse(a$determined %in% FALSE, "NOT DETERMINED",
-                     ifelse(!is.na(a$pose_p) & a$pose_p < 1e-3, "fixed by the data", "check")),
+                     ifelse(a$determined %in% TRUE, "fixed by the data", "check")),
     stringsAsFactors = FALSE)
   names(out) <- c("Instrument", "Aligned onto", "Method", "Scale", "Rotation (\u00b0)", "Mirrored",
                   "Residual (\u00b5m)", "Positional error \u03c3 (\u00b5m)", "Pose by chance (p)",
@@ -4189,7 +4248,8 @@ report_agreement_pages <- function(run_dir) {
     paste0("How each instrument was put into the shared frame. Residual: distance left ",
            "after the fit; positional error sigma: spread of true partners (99% within ",
            "3 sigma); pose by chance: probability that a random arrangement gives as many ",
-           "anchor pairs. A pose NOT DETERMINED makes that instrument's pairs meaningless."))))
+           "anchor pairs, corrected for the poses searched. A pose NOT DETERMINED makes ",
+           "that instrument's pairs meaningless."))))
   for (g in c("all", "plastics")) {
     pm <- summary_pair_matrix(run_dir, g)
     if (is.null(pm)) next

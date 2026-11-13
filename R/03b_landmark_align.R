@@ -114,13 +114,13 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
 
   # --- Select landmarks ---
   ftir_lm_mask  <- select_landmarks(ftir_df, config, src_label)
-  raman_lm_mask <- select_landmarks(raman_df, config, "Raman")
+  raman_lm_mask <- select_landmarks(raman_df, config, ref_label)
 
   n_ftir_lm  <- sum(ftir_lm_mask)
   n_raman_lm <- sum(raman_lm_mask)
 
   log_message("  ", src_label, " landmarks:  ", n_ftir_lm, " / ", nrow(ftir_df))
-  log_message("  Raman landmarks: ", n_raman_lm, " / ", nrow(raman_df))
+  log_message("  ", ref_label, " landmarks: ", n_raman_lm, " / ", nrow(raman_df))
 
   min_count <- config$landmark_min_count
 
@@ -143,7 +143,7 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
                 round(max(ftir_lm$feret_max_um, na.rm = TRUE)), " µm")
   }
   if (any(!is.na(raman_lm$feret_max_um))) {
-    log_message("  Raman landmark sizes: ",
+    log_message("  ", ref_label, " landmark sizes: ",
                 round(min(raman_lm$feret_max_um, na.rm = TRUE)), " – ",
                 round(max(raman_lm$feret_max_um, na.rm = TRUE)), " µm")
   }
@@ -206,8 +206,15 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
     stats::ppois(n_one_to_one - 1, lam, lower.tail = FALSE) else NA_real_
   p_max <- cfg_value(config, "landmark_significance_p")
   significant <- isTRUE(p_chance < p_max)
+  # The same p corrected for the pose search, as pose_significance() does for
+  # a Tier 2 pose: (n_src x n_ref)^2 correspondence pairs, x 2 with mirrored
+  # poses. This is the value reported as pose_p; the acceptance above keeps
+  # its own strict threshold on the uncorrected p.
+  n_hyp <- (n_ftir_lm * n_raman_lm)^2 * (if (!isFALSE(config$ransac_allow_mirror)) 2 else 1)
+  p_pose <- if (is.finite(p_chance)) min(1, n_hyp * p_chance) else NA_real_
   log_message("  Landmark pairs expected by chance: ", round(lam, 2),
-              " (observed ", n_one_to_one, ", p = ", signif(p_chance, 2), ")")
+              " (observed ", n_one_to_one, ", p = ", signif(p_chance, 2),
+              "; corrected for the pose search: ", signif(p_pose, 2), ")")
 
   # Confidence check: far more pairs than chance. The share of landmarks that
   # pair is no evidence on its own: with few landmarks against a dense
@@ -248,6 +255,7 @@ landmark_align <- function(ftir_df, raman_df, config, src_label = "FTIR",
     n_one_to_one      = n_one_to_one,
     inlier_ratio      = inlier_ratio,
     p_chance          = p_chance,
+    p_pose            = p_pose,
     mean_residual     = mean_residual,
     inlier_pairs      = inlier_pairs
   )

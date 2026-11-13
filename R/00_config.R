@@ -157,14 +157,15 @@ make_config <- function(ftir_path  = NULL,
     # for the image, block "Data Parameters AB/Multiple" for the map origin).
     # The image is then placed exactly. The values are checked against the
     # image (size_x_px / size_y_px) and the particles (90% must fall inside);
-    # values left from another scan are ignored with a warning. Set to NULL to
-    # use the registration instead. Pre-filled: Faanui SW1L R4, measured
-    # 2026-07-27.
-    opus_ftir_bruker_image = list(
-      pixel_size_x_um = 7.907902, pixel_size_y_um = 7.908996,  # Bitmap: PixelSizeX / Y
-      pos_x_px = 6110.180843, pos_y_px = 604.290875,          # Bitmap: Pos. X / Pos. Y
-      size_x_px = 2048, size_y_px = 1949,                     # Bitmap: Size X / Y
-      map_origin_x_um = 49564, map_origin_y_um = 6050.38),    # Data Parameters: Map Origin X / Y
+    # values left from another scan are ignored with a warning. NULL (default):
+    # the image is registered on its particles. Example (field sample Faanui
+    # SW1L R4, measured 2026-07-27):
+    #   opus_ftir_bruker_image = list(
+    #     pixel_size_x_um = 7.907902, pixel_size_y_um = 7.908996,  # Bitmap: PixelSizeX / Y
+    #     pos_x_px = 6110.180843, pos_y_px = 604.290875,          # Bitmap: Pos. X / Pos. Y
+    #     size_x_px = 2048, size_y_px = 1949,                     # Bitmap: Size X / Y
+    #     map_origin_x_um = 49564, map_origin_y_um = 6050.38)     # Data Parameters: Map Origin X / Y
+    opus_ftir_bruker_image = NULL,
     ftir_image_width_um    = NULL,
     ftir_image_height_um   = NULL,
     ftir_image_center_x_um = NULL,
@@ -181,7 +182,10 @@ make_config <- function(ftir_path  = NULL,
     # (observed: 5 inliers where 23 are achievable). TRUE = enabled.
     ldir_use_global_register = TRUE,
 
-    # Allow a reflection (mirror) in the LDIR->Raman transform. FALSE by
+    # Allow a reflection (mirror) in the Tier 2 search of the LDIR transform.
+    # (The landmark tier and ICP accept a mirrored pose when the data fits
+    # only mirrored; the run then logs a WARN and the alignment check shows
+    # "Mirrored: yes".) FALSE by
     # default: both instruments image the same filter from the same side, so
     # there is no physical mirror between them. Allowing one lets the aligner
     # pick a spurious reflected optimum on sparse data (matching particles to
@@ -543,6 +547,10 @@ make_config <- function(ftir_path  = NULL,
     ransac_n_iterations    = 2000,
     ransac_min_samples     = 3,
     ransac_inlier_dist_um  = 200,
+    # Mirrored poses are searched too. Per instrument: align_pose_limits
+    # switches this off for both FTIR types; for LDIR, ldir_allow_reflection
+    # governs Tier 2 only: a mirrored LDIR pose from the landmark tier is
+    # accepted and flagged with a WARN.
     ransac_allow_mirror    = TRUE,
 
     # --- ICP refinement ---
@@ -590,7 +598,12 @@ make_config <- function(ftir_path  = NULL,
     # 13 mm filter, 43% of particles have a chance partner within 100 um,
     # 13% within 50 um.
     match_dist_threshold_um    = 50,
-    # Dedicated gate for any pairing that involves LDIR. The positional error
+    # Fixed gate for LDIR against the reference, used when the run has no
+    # positional-error fit (see match_gate_from_sigma below; with a fit the
+    # gate is 3 sigma). Pairs of LDIR with another aligned instrument
+    # (LDIR <-> FTIR when Raman is the reference) take the wider
+    # match_dist_threshold_um: both sides carry an alignment error
+    # (match_aligned_pair()). The positional error
     # of LDIR against Raman, fitted per run (position_error_window_um), was
     # sigma = 7.1 um on dataset A and 7.3 um on a field sample (Faanui SW1L
     # R4 A); 20 um is ~3 sigma, which holds ~99% of true pairs. On the field
@@ -623,6 +636,30 @@ make_config <- function(ftir_path  = NULL,
     # that instrument are skipped.
     align_determined_p         = 0.01,
     match_adaptive_dist_factor = 0.15,
+    # Extent rule for large particles. Instruments place the centre of a large
+    # or elongated particle differently (dataset A: 50-110 um apart for
+    # particles of 200-450 um, all three other instruments agreeing on the
+    # place), so the distance gate alone leaves the same particle unmatched on
+    # both sides. Two particles also pair when one centre lies within the
+    # other's extent (distance <= match_extent_factor x the larger major axis)
+    # and their Feret max differ by at most match_extent_max_size_ratio. An
+    # instrument may also list one particle as several: a particle without a
+    # partner whose centre lies within the extent of an already paired
+    # particle becomes an additional pair of it (pair_type "additional" in the
+    # match tables; agreement and triplets use the primary, one-to-one pairs).
+    # match_extent_factor = 0 switches both off.
+    # Both apply only where chance is low: the probability of an unrelated
+    # particle of comparable size within that radius (Poisson, density of the
+    # comparable particles) must not exceed match_extent_max_chance. On a
+    # dense field sample the rule therefore switches itself off.
+    match_extent_factor         = 0.5,
+    match_extent_max_size_ratio = 2,
+    match_extent_max_chance     = 0.2,
+    # Additional pairs need a lower chance: a particle that only lies next to
+    # a large one (not a part of it) would otherwise be attached to it. At
+    # 0.2 a synthetic run with known pairs gained a wrong additional pair per
+    # ~100 particles. 0 = no additional pairs.
+    match_additional_max_chance = 0.05,
     match_size_weight          = 0.2,    # (used by greedy only)
     match_size_metric          = "feret_max_um",
 

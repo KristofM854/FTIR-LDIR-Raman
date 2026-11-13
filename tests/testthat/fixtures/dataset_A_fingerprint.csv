@@ -1,19 +1,577 @@
 "kind","key","value"
 "agreement","agreement_pairwise_ftir_bruker_raman.csv:Disagree",0
-"agreement","agreement_pairwise_ftir_bruker_raman.csv:Exact",18
+"agreement","agreement_pairwise_ftir_bruker_raman.csv:Exact",20
 "agreement","agreement_pairwise_ftir_bruker_raman.csv:Family",0
 "agreement","agreement_pairwise_ftir_bruker_raman.csv:Filler/pigment",0
 "agreement","agreement_pairwise_ftir_bruker_raman.csv:Unresolved",0
 "agreement","agreement_pairwise_ftir_perkin_raman.csv:Disagree",0
-"agreement","agreement_pairwise_ftir_perkin_raman.csv:Exact",31
+"agreement","agreement_pairwise_ftir_perkin_raman.csv:Exact",33
 "agreement","agreement_pairwise_ftir_perkin_raman.csv:Family",0
 "agreement","agreement_pairwise_ftir_perkin_raman.csv:Filler/pigment",0
 "agreement","agreement_pairwise_ftir_perkin_raman.csv:Unresolved",0
 "agreement","agreement_pairwise_ldir_raman.csv:Disagree",0
-"agreement","agreement_pairwise_ldir_raman.csv:Exact",28
+"agreement","agreement_pairwise_ldir_raman.csv:Exact",31
 "agreement","agreement_pairwise_ldir_raman.csv:Family",0
 "agreement","agreement_pairwise_ldir_raman.csv:Filler/pigment",0
 "agreement","agreement_pairwise_ldir_raman.csv:Unresolved",0
+"alignment","ftir_bruker:determined",1
+"alignment","ftir_perkin:determined",1
+"alignment","ldir:determined",1
+"alignment_log10p","ftir_bruker:pose_p",-18.7958800173441
+"alignment_log10p","ftir_perkin:pose_p",-19.0555173278498
+"alignment_log10p","ldir:pose_p",-15.6382721639824
+"chance","ftir_bruker_ftir_perkin:alignment_determined",1
+"chance","ftir_bruker_ftir_perkin:chance_pairs_expected",0.4
+"chance","ftir_bruker_ftir_perkin:gate_um",50
+"chance","ftir_bruker_ldir:alignment_determined",1
+"chance","ftir_bruker_ldir:chance_pairs_expected",0.3
+"chance","ftir_bruker_ldir:gate_um",50
+"chance","ftir_bruker_raman:alignment_determined",1
+"chance","ftir_bruker_raman:chance_pairs_expected",0.5
+"chance","ftir_bruker_raman:gate_um",50
+"chance","ftir_bruker_raman:position_sigma_um",12.3
+"chance","ftir_perkin_raman:alignment_determined",1
+"chance","ftir_perkin_raman:chance_pairs_expected",0.6
+"chance","ftir_perkin_raman:gate_um",50
+"chance","ftir_perkin_raman:position_sigma_um",8
+"chance","ldir_ftir_perkin:alignment_determined",1
+"chance","ldir_ftir_perkin:chance_pairs_expected",0.5
+"chance","ldir_ftir_perkin:gate_um",50
+"chance","ldir_ftir_perkin:position_sigma_um",5.8
+"chance","ldir_raman:alignment_determined",1
+"chance","ldir_raman:chance_pairs_expected",0.1
+"chance","ldir_raman:gate_um",21.2123358375606
+"chance","ldir_raman:position_sigma_um",7.1
+"detection","ftir_bruker|ftir_perkin|all|100-200:n_base",15
+"detection","ftir_bruker|ftir_perkin|all|100-200:n_detected",11
+"detection","ftir_bruker|ftir_perkin|all|100-200:n_found",11
+"detection","ftir_bruker|ftir_perkin|all|20-50:n_base",3
+"detection","ftir_bruker|ftir_perkin|all|20-50:n_detected",1
+"detection","ftir_bruker|ftir_perkin|all|20-50:n_found",1
+"detection","ftir_bruker|ftir_perkin|all|50-100:n_base",3
+"detection","ftir_bruker|ftir_perkin|all|50-100:n_detected",3
+"detection","ftir_bruker|ftir_perkin|all|50-100:n_found",3
+"detection","ftir_bruker|ftir_perkin|all|>200:n_base",2
+"detection","ftir_bruker|ftir_perkin|all|>200:n_detected",2
+"detection","ftir_bruker|ftir_perkin|all|>200:n_found",2
+"detection","ftir_bruker|ftir_perkin|all|all sizes:n_base",23
+"detection","ftir_bruker|ftir_perkin|all|all sizes:n_detected",17
+"detection","ftir_bruker|ftir_perkin|all|all sizes:n_found",17
+"detection","ftir_bruker|ftir_perkin|plastics|100-200:n_base",15
+"detection","ftir_bruker|ftir_perkin|plastics|100-200:n_detected",11
+"detection","ftir_bruker|ftir_perkin|plastics|100-200:n_found",11
+"detection","ftir_bruker|ftir_perkin|plastics|20-50:n_base",3
+"detection","ftir_bruker|ftir_perkin|plastics|20-50:n_detected",1
+"detection","ftir_bruker|ftir_perkin|plastics|20-50:n_found",1
+"detection","ftir_bruker|ftir_perkin|plastics|50-100:n_base",3
+"detection","ftir_bruker|ftir_perkin|plastics|50-100:n_detected",3
+"detection","ftir_bruker|ftir_perkin|plastics|50-100:n_found",3
+"detection","ftir_bruker|ftir_perkin|plastics|>200:n_base",2
+"detection","ftir_bruker|ftir_perkin|plastics|>200:n_detected",2
+"detection","ftir_bruker|ftir_perkin|plastics|>200:n_found",2
+"detection","ftir_bruker|ftir_perkin|plastics|all sizes:n_base",23
+"detection","ftir_bruker|ftir_perkin|plastics|all sizes:n_detected",17
+"detection","ftir_bruker|ftir_perkin|plastics|all sizes:n_found",17
+"detection","ftir_bruker|ldir|all|100-200:n_base",15
+"detection","ftir_bruker|ldir|all|100-200:n_detected",12
+"detection","ftir_bruker|ldir|all|100-200:n_found",11
+"detection","ftir_bruker|ldir|all|20-50:n_base",3
+"detection","ftir_bruker|ldir|all|20-50:n_detected",1
+"detection","ftir_bruker|ldir|all|20-50:n_found",1
+"detection","ftir_bruker|ldir|all|50-100:n_base",4
+"detection","ftir_bruker|ldir|all|50-100:n_detected",3
+"detection","ftir_bruker|ldir|all|50-100:n_found",3
+"detection","ftir_bruker|ldir|all|>200:n_base",2
+"detection","ftir_bruker|ldir|all|>200:n_detected",2
+"detection","ftir_bruker|ldir|all|>200:n_found",2
+"detection","ftir_bruker|ldir|all|all sizes:n_base",24
+"detection","ftir_bruker|ldir|all|all sizes:n_detected",18
+"detection","ftir_bruker|ldir|all|all sizes:n_found",17
+"detection","ftir_bruker|ldir|plastics|100-200:n_base",15
+"detection","ftir_bruker|ldir|plastics|100-200:n_detected",12
+"detection","ftir_bruker|ldir|plastics|100-200:n_found",11
+"detection","ftir_bruker|ldir|plastics|20-50:n_base",3
+"detection","ftir_bruker|ldir|plastics|20-50:n_detected",1
+"detection","ftir_bruker|ldir|plastics|20-50:n_found",1
+"detection","ftir_bruker|ldir|plastics|50-100:n_base",4
+"detection","ftir_bruker|ldir|plastics|50-100:n_detected",3
+"detection","ftir_bruker|ldir|plastics|50-100:n_found",3
+"detection","ftir_bruker|ldir|plastics|>200:n_base",2
+"detection","ftir_bruker|ldir|plastics|>200:n_detected",2
+"detection","ftir_bruker|ldir|plastics|>200:n_found",2
+"detection","ftir_bruker|ldir|plastics|all sizes:n_base",24
+"detection","ftir_bruker|ldir|plastics|all sizes:n_detected",18
+"detection","ftir_bruker|ldir|plastics|all sizes:n_found",17
+"detection","ftir_bruker|raman|all|100-200:n_base",15
+"detection","ftir_bruker|raman|all|100-200:n_detected",14
+"detection","ftir_bruker|raman|all|100-200:n_found",14
+"detection","ftir_bruker|raman|all|20-50:n_base",3
+"detection","ftir_bruker|raman|all|20-50:n_detected",2
+"detection","ftir_bruker|raman|all|20-50:n_found",1
+"detection","ftir_bruker|raman|all|50-100:n_base",4
+"detection","ftir_bruker|raman|all|50-100:n_detected",4
+"detection","ftir_bruker|raman|all|50-100:n_found",4
+"detection","ftir_bruker|raman|all|>200:n_base",2
+"detection","ftir_bruker|raman|all|>200:n_detected",1
+"detection","ftir_bruker|raman|all|>200:n_found",1
+"detection","ftir_bruker|raman|all|all sizes:n_base",24
+"detection","ftir_bruker|raman|all|all sizes:n_detected",21
+"detection","ftir_bruker|raman|all|all sizes:n_found",20
+"detection","ftir_bruker|raman|plastics|100-200:n_base",15
+"detection","ftir_bruker|raman|plastics|100-200:n_detected",14
+"detection","ftir_bruker|raman|plastics|100-200:n_found",14
+"detection","ftir_bruker|raman|plastics|20-50:n_base",3
+"detection","ftir_bruker|raman|plastics|20-50:n_detected",2
+"detection","ftir_bruker|raman|plastics|20-50:n_found",1
+"detection","ftir_bruker|raman|plastics|50-100:n_base",4
+"detection","ftir_bruker|raman|plastics|50-100:n_detected",4
+"detection","ftir_bruker|raman|plastics|50-100:n_found",4
+"detection","ftir_bruker|raman|plastics|>200:n_base",2
+"detection","ftir_bruker|raman|plastics|>200:n_detected",1
+"detection","ftir_bruker|raman|plastics|>200:n_found",1
+"detection","ftir_bruker|raman|plastics|all sizes:n_base",24
+"detection","ftir_bruker|raman|plastics|all sizes:n_detected",21
+"detection","ftir_bruker|raman|plastics|all sizes:n_found",20
+"detection","ftir_perkin|ftir_bruker|all|100-200:n_base",11
+"detection","ftir_perkin|ftir_bruker|all|100-200:n_detected",11
+"detection","ftir_perkin|ftir_bruker|all|100-200:n_found",6
+"detection","ftir_perkin|ftir_bruker|all|20-50:n_base",3
+"detection","ftir_perkin|ftir_bruker|all|20-50:n_detected",0
+"detection","ftir_perkin|ftir_bruker|all|20-50:n_found",0
+"detection","ftir_perkin|ftir_bruker|all|50-100:n_base",5
+"detection","ftir_perkin|ftir_bruker|all|50-100:n_detected",3
+"detection","ftir_perkin|ftir_bruker|all|50-100:n_found",2
+"detection","ftir_perkin|ftir_bruker|all|>200:n_base",12
+"detection","ftir_perkin|ftir_bruker|all|>200:n_detected",9
+"detection","ftir_perkin|ftir_bruker|all|>200:n_found",9
+"detection","ftir_perkin|ftir_bruker|all|all sizes:n_base",31
+"detection","ftir_perkin|ftir_bruker|all|all sizes:n_detected",23
+"detection","ftir_perkin|ftir_bruker|all|all sizes:n_found",17
+"detection","ftir_perkin|ftir_bruker|plastics|100-200:n_base",11
+"detection","ftir_perkin|ftir_bruker|plastics|100-200:n_detected",11
+"detection","ftir_perkin|ftir_bruker|plastics|100-200:n_found",6
+"detection","ftir_perkin|ftir_bruker|plastics|20-50:n_base",3
+"detection","ftir_perkin|ftir_bruker|plastics|20-50:n_detected",0
+"detection","ftir_perkin|ftir_bruker|plastics|20-50:n_found",0
+"detection","ftir_perkin|ftir_bruker|plastics|50-100:n_base",5
+"detection","ftir_perkin|ftir_bruker|plastics|50-100:n_detected",3
+"detection","ftir_perkin|ftir_bruker|plastics|50-100:n_found",2
+"detection","ftir_perkin|ftir_bruker|plastics|>200:n_base",12
+"detection","ftir_perkin|ftir_bruker|plastics|>200:n_detected",9
+"detection","ftir_perkin|ftir_bruker|plastics|>200:n_found",9
+"detection","ftir_perkin|ftir_bruker|plastics|all sizes:n_base",31
+"detection","ftir_perkin|ftir_bruker|plastics|all sizes:n_detected",23
+"detection","ftir_perkin|ftir_bruker|plastics|all sizes:n_found",17
+"detection","ftir_perkin|ldir|all|100-200:n_base",10
+"detection","ftir_perkin|ldir|all|100-200:n_detected",10
+"detection","ftir_perkin|ldir|all|100-200:n_found",9
+"detection","ftir_perkin|ldir|all|20-50:n_base",3
+"detection","ftir_perkin|ldir|all|20-50:n_detected",3
+"detection","ftir_perkin|ldir|all|20-50:n_found",3
+"detection","ftir_perkin|ldir|all|50-100:n_base",6
+"detection","ftir_perkin|ldir|all|50-100:n_detected",6
+"detection","ftir_perkin|ldir|all|50-100:n_found",6
+"detection","ftir_perkin|ldir|all|>200:n_base",13
+"detection","ftir_perkin|ldir|all|>200:n_detected",13
+"detection","ftir_perkin|ldir|all|>200:n_found",13
+"detection","ftir_perkin|ldir|all|all sizes:n_base",32
+"detection","ftir_perkin|ldir|all|all sizes:n_detected",32
+"detection","ftir_perkin|ldir|all|all sizes:n_found",31
+"detection","ftir_perkin|ldir|plastics|100-200:n_base",10
+"detection","ftir_perkin|ldir|plastics|100-200:n_detected",10
+"detection","ftir_perkin|ldir|plastics|100-200:n_found",9
+"detection","ftir_perkin|ldir|plastics|20-50:n_base",3
+"detection","ftir_perkin|ldir|plastics|20-50:n_detected",3
+"detection","ftir_perkin|ldir|plastics|20-50:n_found",3
+"detection","ftir_perkin|ldir|plastics|50-100:n_base",6
+"detection","ftir_perkin|ldir|plastics|50-100:n_detected",6
+"detection","ftir_perkin|ldir|plastics|50-100:n_found",6
+"detection","ftir_perkin|ldir|plastics|>200:n_base",13
+"detection","ftir_perkin|ldir|plastics|>200:n_detected",13
+"detection","ftir_perkin|ldir|plastics|>200:n_found",13
+"detection","ftir_perkin|ldir|plastics|all sizes:n_base",32
+"detection","ftir_perkin|ldir|plastics|all sizes:n_detected",32
+"detection","ftir_perkin|ldir|plastics|all sizes:n_found",31
+"detection","ftir_perkin|raman|all|100-200:n_base",11
+"detection","ftir_perkin|raman|all|100-200:n_detected",11
+"detection","ftir_perkin|raman|all|100-200:n_found",11
+"detection","ftir_perkin|raman|all|20-50:n_base",3
+"detection","ftir_perkin|raman|all|20-50:n_detected",3
+"detection","ftir_perkin|raman|all|20-50:n_found",3
+"detection","ftir_perkin|raman|all|50-100:n_base",6
+"detection","ftir_perkin|raman|all|50-100:n_detected",6
+"detection","ftir_perkin|raman|all|50-100:n_found",6
+"detection","ftir_perkin|raman|all|>200:n_base",13
+"detection","ftir_perkin|raman|all|>200:n_detected",13
+"detection","ftir_perkin|raman|all|>200:n_found",13
+"detection","ftir_perkin|raman|all|all sizes:n_base",33
+"detection","ftir_perkin|raman|all|all sizes:n_detected",33
+"detection","ftir_perkin|raman|all|all sizes:n_found",33
+"detection","ftir_perkin|raman|plastics|100-200:n_base",11
+"detection","ftir_perkin|raman|plastics|100-200:n_detected",11
+"detection","ftir_perkin|raman|plastics|100-200:n_found",11
+"detection","ftir_perkin|raman|plastics|20-50:n_base",3
+"detection","ftir_perkin|raman|plastics|20-50:n_detected",3
+"detection","ftir_perkin|raman|plastics|20-50:n_found",3
+"detection","ftir_perkin|raman|plastics|50-100:n_base",6
+"detection","ftir_perkin|raman|plastics|50-100:n_detected",6
+"detection","ftir_perkin|raman|plastics|50-100:n_found",6
+"detection","ftir_perkin|raman|plastics|>200:n_base",13
+"detection","ftir_perkin|raman|plastics|>200:n_detected",13
+"detection","ftir_perkin|raman|plastics|>200:n_found",13
+"detection","ftir_perkin|raman|plastics|all sizes:n_base",33
+"detection","ftir_perkin|raman|plastics|all sizes:n_detected",33
+"detection","ftir_perkin|raman|plastics|all sizes:n_found",33
+"detection","ldir|ftir_bruker|all|100-200:n_base",11
+"detection","ldir|ftir_bruker|all|100-200:n_detected",10
+"detection","ldir|ftir_bruker|all|100-200:n_found",5
+"detection","ldir|ftir_bruker|all|20-50:n_base",3
+"detection","ldir|ftir_bruker|all|20-50:n_detected",0
+"detection","ldir|ftir_bruker|all|20-50:n_found",0
+"detection","ldir|ftir_bruker|all|50-100:n_base",5
+"detection","ldir|ftir_bruker|all|50-100:n_detected",3
+"detection","ldir|ftir_bruker|all|50-100:n_found",3
+"detection","ldir|ftir_bruker|all|>200:n_base",10
+"detection","ldir|ftir_bruker|all|>200:n_detected",9
+"detection","ldir|ftir_bruker|all|>200:n_found",9
+"detection","ldir|ftir_bruker|all|all sizes:n_base",29
+"detection","ldir|ftir_bruker|all|all sizes:n_detected",22
+"detection","ldir|ftir_bruker|all|all sizes:n_found",17
+"detection","ldir|ftir_bruker|plastics|100-200:n_base",11
+"detection","ldir|ftir_bruker|plastics|100-200:n_detected",10
+"detection","ldir|ftir_bruker|plastics|100-200:n_found",5
+"detection","ldir|ftir_bruker|plastics|20-50:n_base",3
+"detection","ldir|ftir_bruker|plastics|20-50:n_detected",0
+"detection","ldir|ftir_bruker|plastics|20-50:n_found",0
+"detection","ldir|ftir_bruker|plastics|50-100:n_base",5
+"detection","ldir|ftir_bruker|plastics|50-100:n_detected",3
+"detection","ldir|ftir_bruker|plastics|50-100:n_found",3
+"detection","ldir|ftir_bruker|plastics|>200:n_base",10
+"detection","ldir|ftir_bruker|plastics|>200:n_detected",9
+"detection","ldir|ftir_bruker|plastics|>200:n_found",9
+"detection","ldir|ftir_bruker|plastics|all sizes:n_base",29
+"detection","ldir|ftir_bruker|plastics|all sizes:n_detected",22
+"detection","ldir|ftir_bruker|plastics|all sizes:n_found",17
+"detection","ldir|ftir_perkin|all|100-200:n_base",12
+"detection","ldir|ftir_perkin|all|100-200:n_detected",12
+"detection","ldir|ftir_perkin|all|100-200:n_found",12
+"detection","ldir|ftir_perkin|all|20-50:n_base",3
+"detection","ldir|ftir_perkin|all|20-50:n_detected",3
+"detection","ldir|ftir_perkin|all|20-50:n_found",3
+"detection","ldir|ftir_perkin|all|50-100:n_base",6
+"detection","ldir|ftir_perkin|all|50-100:n_detected",6
+"detection","ldir|ftir_perkin|all|50-100:n_found",6
+"detection","ldir|ftir_perkin|all|>200:n_base",10
+"detection","ldir|ftir_perkin|all|>200:n_detected",10
+"detection","ldir|ftir_perkin|all|>200:n_found",10
+"detection","ldir|ftir_perkin|all|all sizes:n_base",31
+"detection","ldir|ftir_perkin|all|all sizes:n_detected",31
+"detection","ldir|ftir_perkin|all|all sizes:n_found",31
+"detection","ldir|ftir_perkin|plastics|100-200:n_base",12
+"detection","ldir|ftir_perkin|plastics|100-200:n_detected",12
+"detection","ldir|ftir_perkin|plastics|100-200:n_found",12
+"detection","ldir|ftir_perkin|plastics|20-50:n_base",3
+"detection","ldir|ftir_perkin|plastics|20-50:n_detected",3
+"detection","ldir|ftir_perkin|plastics|20-50:n_found",3
+"detection","ldir|ftir_perkin|plastics|50-100:n_base",6
+"detection","ldir|ftir_perkin|plastics|50-100:n_detected",6
+"detection","ldir|ftir_perkin|plastics|50-100:n_found",6
+"detection","ldir|ftir_perkin|plastics|>200:n_base",10
+"detection","ldir|ftir_perkin|plastics|>200:n_detected",10
+"detection","ldir|ftir_perkin|plastics|>200:n_found",10
+"detection","ldir|ftir_perkin|plastics|all sizes:n_base",31
+"detection","ldir|ftir_perkin|plastics|all sizes:n_detected",31
+"detection","ldir|ftir_perkin|plastics|all sizes:n_found",31
+"detection","ldir|raman|all|100-200:n_base",12
+"detection","ldir|raman|all|100-200:n_detected",12
+"detection","ldir|raman|all|100-200:n_found",12
+"detection","ldir|raman|all|20-50:n_base",3
+"detection","ldir|raman|all|20-50:n_detected",3
+"detection","ldir|raman|all|20-50:n_found",3
+"detection","ldir|raman|all|50-100:n_base",6
+"detection","ldir|raman|all|50-100:n_detected",6
+"detection","ldir|raman|all|50-100:n_found",6
+"detection","ldir|raman|all|>200:n_base",10
+"detection","ldir|raman|all|>200:n_detected",10
+"detection","ldir|raman|all|>200:n_found",10
+"detection","ldir|raman|all|all sizes:n_base",31
+"detection","ldir|raman|all|all sizes:n_detected",31
+"detection","ldir|raman|all|all sizes:n_found",31
+"detection","ldir|raman|plastics|100-200:n_base",12
+"detection","ldir|raman|plastics|100-200:n_detected",12
+"detection","ldir|raman|plastics|100-200:n_found",12
+"detection","ldir|raman|plastics|20-50:n_base",3
+"detection","ldir|raman|plastics|20-50:n_detected",3
+"detection","ldir|raman|plastics|20-50:n_found",3
+"detection","ldir|raman|plastics|50-100:n_base",6
+"detection","ldir|raman|plastics|50-100:n_detected",6
+"detection","ldir|raman|plastics|50-100:n_found",6
+"detection","ldir|raman|plastics|>200:n_base",10
+"detection","ldir|raman|plastics|>200:n_detected",10
+"detection","ldir|raman|plastics|>200:n_found",10
+"detection","ldir|raman|plastics|all sizes:n_base",31
+"detection","ldir|raman|plastics|all sizes:n_detected",31
+"detection","ldir|raman|plastics|all sizes:n_found",31
+"detection","raman|ftir_bruker|all|100-200:n_base",11
+"detection","raman|ftir_bruker|all|100-200:n_detected",10
+"detection","raman|ftir_bruker|all|100-200:n_found",6
+"detection","raman|ftir_bruker|all|20-50:n_base",7
+"detection","raman|ftir_bruker|all|20-50:n_detected",2
+"detection","raman|ftir_bruker|all|20-50:n_found",1
+"detection","raman|ftir_bruker|all|50-100:n_base",6
+"detection","raman|ftir_bruker|all|50-100:n_detected",4
+"detection","raman|ftir_bruker|all|50-100:n_found",3
+"detection","raman|ftir_bruker|all|>200:n_base",11
+"detection","raman|ftir_bruker|all|>200:n_detected",11
+"detection","raman|ftir_bruker|all|>200:n_found",10
+"detection","raman|ftir_bruker|all|all sizes:n_base",35
+"detection","raman|ftir_bruker|all|all sizes:n_detected",27
+"detection","raman|ftir_bruker|all|all sizes:n_found",20
+"detection","raman|ftir_bruker|plastics|100-200:n_base",11
+"detection","raman|ftir_bruker|plastics|100-200:n_detected",10
+"detection","raman|ftir_bruker|plastics|100-200:n_found",6
+"detection","raman|ftir_bruker|plastics|20-50:n_base",7
+"detection","raman|ftir_bruker|plastics|20-50:n_detected",2
+"detection","raman|ftir_bruker|plastics|20-50:n_found",1
+"detection","raman|ftir_bruker|plastics|50-100:n_base",6
+"detection","raman|ftir_bruker|plastics|50-100:n_detected",4
+"detection","raman|ftir_bruker|plastics|50-100:n_found",3
+"detection","raman|ftir_bruker|plastics|>200:n_base",11
+"detection","raman|ftir_bruker|plastics|>200:n_detected",11
+"detection","raman|ftir_bruker|plastics|>200:n_found",10
+"detection","raman|ftir_bruker|plastics|all sizes:n_base",35
+"detection","raman|ftir_bruker|plastics|all sizes:n_detected",27
+"detection","raman|ftir_bruker|plastics|all sizes:n_found",20
+"detection","raman|ftir_perkin|all|100-200:n_base",12
+"detection","raman|ftir_perkin|all|100-200:n_detected",12
+"detection","raman|ftir_perkin|all|100-200:n_found",12
+"detection","raman|ftir_perkin|all|20-50:n_base",6
+"detection","raman|ftir_perkin|all|20-50:n_detected",4
+"detection","raman|ftir_perkin|all|20-50:n_found",4
+"detection","raman|ftir_perkin|all|50-100:n_base",7
+"detection","raman|ftir_perkin|all|50-100:n_detected",7
+"detection","raman|ftir_perkin|all|50-100:n_found",7
+"detection","raman|ftir_perkin|all|>200:n_base",11
+"detection","raman|ftir_perkin|all|>200:n_detected",10
+"detection","raman|ftir_perkin|all|>200:n_found",10
+"detection","raman|ftir_perkin|all|all sizes:n_base",36
+"detection","raman|ftir_perkin|all|all sizes:n_detected",33
+"detection","raman|ftir_perkin|all|all sizes:n_found",33
+"detection","raman|ftir_perkin|plastics|100-200:n_base",12
+"detection","raman|ftir_perkin|plastics|100-200:n_detected",12
+"detection","raman|ftir_perkin|plastics|100-200:n_found",12
+"detection","raman|ftir_perkin|plastics|20-50:n_base",6
+"detection","raman|ftir_perkin|plastics|20-50:n_detected",4
+"detection","raman|ftir_perkin|plastics|20-50:n_found",4
+"detection","raman|ftir_perkin|plastics|50-100:n_base",7
+"detection","raman|ftir_perkin|plastics|50-100:n_detected",7
+"detection","raman|ftir_perkin|plastics|50-100:n_found",7
+"detection","raman|ftir_perkin|plastics|>200:n_base",11
+"detection","raman|ftir_perkin|plastics|>200:n_detected",10
+"detection","raman|ftir_perkin|plastics|>200:n_found",10
+"detection","raman|ftir_perkin|plastics|all sizes:n_base",36
+"detection","raman|ftir_perkin|plastics|all sizes:n_detected",33
+"detection","raman|ftir_perkin|plastics|all sizes:n_found",33
+"detection","raman|ldir|all|100-200:n_base",12
+"detection","raman|ldir|all|100-200:n_detected",12
+"detection","raman|ldir|all|100-200:n_found",10
+"detection","raman|ldir|all|20-50:n_base",6
+"detection","raman|ldir|all|20-50:n_detected",4
+"detection","raman|ldir|all|20-50:n_found",4
+"detection","raman|ldir|all|50-100:n_base",7
+"detection","raman|ldir|all|50-100:n_detected",7
+"detection","raman|ldir|all|50-100:n_found",7
+"detection","raman|ldir|all|>200:n_base",11
+"detection","raman|ldir|all|>200:n_detected",10
+"detection","raman|ldir|all|>200:n_found",10
+"detection","raman|ldir|all|all sizes:n_base",36
+"detection","raman|ldir|all|all sizes:n_detected",33
+"detection","raman|ldir|all|all sizes:n_found",31
+"detection","raman|ldir|plastics|100-200:n_base",12
+"detection","raman|ldir|plastics|100-200:n_detected",12
+"detection","raman|ldir|plastics|100-200:n_found",10
+"detection","raman|ldir|plastics|20-50:n_base",6
+"detection","raman|ldir|plastics|20-50:n_detected",4
+"detection","raman|ldir|plastics|20-50:n_found",4
+"detection","raman|ldir|plastics|50-100:n_base",7
+"detection","raman|ldir|plastics|50-100:n_detected",7
+"detection","raman|ldir|plastics|50-100:n_found",7
+"detection","raman|ldir|plastics|>200:n_base",11
+"detection","raman|ldir|plastics|>200:n_detected",10
+"detection","raman|ldir|plastics|>200:n_found",10
+"detection","raman|ldir|plastics|all sizes:n_base",36
+"detection","raman|ldir|plastics|all sizes:n_detected",33
+"detection","raman|ldir|plastics|all sizes:n_found",31
+"detection_pct","ftir_bruker|raman|all|100-200:rate_true_pct",92.3
+"detection_pct","ftir_bruker|raman|all|20-50:rate_true_pct",26.7
+"detection_pct","ftir_bruker|raman|all|50-100:rate_true_pct",99.9
+"detection_pct","ftir_bruker|raman|all|>200:rate_true_pct",49.3
+"detection_pct","ftir_bruker|raman|all|all sizes:rate_true_pct",81.8
+"detection_pct","ftir_bruker|raman|plastics|100-200:rate_true_pct",92.3
+"detection_pct","ftir_bruker|raman|plastics|20-50:rate_true_pct",26.7
+"detection_pct","ftir_bruker|raman|plastics|50-100:rate_true_pct",99.9
+"detection_pct","ftir_bruker|raman|plastics|>200:rate_true_pct",49.3
+"detection_pct","ftir_bruker|raman|plastics|all sizes:rate_true_pct",81.8
+"detection_pct","ftir_perkin|ftir_bruker|all|20-50:rate_true_pct",0
+"detection_pct","ftir_perkin|ftir_bruker|plastics|20-50:rate_true_pct",0
+"detection_pct","ftir_perkin|ldir|all|100-200:rate_true_pct",90
+"detection_pct","ftir_perkin|ldir|all|20-50:rate_true_pct",100
+"detection_pct","ftir_perkin|ldir|all|50-100:rate_true_pct",99.6
+"detection_pct","ftir_perkin|ldir|all|>200:rate_true_pct",100
+"detection_pct","ftir_perkin|ldir|all|all sizes:rate_true_pct",96.8
+"detection_pct","ftir_perkin|ldir|plastics|100-200:rate_true_pct",90
+"detection_pct","ftir_perkin|ldir|plastics|20-50:rate_true_pct",100
+"detection_pct","ftir_perkin|ldir|plastics|50-100:rate_true_pct",99.6
+"detection_pct","ftir_perkin|ldir|plastics|>200:rate_true_pct",100
+"detection_pct","ftir_perkin|ldir|plastics|all sizes:rate_true_pct",96.8
+"detection_pct","ftir_perkin|raman|all|100-200:rate_true_pct",100
+"detection_pct","ftir_perkin|raman|all|20-50:rate_true_pct",100
+"detection_pct","ftir_perkin|raman|all|50-100:rate_true_pct",100
+"detection_pct","ftir_perkin|raman|all|>200:rate_true_pct",98
+"detection_pct","ftir_perkin|raman|all|all sizes:rate_true_pct",99.2
+"detection_pct","ftir_perkin|raman|plastics|100-200:rate_true_pct",100
+"detection_pct","ftir_perkin|raman|plastics|20-50:rate_true_pct",100
+"detection_pct","ftir_perkin|raman|plastics|50-100:rate_true_pct",100
+"detection_pct","ftir_perkin|raman|plastics|>200:rate_true_pct",98
+"detection_pct","ftir_perkin|raman|plastics|all sizes:rate_true_pct",99.2
+"detection_pct","ldir|ftir_bruker|all|20-50:rate_true_pct",0
+"detection_pct","ldir|ftir_bruker|plastics|20-50:rate_true_pct",0
+"detection_pct","ldir|ftir_perkin|all|100-200:rate_true_pct",100
+"detection_pct","ldir|ftir_perkin|all|20-50:rate_true_pct",100
+"detection_pct","ldir|ftir_perkin|all|50-100:rate_true_pct",99.6
+"detection_pct","ldir|ftir_perkin|all|>200:rate_true_pct",100
+"detection_pct","ldir|ftir_perkin|all|all sizes:rate_true_pct",99.9
+"detection_pct","ldir|ftir_perkin|plastics|100-200:rate_true_pct",100
+"detection_pct","ldir|ftir_perkin|plastics|20-50:rate_true_pct",100
+"detection_pct","ldir|ftir_perkin|plastics|50-100:rate_true_pct",99.6
+"detection_pct","ldir|ftir_perkin|plastics|>200:rate_true_pct",100
+"detection_pct","ldir|ftir_perkin|plastics|all sizes:rate_true_pct",99.9
+"detection_pct","ldir|raman|all|100-200:rate_true_pct",100
+"detection_pct","ldir|raman|all|20-50:rate_true_pct",100
+"detection_pct","ldir|raman|all|50-100:rate_true_pct",100
+"detection_pct","ldir|raman|all|>200:rate_true_pct",99.2
+"detection_pct","ldir|raman|all|all sizes:rate_true_pct",99.7
+"detection_pct","ldir|raman|plastics|100-200:rate_true_pct",100
+"detection_pct","ldir|raman|plastics|20-50:rate_true_pct",100
+"detection_pct","ldir|raman|plastics|50-100:rate_true_pct",100
+"detection_pct","ldir|raman|plastics|>200:rate_true_pct",99.2
+"detection_pct","ldir|raman|plastics|all sizes:rate_true_pct",99.7
+"detection_pct","raman|ftir_bruker|all|100-200:rate_true_pct",52.7
+"detection_pct","raman|ftir_bruker|all|20-50:rate_true_pct",14.3
+"detection_pct","raman|ftir_bruker|all|50-100:rate_true_pct",49.9
+"detection_pct","raman|ftir_bruker|all|>200:rate_true_pct",89.4
+"detection_pct","raman|ftir_bruker|all|all sizes:rate_true_pct",56.1
+"detection_pct","raman|ftir_bruker|plastics|100-200:rate_true_pct",52.7
+"detection_pct","raman|ftir_bruker|plastics|20-50:rate_true_pct",14.3
+"detection_pct","raman|ftir_bruker|plastics|50-100:rate_true_pct",49.9
+"detection_pct","raman|ftir_bruker|plastics|>200:rate_true_pct",89.4
+"detection_pct","raman|ftir_bruker|plastics|all sizes:rate_true_pct",56.1
+"detection_pct","raman|ftir_perkin|all|100-200:rate_true_pct",100
+"detection_pct","raman|ftir_perkin|all|20-50:rate_true_pct",66.7
+"detection_pct","raman|ftir_perkin|all|50-100:rate_true_pct",100
+"detection_pct","raman|ftir_perkin|all|>200:rate_true_pct",88.6
+"detection_pct","raman|ftir_perkin|all|all sizes:rate_true_pct",90.9
+"detection_pct","raman|ftir_perkin|plastics|100-200:rate_true_pct",100
+"detection_pct","raman|ftir_perkin|plastics|20-50:rate_true_pct",66.7
+"detection_pct","raman|ftir_perkin|plastics|50-100:rate_true_pct",100
+"detection_pct","raman|ftir_perkin|plastics|>200:rate_true_pct",88.6
+"detection_pct","raman|ftir_perkin|plastics|all sizes:rate_true_pct",90.9
+"detection_pct","raman|ldir|all|100-200:rate_true_pct",83.3
+"detection_pct","raman|ldir|all|20-50:rate_true_pct",66.7
+"detection_pct","raman|ldir|all|50-100:rate_true_pct",100
+"detection_pct","raman|ldir|all|>200:rate_true_pct",90.2
+"detection_pct","raman|ldir|all|all sizes:rate_true_pct",85.9
+"detection_pct","raman|ldir|plastics|100-200:rate_true_pct",83.3
+"detection_pct","raman|ldir|plastics|20-50:rate_true_pct",66.7
+"detection_pct","raman|ldir|plastics|50-100:rate_true_pct",100
+"detection_pct","raman|ldir|plastics|>200:rate_true_pct",90.2
+"detection_pct","raman|ldir|plastics|all sizes:rate_true_pct",85.9
+"ldir_position","A10:x_um",556.05186298139
+"ldir_position","A10:y_um",1083.68442887134
+"ldir_position","A11:x_um",2020.84755180599
+"ldir_position","A11:y_um",1809.5936124129
+"ldir_position","A12:x_um",1570.0041876223
+"ldir_position","A12:y_um",-1877.78032698046
+"ldir_position","A13:x_um",-353.301302166002
+"ldir_position","A13:y_um",445.908473573406
+"ldir_position","A14:x_um",603.694329784789
+"ldir_position","A14:y_um",1647.89175171871
+"ldir_position","A15:x_um",-2290.71159452278
+"ldir_position","A15:y_um",2267.2642388281
+"ldir_position","A16:x_um",538.707154417832
+"ldir_position","A16:y_um",2129.38124792947
+"ldir_position","A17:x_um",-1648.08693241811
+"ldir_position","A17:y_um",542.882432021424
+"ldir_position","A18:x_um",-613.587551028086
+"ldir_position","A18:y_um",2051.14494141964
+"ldir_position","A19:x_um",-2009.96647663076
+"ldir_position","A19:y_um",-811.896856629171
+"ldir_position","A1:x_um",-926.778208130714
+"ldir_position","A1:y_um",825.578422211011
+"ldir_position","A20:x_um",-237.181069856624
+"ldir_position","A20:y_um",1111.00973775982
+"ldir_position","A21:x_um",-1027.07976566596
+"ldir_position","A21:y_um",1409.21343678566
+"ldir_position","A22:x_um",-365.407536601645
+"ldir_position","A22:y_um",1144.02201844218
+"ldir_position","A23:x_um",1852.77643268812
+"ldir_position","A23:y_um",91.6912839583306
+"ldir_position","A24:x_um",1004.59376147576
+"ldir_position","A24:y_um",286.578958480617
+"ldir_position","A25:x_um",2365.55379187083
+"ldir_position","A25:y_um",-369.291988091714
+"ldir_position","A26:x_um",145.813954121515
+"ldir_position","A26:y_um",1849.05554525635
+"ldir_position","A27:x_um",258.081321071481
+"ldir_position","A27:y_um",898.825863501317
+"ldir_position","A28:x_um",-2125.28187051205
+"ldir_position","A28:y_um",223.909543434536
+"ldir_position","A29:x_um",1004.49320595191
+"ldir_position","A29:y_um",1068.43145851076
+"ldir_position","A2:x_um",-221.320768988537
+"ldir_position","A2:y_um",1994.21786539721
+"ldir_position","A30:x_um",2236.40496376679
+"ldir_position","A30:y_um",-196.24159232889
+"ldir_position","A31:x_um",-194.590565699786
+"ldir_position","A31:y_um",1682.4121644415
+"ldir_position","A32:x_um",-50.1091159883307
+"ldir_position","A32:y_um",1977.00444736782
+"ldir_position","A33:x_um",-2066.71566015998
+"ldir_position","A33:y_um",2191.93721381589
+"ldir_position","A34:x_um",2146.78837272626
+"ldir_position","A34:y_um",-1591.52555291705
+"ldir_position","A35:x_um",2367.79330944238
+"ldir_position","A35:y_um",2100.76102194538
+"ldir_position","A36:x_um",560.221966202134
+"ldir_position","A36:y_um",959.582398092444
+"ldir_position","A37:x_um",1414.36139449817
+"ldir_position","A37:y_um",447.105162732961
+"ldir_position","A38:x_um",2404.25383019348
+"ldir_position","A38:y_um",602.989942989229
+"ldir_position","A39:x_um",-429.606253311815
+"ldir_position","A39:y_um",1915.11917675908
+"ldir_position","A3:x_um",321.63884681341
+"ldir_position","A3:y_um",1761.02143233014
+"ldir_position","A40:x_um",903.696806803492
+"ldir_position","A40:y_um",-1346.35062060113
+"ldir_position","A4:x_um",1015.36970139652
+"ldir_position","A4:y_um",-810.73515311582
+"ldir_position","A5:x_um",1264.6145650298
+"ldir_position","A5:y_um",1100.56674692569
+"ldir_position","A6:x_um",-844.752083031608
+"ldir_position","A6:y_um",1931.92516019877
+"ldir_position","A7:x_um",691.335792697757
+"ldir_position","A7:y_um",1897.5204374679
+"ldir_position","A8:x_um",22.0356121797196
+"ldir_position","A8:y_um",368.698631543169
+"ldir_position","A9:x_um",-1720.58321727135
+"ldir_position","A9:y_um",1582.49764540733
+"n_additional","matched_ftir_bruker_ftir_perkin.csv",0
+"n_additional","matched_ftir_bruker_ldir.csv",0
+"n_additional","matched_ftir_bruker_raman.csv",0
+"n_additional","matched_ftir_perkin_raman.csv",0
+"n_additional","matched_ldir_ftir_perkin.csv",0
+"n_additional","matched_ldir_raman.csv",0
 "n_rows","01_ingested/ftir_bruker_ingested.csv",42
 "n_rows","01_ingested/ftir_perkin_ingested.csv",33
 "n_rows","01_ingested/ldir_ingested.csv",40
@@ -22,24 +580,139 @@
 "n_rows","03_prefiltered/ftir_perkin_prefiltered.csv",33
 "n_rows","03_prefiltered/ldir_prefiltered.csv",40
 "n_rows","03_prefiltered/raman_prefiltered.csv",43
-"n_rows","05_matches/matched_ftir_bruker_ftir_perkin.csv",16
-"n_rows","05_matches/matched_ftir_bruker_ldir.csv",14
-"n_rows","05_matches/matched_ftir_bruker_raman.csv",18
-"n_rows","05_matches/matched_ftir_perkin_raman.csv",31
+"n_rows","05_matches/matched_ftir_bruker_ftir_perkin.csv",17
+"n_rows","05_matches/matched_ftir_bruker_ldir.csv",17
+"n_rows","05_matches/matched_ftir_bruker_raman.csv",20
+"n_rows","05_matches/matched_ftir_perkin_raman.csv",33
 "n_rows","05_matches/matched_ldir_ftir_perkin.csv",31
-"n_rows","05_matches/matched_ldir_raman.csv",28
+"n_rows","05_matches/matched_ldir_raman.csv",31
 "n_rows","05_matches/partner_status.csv",456
-"n_rows","05_matches/triplets_3way.csv",28
-"n_rows","05_matches/unmatched_ftir_bruker_vs_raman.csv",7
-"n_rows","05_matches/unmatched_ftir_perkin_vs_raman.csv",2
-"n_rows","05_matches/unmatched_ldir_vs_raman.csv",4
-"n_rows","05_matches/unmatched_raman_vs_ftir_perkin.csv",7
+"n_rows","05_matches/triplets_3way.csv",31
+"n_rows","05_matches/unmatched_ftir_bruker_vs_raman.csv",5
+"n_rows","05_matches/unmatched_ldir_vs_raman.csv",1
+"n_rows","05_matches/unmatched_raman_vs_ftir_perkin.csv",5
+"p_true","matched_ftir_bruker_raman.csv|MP_0|93",0.9994
+"p_true","matched_ftir_bruker_raman.csv|MP_11|82",0.9981
+"p_true","matched_ftir_bruker_raman.csv|MP_15|3",0.9988
+"p_true","matched_ftir_bruker_raman.csv|MP_18|23",0.9993
+"p_true","matched_ftir_bruker_raman.csv|MP_20|8",0.8012
+"p_true","matched_ftir_bruker_raman.csv|MP_21|57",0.986
+"p_true","matched_ftir_bruker_raman.csv|MP_24|31",0.9994
+"p_true","matched_ftir_bruker_raman.csv|MP_27|1",0.9993
+"p_true","matched_ftir_bruker_raman.csv|MP_28|92",0.9983
+"p_true","matched_ftir_bruker_raman.csv|MP_29|72",0.9986
+"p_true","matched_ftir_bruker_raman.csv|MP_32|97",0.9893
+"p_true","matched_ftir_bruker_raman.csv|MP_34|22",0.9994
+"p_true","matched_ftir_bruker_raman.csv|MP_36|87",0.9975
+"p_true","matched_ftir_bruker_raman.csv|MP_37|38",0.9989
+"p_true","matched_ftir_bruker_raman.csv|MP_39|80",0.9862
+"p_true","matched_ftir_bruker_raman.csv|MP_41|95",0.9978
+"p_true","matched_ftir_bruker_raman.csv|MP_4|42",0.8892
+"p_true","matched_ftir_bruker_raman.csv|MP_5|68",0.9994
+"p_true","matched_ftir_bruker_raman.csv|MP_6|2",0.9989
+"p_true","matched_ftir_bruker_raman.csv|MP_8|81",0.9942
+"p_true","matched_ftir_perkin_raman.csv|MP_0|95",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_10|1",0.9899
+"p_true","matched_ftir_perkin_raman.csv|MP_11|41",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_12|23",0.9996
+"p_true","matched_ftir_perkin_raman.csv|MP_13|57",0.9998
+"p_true","matched_ftir_perkin_raman.csv|MP_14|31",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_15|8",0.9993
+"p_true","matched_ftir_perkin_raman.csv|MP_16|59",0.9998
+"p_true","matched_ftir_perkin_raman.csv|MP_17|16",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_18|3",0.9992
+"p_true","matched_ftir_perkin_raman.csv|MP_19|13",0.9995
+"p_true","matched_ftir_perkin_raman.csv|MP_1|80",0.994
+"p_true","matched_ftir_perkin_raman.csv|MP_20|52",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_21|82",0.9995
+"p_true","matched_ftir_perkin_raman.csv|MP_22|73",0.9997
+"p_true","matched_ftir_perkin_raman.csv|MP_23|83",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_24|81",0.9992
+"p_true","matched_ftir_perkin_raman.csv|MP_25|42",0.977
+"p_true","matched_ftir_perkin_raman.csv|MP_26|2",0.9998
+"p_true","matched_ftir_perkin_raman.csv|MP_27|25",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_28|32",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_29|68",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_2|55",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_30|40",0.9995
+"p_true","matched_ftir_perkin_raman.csv|MP_31|71",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_32|93",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_3|38",0.9996
+"p_true","matched_ftir_perkin_raman.csv|MP_4|87",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_5|62",0.9999
+"p_true","matched_ftir_perkin_raman.csv|MP_6|22",0.9998
+"p_true","matched_ftir_perkin_raman.csv|MP_7|74",0.9998
+"p_true","matched_ftir_perkin_raman.csv|MP_8|97",0.7834
+"p_true","matched_ftir_perkin_raman.csv|MP_9|92",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A10|MP_12",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A11|MP_22",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A12|MP_0",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A13|MP_8",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A14|MP_19",1
+"p_true","matched_ldir_ftir_perkin.csv|A15|MP_32",1
+"p_true","matched_ldir_ftir_perkin.csv|A16|MP_30",1
+"p_true","matched_ldir_ftir_perkin.csv|A17|MP_9",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A18|MP_29",1
+"p_true","matched_ldir_ftir_perkin.csv|A1|MP_10",0.9998
+"p_true","matched_ldir_ftir_perkin.csv|A20|MP_16",1
+"p_true","matched_ldir_ftir_perkin.csv|A21|MP_17",1
+"p_true","matched_ldir_ftir_perkin.csv|A22|MP_15",1
+"p_true","matched_ldir_ftir_perkin.csv|A23|MP_4",1
+"p_true","matched_ldir_ftir_perkin.csv|A24|MP_6",1
+"p_true","matched_ldir_ftir_perkin.csv|A25|MP_2",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A26|MP_23",1
+"p_true","matched_ldir_ftir_perkin.csv|A27|MP_11",1
+"p_true","matched_ldir_ftir_perkin.csv|A2|MP_25",0.9998
+"p_true","matched_ldir_ftir_perkin.csv|A30|MP_3",0.9785
+"p_true","matched_ldir_ftir_perkin.csv|A31|MP_20",1
+"p_true","matched_ldir_ftir_perkin.csv|A32|MP_28",1
+"p_true","matched_ldir_ftir_perkin.csv|A33|MP_31",1
+"p_true","matched_ldir_ftir_perkin.csv|A39|MP_27",1
+"p_true","matched_ldir_ftir_perkin.csv|A3|MP_21",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A4|MP_1",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A5|MP_13",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A6|MP_26",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A7|MP_24",0.9999
+"p_true","matched_ldir_ftir_perkin.csv|A8|MP_7",1
+"p_true","matched_ldir_ftir_perkin.csv|A9|MP_18",0.9999
+"p_true","matched_ldir_raman.csv|A10|23",0.999
+"p_true","matched_ldir_raman.csv|A11|73",0.9999
+"p_true","matched_ldir_raman.csv|A12|95",0.9998
+"p_true","matched_ldir_raman.csv|A13|97",0.9954
+"p_true","matched_ldir_raman.csv|A14|13",0.9992
+"p_true","matched_ldir_raman.csv|A15|93",0.9998
+"p_true","matched_ldir_raman.csv|A16|40",0.9993
+"p_true","matched_ldir_raman.csv|A17|92",0.9998
+"p_true","matched_ldir_raman.csv|A18|68",0.9999
+"p_true","matched_ldir_raman.csv|A1|1",0.9799
+"p_true","matched_ldir_raman.csv|A20|59",0.9999
+"p_true","matched_ldir_raman.csv|A21|16",0.9999
+"p_true","matched_ldir_raman.csv|A22|8",0.9981
+"p_true","matched_ldir_raman.csv|A23|87",0.9999
+"p_true","matched_ldir_raman.csv|A24|22",0.9999
+"p_true","matched_ldir_raman.csv|A25|55",0.9999
+"p_true","matched_ldir_raman.csv|A26|83",0.9996
+"p_true","matched_ldir_raman.csv|A27|41",0.9999
+"p_true","matched_ldir_raman.csv|A2|42",0.9678
+"p_true","matched_ldir_raman.csv|A30|38",0.9996
+"p_true","matched_ldir_raman.csv|A31|52",0.9997
+"p_true","matched_ldir_raman.csv|A32|32",0.9999
+"p_true","matched_ldir_raman.csv|A33|71",0.9999
+"p_true","matched_ldir_raman.csv|A39|25",0.9999
+"p_true","matched_ldir_raman.csv|A3|82",0.9986
+"p_true","matched_ldir_raman.csv|A4|80",0.9897
+"p_true","matched_ldir_raman.csv|A5|57",0.9998
+"p_true","matched_ldir_raman.csv|A6|2",0.9997
+"p_true","matched_ldir_raman.csv|A7|81",0.9905
+"p_true","matched_ldir_raman.csv|A8|74",0.9998
+"p_true","matched_ldir_raman.csv|A9|3",0.9997
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_0|MP_32",2.54464670156356
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_11|MP_21",34.9675889386019
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_15|MP_18",30.8806283409108
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_18|MP_12",20.4610293477581
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_20|MP_15",30.5164584001034
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_24|MP_14",1.46620489079146
+"pair","matched_ftir_bruker_ftir_perkin.csv|MP_26|MP_10",54.2032780190393
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_28|MP_9",24.8583340636422
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_32|MP_8",15.2931154603746
 "pair","matched_ftir_bruker_ftir_perkin.csv|MP_34|MP_6",11.5038203671699
@@ -55,11 +728,14 @@
 "pair","matched_ftir_bruker_ldir.csv|MP_15|A9",16.8411901511432
 "pair","matched_ftir_bruker_ldir.csv|MP_18|A10",25.3902152246184
 "pair","matched_ftir_bruker_ldir.csv|MP_20|A22",28.2343972964525
+"pair","matched_ftir_bruker_ldir.csv|MP_21|A5",53.051448755289
+"pair","matched_ftir_bruker_ldir.csv|MP_26|A1",53.1746960701637
 "pair","matched_ftir_bruker_ldir.csv|MP_28|A17",16.8943029672629
 "pair","matched_ftir_bruker_ldir.csv|MP_32|A13",15.8006107075444
 "pair","matched_ftir_bruker_ldir.csv|MP_34|A24",4.51254548306735
 "pair","matched_ftir_bruker_ldir.csv|MP_36|A23",21.0624967989563
 "pair","matched_ftir_bruker_ldir.csv|MP_37|A30",26.5741966305964
+"pair","matched_ftir_bruker_ldir.csv|MP_39|A4",51.4514303314494
 "pair","matched_ftir_bruker_ldir.csv|MP_41|A12",16.1655394109434
 "pair","matched_ftir_bruker_ldir.csv|MP_5|A18",8.13184739192325
 "pair","matched_ftir_bruker_ldir.csv|MP_6|A6",20.3425267438147
@@ -69,10 +745,12 @@
 "pair","matched_ftir_bruker_raman.csv|MP_15|3",15.8271199675002
 "pair","matched_ftir_bruker_raman.csv|MP_18|23",9.03006927843496
 "pair","matched_ftir_bruker_raman.csv|MP_20|8",43.3250122450373
+"pair","matched_ftir_bruker_raman.csv|MP_21|57",56.8131498826861
 "pair","matched_ftir_bruker_raman.csv|MP_24|31",6.1975018341371
 "pair","matched_ftir_bruker_raman.csv|MP_27|1",10.7209048948299
 "pair","matched_ftir_bruker_raman.csv|MP_28|92",19.1266168758295
 "pair","matched_ftir_bruker_raman.csv|MP_29|72",17.4422360892492
+"pair","matched_ftir_bruker_raman.csv|MP_32|97",51.4653645239495
 "pair","matched_ftir_bruker_raman.csv|MP_34|22",6.47300036066963
 "pair","matched_ftir_bruker_raman.csv|MP_36|87",22.0597924472416
 "pair","matched_ftir_bruker_raman.csv|MP_37|38",15.1579375859606
@@ -83,6 +761,7 @@
 "pair","matched_ftir_bruker_raman.csv|MP_6|2",15.7145468215874
 "pair","matched_ftir_bruker_raman.csv|MP_8|81",27.1817753713565
 "pair","matched_ftir_perkin_raman.csv|MP_0|95",4.97211875736681
+"pair","matched_ftir_perkin_raman.csv|MP_10|1",112.046526003803
 "pair","matched_ftir_perkin_raman.csv|MP_11|41",6.25776772770113
 "pair","matched_ftir_perkin_raman.csv|MP_12|23",14.1599277686663
 "pair","matched_ftir_perkin_raman.csv|MP_13|57",6.07009329473593
@@ -92,6 +771,7 @@
 "pair","matched_ftir_perkin_raman.csv|MP_17|16",3.51491160573552
 "pair","matched_ftir_perkin_raman.csv|MP_18|3",20.6076095718542
 "pair","matched_ftir_perkin_raman.csv|MP_19|13",17.2072872940302
+"pair","matched_ftir_perkin_raman.csv|MP_1|80",81.3318163978503
 "pair","matched_ftir_perkin_raman.csv|MP_20|52",4.3569175822808
 "pair","matched_ftir_perkin_raman.csv|MP_21|82",17.7022978139538
 "pair","matched_ftir_perkin_raman.csv|MP_22|73",14.9511377862504
@@ -147,11 +827,13 @@
 "pair","matched_ldir_raman.csv|A10|23",19.9281455711523
 "pair","matched_ldir_raman.csv|A11|73",3.22686269435262
 "pair","matched_ldir_raman.csv|A12|95",6.3339192078243
+"pair","matched_ldir_raman.csv|A13|97",46.0847031997237
 "pair","matched_ldir_raman.csv|A14|13",16.7063996678771
 "pair","matched_ldir_raman.csv|A15|93",8.92357986019646
 "pair","matched_ldir_raman.csv|A16|40",14.7558080672982
 "pair","matched_ldir_raman.csv|A17|92",8.08912716218668
 "pair","matched_ldir_raman.csv|A18|68",2.11136731719105
+"pair","matched_ldir_raman.csv|A1|1",112.998921222733
 "pair","matched_ldir_raman.csv|A20|59",2.80141795169967
 "pair","matched_ldir_raman.csv|A21|16",4.67536487959684
 "pair","matched_ldir_raman.csv|A22|8",17.4946590880271
@@ -167,11 +849,59 @@
 "pair","matched_ldir_raman.csv|A33|71",2.07152690262141
 "pair","matched_ldir_raman.csv|A39|25",1.40618945223151
 "pair","matched_ldir_raman.csv|A3|82",22.4606780591584
+"pair","matched_ldir_raman.csv|A4|80",83.1540368976298
 "pair","matched_ldir_raman.csv|A5|57",4.37209749161219
 "pair","matched_ldir_raman.csv|A6|2",9.84392603620853
 "pair","matched_ldir_raman.csv|A7|81",28.9298722178643
 "pair","matched_ldir_raman.csv|A8|74",6.56592916941269
 "pair","matched_ldir_raman.csv|A9|3",10.0101722062365
+"partner_status","ftir_bruker|ftir_perkin|matched",17
+"partner_status","ftir_bruker|ftir_perkin|not_found",13
+"partner_status","ftir_bruker|ftir_perkin|outside_area",5
+"partner_status","ftir_bruker|ftir_perkin|this_below_cutoff",6
+"partner_status","ftir_bruker|ldir|matched",17
+"partner_status","ftir_bruker|ldir|not_found",13
+"partner_status","ftir_bruker|ldir|outside_area",2
+"partner_status","ftir_bruker|ldir|partner_below_cutoff",1
+"partner_status","ftir_bruker|ldir|this_below_cutoff",8
+"partner_status","ftir_bruker|raman|matched",20
+"partner_status","ftir_bruker|raman|not_found",10
+"partner_status","ftir_bruker|raman|outside_area",3
+"partner_status","ftir_bruker|raman|partner_not_matchable",1
+"partner_status","ftir_bruker|raman|this_below_cutoff",7
+"partner_status","ftir_perkin|ftir_bruker|matched",17
+"partner_status","ftir_perkin|ftir_bruker|not_found",8
+"partner_status","ftir_perkin|ftir_bruker|outside_area",2
+"partner_status","ftir_perkin|ftir_bruker|partner_below_cutoff",6
+"partner_status","ftir_perkin|ldir|matched",31
+"partner_status","ftir_perkin|ldir|outside_area",1
+"partner_status","ftir_perkin|ldir|partner_below_cutoff",1
+"partner_status","ftir_perkin|raman|matched",33
+"partner_status","ldir|ftir_bruker|both_below_cutoff",1
+"partner_status","ldir|ftir_bruker|matched",17
+"partner_status","ldir|ftir_bruker|not_found",10
+"partner_status","ldir|ftir_bruker|outside_area",6
+"partner_status","ldir|ftir_bruker|partner_below_cutoff",5
+"partner_status","ldir|ftir_bruker|this_below_cutoff",1
+"partner_status","ldir|ftir_perkin|matched",31
+"partner_status","ldir|ftir_perkin|not_found",3
+"partner_status","ldir|ftir_perkin|outside_area",5
+"partner_status","ldir|ftir_perkin|this_below_cutoff",1
+"partner_status","ldir|raman|matched",31
+"partner_status","ldir|raman|not_found",3
+"partner_status","ldir|raman|outside_area",4
+"partner_status","ldir|raman|this_below_cutoff",2
+"partner_status","raman|ftir_bruker|matched",20
+"partner_status","raman|ftir_bruker|not_found",8
+"partner_status","raman|ftir_bruker|outside_area",3
+"partner_status","raman|ftir_bruker|partner_below_cutoff",7
+"partner_status","raman|ftir_perkin|matched",33
+"partner_status","raman|ftir_perkin|not_found",3
+"partner_status","raman|ftir_perkin|outside_area",2
+"partner_status","raman|ldir|matched",31
+"partner_status","raman|ldir|not_found",3
+"partner_status","raman|ldir|outside_area",2
+"partner_status","raman|ldir|partner_below_cutoff",2
 "transform","transform_params_ftir_bruker_raman:rotation_deg",1.6249
 "transform","transform_params_ftir_bruker_raman:scale",1.002126
 "transform","transform_params_ftir_bruker_raman:tx",-24.9788

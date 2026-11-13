@@ -99,6 +99,15 @@ analyze_agreement <- function(match_result, config = NULL,
     log_message("  No matched pairs to analyze.")
     return(.empty_agreement())
   }
+  # Agreement is scored over the primary (one-to-one) pairs: an additional
+  # pair repeats a particle that is already compared once.
+  if ("pair_type" %in% names(matched) && any(matched$pair_type %in% "additional")) {
+    n_add <- sum(matched$pair_type %in% "additional")
+    matched <- matched[!matched$pair_type %in% "additional", , drop = FALSE]
+    log_message("  ", n_add, " additional pair(s) (a further particle on an already paired one) ",
+                "are not scored")
+    if (nrow(matched) == 0) return(.empty_agreement())
+  }
   n_pairs <- nrow(matched)
 
   mat_col_a <- paste0(prefix_a, "_material")

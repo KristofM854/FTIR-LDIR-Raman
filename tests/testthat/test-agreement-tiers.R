@@ -99,9 +99,26 @@ test_that("LDIR quality uses the Agilent unknown threshold; join warnings are co
 })
 
 test_that("only plastic families pair with fillers", {
-  expect_true(all(is_filler_pigment_pair(c("PE", "Cellulose", "Other polymer"),
+  expect_true(all(is_filler_pigment_pair(c("PE", "Regenerated cellulose", "Other polymer"),
                                          c("Pigment", "Mineral", "Additive"))))
   expect_false(any(is_filler_pigment_pair(
     c("Natural", "Unknown", "Mineral", "Inorganic", "Other compound"),
     c("Pigment", "Mineral", "Pigment", "PE", "PE"))))
+})
+
+
+# AUDIT H-01: a bracketed qualifier is not an abbreviation. The exact-polymer
+# name must not drop it, and Exact needs the families to agree.
+test_that("a bracketed qualifier keeps a material apart from the plain polymer", {
+  a <- c("Polyamide (naturally occurring)", "Polyamide (naturally occurring)",
+         "Polyethylene (chlorinated)", "Polycarbonate (PC)", "Polyamide (PA)",
+         "Polyethylene terephtalate (PET)")
+  b <- c("Polyamide (PA)", "PA", "PE", "PC", "Polyamide", "PET")
+  expect_equal(canonical_polymer_vec(a),
+               c("POLYAMIDE NATURALLY OCCURRING", "POLYAMIDE NATURALLY OCCURRING",
+                 "POLYETHYLENE CHLORINATED", "PC", "PA", "PET"))
+  expect_equal(score_tiered_agreement_vec(a, b),
+               c("Disagree", "Disagree", "Disagree", "Exact", "Exact", "Exact"))
+  # The same polymer name in two families is never Exact
+  expect_false(any(score_tiered_agreement_vec("Paraffin (PE)", "PE") == "Exact"))
 })

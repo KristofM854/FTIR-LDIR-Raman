@@ -71,7 +71,7 @@ test_that("the plastics table drops empty devices and excludes Unknown", {
 
 test_that("the plastics table orders synthetic families before semi-synthetic", {
   env <- .load_report_helpers()
-  tbl <- env$report_plastics_table(list(A = .pdf_particles(c("Cellulose", "PET"))))
+  tbl <- env$report_plastics_table(list(A = .pdf_particles(c("Viscose", "PET"))))
   body <- tbl[tbl$Family != "Total", ]
   expect_equal(body$Category, c("Synthetic", "Semi-synthetic"))
 })
@@ -324,6 +324,25 @@ test_that("a wide table is fitted to the page", {
                raman_material = "PP"), "05_matches/matched_ftir_perkin_raman.csv")
   d
 }
+
+# AUDIT M-04: with an FTIR reference the pair stem was built from the display
+# name ("ldir_ftir (perkinelmer)") and the positional error was shown as "-".
+test_that("the alignment table finds the positional error of a run without Raman", {
+  env <- .load_report_helpers()
+  d <- withr::local_tempdir()
+  for (s in c("04_alignment", "07_diagnostics")) dir.create(file.path(d, s))
+  utils::write.csv(data.frame(instrument = c("ldir", "ldir"),
+                              reference = c("FTIR (PerkinElmer)", "FTIR (Bruker)"),
+                              method = "landmark_ransac", scale = 1.04, rotation_deg = 0.3,
+                              reflected = FALSE, icp_rms_um = 6.3, pose_p = 1e-30,
+                              determined = TRUE, n_matched = 30),
+                   file.path(d, "04_alignment", "alignment_summary.csv"), row.names = FALSE)
+  utils::write.csv(data.frame(pair = c("ldir_ftir_perkin", "ldir_ftir_bruker"),
+                              alignment_determined = TRUE, position_sigma_um = c(5.8, 9.4)),
+                   file.path(d, "07_diagnostics", "chance_pairs.csv"), row.names = FALSE)
+  al <- env$summary_alignment_table(d)
+  expect_equal(al[[8]], c("5.8", "9.4"))
+})
 
 test_that("summary tables read the alignment, pairs and partner status of a run", {
   env <- .load_report_helpers()

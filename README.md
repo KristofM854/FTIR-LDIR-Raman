@@ -170,6 +170,14 @@ R/
   09_diagnostics.R              # Overlay plots, histograms, confusion matrix
   10_export.R                   # CSV/PDF/TXT export
   load.R                        # load_pipeline(): packages + modules
+  align_helpers.R               # Pose search primitives, anchors, chance of a random partner, pose significance
+  rate_intervals.R              # Wilson intervals
+  detection_rates.R             # Detection rates by size, partner status
+  ldir_sam.R                    # LDIR particle outlines from the Clarity project file (.sam)
+  ftir_image_placement.R        # FTIR image placement, image spots
+  ftir_segments.R               # Segmented PerkinElmer exports (temporary)
+  10_alignment_diagnostics.R    # LDIR alignment residuals and audit
+  reproducibility.R, precision_study.R   # Multi-run tools (tools/*.R)
   ldir_join_check.R             # LDIR image join checked against Raman
   measure_raman_placement.R     # Raman image placement (WITec file, auto-calibration)
   align_and_match.R             # Reference frame (Raman, else FTIR); align + match + agreement per pair; triplets
@@ -206,7 +214,8 @@ Landmark alignment (Tier 1) is purely **geometric**. The fallback (Tier 2) align
 
 3. **ICP refinement**: Iterative Closest Point polishes the transform using all particles ≥ 20 µm, with reciprocal nearest-neighbour filtering and 10% trimming of worst pairs.
 
-The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**.
+The same RANSAC + ICP pipeline is applied separately to align **LDIR → Raman**,
+with the same test of whether the pose is determined.
 Without Raman the same steps align every instrument to FTIR (PerkinElmer),
 else FTIR (Bruker); the Raman-only alignment filters (`align_raman_min_size_um`,
 the HQI filter on anchors) then do not apply.
@@ -229,6 +238,23 @@ shape terms, 0.3·|ln(area ratio)| + 0.3·|ln(Feret ratio)| + 0.1·(relative
 aspect-ratio difference). These add less than 1.5 µm even for a tenfold size
 difference, so **matching is effectively by distance**: size and shape only
 decide between candidates whose distances differ by about a micrometre.
+
+**Large particles (extent rule).** Instruments place the centre of a large or
+elongated particle differently (example dataset: 50–110 µm apart for particles
+of 200–450 µm), so the distance gate alone leaves the same particle unmatched
+on both sides. Two particles therefore also pair when one centre lies within
+the other's extent (distance ≤ 0.5 × the larger major axis,
+`match_extent_factor`) and their sizes are similar (Feret max within a factor
+2, `match_extent_max_size_ratio`). An instrument may also list one particle as
+several: a particle left without a partner whose centre lies within the extent
+of an already paired particle is attached to it as an *additional* pair. Both
+rules apply only where an unrelated particle of comparable size within that
+radius is unlikely (≤ 20%, `match_extent_max_chance`; ≤ 5% for an additional
+pair, `match_additional_max_chance`), so they switch themselves off on a
+dense field. The match tables say how each pair was made
+(`match_rule`: `distance` / `extent`; `pair_type`: `primary` / `additional`).
+The primary pairs are one-to-one; agreement and triplets use only those, the
+detection rates count every paired particle as found.
 
 Every run estimates, for every instrument pair, how many of its pairs a
 random arrangement would also give (reference density within the gate;
@@ -263,6 +289,18 @@ particle's ID and outline in pixels of the analyzed overlay, so each row takes
 the particle its own outline covers (log line "Exact LDIR join from the .sam
 file"). The size / shape / colour join is used when there is no `.sam` file or
 it does not fit the table.
+
+> **Without a `.sam` file the LDIR join is not exact.** The size / shape /
+> colour join places every row on a particle, but it can exchange particles of
+> similar size and the same colour class, and the join check does not see such
+> exchanges (it compares size ranks, which an exchange between similar
+> particles leaves unchanged). On the example dataset, which has no `.sam`
+> file, 16 of the 40 LDIR rows needed a manual correction
+> (`LDIR_coord_swaps.csv`, 10 rows); without it the join check reads the same
+> (size Spearman 0.97). Export the Clarity project file with the scan whenever
+> possible; a run without it logs no "Exact LDIR join" line, and its LDIR
+> positions should be checked by eye in the viewer's LDIR tab before the LDIR
+> pairs are used.
 
 Pixel centroids are mapped to µm with the image's placement (scan circle =
 scan diameter, or the calibrated overlay), recorded per run in
@@ -306,13 +344,16 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `00_manifest/manifest.json` | Run ID, git commit, input files with MD5, image assets, stage |
 | `00_manifest/config_full.json`, `session_info.txt` | Every parameter as run; R and package versions |
 | `00_manifest/images.json` | Placement of every image (pixel size, origin, extent, how it was obtained) |
+| `00_manifest/supporting_files.csv` | Side files the run used (LDIR analyzed image, `.sam`, coordinate swaps, placement files) with their MD5 |
 | `01_ingested/<instrument>_ingested.csv` | Canonical particle table per instrument, as read |
-| `02_joined/ldir_joined_raw.csv`, `ldir_image_extracted.csv`, `ldir_coord_quality.csv` | LDIR: image blobs, the joined table, per-particle join cost |
+| `02_joined/ldir_joined_raw.csv`, `ldir_image_extracted.csv`, `ldir_coord_quality.csv`, `ldir_outlines.csv` | LDIR: image blobs, the joined table, per-particle join cost; particle outlines when the run had a `.sam` file |
 | `03_prefiltered/<instrument>_prefiltered.csv` | After the coordinate / size / quality prefilter |
 | `04_alignment/transform_params_<pair>.txt` | Transform into the shared frame (scale, rotation, translation, 3×3 matrix, ICP) |
 | `04_alignment/aligned_<instrument>.csv` | Every particle of the instrument in the shared frame (`x_aligned`, `y_aligned`) |
-| `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns and the distance |
+| `04_alignment/alignment_summary.csv` | One row per aligned instrument: method, scale, rotation, mirror, residual, pose p-value, whether the pose is determined |
+| `05_matches/matched_<a>_<b>.csv` | Matched pairs, both particles' columns, the distance, `p_true`, `pair_type` (primary / additional) and `match_rule` (distance / extent) |
 | `05_matches/unmatched_<a>_vs_<b>.csv` | Particles without a partner |
+| `05_matches/partner_status.csv` | For every particle (>= the size limit, any quality) and every other instrument: matched, partner below its cutoff, this particle below its cutoff, both below, partner paired elsewhere, partner not matchable (below the size limit or too different in size), nothing found, outside the partner's area |
 | `05_matches/triplets_3way.csv`, `composite_matches.csv` | Three-way matches; 1:many FTIR→Raman fragments |
 | `06_agreement/agreement_pairwise_<pair>.csv` | One row per scored pair: tier, exact polymers, families, LDIR join warning |
 | `06_agreement/agreement_by_material_<pair>.csv`, `agreement_by_category.csv`, `agreement_summary.csv` | Counts and rates per material / category |
@@ -322,6 +363,7 @@ Pair names: `ftir_perkin`, `ftir_bruker`, `raman`, `ldir`.
 | `07_diagnostics/detection_rates.csv` | Per pair and direction, by size class, with 95% intervals: share of one instrument's particles the other *identified* (paired with a particle passing its quality cutoff) and *detected* (any particle within the gate, chance-corrected) |
 | `07_diagnostics/plots/` | Overlays, confusion matrices, distance histogram, ICP convergence, residuals; `all_diagnostics.pdf` |
 | `inputs/` | The run's images (copied; downsized above `raman_image_max_px`), previews |
+| `debug/` | LDIR alignment diagnostics written by every LDIR run (residuals, overlay, transform audit incl. the LDIR normalisation); more with `debug = TRUE` |
 | `particle_report.pdf`, `particle_report.html` | Report (same pages as the viewer's) |
 
 ## Shiny viewer
@@ -332,10 +374,13 @@ shiny::runApp("shiny_app/")
 ```
 
 The viewer includes:
-- **FTIR tab**: Native coordinate view with chemical absorption image overlay
+- **FTIR (PerkinElmer) and FTIR (Bruker) tabs**: Native coordinate view with the instrument's image
 - **Raman tab**: Native coordinate view
-- **LDIR tab**: Native coordinate view with raw / processed / extracted-points image layers
+- **LDIR tab**: Native coordinate view with raw / processed / extracted-points image layers (and the particle outlines when the run had a `.sam` file)
 - **Overlay tab**: All instruments in the shared coordinate frame, with layers for individual instruments, matched pairs, and triple matches (gold rings). The Raman image is the background when the run has Raman; runs without Raman have no overlay background yet
+- **Summary tab**: alignment check per instrument; what each instrument found (materials, sizes); how the instruments agree (pair matrix, matching quality, why particles are not matched, particle groups, material concordance, detection rates by size); the PDF report download
+- **Run Info tab**: the run's manifest (input files, parameters) and the supporting files it looked for and used
+- **Multi-Run tab**: particles linked between replicate runs of one instrument (below)
 - **Precision tab**: results of a precision study (below)
 
 ### Precision study (repeatability and reproducibility)
@@ -473,7 +518,8 @@ match_dist_threshold_ldir_um = 20  # ... for LDIR against the reference
 
 # RANSAC
 ransac_inlier_dist_um     = 200    # Inlier distance threshold (µm)
-ransac_allow_mirror        = TRUE  # Also search mirrored poses (FTIR; LDIR never)
+ransac_allow_mirror        = TRUE  # Also search mirrored poses (off for both FTIR types via
+                                   # align_pose_limits; LDIR: off in Tier 2 only)
 ftir_use_global_register  = TRUE   # Tier 2 also runs global registration
                                    # (rotation x scale sweep + translation
                                    # voting); the transform pairing more
@@ -489,8 +535,8 @@ do not matter (`POLY(ETHYLENE TEREPHTHALATE)` = `Polyethylene terephthalate` →
 | Category | Families |
 |---|---|
 | Synthetic | PE, PP, PET (incl. PBT/polyester), PS, PVC, PA, PC, PMMA, PU, PTFE, ABS (incl. SAN/ASA), EVA, POM, Epoxy, Rubber, Acrylate (acrylic polymers incl. polyacrylonitrile), Other polymer |
-| Semi-synthetic | Cellulose (regenerated: rayon, viscose, cellulose acetate) |
-| Natural/Organic | Protein, Chitin, Natural |
+| Semi-synthetic | Regenerated cellulose (rayon, viscose, lyocell, cellulose acetate and other cellulose derivatives) |
+| Natural/Organic | Cellulose (native: "Cellulose", LDIR "Cellulosic", cotton), Protein (incl. LDIR "Polyamide (naturally occurring)"), Chitin, Natural |
 | Additive/Pigment | Additive (PEG/surfactants, plasticisers, antioxidants, slip agents, flame retardants), Pigment (TiO₂, iron oxides, organic pigments, dyes) |
 | Inorganic | Mineral (carbonates, silicates/clays, talc, quartz, sulfates), Inorganic |
 | Other | Other compound (a known library substance that is none of the above) |
@@ -541,7 +587,7 @@ to switch the index off).
 
 - **Material name mapping**: FTIR, Raman, and LDIR use different spectral libraries with different naming conventions (e.g., FTIR "Polypro" ↔ Raman "Polypropylene (PP)" ↔ LDIR "Polypropylene"). The pipeline normalises common abbreviations and uses material family classification (see *Material families and the Raman spectral libraries*). Translate dataset-specific names in `inst/materials/<role>.csv` (see `tools/material_vocabulary.R` for the labels a run could not classify).
 
-- **"Polyamide (naturally occurring)" from LDIR**: This LDIR material name refers to biological polyamides (silk, protein-like), not synthetic nylon (PA6, PA12). It is classified into the "Natural" polymer family (not "PA") to avoid false material-agreement matches between synthetic and biological materials.
+- **"Polyamide (naturally occurring)" from LDIR**: this label means biological polyamides (wool, silk, skin), not synthetic nylon. It is classified as Protein, so it agrees with a Raman or FTIR "Wool" / "Silk" / "Protein" at family level and disagrees with PA.
 
 - **LDIR scan-circle radius**: on optical LDIR images without the analyzed overlay, the scan-circle detector overestimates the radius (~12% on a synthetic disk) and needs the circle to cover < 20% of the image; the radius sets the µm-per-pixel scale. Untested on real data with a visible circle. Prefer exporting the analyzed overlay (`<image>_analyzed.png`).
 

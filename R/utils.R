@@ -923,6 +923,11 @@ write_run_environment <- function(run_dir, config) {
   writeLines(c(
     paste0("git_commit: ", current_git_commit()),
     paste0("python:     ", if (nzchar(py)) py else "(not configured)"),
+    {
+      pv <- if (exists("python_versions", mode = "function")) python_versions() else NULL
+      if (length(pv)) paste0("python packages: ", paste(names(pv), pv, collapse = ", "))
+      else "python packages: (Python detector not used in this run)"
+    },
     "",
     utils::capture.output(print(utils::sessionInfo()))), ses_path)
   invisible(c(cfg_path, ses_path))
@@ -974,11 +979,19 @@ write_manifest <- function(run_dir, run_id, config,
     }, error = function(e) list(width = NA_integer_, height = NA_integer_))
   }
 
+  # Paths as a run folder should carry them when it is shared: a file under
+  # the working directory relative to it, a file of the run relative to the
+  # run folder; a file elsewhere keeps its full path (needed to find it again).
+  .norm <- function(p) tryCatch(normalizePath(p, winslash = "/", mustWork = FALSE),
+                                error = function(e) p)
+  .rel_to <- function(p, base) {
+    a <- .norm(p); b <- paste0(sub("/+$", "", .norm(base)), "/")
+    if (startsWith(a, b)) substring(a, nchar(b) + 1L) else a
+  }
   inputs_info <- lapply(names(input_paths), function(nm) {
     p <- input_paths[[nm]]
     if (is.null(p) || !nzchar(p)) return(list(name = nm, path = NULL))
-    abs_path <- tryCatch(normalizePath(p, winslash = "/", mustWork = FALSE),
-                         error = function(e) p)
+    abs_path <- .rel_to(p, getwd())
     ext <- toupper(tools::file_ext(p))
     fmt <- if (nm %in% image_names) guess_image_type(p) else if (nzchar(ext)) ext else "unknown"
     dims <- if (nm %in% image_names) detect_input_dims(p) else list(width = NA_integer_, height = NA_integer_)
@@ -1001,21 +1014,21 @@ write_manifest <- function(run_dir, run_id, config,
     if (is.null(info_obj) || is.null(info_obj$orig_dest)) next
     image_assets[[nm]] <- list(
       original = list(
-        path = normalizePath(info_obj$orig_dest, winslash = "/", mustWork = FALSE),
+        path = .rel_to(info_obj$orig_dest, run_dir),
         md5 = file_md5(info_obj$orig_dest),
         format = if (!is.null(info_obj$detected_format)) info_obj$detected_format else "unknown",
         width = info_obj$orig_width,
         height = info_obj$orig_height
       ),
       canonical = list(
-        path = if (!is.null(info_obj$canonical_path)) normalizePath(info_obj$canonical_path, winslash = "/", mustWork = FALSE) else NULL,
+        path = if (!is.null(info_obj$canonical_path)) .rel_to(info_obj$canonical_path, run_dir) else NULL,
         md5 = if (!is.null(info_obj$canonical_path)) file_md5(info_obj$canonical_path) else NA_character_,
         format = "PNG",
         width = info_obj$canonical_width,
         height = info_obj$canonical_height
       ),
       preview = list(
-        path = if (!is.null(info_obj$preview_path)) normalizePath(info_obj$preview_path, winslash = "/", mustWork = FALSE) else NULL,
+        path = if (!is.null(info_obj$preview_path)) .rel_to(info_obj$preview_path, run_dir) else NULL,
         md5 = if (!is.null(info_obj$preview_path)) file_md5(info_obj$preview_path) else NA_character_,
         format = "PNG",
         width = info_obj$preview_width,
@@ -1068,7 +1081,6 @@ write_manifest <- function(run_dir, run_id, config,
     git_commit      = git_commit,
     r_version       = paste(R.version$major, R.version$minor, sep = "."),
     platform        = R.version$platform,
-    user            = Sys.info()[["user"]],
     config_snapshot = cfg_snap,
     spectral_library_index = if (exists("spectral_library_index_status", mode = "function"))
                                spectral_library_index_status() else NULL,
@@ -1589,13 +1601,22 @@ note_supporting_file <- function(config, kind, path, used_for) {
   dir <- config$output_dir
   if (is.null(dir) || !nzchar(dir) || is.null(path) || !length(path)) return(invisible(NULL))
   f <- file.path(dir, "00_manifest", "supporting_files.csv")
+  # MD5 like the input files in the manifest: these files change results
+  # (the coordinate swaps move LDIR particles), so a run records which
+  # version it used
+  md5 <- vapply(path, function(p) {
+    h <- tryCatch(file_md5(p), error = function(e) NA_character_)
+    if (is.null(h) || !length(h)) NA_character_ else as.character(h)[1]
+  }, character(1))
   row <- data.frame(kind = kind, file = paste(basename(path), collapse = "; "),
                     path = paste(path, collapse = "; "), used_for = used_for,
+                    md5 = paste(md5, collapse = "; "),
                     stringsAsFactors = FALSE)
   tryCatch({
     dir.create(dirname(f), showWarnings = FALSE, recursive = TRUE)
     old <- if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE) else NULL
     if (!is.null(old)) old <- old[old$kind != kind, , drop = FALSE]
+    if (!is.null(old) && !"md5" %in% names(old)) old$md5 <- rep(NA_character_, nrow(old))
     utils::write.csv(rbind(old, row), f, row.names = FALSE)
   }, error = function(e) NULL)
   invisible(NULL)

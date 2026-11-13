@@ -28,8 +28,11 @@
 #' @param ref_label Label for the reference instrument (default "raman")
 #' @return List with matched, unmatched_src, unmatched_ref, match_stats
 match_particles <- function(src_df, ref_df, config,
-                            src_label = "ftir", ref_label = "raman") {
-  log_message("Matching particles (", src_label, " -> ", ref_label, ")")
+                            src_label = "ftir", ref_label = "raman",
+                            src_name = src_label, ref_name = ref_label) {
+  # src_name / ref_name: the instruments' names for the log (the labels are
+  # column prefixes: both FTIR types are "ftir" against Raman)
+  log_message("Matching particles (", src_name, " -> ", ref_name, ")")
 
   method <- config$match_method %||% "hungarian"
 
@@ -97,8 +100,20 @@ match_particles <- function(src_df, ref_df, config,
     idx <- result$matched[[paste0(src_label, "_idx")]]
     major <- if (!is.null(idx) && "major_um" %in% names(src_df)) src_df$major_um[idx]
              else rep(NA_real_, nrow(result$matched))
+    fac <- rep(cfg_value(config, "match_adaptive_dist_factor"), nrow(result$matched))
+    # Pairs made by the extent rule: the centre offset of a large particle is
+    # up to match_extent_factor x the larger major axis, not the positional
+    # error of the alignment
+    by_ext <- result$matched$match_rule %in% "extent"
+    if (any(by_ext)) {
+      jdx <- result$matched[[paste0(ref_label, "_idx")]]
+      rmaj <- if (!is.null(jdx) && "major_um" %in% names(ref_df)) ref_df$major_um[jdx]
+              else rep(NA_real_, nrow(result$matched))
+      major[by_ext] <- pmax(major[by_ext], rmaj[by_ext], na.rm = TRUE)
+      fac[by_ext] <- max(fac[by_ext][1], cfg_value(config, "match_extent_factor"))
+    }
     result$matched$p_true <- pair_confidence(result$matched$match_distance, cs$position_fit,
-                                             major, cfg_value(config, "match_adaptive_dist_factor"))
+                                             major, fac)
   }
   cs$position_fit <- NULL
   result$match_stats <- c(result$match_stats, cs)
@@ -108,8 +123,8 @@ match_particles <- function(src_df, ref_df, config,
 #' Probability that a matched pair is the true partner and not a chance
 #' neighbour, from the positional-error fit (.position_error()): the 2-D normal
 #' error density at the pair's distance against the chance nearest-neighbour
-#' density, each normalised over the fit window and weighted by the fitted
-#' share of true pairs. Large particles have a larger centroid error: sigma is
+#' density, each normalised over the fit window and weighted by the share of
+#' true pairs the reference density implies (.position_error()). Large particles have a larger centroid error: sigma is
 #' at least adaptive_factor / 3 x the major axis, the widening the gate gets
 #' (0.15 x major = 3 sigma). NA without a fit.
 #'
@@ -202,6 +217,9 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
 #' partner, offset by a 2-D normal error (Rayleigh with sigma), or a chance
 #' neighbour of the reference at its density rho (nearest-neighbour law
 #' 2 pi rho r exp(-pi rho r^2)); the mixture is fitted by maximum likelihood.
+#' sigma is the fitted spread (the core of the error distribution); w, the
+#' share of true partners used by pair_confidence(), follows from the density
+#' (w_fit is the fitted mixing weight, for reference).
 #' Fewer than 20 distances, or no density: sigma NA.
 .position_error <- function(sx, sy, rx, ry, rho, window) {
   out <- list(sigma = NA_real_, w = NA_real_, rho = rho, n = 0L, window = window)
@@ -223,7 +241,19 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   # A sigma at the window edge means no peak of true pairs was found
   if (fit$convergence == 0 && s < W / 3) {
     out$sigma <- s
-    out$w <- stats::plogis(fit$par[2])
+    out$w_fit <- stats::plogis(fit$par[2])
+    # Share of true partners among the distances in the window, from the
+    # reference density (not the fitted weight): of the n_src source particles,
+    # those without a true partner have a chance neighbour within W with
+    # p_c = 1 - exp(-pi rho W^2), so n_window = n_true + (n_src - n_true) p_c.
+    # The fitted weight also absorbs true pairs in the tail of a non-normal
+    # error (large particles, whose centres differ between instruments) and
+    # then calls them chance: on dataset A it put 2-6 chance neighbours in the
+    # window where the density allows 0.1-0.2.
+    p_c <- 1 - exp(-pi * rho * W^2)
+    out$w <- if (1 - p_c > 1e-6)
+      min(1, max(0, (length(r) - sum(ok) * p_c) / (1 - p_c) / length(r)))
+    else out$w_fit
   }
   out
 }
@@ -257,6 +287,39 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   lam_feret       <- config$match_lambda_feret  %||% 0.3
   lam_aspect      <- config$match_lambda_aspect %||% 0.1
   max_ratio       <- cfg_value(config, "match_max_size_ratio")
+  # Extent rule (large particles): instruments place the centre of a large or
+  # elongated particle differently (dataset A: 50-110 um for particles of
+  # 200-450 um), so two particles of similar size also pair when one centre
+  # lies within the other's extent: distance <= match_extent_factor x the
+  # larger major axis, sizes within match_extent_max_size_ratio. 0 = off.
+  ext_f     <- if (force_complete) 0 else cfg_value(config, "match_extent_factor")
+  ext_ratio <- cfg_value(config, "match_extent_max_size_ratio")
+  len_of <- function(df) {
+    m <- if ("major_um" %in% names(df)) df$major_um else rep(NA_real_, nrow(df))
+    f <- if ("feret_max_um" %in% names(df)) df$feret_max_um else rep(NA_real_, nrow(df))
+    ifelse(is.finite(m) & m > 0, m, f)
+  }
+  src_len <- len_of(src_df); ref_len <- len_of(ref_df)
+  # Chance guard of the extent rule: it applies only where an unrelated
+  # particle of comparable size within that radius is unlikely
+  # (<= match_extent_max_chance, Poisson at the density of the comparable
+  # particles of the other table). On a dense field the rule is thereby off.
+  ext_pmax <- cfg_value(config, "match_extent_max_chance")
+  # ... and a stricter limit for additional pairs: a distinct particle that
+  # merely lies next to a large one would otherwise be attached to it
+  add_pmax <- cfg_value(config, "match_additional_max_chance")
+  area_of <- function(x, y) { a <- chance_partner_rate(x, y, 1)$area_um2; if (is.finite(a) && a > 0) a else NA_real_ }
+  ref_area <- area_of(ref_df$x_norm, ref_df$y_norm)
+  src_area <- area_of(src_df$x_aligned, src_df$y_aligned)
+  fer <- function(df) if ("feret_max_um" %in% names(df)) df$feret_max_um else rep(NA_real_, nrow(df))
+  src_fer <- fer(src_df); ref_fer <- fer(ref_df)
+  # chance of a particle of `others` (sizes within `ratio` of `size`) within r
+  ext_chance <- function(size, others, area, r, ratio) {
+    if (!is.finite(area)) return(0)            # fewer than 3 particles: no density
+    n <- if (is.finite(size)) sum(others >= size / ratio & others <= size * ratio, na.rm = TRUE)
+         else length(others)
+    1 - exp(-n / area * pi * r^2)
+  }
 
   src_x  <- src_df$x_aligned
   src_y  <- src_df$y_aligned
@@ -264,6 +327,11 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   ref_y  <- ref_df$y_norm
   n_src  <- nrow(src_df)
   n_ref  <- nrow(ref_df)
+  # Nothing to pair (e.g. every particle of one instrument is below its
+  # quality cutoff): an empty result, not an error from the neighbour search
+  if (n_src == 0 || n_ref == 0)
+    return(.assemble_match_result(src_df, ref_df, list(), logical(n_src), logical(n_ref),
+                                  src_label, ref_label))
 
   # Per-particle adaptive threshold (ignored when force_complete = TRUE)
   src_thresh <- rep(dist_thresh, n_src)
@@ -283,11 +351,19 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
 
   for (i in seq_len(n_src)) {
     thr_i <- src_thresh[i]
-    js <- integer(0); cs <- numeric(0)
+    js <- integer(0); cs <- numeric(0); xs <- logical(0)
     for (ki in seq_len(k)) {
       j <- nn$nn.idx[i, ki]
       d <- nn$nn.dists[i, ki]
-      if (!force_complete && d > thr_i) next
+      by_extent <- FALSE
+      if (!force_complete && d > thr_i) {
+        # Outside the distance gate: the extent rule
+        L <- max(src_len[i], ref_len[j])
+        if (!(ext_f > 0 && is.finite(L) && d <= ext_f * L &&
+              .size_ratio_ok(src_df, ref_df, i, j, ext_ratio, need_sizes = TRUE) &&
+              ext_chance(src_fer[i], ref_fer, ref_area, ext_f * L, ext_ratio) <= ext_pmax)) next
+        by_extent <- TRUE
+      }
       if (!.size_ratio_ok(src_df, ref_df, i, j, max_ratio)) next
       # Multi-feature cost
       penalty <- 0
@@ -317,13 +393,14 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
         }
       }
 
-      js <- c(js, j); cs <- c(cs, d + penalty)
+      js <- c(js, j); cs <- c(cs, d + penalty); xs <- c(xs, by_extent)
     }
-    if (length(js)) cand[[i]] <- list(j = js, c = cs)
+    if (length(js)) cand[[i]] <- list(j = js, c = cs, x = xs)
   }
   ei <- rep(seq_len(n_src), vapply(cand, function(x) length(x$j), integer(1)))
   ej <- as.integer(unlist(lapply(cand, `[[`, "j")))
   ec <- unlist(lapply(cand, `[[`, "c"))
+  ex <- as.logical(unlist(lapply(cand, `[[`, "x")))
 
   # Solve the assignment. Pairs only exist within the gate, so the problem
   # splits into independent groups of nearby particles (connected components
@@ -375,8 +452,48 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
       src_idx        = i,
       ref_idx        = j,
       match_distance = d_actual,
-      match_score    = cost_of[i]
+      match_score    = cost_of[i],
+      pair_type      = "primary",
+      match_rule     = if (isTRUE(ex[ei == i & ej == j][1])) "extent" else "distance",
+      stringsAsFactors = FALSE
     )
+  }
+
+  # Additional pairs (several particles of one instrument on one particle of
+  # the other): an instrument can list one particle as two or more (fragments,
+  # or one particle split by its segmentation). A particle left without a
+  # partner whose centre lies within the extent of a particle that IS paired
+  # (distance <= match_extent_factor x that particle's major axis, the size
+  # ratio limit as for every pair) is attached to it as an additional pair.
+  # Both particles stay separate rows; the primary pairs stay one-to-one.
+  if (ext_f > 0 && add_pmax > 0 && length(ei) > 0 && any(src_taken)) {
+    d_edge <- sqrt((src_x[ei] - ref_x[ej])^2 + (src_y[ei] - ref_y[ej])^2)
+    add <- function(i, j, d, cost) {
+      match_rows[[length(match_rows) + 1]] <<- data.frame(
+        src_idx = i, ref_idx = j, match_distance = d, match_score = cost,
+        pair_type = "additional", match_rule = "extent", stringsAsFactors = FALSE)
+    }
+    prim_src <- src_taken; prim_ref <- ref_taken
+    # an unpaired source particle on a paired reference particle
+    for (i in which(!prim_src)) {
+      e <- which(ei == i & prim_ref[ej] & d_edge <= ext_f * ref_len[ej])
+      e <- e[vapply(e, function(q) ext_chance(ref_fer[ej[q]], src_fer, src_area,
+                                              ext_f * ref_len[ej[q]], max_ratio) <= add_pmax,
+                    logical(1))]
+      if (!length(e)) next
+      e <- e[which.min(ec[e])]
+      add(i, ej[e], d_edge[e], ec[e]); src_taken[i] <- TRUE
+    }
+    # an unpaired reference particle on a paired source particle
+    for (j in which(!prim_ref)) {
+      e <- which(ej == j & prim_src[ei] & d_edge <= ext_f * src_len[ei])
+      e <- e[vapply(e, function(q) ext_chance(src_fer[ei[q]], ref_fer, ref_area,
+                                              ext_f * src_len[ei[q]], max_ratio) <= add_pmax,
+                    logical(1))]
+      if (!length(e)) next
+      e <- e[which.min(ec[e])]
+      add(ei[e], j, d_edge[e], ec[e]); ref_taken[j] <- TRUE
+    }
   }
 
   .assemble_match_result(src_df, ref_df, match_rows, src_taken, ref_taken,
@@ -388,10 +505,11 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
 #' Feret max differ by more than max_ratio (each instrument sizes a particle
 #' somewhat differently, but a 148 um particle is not a 6 um one). Missing
 #' sizes, or max_ratio NULL / Inf, do not restrict.
-.size_ratio_ok <- function(src_df, ref_df, i, j, max_ratio) {
+.size_ratio_ok <- function(src_df, ref_df, i, j, max_ratio, need_sizes = FALSE) {
   if (is.null(max_ratio) || !is.finite(max_ratio)) return(TRUE)
   a <- src_df$feret_max_um[i]; b <- ref_df$feret_max_um[j]
-  if (is.null(a) || is.null(b) || is.na(a) || is.na(b) || a <= 0 || b <= 0) return(TRUE)
+  if (is.null(a) || is.null(b) || is.na(a) || is.na(b) || a <= 0 || b <= 0)
+    return(!need_sizes)
   max(a, b) / min(a, b) <= max_ratio
 }
 
@@ -436,6 +554,9 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   ref_y  <- ref_df$y_norm
   n_src  <- nrow(src_df)
   n_ref  <- nrow(ref_df)
+  if (n_src == 0 || n_ref == 0)
+    return(.assemble_match_result(src_df, ref_df, list(), logical(n_src), logical(n_ref),
+                                  src_label, ref_label))
 
   # Per-particle adaptive threshold
   src_thresh <- rep(dist_thresh, n_src)
@@ -530,6 +651,12 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
     match_info <- data.frame(src_idx = integer(), ref_idx = integer(),
                              match_distance = numeric(), match_score = numeric())
   }
+  # Pair type: "primary" (one-to-one) or "additional" (a further particle of
+  # one instrument on an already paired particle); the greedy matcher makes
+  # primary pairs only
+  if (!"pair_type" %in% names(match_info)) match_info$pair_type <- rep("primary", nrow(match_info))
+  if (!"match_rule" %in% names(match_info)) match_info$match_rule <- rep("distance", nrow(match_info))
+  n_additional <- sum(match_info$pair_type == "additional")
 
   # Rename idx columns for compatibility
   names(match_info)[names(match_info) == "src_idx"] <- paste0(src_label, "_idx")
@@ -560,10 +687,13 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
     n_src            = n_src,
     n_ref            = n_ref,
     n_matched        = nrow(match_info),
+    n_additional     = n_additional,
+    n_by_extent      = sum(match_info$match_rule == "extent" & match_info$pair_type == "primary"),
     n_unmatched_src  = sum(!src_taken),
     n_unmatched_ref  = sum(!ref_taken),
-    match_rate_src   = if (n_src > 0) nrow(match_info) / n_src else 0,
-    match_rate_ref   = if (n_ref > 0) nrow(match_info) / n_ref else 0,
+    # share of each side's particles that have a partner
+    match_rate_src   = if (n_src > 0) sum(src_taken) / n_src else 0,
+    match_rate_ref   = if (n_ref > 0) sum(ref_taken) / n_ref else 0,
     mean_distance    = if (nrow(match_info) > 0) mean(match_info$match_distance) else NA_real_,
     median_distance  = if (nrow(match_info) > 0) median(match_info$match_distance) else NA_real_,
     max_distance     = if (nrow(match_info) > 0) max(match_info$match_distance) else NA_real_
@@ -577,7 +707,11 @@ pair_confidence <- function(d, fit, major = NA_real_, adaptive_factor = 0) {
   match_stats$match_rate_ftir  <- match_stats$match_rate_src
   match_stats$match_rate_raman <- match_stats$match_rate_ref
 
-  log_message("  Matched: ", match_stats$n_matched, " pairs")
+  log_message("  Matched: ", match_stats$n_matched, " pairs",
+              if (match_stats$n_by_extent + n_additional > 0)
+                paste0(" (", match_stats$n_by_extent, " by the extent rule: centres apart, ",
+                       "one inside the other particle; ", n_additional,
+                       " additional: a further particle on an already paired one)"))
   log_message("  Unmatched ", src_label, ":  ", match_stats$n_unmatched_src)
   log_message("  Unmatched ", ref_label, ": ", match_stats$n_unmatched_ref)
   log_message("  Match rate (", src_label, "):  ",

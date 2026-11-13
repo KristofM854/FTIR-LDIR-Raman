@@ -90,3 +90,15 @@ test_that("a Lumos export with \"[x,y]\" coordinates is read, with a warning", {
   # A decimal comma inside "[x;y]" stays a decimal comma
   expect_equal(parse_ftir_coordinates(c("[94,5;1650,2]", "[264,3798]"))$x_um, c(94.5, 264))
 })
+
+
+# AUDIT L-07: "Area" must not resolve to "Convex Area" when that column comes first
+test_that("find_column prefers a column that starts with the pattern", {
+  df <- data.frame(a = 1, b = 2, c = 3, check.names = FALSE)
+  names(df) <- c("Convex Area [um2]", "Area [um2]", "Feret Max [um]")
+  expect_equal(find_column(df, "Area"), "Area [um2]")
+  expect_equal(find_column(df, "Feret Max"), "Feret Max [um]")
+  expect_equal(find_column(df, "Convex"), "Convex Area [um2]")
+  names(df)[2] <- "Total surface"
+  expect_equal(find_column(df, "Area"), "Convex Area [um2]")   # substring as the fallback
+})

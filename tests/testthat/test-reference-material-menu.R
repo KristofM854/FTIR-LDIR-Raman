@@ -15,7 +15,8 @@
   src <- readLines(tpath, warn = FALSE)
   i <- grep("^\\.REFERENCE_MATERIALS <- list\\(", src)[1]
   j <- grep("^#' Prompt for instrument type", src)[1]
-  skip_if(is.na(i) || is.na(j), "picker block not found")
+  if (is.na(i) || is.na(j))
+    stop("The reference-material picker block was not found in tools/reproducibility.R; update this test.")
   env <- new.env(parent = globalenv())
   eval(parse(text = paste(src[i:(j - 1)], collapse = "\n")), envir = env)
   sys.source(file.path(REPO_ROOT, "R", "08b_material_map.R"), envir = env)

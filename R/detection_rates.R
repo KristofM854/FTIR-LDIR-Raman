@@ -63,8 +63,10 @@ detection_rates <- function(aligned, matches, config, gates = list()) {
       base <- aligned[[base_role]]; other <- aligned[[other_role]]
       if (is.null(base) || is.null(other) || nrow(base) == 0 || nrow(other) < 3) next
       prefix <- if (base_role == "ftir_perkin") "ftir" else base_role
+      # (a particle without a size is matched, so it is in the base as well;
+      # it has no size class and counts in "all sizes" only)
       keep <- quality_passes(base, prefix, config) &
-        !is.na(base$feret_max_um) & base$feret_max_um >= min_size &
+        (is.na(base$feret_max_um) | base$feret_max_um >= min_size) &
         is.finite(base$x_aligned) & is.finite(base$y_aligned)
       # Inside the area the other instrument covered (its convex hull)
       ox <- other$x_aligned; oy <- other$y_aligned
@@ -102,7 +104,9 @@ detection_rates <- function(aligned, matches, config, gates = list()) {
       for (grp in c("all", "plastics")) {
         g <- if (grp == "all") rep(TRUE, nrow(b)) else fam %in% plastic_fams
         for (sc in c(DETECTION_SIZE_LABELS, "all sizes")) {
-          s <- g & (sc == "all sizes" | size_class == sc)
+          # A particle below the first size class (min_particle_size_um < 20)
+          # has no class: it counts in "all sizes" only
+          s <- g & (sc == "all sizes" | (!is.na(size_class) & size_class == sc))
           n <- sum(s); k <- sum(found & s)
           ci <- wilson_interval(k, n)
           k_true <- if (all(is.na(p_true[found & s])) && k > 0) NA_real_
@@ -138,7 +142,11 @@ detection_rates <- function(aligned, matches, config, gates = list()) {
 #'                         identified a particle there
 #'   both_below_cutoff     both found a particle there, neither identified it
 #'   paired_elsewhere      both pass, but the other's particle is paired with
-#'                         another particle (or lies just outside this one's gate)
+#'                         another particle
+#'   partner_not_matchable both pass their quality cutoff, but the other's
+#'                         particle is in no pair: it is below the size limit
+#'                         (min_particle_size_um) or the two sizes differ by
+#'                         more than match_max_size_ratio
 #'   not_found             nothing of the other within the gate
 #'   outside_area          outside the area the other instrument covered
 #' with p_chance, the chance of an unrelated particle of the other within the
@@ -162,7 +170,7 @@ partner_status <- function(aligned, matches, config, gates = list()) {
     for (dir in 1:2) {
       base <- aligned[[roles[dir]]]; other <- aligned[[roles[3 - dir]]]
       if (is.null(base) || is.null(other) || nrow(base) == 0 || nrow(other) < 3) next
-      b <- base[!is.na(base$feret_max_um) & base$feret_max_um >= min_size &
+      b <- base[(is.na(base$feret_max_um) | base$feret_max_um >= min_size) &
                 is.finite(base$x_aligned) & is.finite(base$y_aligned), , drop = FALSE]
       o <- other[is.finite(other$x_aligned) & is.finite(other$y_aligned), , drop = FALSE]
       if (nrow(b) == 0 || nrow(o) < 3) next
@@ -187,7 +195,12 @@ partner_status <- function(aligned, matches, config, gates = list()) {
             ifelse(!near, "not_found",
             ifelse(b_pass & !o_pass[j], "partner_below_cutoff",
             ifelse(!b_pass & o_pass[j], "this_below_cutoff",
-            ifelse(!b_pass & !o_pass[j], "both_below_cutoff", "paired_elsewhere"))))))
+            ifelse(!b_pass & !o_pass[j], "both_below_cutoff",
+            # both pass: the other's particle is paired with another particle,
+            # or it cannot be paired at all (below the size limit, or the two
+            # sizes differ by more than match_max_size_ratio)
+            ifelse(as.character(o$particle_id[j]) %in% ids_o, "paired_elsewhere",
+                   "partner_not_matchable")))))))
       rho <- chance_partner_rate(o$x_aligned, o$y_aligned, 1)$density
       keep_p <- near & st != "outside_area"
       rows[[length(rows) + 1]] <- data.frame(

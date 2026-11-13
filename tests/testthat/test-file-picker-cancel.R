@@ -15,7 +15,8 @@
   src <- readLines(mpath, warn = FALSE)
   i <- grep("^  # Abort the run cleanly", src)[1]
   j <- grep("^  DATA_FILTER  <- ", src)[1]
-  skip_if(is.na(i) || is.na(j), "file picker not found in main.R")
+  if (is.na(i) || is.na(j))
+    stop("The file-picker block was not found in main.R: its marker lines changed; update this test.")
   env <- new.env(parent = globalenv())
   eval(parse(text = gsub("^  ", "", paste(src[i:(j - 1)], collapse = "\n"))),
        envir = env)

@@ -90,3 +90,52 @@ test_that("wilson_interval: inside 0-1, exact for 0% and 100%", {
   expect_equal(format_rate_ci(5, 10), "50% (24-76%)")
   expect_equal(format_rate_ci(0, 0), "-")
 })
+
+
+# AUDIT M-01: min_particle_size_um = 0 ("no size limit") lets particles below
+# the first size class (20 um) into the base; they have no size class and
+# made detection_rates() stop with "missing value where TRUE/FALSE needed".
+test_that("detection_rates() counts particles below the first size class in 'all sizes' only", {
+  local({
+    for (m in c("08_agreement.R", "08b_material_map.R", "align_and_match.R", "detection_rates.R"))
+      sys.source(file.path(REPO_ROOT, "R", m), envir = globalenv())
+  })
+  mk <- function(ids, x, feret) data.frame(particle_id = ids, x_aligned = x, y_aligned = c(0, 500, 0, 500, 250)[seq_along(x)],
+                                           feret_max_um = feret, major_um = feret, quality = 90,
+                                           material = "PET", stringsAsFactors = FALSE)
+  raman <- mk(paste0("R", 1:5), c(0, 0, 1000, 1000, 500), c(8, 30, 60, 150, 12))
+  ldir  <- mk(paste0("L", 1:5), c(2, 2, 1002, 1002, 502), c(25, 30, 60, 150, 40)); ldir$quality <- 0.95
+  m <- data.frame(ldir_particle_id = paste0("L", 1:5), raman_particle_id = paste0("R", 1:5),
+                  p_true = 0.99, stringsAsFactors = FALSE)
+  cfg <- make_config(); cfg$min_particle_size_um <- 0
+  d <- suppressMessages(detection_rates(list(raman = raman, ldir = ldir), list(ldir_raman = m), cfg,
+                                        gates = list(ldir_raman = 20)))
+  r <- d[d$of == "raman" & d$group == "all", ]
+  expect_equal(r$n_base[r$size_class == "all sizes"], 5)       # incl. the 8 and 12 um particles
+  expect_equal(sum(r$n_base[r$size_class != "all sizes"]), 3)  # the classes hold only >= 20 um
+  expect_false(anyNA(r$n_base))
+})
+
+
+# AUDIT M-08: a partner that passes its cutoff but is in no pair (here: below
+# the size limit) is "partner_not_matchable", not "paired_elsewhere".
+test_that("partner_status() tells a partner paired elsewhere from one that cannot be paired", {
+  mk <- function(ids, x, y, feret, q) data.frame(particle_id = ids, x_aligned = x, y_aligned = y,
+                                                 feret_max_um = feret, major_um = feret, quality = q,
+                                                 material = "PET", stringsAsFactors = FALSE)
+  raman <- mk(paste0("R", 1:5), c(0, 1000, 0, 1000, 500), c(0, 0, 1000, 1000, 500),
+              c(100, 8, 100, 100, 100), 90)
+  # (every LDIR particle inside the hull of the Raman particles)
+  ldir <- mk(paste0("L", 1:6), c(3, 996, 12, 997, 503, 2), c(2, 2, 996, 997, 500, 994),
+             c(100, 40, 100, 100, 100, 90), 0.95)
+  # L1-R1, L4-R4, L5-R5 and L6-R3 paired; L2 sits on R2 (8 um: below the size
+  # limit); L3 sits on R3, which is paired with L6
+  m <- data.frame(ldir_particle_id = c("L1", "L4", "L5", "L6"),
+                  raman_particle_id = c("R1", "R4", "R5", "R3"), stringsAsFactors = FALSE)
+  ps <- partner_status(list(raman = raman, ldir = ldir), list(ldir_raman = m), make_config(),
+                       gates = list(ldir_raman = 20))
+  st <- function(id) ps$status[ps$of == "ldir" & ps$particle_id == id]
+  expect_equal(st("L2"), "partner_not_matchable")
+  expect_equal(st("L3"), "paired_elsewhere")
+  expect_equal(st("L1"), "matched")
+})

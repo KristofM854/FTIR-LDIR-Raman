@@ -115,6 +115,34 @@ test_that("ldir_acceptance_gate falls back to the 20 um default when unrecorded"
   expect_equal(env$ldir_acceptance_gate("dummy"), 20)
 })
 
+# AUDIT M-03: the pipeline's LDIR gate is fitted per run (3 sigma, 10-50 um)
+# and recorded in chance_pairs.csv; the viewer re-gated with the configured
+# 20 um and would drop a pair the run made at e.g. 20.8 um.
+test_that("ldir_acceptance_gate uses the gate the run recorded in chance_pairs.csv", {
+  env <- .load_global_helpers()
+  env$load_run_manifest <- function(run_dir)
+    list(config_snapshot = list(match_dist_threshold_ldir_um = 20))
+  run <- withr::local_tempdir()
+  expect_equal(env$ldir_acceptance_gate(run), 20)           # no file: the configured gate
+  dir.create(file.path(run, "07_diagnostics"))
+  utils::write.csv(data.frame(pair = c("ftir_perkin_raman", "ldir_raman"), gate_um = c(50, 21.2)),
+                   file.path(run, "07_diagnostics", "chance_pairs.csv"), row.names = FALSE)
+  expect_equal(env$ldir_acceptance_gate(run), 21.2)
+  m <- .synthetic_ldir_match(c(20.8, 25))
+  m$ldir_major_um <- c(30, 30)
+  data <- env$annotate_ldir_gate(list(ldir_raman_matched = m), run)
+  expect_equal(data$ldir_raman_matched$within_gate, c(TRUE, FALSE))
+  expect_equal(data$ldir_match_gate_um, 21.2)
+})
+
+test_that("pairs made by the matcher's extent rule stay matched in the viewer", {
+  env <- .load_global_helpers()
+  m <- .synthetic_ldir_match(c(113, 113))
+  m$ldir_major_um <- c(349, 349); m$match_rule <- c("extent", "distance")
+  data <- env$annotate_ldir_gate(list(ldir_raman_matched = m), "dummy")
+  expect_equal(data$ldir_raman_matched$within_gate, c(TRUE, FALSE))
+})
+
 test_that("large LDIR particles keep the matcher's widened gate in the viewer", {
   env <- .load_global_helpers()
   # Dataset A: a 428 um particle matched at 58 um (gate 0.15 x 428 = 64 um)
@@ -196,11 +224,11 @@ test_that("precision view: one-instrument groups marked and left out of Mandel; 
   env <- .load_global_helpers()
   sys.source(file.path(REPO_ROOT, "R", "08b_material_map.R"), envir = env)
   inst <- c("ftir", "ftir_bruker", "raman", "ldir")
-  grp <- c("All particles", "Plastics", "Synthetic", "PC", "Cellulose", "Protein")
+  grp <- c("All particles", "Plastics", "Synthetic", "PC", "Regenerated cellulose", "Protein")
   counts <- expand.grid(instrument = inst, replicate = 1:3, group = grp, size_class = "all sizes",
                         stringsAsFactors = FALSE)
   counts$count <- ifelse(counts$group == "Protein", ifelse(counts$instrument == "ftir", 6, 0),
-                  ifelse(counts$group == "Cellulose", ifelse(counts$instrument %in% c("ftir", "ldir"), 1, 0),
+                  ifelse(counts$group == "Regenerated cellulose", ifelse(counts$instrument %in% c("ftir", "ldir"), 1, 0),
                          20 + counts$replicate))
   ins <- stats::aggregate(count ~ instrument + group + size_class, counts, mean)
   names(ins)[4] <- "mean"; ins$h <- 0.5; ins$k <- 1
@@ -210,7 +238,7 @@ test_that("precision view: one-instrument groups marked and left out of Mandel; 
                                r_limit = 2.8, R_limit = 4, cv_r_pct = 1, cv_L_pct = 1, cv_R_pct = 1),
               critical = list(h_5 = 1.42, h_1 = 1.49, k_5 = 1.59, k_1 = 1.77))
   expect_equal(env$precision_single_groups(res), "Protein")
-  expect_equal(env$precision_groups(res, mode = "plastics", category = "both"), c("Plastics", "PC", "Cellulose"))
+  expect_equal(env$precision_groups(res, mode = "plastics", category = "both"), c("Plastics", "PC", "Regenerated cellulose"))
   expect_equal(env$precision_groups(res, mode = "plastics", category = "synthetic"), c("Synthetic", "PC"))
   expect_true("Protein *" %in% env$precision_iso_table(res)$Group)
   h <- env$precision_mandel_plot(res, "h", groups = grp[-3])
@@ -335,4 +363,16 @@ test_that("partner status: hover fill and colour classes", {
   expect_equal(cl$class[cl$particle_id == "A2"], "not_found")
   expect_false("A3" %in% cl$particle_id)
   expect_null(g$overlay_partner_class(NULL, "ldir"))
+})
+
+
+# AUDIT M-13: the overlay summary counts unmatched particles like the run log:
+# only those above the quality cutoff and the minimum size.
+test_that("unmatched counts cover the particles the pipeline could have matched", {
+  env <- .load_global_helpers()
+  df <- data.frame(match_status = c("matched", "unmatched", "unmatched", "unmatched", "unmatched"),
+                   quality = c(90, 90, 40, 90, NA), feret_max = c(100, 100, 100, 8, 50))
+  expect_equal(env$count_unmatched_matchable(df, 70, 20), 1L)
+  expect_equal(env$count_unmatched_matchable(df, 0, 0), 4L)
+  expect_equal(env$count_unmatched_matchable(NULL, 70, 20), 0L)
 })

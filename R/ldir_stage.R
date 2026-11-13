@@ -173,8 +173,13 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       }
     }
     # Join image coordinates with RAW Excel data via size-based Hungarian matching
-    if (is.null(ldir_with_coords))
+    if (is.null(ldir_with_coords)) {
+      log_message("  LDIR join WITHOUT the Clarity project file (.sam): rows are placed by ",
+                  "size, shape and colour class, which can exchange similar particles and ",
+                  "which the join check cannot see. Check the LDIR positions in the viewer, ",
+                  "or put the scan's .sam file next to the LDIR table.", level = "WARN")
       ldir_with_coords <- join_ldir_coords(ldir_raw, ldir_image_particles, config = config)
+    }
     # Apply any manual coordinate-join corrections (config$ldir_coord_swaps)
     # (Not after the exact .sam join: the corrections fix the image join and
     # would move rows that now sit on their own particle.)
@@ -236,6 +241,12 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
   ldir_icp             <- NULL
   ldir_aligned         <- NULL
   triplets             <- data.frame()
+  # Is the LDIR pose fixed by the data? (as align_and_match(): accepted
+  # landmarks are; a Tier 2 pose must pass pose_significance())
+  ldir_determined      <- TRUE
+  ldir_pose_p          <- NA_real_
+  ldir_norm_params     <- NULL
+  ldir_tps_refined     <- FALSE
 
   if (has_ldir_coords) {
     log_message("LDIR spatial matching enabled")
@@ -536,6 +547,46 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
         ldir_icp$params    <- ldir_procrustes$params
       }
 
+      # Is the pose fixed by the data? Landmarks accepted above chance are
+      # (their p is recorded); an explicit landmark map is the user's own
+      # correspondence. A Tier 2 pose, after ICP, must pair more anchors
+      # within the match gate than the search finds by chance -- the test
+      # every FTIR-type alignment gets (align_and_match()). Otherwise the
+      # pairs are written but not scored and nothing is paired through LDIR.
+      if (use_ldir_landmark) {
+        ldir_pose_p <- ldir_landmark_result$p_pose %||% ldir_landmark_result$p_chance %||% NA_real_
+      } else if (!use_procrustes_final && exists("ldir_for_align", inherits = FALSE)) {
+        r_pose <- config$match_dist_threshold_um
+        n_pose <- align_transform_inliers(ldir_icp$transform, ldir_for_align$x_norm,
+                                          ldir_for_align$y_norm, raman_norm_align$x_norm,
+                                          raman_norm_align$y_norm, r_pose)
+        if (is.na(n_pose)) n_pose <- 0L
+        ps <- pose_significance(n_pose, nrow(ldir_for_align), raman_norm_align$x_norm,
+                                raman_norm_align$y_norm, r_pose,
+                                mirror = isTRUE(config$ldir_allow_reflection))
+        ldir_pose_p <- ps$p
+        ldir_determined <- isTRUE(ps$p < cfg_value(config, "align_determined_p"))
+        log_message(sprintf(paste0("  Pose check: %d anchor pairs of %d anchors at %g um; ",
+                                   "%.2f per pose by chance; p over the search = %.2g"),
+                            n_pose, nrow(ldir_for_align), r_pose, ps$expected, ps$p),
+                    level = if (ldir_determined) "INFO" else "WARN")
+        if (!ldir_determined)
+          log_message("  LDIR \u2192 ", ref_name, ": ALIGNMENT NOT DETERMINED (too few ",
+                      "anchors for this reference density). Its pairs are written for ",
+                      "inspection but not scored, and pairs through it are skipped.",
+                      level = "WARN")
+      }
+
+      # A mirrored LDIR pose is accepted (the landmark tier and ICP may find
+      # one) but never silently: the instruments image the same filter side,
+      # so a mirror means the LDIR image or table is flipped, or the pose is
+      # wrong.
+      if (isTRUE(ldir_icp$params$reflected))
+        log_message("  LDIR \u2192 ", ref_name, ": the pose is MIRRORED. LDIR and ", ref_name,
+                    " image the same side of the filter, so check the LDIR image export ",
+                    "(flipped?) and the pairs in the viewer; the alignment check lists it ",
+                    "as 'Mirrored: yes'.", level = "WARN")
+
       # Quality check
       ldir_final_rms <- if (length(ldir_icp$rms_history) > 0)
         tail(ldir_icp$rms_history, 1) else NA_real_
@@ -710,11 +761,14 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       # increases matches. Displacement is capped so non-overlapping debris
       # cannot be flung onto spurious partners. (No-op under force-complete
       # matching, which already matches everything.)
-      if (isTRUE(config$ldir_tps_refine) &&
+      if (isTRUE(config$ldir_tps_refine) && ldir_determined &&
           !is.null(ldir_raman_match$matched) &&
           nrow(ldir_raman_match$matched) >= (config$ldir_tps_min_controls %||% 6)) {
         mm <- ldir_raman_match$matched
-        warp <- tryCatch(
+        # Control points: pairs within the distance gate only (an extent-rule
+        # pair carries a large particle's centre offset, not a distortion)
+        if ("match_rule" %in% names(mm)) mm <- mm[!mm$match_rule %in% "extent", , drop = FALSE]
+        warp <- if (nrow(mm) < (config$ldir_tps_min_controls %||% 6)) NULL else tryCatch(
           tps_fit_warp(mm$ldir_x_aligned, mm$ldir_y_aligned,
                        mm[[paste0(ref_lbl, "_x_norm")]], mm[[paste0(ref_lbl, "_y_norm")]],
                        lambda = config$ldir_tps_lambda %||% 0.5),
@@ -737,6 +791,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
                         warp$n, " controls)")
             ldir_aligned     <- ldir_tps
             ldir_raman_match <- match2
+            ldir_tps_refined <- TRUE
           } else {
             log_message("  LDIR TPS refinement: no gain (", n0, " vs ",
                         max(n1, 0L), ") \u2014 keeping global alignment")
@@ -745,21 +800,24 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
       }
 
       # 12h. LDIR<->reference agreement analysis
+      ldir_scored <- ldir_raman_match
+      if (!ldir_determined && !is.null(ldir_scored$matched))
+        ldir_scored$matched <- ldir_scored$matched[0, , drop = FALSE]
       ldir_raman_agreement <- analyze_agreement(
-        ldir_raman_match, config,
+        ldir_scored, config,
         instrument_a = "LDIR", instrument_b = .agreement_name(ref_lbl),
         prefix_a = "ldir", prefix_b = ref_lbl
       )
 
       # 12h-bis. Was the table attached to the right image positions? LDIR
       # table values vs the reference partner, against a random join.
-      join_check <- try_or(ldir_join_check(ldir_raman_match$matched, ref_prefix = ref_lbl),
+      join_check <- try_or(ldir_join_check(ldir_scored$matched, ref_prefix = ref_lbl),
                            default = NULL, what = "LDIR join check")
       log_ldir_join_check(join_check, ref_name)
 
       # 12i. LDIR<->FTIR (PerkinElmer) matching, both already in the Raman
       # frame (with an FTIR reference, 12g is this match)
-      if (!is.null(ftir_aligned) && nrow(ftir_aligned) > 0) {
+      if (ldir_determined && !is.null(ftir_aligned) && nrow(ftir_aligned) > 0) {
         ldir_ftir_match <- match_aligned_pair(ldir_aligned, ftir_aligned, config,
                                               "ldir", "ftir")
         log_message("  LDIR-FTIR direct matching: ",
@@ -768,7 +826,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
 
       # 12j. Three-way triplets (FTIR<->Raman and LDIR<->Raman sharing a Raman
       # particle), scored with the agreement quality gate
-      if (identical(ref_role, "raman") && !is.null(match_result))
+      if (ldir_determined && identical(ref_role, "raman") && !is.null(match_result))
         triplets <- build_triplets(match_result, ldir_raman_match, raman_for_match, config,
                                    ldir_ftir_match = ldir_ftir_match)
 
@@ -799,6 +857,11 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     labels               = labels,
     ldir_icp             = ldir_icp,
     ldir_landmark        = ldir_landmark_result,
+    alignment_determined = ldir_determined,
+    pose_p               = ldir_pose_p,
+    norm_params          = ldir_norm_params,
+    ref_centroid         = ref$centroid,
+    tps_refined          = ldir_tps_refined,
     ldir_alignment_method = if (isTRUE(use_ldir_landmark)) "landmark" else "ransac",
     triplets             = triplets,
     has_coords           = has_ldir_coords,

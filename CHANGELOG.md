@@ -7,6 +7,137 @@ change results on existing data are marked **(results)**.
 
 Pre-release audit and portability refactor (branch `audit/pre-release`).
 
+### Fixed (audit, branch `audit/fable-fixes`; see AUDIT.md)
+- M-01: `detection_rates()` no longer stops ("missing value where TRUE/FALSE
+  needed") when `min_particle_size_um` is below 20 and a particle is smaller
+  than the first size class; such particles count in "all sizes" only.
+- M-02: a run in which every particle of one instrument is below its quality
+  cutoff (or no particle is left to match) no longer stops in the matcher
+  ("no points in query!"); the pair is written with 0 matches.
+- M-03: the viewer and the report classify LDIR-Raman pairs with the gate the
+  run used (`07_diagnostics/chance_pairs.csv`) instead of the configured
+  20 um; a run whose fitted gate was wider no longer loses pairs in the
+  overlay, particle groups and concordance tables, and the overlay summary
+  names the right gate.
+- M-04: the Summary tab's and the report's alignment check shows the fitted
+  positional error also for runs whose reference is an FTIR (it was "-").
+- M-05: `00_manifest/supporting_files.csv` records the MD5 of every side file
+  the run used (LDIR coordinate swaps, analyzed image, .sam, placement files),
+  like the input files in the manifest.
+- L-01: `writexl` declared in `Suggests`: the two Excel tests of the
+  column-mapping reader need it and were skipped wherever only the declared
+  packages are installed (the CI workflow).
+- M-06: `07_diagnostics/plots/all_diagnostics.pdf` is written with
+  `cairo_pdf` (as the report), so dashes and "µ" in plot titles are no longer
+  replaced by dots outside a UTF-8 locale; the device is closed when a plot
+  fails.
+- L-02: README: the viewer's tab list (FTIR (Bruker), Summary, Run Info,
+  Multi-Run), the output table (`alignment_summary.csv`, `partner_status.csv`,
+  `supporting_files.csv`, `ldir_outlines.csv`, `debug/`) and the module list
+  follow the current code.
+- L-03: config comments and README say what the code does for the LDIR gate
+  (20 um only against the reference without a fit; 50 um for LDIR with another
+  aligned instrument) and for mirrored poses (FTIR: never; LDIR: excluded in
+  Tier 2 only).
+- **(results)** H-01: a bracketed qualifier is no longer dropped from the
+  exact-polymer name, and an Exact agreement needs the two families to agree.
+  LDIR "Polyamide (naturally occurring)" against PA was scored Exact and is
+  now Disagree (as the README describes); "Polyethylene (chlorinated)" against
+  PE likewise. Abbreviations in brackets ("Polycarbonate (PC)") are unified as
+  before. Dataset A: unchanged (all scored pairs are PET).
+- **(results)** H-02: the LDIR alignment gets the chance test of the FTIR
+  alignments. A Tier 2 LDIR pose (landmarks not accepted) counts as determined
+  only when its anchor pairs exceed what the pose search finds by chance
+  (`align_determined_p`); otherwise the LDIR pairs are written but not scored,
+  LDIR is paired with no other instrument, and no triplets are built.
+  `alignment_summary.csv` records that test's p (it held the p of the rejected
+  landmark attempt, with `determined = TRUE`). Dataset A: unchanged (landmarks).
+- **(results)** H-03: pair confidence `p_true` takes the share of true pairs
+  from the reference density instead of the fitted mixing weight, which
+  counted distant true pairs of large particles as chance. Dataset A: expected
+  wrong pairs 1.4 / 3.0 / 1.0 -> 0.25 / 0.35 / 0.05 (chance estimate 0.6 / 0.5
+  / 0.1); pairs with p_true >= 0.9: 29 / 14 / 26 -> 30 / 16 / 28;
+  chance-corrected identified rate FTIR (Bruker) -> Raman 62.4% -> 73.6% (raw
+  75.0%). The fitted sigma, the gates and the pairs are unchanged.
+- M-11 (documentation): README states that the LDIR join without a `.sam`
+  file is not exact, what the join check cannot see, and that the example
+  dataset needs its manual corrections.
+- **(results)** M-12: **extent rule for large particles.** Two particles of
+  similar size (Feret max within 2x) also pair when one centre lies within the
+  other's extent (distance <= 0.5 x the larger major axis), and a particle
+  without a partner that lies on an already paired particle becomes an
+  *additional* pair of it (several particles of one instrument on one of
+  another; both stay separate rows). Both only where an unrelated particle of
+  comparable size within that radius is unlikely (<= 20%), so not on dense
+  fields. New columns `pair_type` and `match_rule` in the match tables; new
+  config `match_extent_factor` (0 = off), `match_extent_max_size_ratio`,
+  `match_extent_max_chance`. Agreement and triplets use the primary pairs.
+  Additional pairs need a chance <= 5% (`match_additional_max_chance`): at 20%
+  the synthetic run with known pairs gained a wrong one. The viewer keeps one
+  row per particle. Extent pairs are left out of the TPS distortion check and
+  the LDIR TPS control points. Dataset A: pairs with Raman 31 / 18 / 28 ->
+  33 / 20 / 31 (FTIR PerkinElmer, FTIR Bruker, LDIR; no additional pair at
+  the 5% limit), triplets 28 -> 31,
+  FTIR (Bruker) with FTIR (PerkinElmer) 16 -> 17, with LDIR 14 -> 17; detection
+  of particles > 200 um by Raman 85% / 70% -> 100% / 100% (FTIR PerkinElmer /
+  LDIR particles). Regression fingerprint regenerated.
+- M-08: partner status `partner_not_matchable`: the other instrument has a
+  particle there that passes its quality cutoff but is in no pair (below the
+  size limit, or the sizes differ by more than `match_max_size_ratio`). Such
+  rows were labelled `paired_elsewhere`. Own colour in the viewer and report.
+- **(results)** M-09: native cellulose ("Cellulose", LDIR "Cellulosic", cotton)
+  is the natural family Cellulose and no longer counts as a plastic; rayon,
+  viscose, lyocell, cellulose acetate and other derivatives are the
+  semi-synthetic family "Regenerated cellulose". LDIR "Polyamide (naturally
+  occurring)" is Protein (was Natural): it agrees with wool / silk / protein
+  and disagrees with PA. Changes the "plastics" counts and rates of field
+  samples; dataset A is unchanged.
+- M-15: `opus_ftir_bruker_image` defaults to `NULL`; the values of the field
+  sample it was pre-filled with are kept as a commented example. A Bruker
+  image is registered on its particles unless the run sets its own OPUS
+  values.
+- M-14: `00_manifest/session_info.txt` records the versions of Python, numpy,
+  scipy and Pillow when the run used the Python detector.
+- M-07: a mirrored LDIR pose is accepted and flagged: the run logs a WARN
+  (the alignment check already showed "Mirrored: yes").
+- M-11: a run that joins the LDIR table without a `.sam` file logs a WARN
+  saying that the join is not exact and what to check.
+- M-10: `pose_p` (`alignment_summary.csv`, Summary tab, report) is one
+  quantity for every alignment tier: the chance p corrected for the pose
+  search. Landmark poses reported the uncorrected p (dataset A: 2.9e-25 ->
+  1.8e-19 for FTIR PerkinElmer). Which poses are accepted is unchanged. The
+  viewer's verdict follows the pipeline's `determined`.
+- M-13: the overlay summary counts unmatched particles like the run log:
+  only particles above their quality cutoff and the minimum size.
+- L-04: viewer: the always-empty `uploaded_data` state left from the removed
+  Upload Data tab is gone (cache keys, report captions, file names).
+- L-05: `transform_params_ldir_<ref>.txt` holds the full transform: the LDIR
+  normalisation (centroid, pre-rotation, y flip, scale), the reference
+  centroid, the 3x3 matrix and whether a TPS refinement was applied.
+  `alignment_summary.csv` names the LDIR method like the FTIR ones
+  ("landmark", "ransac").
+- L-09: `manifest.json` no longer records the user name; the run's own images
+  are recorded relative to the run folder (a run folder can be moved and still
+  opens in the viewer) and input files under the working directory relative to
+  it. A file picked from elsewhere keeps its full path.
+- M-16: the dataset A regression fingerprint also covers pair confidence,
+  chance pairs / gate / sigma, detection rates, partner-status counts, the
+  alignment verdict and pose p, and the LDIR join positions (918 values, was
+  183). A change to any of these now needs a deliberate fingerprint update.
+- L-06: tests that cut a block out of `main.R`, `app.R`, `global.R` or
+  `tools/reproducibility.R` by its marker lines fail when the block is not
+  found, instead of skipping.
+- L-07: the built-in readers look a column up by the start of its name before
+  falling back to any substring ("Area" no longer depends on coming before
+  "Convex Area" in the export).
+- L-08: a particle without a size is in the base of the detection rates and
+  the partner status, as it is in the matching ("all sizes" only).
+- L-11: log labels: the matcher names the instruments ("FTIR (Bruker) ->
+  Raman", was "ftir -> raman" for both FTIR types); landmark lines name the
+  actual reference; the viewer no longer says "WITec extent" for an
+  auto-calibrated Raman image; the BOM in the coordinate-swap reader is
+  matched by its bytes (ASCII source, any locale).
+
 ### Added
 - **Run Info: supporting files.** A table of the side files the pipeline looks
   for next to each instrument's data (FTIR scan segments and placement .txt,
