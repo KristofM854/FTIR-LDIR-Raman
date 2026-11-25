@@ -75,10 +75,32 @@ FTIR Bruker, LDIR). The shared frame is Raman when it is present, else FTIR
 and every pair of instruments is matched. LDIR is never the frame (its
 coordinates usually come from its image), so LDIR needs Raman or an FTIR.
 
-**Option A — File pickers** (default): `source("main.R")` first asks which
-instruments take part (at least two; Cancel ends the run), then opens a file
-dialog for each one's data file and image (Cancel on an image skips it). A
-last dialog lists the chosen files: No ends the run, e.g. after a wrong file.
+**Option A — One dialog** (default): `source("main.R")` opens one file dialog;
+select every file of the sample at once: the instruments' tables and images
+and their side files (`.sam`, placement `.txt`, coordinate swaps). Other files
+in the selection are listed as not used. Each file is recognised by its
+content (`R/00b_file_input.R`), not its name:
+
+| File | Recognised by |
+|---|---|
+| FTIR table | `Identifier`, `Coord. [µm]`, `Max AAU score` columns; PerkinElmer or Bruker from its paired image (same file name), the file name (`perkin`, `spotlight` / `lumos`, `bruker`) or the other FTIR table |
+| Segmented PerkinElmer scan | FTIR columns and names ending `_M1` … `_Mn` |
+| Raman table | `Particle Name`, `HQI`, `Visual Center Point X` (WITec) |
+| LDIR table | Excel `Particles` sheet (`Identification`, `Quality`) |
+| LDIR analyzed image | a few flat colours on black; paired with its LDIR image by name or size |
+| Bruker image | 32-bit BMP (Lumos camera) |
+| Raman image | BMP mosaic without a resolution field, or the aspect ratio of the WITec `.txt` |
+| `.sam`, WITec `.txt`, FTIR placement `.txt`, coordinate swaps | their content (Clarity signature; `Width`/`Height`/`X`/`Y`; first line; `id_clarity`/`id_R` header) |
+
+A question appears only where the content cannot decide: two candidates for
+one role (e.g. two Raman tables from different spectral libraries, or two
+`.sam` files), an FTIR table or image whose instrument nothing reveals. A last
+window lists every file with its role and why: No ends the run, e.g. after a
+wrong file. At least two instrument tables are needed.
+
+`input_mode <- "explicit"` before `source("main.R")` gives the earlier
+dialogs instead: the instruments first, then one dialog per data file and
+image, with the side files found next to them by name.
 
 **Option B — Paths in a script** (non-interactive):
 
@@ -92,6 +114,11 @@ ldir_image <- "LDIR_particle_map.png"                             # optional
 config_overrides <- list(match_dist_threshold_um = 80)            # optional
 source("main.R")
 ```
+
+Side files are found next to the tables and images by their names. One with
+another name or folder is set in `config_overrides`: `ldir_sam_path`,
+`ldir_processed_image_path` (the analyzed image), `ldir_coord_swaps_path`,
+`raman_image_metadata` (the WITec `.txt`).
 
 Leave out any instrument (`raman_file <- NULL`, …) as long as two remain.
 `examples/run_example_A.R` is a complete example of this.
@@ -152,7 +179,7 @@ material rules do not know can be translated per instrument in
 main.R                          # File input + config, then run_pipeline(config)
 R/
   00_config.R                   # All tunable parameters
-  00b_file_input.R              # Interactive file picker
+  00b_file_input.R              # Input files recognised by content (one-dialog input)
   particle_contract.R           # Canonical particle table / image object + validators
   01_readers.R                  # read_instrument(): reader per role, column-mapping reader, material tables
   01_ingest.R                   # FTIR + Raman CSV/Excel parsing

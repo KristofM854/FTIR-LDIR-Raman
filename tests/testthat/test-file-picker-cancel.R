@@ -73,26 +73,39 @@ test_that("the cancel condition is classed, not a bare error", {
   expect_match(conditionMessage(cond), "test reason")
 })
 
-# The whole explicit-input block: instrument list, slots, confirmation
-.run_input_block <- function(instruments, files, confirm = "YES") {
+# The whole input block of one interactive mode ("explicit": instrument list,
+# slots, confirmation; "all": one dialog, questions, confirmation)
+.run_input_block <- function(instruments, files, confirm = "YES", mode = "explicit",
+                             answers = list()) {
   src <- readLines(file.path(REPO_ROOT, "main.R"), warn = FALSE)
   i <- grep("^  # Abort the run cleanly", src)[1]
-  j <- grep("^\\} else if \\(input_mode == \"interactive\"\\)", src)[1]
+  j <- grep("^  \\}  # end input modes", src)[1]
+  if (is.na(i) || is.na(j))
+    stop("The input block was not found in main.R: its marker lines changed; update this test.")
   env <- new.env(parent = globalenv())
+  env$input_mode <- mode
   env$.is_windows <- TRUE; env$.last_dir <- NULL
   env$interactive <- function() TRUE
   env$`%||%` <- function(a, b) if (is.null(a)) b else a
-  env$select.list <- function(...) instruments
+  asked_q <- character(0)
+  env$select.list <- function(choices, title = "", ...) {
+    if (mode == "explicit") return(instruments)
+    asked_q <<- c(asked_q, title)
+    for (p in names(answers)) if (grepl(p, title, fixed = TRUE)) return(answers[[p]])
+    ""
+  }
   q <- files; asked <- character(0)
-  env$choose.files <- function(caption, ...) {
-    asked <<- c(asked, caption); v <- q[1]; q <<- q[-1]; if (is.na(v)) "" else v
+  env$choose.files <- function(caption, multi = FALSE, ...) {
+    asked <<- c(asked, caption)
+    if (isTRUE(multi)) return(files)
+    v <- q[1]; q <<- q[-1]; if (is.na(v)) "" else v
   }
   shown <- NULL
   env$winDialog <- function(type, message) { shown <<- message; confirm }
-  txt <- gsub("utils::(select\\.list|winDialog)", "\\1", paste(src[i:(j - 1)], collapse = "\n"))
+  txt <- gsub("utils::(select\\.list|winDialog)", "\\1", paste(src[i:j], collapse = "\n"))
   out <- suppressMessages(tryCatch({ eval(parse(text = txt), envir = env); "RAN" },
                                    pipeline_cancelled = function(c) conditionMessage(c)))
-  list(out = out, env = env, asked = asked, shown = shown)
+  list(out = out, env = env, asked = asked, shown = shown, questions = asked_q)
 }
 
 test_that("only the chosen instruments' dialogs open, and the files are confirmed", {
@@ -110,4 +123,28 @@ test_that("Cancel on the instrument list or No at the confirmation ends the run 
   expect_match(.run_input_block("Raman", character(0))$out, "at least two")
   r <- .run_input_block(c("Raman", "LDIR"), c("wrong.csv", "", "l.csv", ""), confirm = "NO")
   expect_match(r$out, "not confirmed")
+})
+
+
+test_that("one dialog: every file recognised, questions only where needed, confirmed", {
+  skip_if_not_installed("readxl"); skip_if_not_installed("png")
+  for (m in c("measure_raman_placement.R", "ftir_segments.R", "00b_file_input.R"))
+    sys.source(file.path(REPO_ROOT, "R", m), envir = globalenv())
+  a <- list.files(file.path(REPO_ROOT, "examples", "dataset_A"), full.names = TRUE)
+  r <- .run_input_block(NULL, a, mode = "all",
+                        answers = list("FTIR_image.png" = "FTIR (PerkinElmer)"))
+  expect_identical(r$out, "RAN")
+  expect_length(r$asked, 1)                              # one file dialog
+  expect_equal(r$questions, "Which instrument's image is FTIR_image.png?")
+  expect_equal(basename(r$env$ftir_file), "FTIR_perkin.csv")
+  expect_equal(basename(r$env$ftir_bruker_file), "FTIR_bruker.csv")
+  expect_equal(basename(r$env$ldir_image), "LDIR_image.png")
+  expect_equal(basename(r$env$.input_config$ldir_coord_swaps_path), "LDIR_coord_swaps.csv")
+  expect_match(r$shown, "LDIR analyzed image +LDIR_image_analyzed.png")
+  expect_match(r$shown, "not used +README.md")
+  # No at the confirmation, or no answer to a question, ends the run
+  expect_match(.run_input_block(NULL, a, mode = "all", confirm = "NO",
+                                answers = list("FTIR_image.png" = "not used"))$out, "not confirmed")
+  expect_match(.run_input_block(NULL, a, mode = "all")$out, "no answer to")
+  expect_match(.run_input_block(NULL, character(0), mode = "all")$out, "no files selected")
 })
