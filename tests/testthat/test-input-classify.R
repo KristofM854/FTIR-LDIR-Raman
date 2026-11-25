@@ -233,3 +233,17 @@ test_that("the operator chooses between the segmented scan and the single Perkin
   expect_match(r$paths$ftir_image, "perkin\\.bmp$")
   expect_equal(sum(grepl("^not used .* M[123]\\.(csv|bmp).*another FTIR \\(PerkinElmer\\) input", r$lines)), 6)
 })
+
+test_that("segment tables never take another PerkinElmer image", {
+  .load_classifier()
+  f <- .faanui_with_segments()
+  unlink(list.files(file.path(f, "Perkin_segmented"), "\\.bmp$", full.names = TRUE))
+  sel <- list.files(f, full.names = TRUE); sel <- sel[!dir.exists(sel)]
+  a <- .asker(list("Several Raman" = "Comparstic2026 Bora2025 240314 Faanui SW1L R4 A IAEA 260924.csv",
+                   "which input is this run's" = "segmented scan Faanui SW1L R4 A 260805 * (3 segments, folder Perkin_segmented)"))
+  r <- assign_input_roles(c(sel, find_segment_scans(sel)), a$ask)
+  expect_match(r$paths$ftir_file, "M1\\.csv$")
+  expect_null(r$paths$ftir_image)                         # not the full _perkin.bmp
+  expect_true(any(grepl("^not used .*perkin\\.bmp.*own segment images", r$lines)))
+  expect_true(any(grepl("segment images .* were not found", r$notes)))
+})

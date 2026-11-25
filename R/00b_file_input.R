@@ -365,12 +365,23 @@ assign_input_roles <- function(files, ask) {
       why[idx] <- paste0(why[idx], "; no ", INPUT_ROLE_LABELS[[r]], " table selected")
       next
     }
-    if (r == "ftir" && length(seg)) {          # the first segment image
+    if (r == "ftir" && length(seg)) {
+      # The stitched table goes with the stitched image only: the scan's own
+      # segment images, never another PerkinElmer image (resolve_ftir_segments()
+      # stitches both before the run)
       segi <- idx[grepl(FTIR_SEGMENT_IMAGE, vapply(idx, base, ""), ignore.case = TRUE)]
+      other <- setdiff(idx, segi)
+      why[other] <- paste0(why[other], "; not used: the segmented scan is placed on its own segment images")
+      role[other] <- "none"
       if (length(segi)) {
         segi <- segi[order(vapply(segi, function(i) .segment_number(cls[[i]]$path, FTIR_SEGMENT_IMAGE), 1L))]
-        paths$ftir_image <- cls[[segi[1]]]$path; used[segi] <- "ftir_image"; next
+        paths$ftir_image <- cls[[segi[1]]]$path; used[segi] <- "ftir_image"
+        why[segi] <- paste(why[segi], "(stitched with the tables)")
+      } else {
+        notes <- c(notes, paste0("FTIR (PerkinElmer): the segment images (", "...M1.bmp ...) ",
+                                 "were not found with the segment tables; the run stops without them"))
       }
+      next
     }
     idx <- pick(idx, paste0("Several ", INPUT_ROLE_LABELS[[r]], " images: which one is this run's?"))
     if (length(idx)) { paths[[slot_of[[r]]]] <- cls[[idx]]$path; used[idx] <- slot_of[[r]] }
