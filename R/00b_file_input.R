@@ -261,7 +261,14 @@ assign_input_roles <- function(files, ask) {
     seg_img <- which(kind == "image" & grepl(FTIR_SEGMENT_IMAGE, vapply(seq_along(cls), base, ""),
                                              ignore.case = TRUE))
     key_t <- vapply(seg, scan_key, "", FTIR_SEGMENT_TABLE)
-    key_i <- vapply(seg_img, scan_key, "", FTIR_SEGMENT_IMAGE)
+    # Images belong to the scan whose tables share their folder: the exports
+    # name them differently ("Average Abs.( <scan> )M1.bmp" next to
+    # "<scan>M1.csv"), and the stitching pairs them by M<k>. Only a folder
+    # with two scans needs the name before M<k> to match.
+    key_i <- vapply(seg_img, function(i) {
+      in_dir <- unique(key_t[dirname(key_t) == dirname(cls[[i]]$path)])
+      if (length(in_dir) == 1) in_dir else scan_key(i, FTIR_SEGMENT_IMAGE)
+    }, "")
     scans <- unique(key_t)
     lab <- function(k) sprintf("segmented scan %s* (%d segments, folder %s)", basename(k),
                                sum(key_t == k), basename(dirname(k)))
