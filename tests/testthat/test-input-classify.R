@@ -185,14 +185,17 @@ test_that("a segmented PerkinElmer scan is one FTIR (PerkinElmer) input", {
   expect_length(a2$asked(), 0)
 })
 
-# The Faanui folder plus its Perkin_segmented subfolder (3 segments, header only)
+# The Faanui folder plus its Perkin_segmented subfolder (3 segments, header
+# only), named as the Spotlight exports them: the images carry a different
+# name before M<k> than the tables
 .faanui_with_segments <- function(envir = parent.frame()) {
   f <- .faanui_headers(envir)
   s <- file.path(f, "Perkin_segmented"); dir.create(s)
   hdr <- readLines(list.files(f, "lumos\\.csv$", full.names = TRUE), n = 1)
   for (k in 1:3) {
-    writeLines(hdr, file.path(s, sprintf("Faanui SW1L R4 A 260805 M%d.csv", k)))
-    .write_bmp_header(file.path(s, sprintf("Faanui SW1L R4 A 260805 M%d.bmp", k)), 2000, 2000, 24, 2000)
+    writeLines(hdr, file.path(s, sprintf("Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260805M%d.csv", k)))
+    .write_bmp_header(file.path(s, sprintf("Average Abs.( Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260805 )M%d.bmp", k)),
+                      3247, 2165, 24, 2000)
   }
   f
 }
@@ -216,10 +219,12 @@ test_that("the operator chooses between the segmented scan and the single Perkin
   raman <- "Comparstic2026 Bora2025 240314 Faanui SW1L R4 A IAEA 260924.csv"
   # The segmented scan
   a <- .asker(list("Several Raman" = raman,
-                   "which input is this run's" = "segmented scan Faanui SW1L R4 A 260805 * (3 segments, folder Perkin_segmented)"))
+                   "which input is this run's" = "segmented scan Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260805* (3 segments, folder Perkin_segmented)"))
   r <- assign_input_roles(all_files, a$ask)
-  expect_equal(basename(r$paths$ftir_file), "Faanui SW1L R4 A 260805 M1.csv")
-  expect_equal(basename(r$paths$ftir_image), "Faanui SW1L R4 A 260805 M1.bmp")
+  expect_equal(basename(r$paths$ftir_file), "Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260805M1.csv")
+  expect_equal(basename(r$paths$ftir_image),
+               "Average Abs.( Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260805 )M1.bmp")
+  expect_equal(sum(grepl("^FTIR \\(PerkinElmer\\) image .*\\)M[123]\\.bmp", r$lines)), 3)
   expect_match(r$paths$ftir_bruker_file, "lumos\\.csv$")
   expect_true(any(grepl("^not used .*perkin\\.xlsx.*segmented scan is used", r$lines)))
   expect_true(any(grepl("^not used .*perkin\\.bmp", r$lines)))
@@ -231,7 +236,7 @@ test_that("the operator chooses between the segmented scan and the single Perkin
   r <- assign_input_roles(all_files, b$ask)
   expect_match(r$paths$ftir_file, "perkin\\.xlsx$")
   expect_match(r$paths$ftir_image, "perkin\\.bmp$")
-  expect_equal(sum(grepl("^not used .* M[123]\\.(csv|bmp).*another FTIR \\(PerkinElmer\\) input", r$lines)), 6)
+  expect_equal(sum(grepl("^not used .*M[123]\\.(csv|bmp).*another FTIR \\(PerkinElmer\\) input", r$lines)), 6)
 })
 
 test_that("segment tables never take another PerkinElmer image", {
@@ -240,7 +245,7 @@ test_that("segment tables never take another PerkinElmer image", {
   unlink(list.files(file.path(f, "Perkin_segmented"), "\\.bmp$", full.names = TRUE))
   sel <- list.files(f, full.names = TRUE); sel <- sel[!dir.exists(sel)]
   a <- .asker(list("Several Raman" = "Comparstic2026 Bora2025 240314 Faanui SW1L R4 A IAEA 260924.csv",
-                   "which input is this run's" = "segmented scan Faanui SW1L R4 A 260805 * (3 segments, folder Perkin_segmented)"))
+                   "which input is this run's" = "segmented scan Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260805* (3 segments, folder Perkin_segmented)"))
   r <- assign_input_roles(c(sel, find_segment_scans(sel)), a$ask)
   expect_match(r$paths$ftir_file, "M1\\.csv$")
   expect_null(r$paths$ftir_image)                         # not the full _perkin.bmp
