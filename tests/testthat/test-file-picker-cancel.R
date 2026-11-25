@@ -83,7 +83,7 @@ test_that("the cancel condition is classed, not a bare error", {
   if (is.na(i) || is.na(j))
     stop("The input block was not found in main.R: its marker lines changed; update this test.")
   env <- new.env(parent = globalenv())
-  env$input_mode <- mode
+  env$.input_mode <- mode
   env$.is_windows <- TRUE; env$.last_dir <- NULL
   env$interactive <- function() TRUE
   env$`%||%` <- function(a, b) if (is.null(a)) b else a
@@ -147,4 +147,17 @@ test_that("one dialog: every file recognised, questions only where needed, confi
                                 answers = list("FTIR_image.png" = "not used"))$out, "not confirmed")
   expect_match(.run_input_block(NULL, a, mode = "all")$out, "no answer to")
   expect_match(.run_input_block(NULL, character(0), mode = "all")$out, "no files selected")
+})
+
+test_that("input_mode is read once and removed, so a leftover cannot choose the next run's mode", {
+  src <- readLines(file.path(REPO_ROOT, "main.R"), warn = FALSE)
+  i <- grep('^if \\(!exists\\("input_mode"\\)\\)', src)[1]
+  j <- grep("^rm\\(input_mode\\)", src)[1]
+  expect_false(is.na(i) || is.na(j))
+  run <- function(env) { eval(parse(text = src[i:j]), envir = env); env }
+  e <- new.env(); e$input_mode <- "explicit"
+  run(e)
+  expect_identical(e$.input_mode, "explicit")
+  expect_false(exists("input_mode", envir = e, inherits = FALSE))
+  expect_identical(run(e)$.input_mode, "all")        # the next run: the default again
 })

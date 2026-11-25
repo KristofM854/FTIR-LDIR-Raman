@@ -35,14 +35,19 @@ load_pipeline()
 # input_mode <- "explicit" for one dialog per instrument slot, or
 # input_mode <- "hardcoded" before sourcing to supply paths directly.
 if (!exists("input_mode")) input_mode <- "all"
-if (!input_mode %in% c("all", "explicit", "hardcoded"))
-  stop("input_mode '", input_mode, "' is not known: use \"all\" (one dialog, the default), ",
+# Read once and removed: a value left in the R session by an earlier run (the
+# old main.R set input_mode itself on every run) must not choose this run's
+# mode. Set input_mode right before each source("main.R") to change it.
+.input_mode <- input_mode
+rm(input_mode)
+if (!.input_mode %in% c("all", "explicit", "hardcoded"))
+  stop("input_mode '", .input_mode, "' is not known: use \"all\" (one dialog, the default), ",
        "\"explicit\" (one dialog per instrument file) or \"hardcoded\".", call. = FALSE)
 # Side-file settings from the one-dialog input; reset so a second run in the
 # same R session cannot inherit the previous run's files
 .input_config <- list()
 
-if (input_mode %in% c("all", "explicit")) {
+if (.input_mode %in% c("all", "explicit")) {
   # ------ Dialog helpers (both interactive modes) ------
 
   .is_windows <- tolower(.Platform$OS.type) == "windows"
@@ -144,7 +149,7 @@ if (input_mode %in% c("all", "explicit")) {
   DATA_FILTER  <- "Data files|*.csv;*.xlsx;*.xls|All files|*.*"
   IMAGE_FILTER <- "Image files|*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp|All files|*.*"
 
-  if (input_mode == "explicit") {
+  if (.input_mode == "explicit") {
   # ------ Explicit per-slot file picker dialogs ------
   # A list of instruments first, then one single-file picker per slot of the
   # chosen instruments. Image slots return NULL on Cancel (skipped); a data
