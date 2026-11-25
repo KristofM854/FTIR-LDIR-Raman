@@ -84,7 +84,7 @@ content (`R/00b_file_input.R`), not its name:
 | File | Recognised by |
 |---|---|
 | FTIR table | `Identifier`, `Coord. [µm]`, `Max AAU score` columns; PerkinElmer or Bruker from its paired image (same file name), the file name (`perkin`, `spotlight` / `lumos`, `bruker`) or the other FTIR table |
-| Segmented PerkinElmer scan | FTIR columns and names ending `_M1` … `_Mn` |
+| Segmented PerkinElmer scan | FTIR columns and names ending `M1` … `Mn`; also found in a subfolder of the selected files' folder (a dialog selects one folder's files). With a single PerkinElmer table also selected, you choose which one to use |
 | Raman table | `Particle Name`, `HQI`, `Visual Center Point X` (WITec) |
 | LDIR table | Excel `Particles` sheet (`Identification`, `Quality`) |
 | LDIR analyzed image | a few flat colours on black; paired with its LDIR image by name or size |

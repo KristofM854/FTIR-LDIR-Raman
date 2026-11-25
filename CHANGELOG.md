@@ -162,6 +162,10 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   and the reason. On the Faanui field sample 10 of its 12 files are assigned
   without a question; the remaining question is which of its two Raman tables
   to use. The per-slot dialogs remain as `input_mode <- "explicit"`.
+  A segmented PerkinElmer scan in a subfolder of the selected files' folder
+  (the dialog selects one folder's files) is found and joins the selection
+  (`find_segment_scans()`); with a single PerkinElmer table also selected, or
+  several scans, the operator chooses which to use.
   `main.R` reads `input_mode` once and removes it, so a value left in the R
   session by an earlier run (the old `main.R` set `input_mode <- "explicit"`
   itself) no longer chooses the next run's mode.

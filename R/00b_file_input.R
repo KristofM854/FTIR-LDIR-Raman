@@ -239,12 +239,6 @@ assign_input_roles <- function(files, ask) {
   # FTIR: a segmented scan is PerkinElmer; the content cannot tell the two
   # instruments' tables apart, so the paired image (same name stem), the
   # file name or the other table decides, else the operator
-  seg <- which(kind == "ftir_segment_table")
-  if (length(seg)) {
-    first <- seg[order(vapply(seg, function(i) .segment_number(cls[[i]]$path, FTIR_SEGMENT_TABLE), 1L))][1]
-    paths$ftir_file <- cls[[first]]$path
-    used[seg] <- "ftir_file"; why[seg] <- paste(why[seg], "(stitched before the run)")
-  }
   ft <- which(kind == "ftir_table")
   stems <- vapply(cls, function(x) .file_stem(x$path), "")
   # An FTIR image recognised by its content names the table of the same stem
@@ -255,11 +249,52 @@ assign_input_roles <- function(files, ask) {
       why[i] <- paste0(why[i], "; same name as the ", INPUT_ROLE_LABELS[[role[j]]], " image")
     }
   }
+  # Segmented PerkinElmer scans: the segments of one scan share their folder
+  # and name before M<k>. One scan is used; a single PerkinElmer table among
+  # the selected files competes with it, and the operator chooses.
+  seg <- which(kind == "ftir_segment_table")
+  if (length(seg)) {
+    scan_key <- function(i, pattern) {
+      p <- cls[[i]]$path
+      file.path(dirname(p), sub(pattern, "", basename(p), ignore.case = TRUE))
+    }
+    seg_img <- which(kind == "image" & grepl(FTIR_SEGMENT_IMAGE, vapply(seq_along(cls), base, ""),
+                                             ignore.case = TRUE))
+    key_t <- vapply(seg, scan_key, "", FTIR_SEGMENT_TABLE)
+    key_i <- vapply(seg_img, scan_key, "", FTIR_SEGMENT_IMAGE)
+    scans <- unique(key_t)
+    lab <- function(k) sprintf("segmented scan %s* (%d segments, folder %s)", basename(k),
+                               sum(key_t == k), basename(dirname(k)))
+    keep <- scans
+    if (length(scans) > 1) {
+      a <- ask("Several segmented PerkinElmer scans: which one is this run's?",
+               c(vapply(scans, lab, ""), "none"))
+      keep <- scans[match(a, vapply(scans, lab, ""))]
+    }
+    single <- ft[role[ft] %in% "ftir"]
+    if (!is.na(keep) && length(single)) {
+      a <- ask("FTIR (PerkinElmer): which input is this run's?",
+               c(lab(keep), vapply(single, base, "")))
+      if (!identical(a, lab(keep))) keep <- NA_character_
+    }
+    drop <- c(seg[is.na(keep) | key_t != keep], seg_img[is.na(keep) | key_i != keep])
+    kind[drop] <- "unused_segment"
+    why[drop] <- paste0(why[drop], "; not used: ",
+                        if (is.na(keep)) "another FTIR (PerkinElmer) input was chosen" else "another scan was chosen")
+    seg <- setdiff(seg, drop)
+    if (length(seg)) {
+      first <- seg[order(vapply(seg, function(i) .segment_number(cls[[i]]$path, FTIR_SEGMENT_TABLE), 1L))][1]
+      paths$ftir_file <- cls[[first]]$path
+      used[seg] <- "ftir_file"; why[seg] <- paste(why[seg], "(stitched before the run)")
+      role[single] <- "none"
+      why[single] <- paste0(why[single], "; not used: the segmented scan is used")
+    }
+  }
   free <- setdiff(c("ftir", "ftir_bruker"), if (length(seg)) "ftir" else character(0))
   if (length(ft)) {
     known <- ft[!is.na(role[ft]) & role[ft] %in% free]
     # One left open and one role left: it takes that role
-    open <- setdiff(ft, known)
+    open <- ft[is.na(role[ft])]
     left <- setdiff(free, role[known])
     if (length(open) == 1 && length(left) == 1 && (length(known) >= 1 || length(seg))) {
       other <- if (length(known)) role[known[1]] else "ftir"
@@ -341,7 +376,7 @@ assign_input_roles <- function(files, ask) {
     if (length(idx)) { paths[[slot_of[[r]]]] <- cls[[idx]]$path; used[idx] <- slot_of[[r]] }
   }
   # Images nobody claimed: the operator says whose they are
-  for (i in im[is.na(used[im])]) {
+  for (i in im[is.na(used[im]) & is.na(role[im])]) {
     open_roles <- names(slot_of)[have & vapply(slot_of, function(s) is.null(paths[[s]]), logical(1))]
     if (!length(open_roles)) break
     a <- ask(paste0("Which instrument's image is ", base(i), "?"),
@@ -391,4 +426,29 @@ assign_input_roles <- function(files, ask) {
   list(paths = paths, config = cfg, lines = lines, notes = notes,
        files = data.frame(path = vapply(cls, `[[`, "", "path"), kind = kind, role = role,
                           used_as = used, reason = why, stringsAsFactors = FALSE))
+}
+
+
+#' Segmented PerkinElmer scans in the subfolders of the selected files' folders.
+#'
+#' A file dialog selects files of one folder only; the segments of a scan
+#' (<name>M1.csv ... with <name>M1.bmp ...) often sit in a subfolder of it. One
+#' level down from each selected file's folder, every folder with at least two
+#' segment tables contributes its segment tables and images; assign_input_roles()
+#' then decides whether they are used.
+#' @param files The selected paths
+#' @return Paths of the segment files found (not among `files`)
+find_segment_scans <- function(files) {
+  files <- files[file.exists(files)]
+  if (!length(files)) return(character(0))
+  subs <- unique(unlist(lapply(unique(dirname(files)), list.dirs, recursive = FALSE)))
+  out <- character(0)
+  for (d in subs) {
+    f <- list.files(d, full.names = TRUE)
+    tab <- f[grepl(FTIR_SEGMENT_TABLE, basename(f), ignore.case = TRUE)]
+    if (length(tab) >= 2)
+      out <- c(out, tab, f[grepl(FTIR_SEGMENT_IMAGE, basename(f), ignore.case = TRUE)])
+  }
+  norm <- function(x) normalizePath(x, winslash = "/", mustWork = FALSE)
+  out[!norm(out) %in% norm(files)]
 }

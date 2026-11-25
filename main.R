@@ -239,6 +239,15 @@ if (.input_mode %in% c("all", "explicit")) {
   message("=== File Input: select every file of the sample (Cancel ends the run) ===")
   .files <- .select_all_files("Select all files of this sample (tables, images, .sam, .txt)")
   if (!length(.files)) .cancel_pipeline("no files selected")
+  # A segmented PerkinElmer scan in a subfolder (the dialog selects one
+  # folder's files only): its segments join the selection
+  .segments <- find_segment_scans(.files)
+  if (length(.segments)) {
+    message("  Segmented PerkinElmer scan found in ",
+            paste(unique(basename(dirname(.segments))), collapse = ", "),
+            " (", length(.segments), " files)")
+    .files <- c(.files, .segments)
+  }
   .inputs <- assign_input_roles(.files, .ask_input)
   ftir_file         <- .inputs$paths$ftir_file
   ftir_image        <- .inputs$paths$ftir_image
