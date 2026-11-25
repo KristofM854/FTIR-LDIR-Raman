@@ -6,10 +6,13 @@
 # detected by FTIR, Raman, and LDIR microspectroscopy on the same filter.
 #
 # Input modes:
-#   Mode "explicit"   (default): one labeled file-picker dialog per instrument slot
+#   Mode "all"       (default): one dialog; select every file of the sample at
+#                    once. Each file is recognised by its content
+#                    (R/00b_file_input.R); you are asked only where that does
+#                    not decide, and confirm the list before the run.
+#   Mode "explicit": one labeled file-picker dialog per instrument slot
 #   Mode "hardcoded": set ftir_file / raman_file / etc. before sourcing, then
 #                     set input_mode <- "hardcoded"
-#   Mode "interactive": legacy pattern-based auto-detection (disabled)
 #
 # Usage:
 #   source("main.R")
@@ -28,18 +31,19 @@ load_pipeline()
 # ---------------------------------------------------------------------------
 
 # --- Input mode selection ---
-# Default is "explicit": one labeled file-picker dialog per instrument slot.
-# Set input_mode <- "hardcoded" before sourcing to supply paths directly.
-# The old pattern-based auto-detection block is preserved below (commented out)
-# in case it is needed again.
-if (!exists("input_mode")) input_mode <- "explicit"
+# Default is "all": one dialog for every file of the sample. Set
+# input_mode <- "explicit" for one dialog per instrument slot, or
+# input_mode <- "hardcoded" before sourcing to supply paths directly.
+if (!exists("input_mode")) input_mode <- "all"
+if (!input_mode %in% c("all", "explicit", "hardcoded"))
+  stop("input_mode '", input_mode, "' is not known: use \"all\" (one dialog, the default), ",
+       "\"explicit\" (one dialog per instrument file) or \"hardcoded\".", call. = FALSE)
+# Side-file settings from the one-dialog input; reset so a second run in the
+# same R session cannot inherit the previous run's files
+.input_config <- list()
 
-if (input_mode == "explicit") {
-  # ------ Explicit per-slot file picker dialogs ------
-  # A list of instruments first, then one single-file picker per slot of the
-  # chosen instruments. Image slots return NULL on Cancel (skipped); a data
-  # slot re-prompts once, a second Cancel ends the run. A confirmation lists
-  # the files before the run starts (No ends it).
+if (input_mode %in% c("all", "explicit")) {
+  # ------ Dialog helpers (both interactive modes) ------
 
   .is_windows <- tolower(.Platform$OS.type) == "windows"
 
@@ -140,6 +144,13 @@ if (input_mode == "explicit") {
   DATA_FILTER  <- "Data files|*.csv;*.xlsx;*.xls|All files|*.*"
   IMAGE_FILTER <- "Image files|*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp|All files|*.*"
 
+  if (input_mode == "explicit") {
+  # ------ Explicit per-slot file picker dialogs ------
+  # A list of instruments first, then one single-file picker per slot of the
+  # chosen instruments. Image slots return NULL on Cancel (skipped); a data
+  # slot re-prompts once, a second Cancel ends the run. A confirmation lists
+  # the files before the run starts (No ends it).
+
   # Which instruments take part: one list up front, so only their dialogs
   # open (Cancel here ends the run at once). A wrong file is caught by the
   # confirmation after the last dialog -- one click instead of cancelling
@@ -188,25 +199,65 @@ if (input_mode == "explicit") {
     .cancel_pipeline(paste0(.n_data, " instrument data file(s) selected; at least two ",
                             "are needed"))
 
-} else if (input_mode == "interactive") {
-  # ------ [LEGACY] Pattern-based auto-detection ------
-  # Commented out because instrument type cannot always be reliably inferred
-  # from the filename alone (e.g. Bruker Lumos files have no fixed keyword).
-  # Kept here for reference; use input_mode <- "explicit" instead.
-  #
-  # file_manifest <- collect_files_interactive()
-  # grouped       <- group_files_by_instrument(file_manifest)
-  #
-  # ftir_file         <- grouped$FTIR_perkin$tabular
-  # ftir_image        <- grouped$FTIR_perkin$image
-  # ftir_bruker_file  <- grouped$FTIR_bruker$tabular
-  # ftir_bruker_image <- grouped$FTIR_bruker$image
-  # raman_file        <- grouped$Raman$tabular
-  # raman_image       <- grouped$Raman$image
-  # ldir_file         <- grouped$LDIR$tabular
-  # ldir_image        <- grouped$LDIR$image
+  } else {  # one dialog
+  # ------ One dialog for every file of the sample ------
+  # Select the tables, images and side files (.sam, placement .txt,
+  # coordinate swaps) together; extra files are listed as not used. Each is
+  # recognised by its content (R/00b_file_input.R); a question appears only
+  # where the content does not decide (e.g. two Raman tables, or which FTIR
+  # table is the Bruker one). The confirmation lists every file, its role and
+  # why; No ends the run.
+  .select_all_files <- function(caption) {
+    if (.is_windows)
+      return(tryCatch(choose.files(caption = caption, multi = TRUE,
+                                   filters = matrix(c("All files", "*.*"), ncol = 2)),
+                      error = function(e) character(0)))
+    if (isTRUE(capabilities("tcltk")) && requireNamespace("tcltk", quietly = TRUE))
+      return(tryCatch(tcltk::tk_choose.files(caption = caption, multi = TRUE),
+                      error = function(e) character(0)))
+    message(caption, ": one file per dialog, Cancel when done")
+    out <- character(0)
+    repeat {
+      p <- tryCatch(file.choose(), error = function(e) NULL)
+      if (is.null(p) || !nzchar(p)) break
+      out <- c(out, p)
+    }
+    out
+  }
+  .ask_input <- function(question, choices) {
+    message("\n", question)
+    a <- utils::select.list(choices, title = question, graphics = .is_windows)
+    if (!length(a) || !nzchar(a)) .cancel_pipeline(paste0("no answer to: ", question))
+    a
+  }
 
-  stop("input_mode 'interactive' is disabled. Use input_mode <- 'explicit' instead.")
+  message("=== File Input: select every file of the sample (Cancel ends the run) ===")
+  .files <- .select_all_files("Select all files of this sample (tables, images, .sam, .txt)")
+  if (!length(.files)) .cancel_pipeline("no files selected")
+  .inputs <- assign_input_roles(.files, .ask_input)
+  ftir_file         <- .inputs$paths$ftir_file
+  ftir_image        <- .inputs$paths$ftir_image
+  ftir_bruker_file  <- .inputs$paths$ftir_bruker_file
+  ftir_bruker_image <- .inputs$paths$ftir_bruker_image
+  raman_file        <- .inputs$paths$raman_file
+  raman_image       <- .inputs$paths$raman_image
+  ldir_file         <- .inputs$paths$ldir_file
+  ldir_image        <- .inputs$paths$ldir_image
+  # Side files chosen in the dialog (.sam, Raman placement, coordinate swaps,
+  # analyzed image): passed to the config below
+  .input_config <- .inputs$config
+
+  .summary <- c(.inputs$lines, if (length(.inputs$notes)) paste("Note:", .inputs$notes))
+  message("\n=== Files ===")
+  message(paste0("  ", .summary, collapse = "\n"))
+  if (interactive() && !.confirm_files(.summary))
+    .cancel_pipeline("files not confirmed")
+  .n_data <- sum(!vapply(list(ftir_file, ftir_bruker_file, raman_file, ldir_file),
+                         is.null, logical(1)))
+  if (.n_data < 2)
+    .cancel_pipeline(paste0(.n_data, " instrument table(s) recognised; at least two ",
+                            "are needed"))
+  }  # end input modes
 
 } else {
   # ------ Mode: Hardcoded paths ------
@@ -240,6 +291,8 @@ config$ftir_bruker_image <- if (exists("ftir_bruker_image")) ftir_bruker_image e
 #   config_overrides <- list(debug = TRUE, match_dist_threshold_um = 80)
 # set before sourcing main.R (or build the config yourself and call
 # run_pipeline(config) directly; see R/run_pipeline.R).
+if (exists(".input_config") && length(.input_config))
+  config <- utils::modifyList(config, .input_config)
 if (exists("config_overrides")) config <- utils::modifyList(config, config_overrides)
 
 # ---------------------------------------------------------------------------

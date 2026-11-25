@@ -793,6 +793,12 @@ extract_ldir_image_coords <- function(image_path,
 #'   disables the search)
 #' @return Full path to the processed image if found, otherwise NULL
 find_ldir_processed_image <- function(img_path, config = NULL) {
+  # Chosen explicitly (main.R's one-dialog input pairs it by content)
+  p <- config[["ldir_processed_image_path"]]
+  if (!is.null(p) && nzchar(p) && file.exists(p)) {
+    log_message("  LDIR processed image (selected): ", basename(p))
+    return(p)
+  }
   suffix <- if (!is.null(config)) config$ldir_processed_image_suffix else "_analyzed"
 
   # NULL suffix disables processed-image extraction entirely
@@ -2066,6 +2072,9 @@ apply_ldir_coord_swaps <- function(df, config = NULL) {
 #'   disables the search)
 #' @return Full path to the sidecar CSV if found, otherwise NULL
 find_ldir_coord_swaps_file <- function(ldir_path, config = NULL) {
+  # Chosen explicitly (main.R's one-dialog input recognises it by its header)
+  p <- config[["ldir_coord_swaps_path"]]
+  if (!is.null(p) && nzchar(p) && file.exists(p)) return(p)
   # NULL/"" suffix in a supplied config disables the sidecar.
   suffix <- if (!is.null(config)) config[["ldir_coord_swaps_suffix"]] else "_coord_swaps"
   if (is.null(suffix) || !nzchar(suffix)) return(NULL)

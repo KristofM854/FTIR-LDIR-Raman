@@ -149,6 +149,22 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   empty where an instrument found a particle below its cutoff.
 
 ### Added
+- **One dialog for all input files** (`main.R` default `input_mode <- "all"`).
+  Select every file of a sample at once; each is recognised by its content
+  (`classify_input_file()`, `assign_input_roles()` in `R/00b_file_input.R`):
+  table columns, Excel sheets, BMP headers (Lumos 32-bit; WITec mosaics
+  without a resolution field), the analyzed LDIR image's few colours, the
+  `.sam` signature, the WITec and FTIR placement `.txt`, the coordinate-swap
+  header. The file name decides only where the content cannot (which FTIR
+  table is PerkinElmer or Bruker, when no paired image tells), and a question
+  is asked where neither does or when one role has two candidates (two Raman
+  tables, two `.sam` files). The confirmation lists every file with its role
+  and the reason. On the Faanui field sample 10 of its 12 files are assigned
+  without a question; the remaining question is which of its two Raman tables
+  to use. The per-slot dialogs remain as `input_mode <- "explicit"`.
+- Config `ldir_processed_image_path` and `ldir_coord_swaps_path`: the analyzed
+  image and the coordinate-swap CSV by path, whatever their names (the
+  one-dialog input sets them; otherwise they are found by name as before).
 - **Library comparison in the multi-run tool** (`tools/reproducibility.R`,
   Multi-Run tab): tables of one scan identified against different spectral
   libraries are linked by particle ID (detected from equal IDs at equal
@@ -634,6 +650,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
 - The run folder is byte-reproducible (PNG timestamps removed).
 
 ### Removed
+- The unused name-based file sorter (`collect_files_interactive()`,
+  `detect_instrument()`, `group_files_by_instrument()`) and `main.R`'s disabled
+  `input_mode <- "interactive"`. It filed `FTIR_bruker.csv` under PerkinElmer
+  (the pattern `FTIR` was checked before `Bruker`) and kept only the last file
+  of each kind per instrument; the one-dialog input replaces it.
 - The LDIR scan-order test (could not detect a bad join), the R fallback for
   LDIR detection, the unused `material_map_*` config keys, the rotation
   warning, `normalize_coordinates()`.

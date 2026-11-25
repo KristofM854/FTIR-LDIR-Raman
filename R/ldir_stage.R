@@ -185,7 +185,7 @@ run_ldir_stage <- function(ldir_raw, ref, ftir_pair, config, out_dirs) {
     # would move rows that now sit on their own particle.)
     if (!any(ldir_with_coords$coord_source %in% "sam")) {
       ldir_with_coords <- apply_ldir_coord_swaps(ldir_with_coords, config)
-    } else if (length(config$ldir_coord_swaps)) {
+    } else if (length(config[["ldir_coord_swaps"]])) {
       log_message("  Manual LDIR join corrections ignored: the .sam join places every row by its ",
                   "own outline", level = "WARN")
     }

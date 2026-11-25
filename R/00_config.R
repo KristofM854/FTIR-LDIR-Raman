@@ -405,6 +405,9 @@ make_config <- function(ftir_path  = NULL,
     # an exact join (join_ldir_by_sam()). NULL: the only .sam next to the LDIR
     # table, if there is exactly one.
     ldir_sam_path = NULL,
+    # ldir_processed_image_path: the analyzed image itself, when its name is
+    #   not <LDIR image name>_analyzed.<ext> (set by main.R's one-dialog input)
+    ldir_processed_image_path = NULL,
 
     # ldir_processed_image_min_brightness: per-pixel RGB sum threshold
     #   below which a pixel is treated as background (pure black = 0).
@@ -463,6 +466,9 @@ make_config <- function(ftir_path  = NULL,
     #   Excel (";") reads the same as a plain comma CSV. Loaded only when
     #   ldir_coord_swaps is NULL. Set to NULL to disable auto-loading.
     ldir_coord_swaps_suffix = "_coord_swaps",
+    # ldir_coord_swaps_path: the coordinate-swap CSV itself, wherever it is and
+    #   whatever its name (set by main.R's one-dialog input); else the suffix rule
+    ldir_coord_swaps_path = NULL,
 
     # When TRUE, every Excel particle is assigned an image coordinate regardless
     # of size-match cost — no joins are rejected. Use the coord_match_cost slider
