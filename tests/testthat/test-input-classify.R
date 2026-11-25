@@ -46,9 +46,9 @@
              i16(bits), i32(0), i32(0), i32(ppm), i32(ppm), i32(0), i32(0)), path)
 }
 
-.faanui_headers <- function() {
+.faanui_headers <- function(envir = parent.frame()) {
   skip_if_not_installed("writexl")
-  d <- withr::local_tempdir(.local_envir = parent.frame())
+  d <- withr::local_tempdir(.local_envir = envir)
   f <- function(x) file.path(d, x)
   ftir_cols <- c("Identifier", "Coord. [pixels]", "Coord. [um]", "Max AAU score",
                  "Spectrum yielding score", "Group", "Group ID", "No. of pixels [-]",
@@ -183,4 +183,53 @@ test_that("a segmented PerkinElmer scan is one FTIR (PerkinElmer) input", {
   # The other FTIR table is then the Bruker one, without a question
   expect_equal(basename(r$paths$ftir_bruker_file), "other.csv")
   expect_length(a2$asked(), 0)
+})
+
+# The Faanui folder plus its Perkin_segmented subfolder (3 segments, header only)
+.faanui_with_segments <- function(envir = parent.frame()) {
+  f <- .faanui_headers(envir)
+  s <- file.path(f, "Perkin_segmented"); dir.create(s)
+  hdr <- readLines(list.files(f, "lumos\\.csv$", full.names = TRUE), n = 1)
+  for (k in 1:3) {
+    writeLines(hdr, file.path(s, sprintf("Faanui SW1L R4 A 260805 M%d.csv", k)))
+    .write_bmp_header(file.path(s, sprintf("Faanui SW1L R4 A 260805 M%d.bmp", k)), 2000, 2000, 24, 2000)
+  }
+  f
+}
+
+test_that("a segmented scan in a subfolder is found and joins the selection", {
+  .load_classifier()
+  f <- .faanui_with_segments()
+  sel <- list.files(f, full.names = TRUE, include.dirs = FALSE)
+  sel <- sel[!dir.exists(sel)]
+  found <- find_segment_scans(sel)
+  expect_length(found, 6)
+  expect_true(all(dirname(found) == file.path(f, "Perkin_segmented")))
+  expect_length(find_segment_scans(c(sel, found)), 0)      # already selected: not added again
+})
+
+test_that("the operator chooses between the segmented scan and the single PerkinElmer table", {
+  .load_classifier()
+  f <- .faanui_with_segments()
+  sel <- list.files(f, full.names = TRUE); sel <- sel[!dir.exists(sel)]
+  all_files <- c(sel, find_segment_scans(sel))
+  raman <- "Comparstic2026 Bora2025 240314 Faanui SW1L R4 A IAEA 260924.csv"
+  # The segmented scan
+  a <- .asker(list("Several Raman" = raman,
+                   "which input is this run's" = "segmented scan Faanui SW1L R4 A 260805 * (3 segments, folder Perkin_segmented)"))
+  r <- assign_input_roles(all_files, a$ask)
+  expect_equal(basename(r$paths$ftir_file), "Faanui SW1L R4 A 260805 M1.csv")
+  expect_equal(basename(r$paths$ftir_image), "Faanui SW1L R4 A 260805 M1.bmp")
+  expect_match(r$paths$ftir_bruker_file, "lumos\\.csv$")
+  expect_true(any(grepl("^not used .*perkin\\.xlsx.*segmented scan is used", r$lines)))
+  expect_true(any(grepl("^not used .*perkin\\.bmp", r$lines)))
+  expect_equal(a$asked(), c("Several Raman tables: which one is this run's?",
+                            "FTIR (PerkinElmer): which input is this run's?"))
+  # The single table
+  b <- .asker(list("Several Raman" = raman,
+                   "which input is this run's" = "Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260805_perkin.xlsx"))
+  r <- assign_input_roles(all_files, b$ask)
+  expect_match(r$paths$ftir_file, "perkin\\.xlsx$")
+  expect_match(r$paths$ftir_image, "perkin\\.bmp$")
+  expect_equal(sum(grepl("^not used .* M[123]\\.(csv|bmp).*another FTIR \\(PerkinElmer\\) input", r$lines)), 6)
 })
