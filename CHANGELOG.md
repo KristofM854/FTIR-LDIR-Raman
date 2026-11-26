@@ -149,6 +149,11 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   empty where an instrument found a particle below its cutoff.
 
 ### Added
+- `opus_ftir_bruker_image` defaults again to the Faanui SW1L R4 A values
+  (M-15 had made it `NULL`). Order: a side file next to the Lumos image wins
+  over the default, values set for a run (`config_overrides`) win over the
+  side file (`choose_opus_values()`). The run log warns when the default
+  values are used; values that do not fit the image are ignored as before.
 - **Summary tab, easier to read and more complete** (report pages follow):
   - Alignment check: a verdict per instrument first ("fixed by the data",
     "check", "NOT DETERMINED"), the orientation in words (nearest quarter turn

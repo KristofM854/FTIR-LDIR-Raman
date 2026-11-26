@@ -489,20 +489,28 @@ run_pipeline <- function(config, report = TRUE) {
                                y_min = .ftir_pl$ymin, y_max = .ftir_pl$ymax)
   }
   if (!is.null(config$ftir_bruker_image) && nzchar(config$ftir_bruker_image)) {
-    # The OPUS values of this scan from its side file, unless the config sets them
-    if (is.null(config[["opus_ftir_bruker_image"]])) {
-      .opus_file <- find_opus_placement(config$ftir_bruker_image, config)
-      .opus <- if (!is.null(.opus_file)) read_opus_placement(.opus_file)
-      if (!is.null(.opus)) {
-        config[["opus_ftir_bruker_image"]] <- .opus
-        update_manifest_config_snapshot(config$output_dir, list(opus_ftir_bruker_image = .opus))
-        note_supporting_file(config, "ftir_bruker_opus", .opus_file,
-          "OPUS values of the Lumos scan: place the Bruker image exactly")
-        log_message("  FTIR (Bruker): OPUS values from ", basename(.opus_file))
-      } else if (!is.null(.opus_file)) {
-        log_message("  FTIR (Bruker): ", basename(.opus_file), " is not an OPUS placement file ",
-                    "(needs PixelSizeX/Y, Pos. X/Y, Map Origin X/Y)", level = "WARN")
-      }
+    # The OPUS values: the scan's side file over the default, values set for
+    # the run over the side file (choose_opus_values())
+    .opus_file <- find_opus_placement(config$ftir_bruker_image, config)
+    .opus <- if (!is.null(.opus_file)) read_opus_placement(.opus_file)
+    if (!is.null(.opus_file) && is.null(.opus))
+      log_message("  FTIR (Bruker): ", basename(.opus_file), " is not an OPUS placement file ",
+                  "(needs PixelSizeX/Y, Pos. X/Y, Map Origin X/Y)", level = "WARN")
+    .oc <- choose_opus_values(config[["opus_ftir_bruker_image"]],
+                              make_config()[["opus_ftir_bruker_image"]], .opus)
+    config[["opus_ftir_bruker_image"]] <- .oc$values
+    if (identical(.oc$source, "file")) {
+      update_manifest_config_snapshot(config$output_dir, list(opus_ftir_bruker_image = .opus))
+      note_supporting_file(config, "ftir_bruker_opus", .opus_file,
+        "OPUS values of the Lumos scan: place the Bruker image exactly")
+      log_message("  FTIR (Bruker): OPUS values from ", basename(.opus_file))
+    } else if (identical(.oc$source, "default")) {
+      log_message("  FTIR (Bruker): using the DEFAULT OPUS values (Faanui SW1L R4 A, 2026-07-27). ",
+                  "For another scan put its values in <image name>.txt next to the image ",
+                  "(template inst/templates/opus_placement.txt)", level = "WARN")
+    } else if (identical(.oc$source, "config") && !is.null(.opus)) {
+      log_message("  FTIR (Bruker): the OPUS values set for this run take precedence over ",
+                  basename(.opus_file))
     }
     invisible(.place_ftir_run_image(config$ftir_bruker_image, ftir_bruker_raw,
                                     "ftir_bruker_image", "ftir_bruker", "FTIR (Bruker)"))

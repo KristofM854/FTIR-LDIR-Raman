@@ -485,6 +485,21 @@ read_opus_placement <- function(path) {
   out[vapply(out, is.finite, logical(1))]
 }
 
+#' Which OPUS values place the Bruker image: the side file's over the
+#' default, values set for the run over the side file's.
+#'
+#' @param config_value config$opus_ftir_bruker_image of the run
+#' @param default_value make_config()'s default for it
+#' @param file_values read_opus_placement() of the side file, or NULL
+#' @return list(values, source = "file", "config", "default" or "none")
+choose_opus_values <- function(config_value, default_value, file_values) {
+  is_default <- is.null(config_value) || identical(config_value, default_value)
+  if (!is.null(file_values) && is_default) return(list(values = file_values, source = "file"))
+  if (!is.null(config_value))
+    return(list(values = config_value, source = if (is_default) "default" else "config"))
+  list(values = NULL, source = "none")
+}
+
 #' The OPUS side file of a Bruker image: config$ftir_bruker_opus_path, else
 #' <image name>.txt, else the only .txt in the image's folder that reads as
 #' one. NULL when there is none.

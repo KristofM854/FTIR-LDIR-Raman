@@ -280,3 +280,18 @@ test_that("the OPUS side file is read, recognised and given to the Bruker image"
   expect_match(basename(r$config$raman_image_metadata), "IAEA 260924\\.txt$")
   expect_true(any(grepl("^FTIR \\(Bruker\\) OPUS values .*lumos\\.txt", r$lines)))
 })
+
+test_that("OPUS values: side file over the default, values set for the run over the side file", {
+  sys.source(file.path(REPO_ROOT, "R", "ftir_image_placement.R"), envir = globalenv())
+  def  <- make_config()[["opus_ftir_bruker_image"]]
+  file <- list(pixel_size_x_um = 7.5, pixel_size_y_um = 7.5, pos_x_px = 1, pos_y_px = 1,
+               map_origin_x_um = 0, map_origin_y_um = 0)
+  own  <- utils::modifyList(def, list(map_origin_x_um = 1))
+  expect_equal(def$size_x_px, 2048)                                   # the Faanui default is set
+  expect_equal(choose_opus_values(def, def, file)$source, "file")
+  expect_identical(choose_opus_values(def, def, file)$values, file)
+  expect_equal(choose_opus_values(def, def, NULL)$source, "default")
+  expect_equal(choose_opus_values(own, def, file)$source, "config")
+  expect_equal(choose_opus_values(NULL, def, file)$source, "file")
+  expect_equal(choose_opus_values(NULL, def, NULL)$source, "none")
+})
