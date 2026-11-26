@@ -149,6 +149,15 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   empty where an instrument found a particle below its cutoff.
 
 ### Added
+- **OPUS side file for the Bruker Lumos image.** The scan's OPUS values in a
+  `.txt` next to the image (`<image name>.txt`, template
+  `inst/templates/opus_placement.txt`, names as in the OPUS report) place the
+  image exactly; `read_opus_placement()`, `find_opus_placement()`, config
+  `ftir_bruker_opus_path`. Used when `opus_ftir_bruker_image` is not set, so
+  every scan carries its own calibration now that the config no longer has a
+  sample's values as default (M-15): without them the Lumos image of the
+  Faanui sample fell back to an approximate placement and its alignment to
+  1 pair. The one-dialog input recognises the file; Run Info lists it.
 - **One dialog for all input files** (`main.R` default `input_mode <- "all"`).
   Select every file of a sample at once; each is recognised by its content
   (`classify_input_file()`, `assign_input_roles()` in `R/00b_file_input.R`):

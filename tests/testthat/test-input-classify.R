@@ -252,3 +252,31 @@ test_that("segment tables never take another PerkinElmer image", {
   expect_true(any(grepl("^not used .*perkin\\.bmp.*own segment images", r$lines)))
   expect_true(any(grepl("segment images .* were not found", r$notes)))
 })
+
+test_that("the OPUS side file is read, recognised and given to the Bruker image", {
+  .load_classifier()
+  sys.source(file.path(REPO_ROOT, "R", "ftir_image_placement.R"), envir = globalenv())
+  f <- .faanui_headers()
+  opus <- file.path(f, "Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260727_lumos.txt")
+  writeLines(c("OPUS image placement (Bruker Lumos)", "Block \"Bitmap\":",
+               "PixelSizeX: 7,907902", "PixelSizeY = 7.908996", "Pos. X: 6110.180843",
+               "Pos. Y: 604.290875", "Size X: 2048", "Size Y: 1949",
+               "Map Origin X: 49564", "Map Origin Y\t6050.38"), opus)
+  v <- read_opus_placement(opus)
+  expect_equal(v$pixel_size_x_um, 7.907902)               # decimal comma
+  expect_equal(v$map_origin_y_um, 6050.38)                 # tab separator
+  expect_equal(v$size_x_px, 2048)
+  # Exactly the values the config used to carry: the same extent
+  ext <- ftir_extent_from_opus(list(opus_ftir_bruker_image = v), "ftir_bruker_image", 2048, 1949)
+  expect_equal(ext$xmin, 6110.180843 * 7.907902 - 49564, tolerance = 1e-9)
+  expect_equal(find_opus_placement(file.path(f, "Comparstic2026 BORA2025 240314 Faanui SW1L R4 A 260727_lumos.bmp")), opus)
+  # The template, not filled in, is not an OPUS file
+  expect_null(read_opus_placement(file.path(REPO_ROOT, "inst", "templates", "opus_placement.txt")))
+  # The one-dialog input: recognised, and not mistaken for the WITec file
+  expect_equal(classify_input_file(opus)$kind, "opus_placement")
+  r <- assign_input_roles(list.files(f, full.names = TRUE),
+                          .asker(list("Several Raman" = "Comparstic2026 Bora2025 240314 Faanui SW1L R4 A IAEA 260924.csv"))$ask)
+  expect_equal(r$config$ftir_bruker_opus_path, opus)
+  expect_match(basename(r$config$raman_image_metadata), "IAEA 260924\\.txt$")
+  expect_true(any(grepl("^FTIR \\(Bruker\\) OPUS values .*lumos\\.txt", r$lines)))
+})
