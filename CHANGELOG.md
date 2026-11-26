@@ -149,6 +149,31 @@ Pre-release audit and portability refactor (branch `audit/pre-release`).
   empty where an instrument found a particle below its cutoff.
 
 ### Added
+- **Summary tab, easier to read and more complete** (report pages follow):
+  - Alignment check: a verdict per instrument first ("fixed by the data",
+    "check", "NOT DETERMINED"), the orientation in words (nearest quarter turn
+    and the deviation from it), the scale flagged outside 0.97-1.03, and small
+    panels of each instrument's particles over the reference's; the full table
+    behind "Details".
+  - Part 2's scope switch moved into part 2 (it never applied to parts 1 and
+    3); the plastics table folded into the material chart ("Show as a table");
+    instruments in one order everywhere.
+  - Sizes: all instruments on one axis (log scale) with medians, a median
+    table with 95% intervals; size statistics with each instrument's quality
+    cutoff and the IQR instead of the standard deviation. This also brings the
+    FTIR (Bruker) sizes, which had no histogram.
+  - Pair matrix: identified and detected in one cell, with a one-line reading
+    guide; matching quality behind "Details", with family agreement now also
+    for pairs without Raman (from the match files).
+  - Why particles are not matched: per instrument, shares and counts on the
+    bars; clicking a segment opens the Overlay with those particles
+    highlighted and every material shown.
+  - Particle groups: UpSet-style dots for the instruments of each bar, bars
+    split by polymer family.
+  - Material concordance: one line per pair (same family, most common
+    disagreement) above the detailed table.
+  - Detection rates by size: legend in words ("Of Raman's particles: found by
+    LDIR") and the particle counts under each size class.
 - **OPUS side file for the Bruker Lumos image.** The scan's OPUS values in a
   `.txt` next to the image (`<image name>.txt`, template
   `inst/templates/opus_placement.txt`, names as in the OPUS report) place the

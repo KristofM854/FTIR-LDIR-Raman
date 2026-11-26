@@ -496,9 +496,9 @@ multi-page PDF containing:
 | 2 | Material comparison bar chart for the selected family |
 | 3 | Plastics by Instrument (family × device counts, with totals) |
 | 4 | Material breakdown pie charts, 2×2 |
-| 5 | Size distributions per instrument |
-| 6 | Size statistics table (above / below each instrument's quality cutoff) |
-| 7+ | Alignment check, pair matrices (identified / detected, all particles and plastics), matching quality per pair, why particles are not matched, particle groups, detection rates by size |
+| 5 | Particle sizes: all instruments on one axis, with medians and their 95% intervals |
+| 6 | Size statistics table (quality cutoff, above / below it, IQR) |
+| 7+ | Alignment check (verdict, orientation, scale; each instrument's particles over the reference's), pair matrices (identified / detected, all particles and plastics), matching quality per pair (family agreement for every pair), why particles are not matched, particle groups (by polymer family), material concordance per pair, detection rates by size |
 | then | Each instrument view — image with its particles overlaid (FTIR PerkinElmer, FTIR Bruker, Raman, LDIR) |
 | then | Overlay — all instruments in the shared frame |
 | appendix | Material concordance per instrument pair |

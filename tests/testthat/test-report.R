@@ -402,3 +402,70 @@ test_that("the supporting-files table lists every side file of the run's instrum
   expect_equal(sf$file[sf$kind == "ldir_sam"], "run_(1).sam")
   expect_true(is.na(sf$file[sf$kind == "raman_placement"]))
 })
+
+
+# ---- Summary tab: alignment overview, sizes, groups, concordance -------------
+
+test_that("the orientation reads as the nearest quarter turn and the deviation", {
+  env <- .load_report_helpers()
+  expect_equal(env$orientation_label(-178.69), "turned 180\u00b0, 1.3\u00b0 off")
+  expect_equal(env$orientation_label(1.62), "same orientation, 1.6\u00b0 off")
+  expect_equal(env$orientation_label(91.2, TRUE), "turned 90\u00b0 counter-clockwise, mirrored, 1.2\u00b0 off")
+  expect_equal(env$orientation_label(-90), "turned 90\u00b0 clockwise, 0.0\u00b0 off")
+})
+
+test_that("alignment overview, matching family for every pair, concordance overview", {
+  env <- .load_report_helpers()
+  run <- .fake_agreement_run()
+  ov <- env$alignment_overview(run)
+  expect_equal(ov$verdict, c("ok", "not determined"))
+  expect_equal(ov$orientation[1], "turned 180\u00b0, 1.6\u00b0 off")
+  expect_true(all(ov$scale_ok))
+  co <- env$summary_concordance_overview(run)
+  expect_equal(co$Pairs, 2L)
+  expect_match(co$`Most common disagreement`, "\u2192")              # PE -> Cellulose
+  pm <- env$summary_pair_matrix(run)
+  expect_match(env$pair_matrix_guide(pm), "^Read across: of LDIR's 4 particles, Raman identified 50%")
+  # Without an agreement table (pairs without Raman), the family agreement
+  # comes from the match file
+  utils::write.csv(data.frame(ldir_particle_id = c("A1", "A2"), ldir_material = c("PET", "PE"),
+                              ftir_particle_id = c("F1", "F2"), ftir_material = c("PET", "PP")),
+                   file.path(run, "05_matches", "matched_ldir_ftir_perkin.csv"), row.names = FALSE)
+  ch <- utils::read.csv(file.path(run, "07_diagnostics", "chance_pairs.csv"))
+  ch <- rbind(ch, transform(ch[1, ], pair = "ldir_ftir_perkin"))
+  utils::write.csv(ch, file.path(run, "07_diagnostics", "chance_pairs.csv"), row.names = FALSE)
+  mt <- env$report_matching_table(run)
+  expect_match(mt[mt$Pair == "LDIR \u2013 FTIR (PE)", "Family agr. (95% CI)"], "^50% ")
+})
+
+test_that("sizes on one axis, medians with intervals, size statistics with cutoffs", {
+  env <- .load_report_helpers()
+  set.seed(1)
+  dfs <- list(ftir = data.frame(feret_max = rlnorm(60, 5, 0.5)),
+              raman = data.frame(feret_max = rlnorm(80, 4.7, 0.6)))
+  expect_s3_class(env$plot_size_overlay(dfs), "ggplot")
+  m <- env$size_median_table(dfs)
+  expect_equal(m$Instrument, c("FTIR (PerkinElmer)", "Raman"))
+  lo_hi <- as.numeric(strsplit(m[[4]][1], "\u2013")[[1]])
+  expect_true(lo_hi[1] < m[[3]][1] && m[[3]][1] < lo_hi[2])     # the median lies inside its interval
+  tbl <- env$report_size_stats_table(list(ftir = .pdf_particles(rep("PET", 4), feret = c(10, 20, 30, 40))),
+                                     cutoffs = list(ftir = 0.7))
+  expect_equal(tbl[["Quality cutoff"]], "AAU \u2265 0.7")
+  expect_match(tbl$IQR, "^17.5\u201332.5")
+  expect_null(tbl[["Std Dev"]])
+})
+
+test_that("particle groups by polymer family and the interactive status chart", {
+  env <- .load_report_helpers()
+  run <- .fake_agreement_run()
+  g <- env$summary_particle_groups(run, by_family = TRUE)
+  expect_setequal(names(g), c("combo", "n_inst", "family", "n"))
+  expect_equal(sum(g$n), sum(env$summary_particle_groups(run)$n))   # same particles, split by family
+  expect_s3_class(env$plot_particle_groups(g), "ggplot")
+  expect_s3_class(env$plot_particle_groups(env$summary_particle_groups(run)), "ggplot")
+  skip_if_not_installed("plotly")
+  tb <- env$summary_partner_status_counts(run, passing_only = TRUE)
+  expect_s3_class(env$plot_partner_status_plotly(tb, "ldir"), "plotly")
+  expect_equal(env$partner_status_ids(run, "ldir", "raman", "partner_below_cutoff"), "A3")
+  expect_length(env$partner_status_ids(run, "ldir", "raman", "this_below_cutoff"), 0)   # A4 below its cutoff
+})
