@@ -106,8 +106,13 @@ OPUS values in a text file next to the image, named like it
 values from the OPUS report of the measurement (block "Bitmap": PixelSizeX,
 PixelSizeY, Pos. X, Pos. Y, Size X, Size Y; block "Data Parameters":
 Map Origin X, Map Origin Y). The image is then placed exactly, which the
-alignment on the image's spots needs. Values from another scan (another image
-size, or particles outside the image) are ignored with a warning.
+alignment on the image's spots needs. Without a file, the config's default
+values (the Faanui SW1L R4 A scan) are used and the run log says so; values
+set for a run in `config_overrides` win over the file. Values that do not fit
+the scan (another image size, or particles outside the image they place) are
+ignored with a warning and the image is registered on its particles instead.
+Every Lumos image has the same size, so for another scan only the particle
+check guards against the default values: give each scan its own file.
 
 `input_mode <- "explicit"` before `source("main.R")` gives the earlier
 dialogs instead: the instruments first, then one dialog per data file and
