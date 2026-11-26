@@ -452,6 +452,53 @@ ftir_extent_from_opus <- function(cfg, prefix, img_w, img_h, x = NULL, y = NULL,
   ext
 }
 
+#' Bruker OPUS placement side file: the OPUS values of one Lumos scan in a .txt
+#' next to its image, so each scan carries its own calibration (the export
+#' writes none). One "Name: value" line per value, with the names of the OPUS
+#' report (block "Bitmap": PixelSizeX, PixelSizeY, Pos. X, Pos. Y, Size X,
+#' Size Y; block "Data Parameters": Map Origin X, Map Origin Y); spaces, dots
+#' and case in the names do not matter, "=" or a tab may replace the colon,
+#' and a decimal comma is read. Template: inst/templates/opus_placement.txt.
+#'
+#' @param path The .txt file
+#' @return The list config$opus_ftir_bruker_image takes (pixel_size_x_um,
+#'   pixel_size_y_um, pos_x_px, pos_y_px, size_x_px, size_y_px,
+#'   map_origin_x_um, map_origin_y_um), or NULL when the file is not one
+read_opus_placement <- function(path) {
+  txt <- tryCatch(readLines(path, warn = FALSE, encoding = "latin1"), error = function(e) character(0))
+  if (!length(txt)) return(NULL)
+  m <- regmatches(txt, regexec("^\\s*([^:=\t]+?)\\s*[:=\t]\\s*([-+]?[0-9]+(?:[.,][0-9]+)?(?:[eE][-+]?[0-9]+)?)", txt, perl = TRUE))
+  m <- m[lengths(m) == 3]
+  if (!length(m)) return(NULL)
+  key <- gsub("[^a-z]", "", tolower(vapply(m, `[`, "", 2)))
+  val <- suppressWarnings(as.numeric(sub(",", ".", vapply(m, `[`, "", 3), fixed = TRUE)))
+  get <- function(...) { i <- match(c(...), key); i <- i[!is.na(i)]; if (length(i)) val[i[1]] else NA_real_ }
+  out <- list(pixel_size_x_um = get("pixelsizex", "pixelsizexum"),
+              pixel_size_y_um = get("pixelsizey", "pixelsizeyum"),
+              pos_x_px = get("posx", "positionx"), pos_y_px = get("posy", "positiony"),
+              size_x_px = get("sizex"), size_y_px = get("sizey"),
+              map_origin_x_um = get("maporiginx"), map_origin_y_um = get("maporiginy"))
+  need <- c("pixel_size_x_um", "pixel_size_y_um", "pos_x_px", "pos_y_px",
+            "map_origin_x_um", "map_origin_y_um")
+  if (any(!is.finite(unlist(out[need]))) || out$pixel_size_x_um <= 0 || out$pixel_size_y_um <= 0)
+    return(NULL)                               # incomplete, or the template not filled in
+  out[vapply(out, is.finite, logical(1))]
+}
+
+#' The OPUS side file of a Bruker image: config$ftir_bruker_opus_path, else
+#' <image name>.txt, else the only .txt in the image's folder that reads as
+#' one. NULL when there is none.
+find_opus_placement <- function(image_path, config = NULL) {
+  p <- config[["ftir_bruker_opus_path"]]
+  if (!is.null(p) && nzchar(p)) return(if (file.exists(p)) p else NULL)
+  if (is.null(image_path) || !nzchar(image_path)) return(NULL)
+  own <- paste0(tools::file_path_sans_ext(image_path), ".txt")
+  if (file.exists(own) && !is.null(read_opus_placement(own))) return(own)
+  txts <- list.files(dirname(image_path), pattern = "\\.txt$", ignore.case = TRUE, full.names = TRUE)
+  txts <- txts[vapply(txts, function(f) !is.null(read_opus_placement(f)), logical(1))]
+  if (length(txts) == 1) txts else NULL
+}
+
 #' FTIR image placement file: <image stem>.txt next to the image, as written by
 #' tools/stitch_ftir_segments.R. Lines "Width: <um>", "Height: <um>" and
 #' optionally "Center X: <um>", "Center Y: <um>", in the particle table's frame

@@ -158,7 +158,8 @@ make_config <- function(ftir_path  = NULL,
     # The image is then placed exactly. The values are checked against the
     # image (size_x_px / size_y_px) and the particles (90% must fall inside);
     # values left from another scan are ignored with a warning. NULL (default):
-    # the image is registered on its particles. Example (field sample Faanui
+    # the side file (ftir_bruker_opus_path) when there is one, else the image
+    # is registered on its particles. Example (field sample Faanui
     # SW1L R4, measured 2026-07-27):
     #   opus_ftir_bruker_image = list(
     #     pixel_size_x_um = 7.907902, pixel_size_y_um = 7.908996,  # Bitmap: PixelSizeX / Y
@@ -166,6 +167,12 @@ make_config <- function(ftir_path  = NULL,
     #     size_x_px = 2048, size_y_px = 1949,                     # Bitmap: Size X / Y
     #     map_origin_x_um = 49564, map_origin_y_um = 6050.38)     # Data Parameters: Map Origin X / Y
     opus_ftir_bruker_image = NULL,
+    # ftir_bruker_opus_path: a side file with this scan's OPUS values (one
+    #   "Name: value" line each, as in the OPUS report; template
+    #   inst/templates/opus_placement.txt). NULL: <Bruker image name>.txt, else
+    #   the only such .txt next to the image. Used when opus_ftir_bruker_image
+    #   is NULL; the one-dialog input sets it.
+    ftir_bruker_opus_path = NULL,
     ftir_image_width_um    = NULL,
     ftir_image_height_um   = NULL,
     ftir_image_center_x_um = NULL,

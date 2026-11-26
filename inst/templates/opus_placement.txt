@@ -1,0 +1,13 @@
+OPUS image placement (Bruker Lumos)
+Copy this file next to the Lumos image, name it like the image (<image name>.txt),
+and fill in the values from the OPUS report of the measurement.
+Block "Bitmap":
+PixelSizeX: 0
+PixelSizeY: 0
+Pos. X: 0
+Pos. Y: 0
+Size X: 0
+Size Y: 0
+Block "Data Parameters AB/Multiple":
+Map Origin X: 0
+Map Origin Y: 0

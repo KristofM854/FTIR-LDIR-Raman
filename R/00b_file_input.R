@@ -23,6 +23,8 @@
 #   LDIR .sam       "Agilent.Clarity" in its first kilobytes (byte 112 on Faanui)
 #   coordinate swaps  two-column table with id_clarity / id_R style headers
 #   WITec placement   .txt with Width, Height, X, Y lines
+#   OPUS placement    .txt with the Lumos scan's OPUS values (PixelSizeX, Pos. X,
+#                     Map Origin X, ...; inst/templates/opus_placement.txt)
 #   FTIR placement    .txt starting "FTIR image placement"
 #   LDIR analyzed image  few colours on black (Clarity's particle colouring)
 #   BMP images      the header: Bruker Lumos 32-bit; WITec mosaics without a
@@ -131,6 +133,8 @@ classify_input_file <- function(path) {
       first <- tryCatch(readLines(path, n = 1L, warn = FALSE), error = function(e) "")
       if (length(first) && grepl("FTIR image placement", first[1], ignore.case = TRUE))
         return(out("ftir_placement", reason = "starts 'FTIR image placement'"))
+      if (exists("read_opus_placement", mode = "function") && !is.null(read_opus_placement(path)))
+        return(out("opus_placement", "ftir_bruker", "OPUS values (PixelSizeX/Y, Pos. X/Y, Map Origin X/Y)"))
       w <- if (exists("read_witec_image_placement", mode = "function"))
         suppressMessages(read_witec_image_placement(path, quiet = TRUE)) else NULL
       if (!is.null(w))
@@ -417,6 +421,7 @@ assign_input_roles <- function(files, ask) {
   side("ldir_sam", "ldir_sam_path", "LDIR project files (.sam)", "ldir")
   side("raman_placement", "raman_image_metadata", "Raman placement files", "raman")
   side("ldir_coord_swaps", "ldir_coord_swaps_path", "coordinate-swap tables", "ldir")
+  side("opus_placement", "ftir_bruker_opus_path", "OPUS placement files", "ftir_bruker")
   # FTIR placement files are read next to their image, by its name
   for (i in which(kind == "ftir_placement")) {
     img <- unlist(paths[c("ftir_image", "ftir_bruker_image")])
@@ -436,6 +441,7 @@ assign_input_roles <- function(files, ask) {
                 ldir_file = "LDIR table", ldir_image = "LDIR image",
                 ldir_analyzed = "LDIR analyzed image", ldir_sam_path = "LDIR project file",
                 raman_image_metadata = "Raman placement", ldir_coord_swaps_path = "LDIR coordinate swaps",
+                ftir_bruker_opus_path = "FTIR (Bruker) OPUS values",
                 `ftir placement` = "FTIR image placement")
   ord <- order(match(used, names(label_of)), na.last = TRUE)
   lines <- vapply(ord, function(i) sprintf("%-26s %s%s",

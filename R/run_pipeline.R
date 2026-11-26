@@ -488,9 +488,25 @@ run_pipeline <- function(config, report = TRUE) {
       ftir_scan_bounds <- list(x_min = .ftir_pl$xmin, x_max = .ftir_pl$xmax,
                                y_min = .ftir_pl$ymin, y_max = .ftir_pl$ymax)
   }
-  if (!is.null(config$ftir_bruker_image) && nzchar(config$ftir_bruker_image))
+  if (!is.null(config$ftir_bruker_image) && nzchar(config$ftir_bruker_image)) {
+    # The OPUS values of this scan from its side file, unless the config sets them
+    if (is.null(config[["opus_ftir_bruker_image"]])) {
+      .opus_file <- find_opus_placement(config$ftir_bruker_image, config)
+      .opus <- if (!is.null(.opus_file)) read_opus_placement(.opus_file)
+      if (!is.null(.opus)) {
+        config[["opus_ftir_bruker_image"]] <- .opus
+        update_manifest_config_snapshot(config$output_dir, list(opus_ftir_bruker_image = .opus))
+        note_supporting_file(config, "ftir_bruker_opus", .opus_file,
+          "OPUS values of the Lumos scan: place the Bruker image exactly")
+        log_message("  FTIR (Bruker): OPUS values from ", basename(.opus_file))
+      } else if (!is.null(.opus_file)) {
+        log_message("  FTIR (Bruker): ", basename(.opus_file), " is not an OPUS placement file ",
+                    "(needs PixelSizeX/Y, Pos. X/Y, Map Origin X/Y)", level = "WARN")
+      }
+    }
     invisible(.place_ftir_run_image(config$ftir_bruker_image, ftir_bruker_raw,
                                     "ftir_bruker_image", "ftir_bruker", "FTIR (Bruker)"))
+  }
   if (!is.null(.table_fix$ftir_bruker)) {
     f <- .table_fix$ftir_bruker
     ftir_bruker_raw$x_um <- f$ax * ftir_bruker_raw$x_um + f$bx

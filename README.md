@@ -90,6 +90,7 @@ content (`R/00b_file_input.R`), not its name:
 | LDIR analyzed image | a few flat colours on black; paired with its LDIR image by name or size |
 | Bruker image | 32-bit BMP (Lumos camera) |
 | Raman image | BMP mosaic without a resolution field, or the aspect ratio of the WITec `.txt` |
+| Bruker OPUS values (`.txt`) | `PixelSizeX`, `Pos. X`, `Map Origin X`, … lines (see below) |
 | `.sam`, WITec `.txt`, FTIR placement `.txt`, coordinate swaps | their content (Clarity signature; `Width`/`Height`/`X`/`Y`; first line; `id_clarity`/`id_R` header) |
 
 A question appears only where the content cannot decide: two candidates for
@@ -97,6 +98,16 @@ one role (e.g. two Raman tables from different spectral libraries, or two
 `.sam` files), an FTIR table or image whose instrument nothing reveals. A last
 window lists every file with its role and why: No ends the run, e.g. after a
 wrong file. At least two instrument tables are needed.
+
+**Bruker Lumos image placement.** The Lumos export writes no placement for its
+image, and registering the image on its particles often fails. Put the scan's
+OPUS values in a text file next to the image, named like it
+(`<image name>.txt`); copy `inst/templates/opus_placement.txt` and fill in the
+values from the OPUS report of the measurement (block "Bitmap": PixelSizeX,
+PixelSizeY, Pos. X, Pos. Y, Size X, Size Y; block "Data Parameters":
+Map Origin X, Map Origin Y). The image is then placed exactly, which the
+alignment on the image's spots needs. Values from another scan (another image
+size, or particles outside the image) are ignored with a warning.
 
 `input_mode <- "explicit"` before `source("main.R")` gives the earlier
 dialogs instead: the instruments first, then one dialog per data file and
@@ -118,7 +129,8 @@ source("main.R")
 Side files are found next to the tables and images by their names. One with
 another name or folder is set in `config_overrides`: `ldir_sam_path`,
 `ldir_processed_image_path` (the analyzed image), `ldir_coord_swaps_path`,
-`raman_image_metadata` (the WITec `.txt`).
+`raman_image_metadata` (the WITec `.txt`), `ftir_bruker_opus_path` (the OPUS
+values `.txt`).
 
 Leave out any instrument (`raman_file <- NULL`, …) as long as two remain.
 `examples/run_example_A.R` is a complete example of this.
@@ -484,9 +496,9 @@ multi-page PDF containing:
 | 2 | Material comparison bar chart for the selected family |
 | 3 | Plastics by Instrument (family × device counts, with totals) |
 | 4 | Material breakdown pie charts, 2×2 |
-| 5 | Size distributions per instrument |
-| 6 | Size statistics table (above / below each instrument's quality cutoff) |
-| 7+ | Alignment check, pair matrices (identified / detected, all particles and plastics), matching quality per pair, why particles are not matched, particle groups, detection rates by size |
+| 5 | Particle sizes: all instruments on one axis, with medians and their 95% intervals |
+| 6 | Size statistics table (quality cutoff, above / below it, IQR) |
+| 7+ | Alignment check (verdict, orientation, scale; each instrument's particles over the reference's), pair matrices (identified / detected, all particles and plastics), matching quality per pair (family agreement for every pair), why particles are not matched, particle groups (by polymer family), material concordance per pair, detection rates by size |
 | then | Each instrument view — image with its particles overlaid (FTIR PerkinElmer, FTIR Bruker, Raman, LDIR) |
 | then | Overlay — all instruments in the shared frame |
 | appendix | Material concordance per instrument pair |

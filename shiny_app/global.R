@@ -2055,9 +2055,14 @@ report_plastics_table <- function(devices) {
 #
 # `dfs` is a named list with $ftir / $raman / $ldir (as summary_dfs() returns).
 # Numbers are pre-formatted for display, matching the HTML table's rounding.
-report_size_stats_table <- function(dfs) {
+report_size_stats_table <- function(dfs, cutoffs = NULL) {
   labels <- c("FTIR (PerkinElmer)" = "ftir", "FTIR (Bruker)" = "ftir_bruker",
               Raman = "raman", LDIR = "ldir")
+  cut_label <- function(k) {
+    v <- cutoffs[[k]]
+    if (is.null(v) || !is.finite(v)) return("\u2013")
+    paste(switch(k, raman = "HQI", ldir = "quality", "AAU"), "\u2265", format(v))
+  }
   rows <- list()
   for (nm in names(labels)) {
     df <- dfs[[labels[[nm]]]]
@@ -2066,11 +2071,13 @@ report_size_stats_table <- function(dfs) {
     rows[[nm]] <- data.frame(
       Instrument = nm,
       Total      = nrow(df),
+      `Quality cutoff` = cut_label(labels[[nm]]),
       `Above quality cutoff` = if ("passes_cutoff" %in% names(df)) sum(df$passes_cutoff %in% TRUE) else nrow(df),
       `Below quality cutoff` = if ("passes_cutoff" %in% names(df)) sum(df$passes_cutoff %in% FALSE) else 0L,
       Mean       = paste0(round(mean(fm,   na.rm = TRUE), 1), " \u00b5m"),
       Median     = paste0(round(stats::median(fm, na.rm = TRUE), 1), " \u00b5m"),
-      `Std Dev`  = paste0(round(stats::sd(fm, na.rm = TRUE), 1), " \u00b5m"),
+      IQR        = paste0(round(stats::quantile(fm, 0.25, na.rm = TRUE), 1), "\u2013",
+                          round(stats::quantile(fm, 0.75, na.rm = TRUE), 1), " \u00b5m"),
       Range      = paste0(round(min(fm, na.rm = TRUE), 1), "\u2013",
                           round(max(fm, na.rm = TRUE), 1), " \u00b5m"),
       check.names = FALSE, stringsAsFactors = FALSE)
@@ -2121,6 +2128,17 @@ report_matching_table <- function(run_dir) {
       if (!is.null(pw$p_true) && any(!is.na(pw$p_true))) {
         hc <- res & !is.na(pw$p_true) & pw$p_true >= hc_min
         fam_hc <- format_rate_ci(sum(agree & hc), sum(hc))
+      }
+    } else {
+      # Pairs without agreement tables (those without Raman): family
+      # agreement from the match file, over pairs where both families are known
+      pm <- run_pair_matches(run_dir)[[stem]]
+      if (!is.null(pm) && nrow(pm)) {
+        fa <- classify_family_vec(pm$material_a); fb <- classify_family_vec(pm$material_b)
+        known <- function(f) !is.na(f) & !tolower(f) %in% c("unknown", "")
+        res <- known(fa) & known(fb)
+        scored <- nrow(pm)
+        fam <- format_rate_ci(sum(res & fa == fb), sum(res))
       }
     }
     undetermined <- isFALSE(as.logical(ch$alignment_determined[i] %||% TRUE))
@@ -3322,27 +3340,17 @@ build_report_pages <- function(dfs, meta = list(), img_paths = list(),
            "excluded; the Total row sums the families shown."))))
 
   # --- 4. Size distributions ------------------------------------------------
-  size_plots <- list()
-  if (n_of("ftir") > 0)
-    size_plots <- c(size_plots,
-                    list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
-  if (n_of("ftir_bruker") > 0)
-    size_plots <- c(size_plots,
-                    list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)")))
-  if (n_of("raman") > 0)
-    size_plots <- c(size_plots,
-                    list(plot_size_distribution(dfs$raman, "Raman")))
-  if (n_of("ldir") > 0)
-    size_plots <- c(size_plots,
-                    list(plot_size_distribution(dfs$ldir, "LDIR")))
-  pages <- c(pages, list(report_grid_page(
-    size_plots, "Size Distribution by Instrument",
-    "Feret Max (\u00b5m) per instrument.",
-    ncol = if (length(size_plots) == 4) 2 else min(3, max(1, length(size_plots))))))
+  pages <- c(pages, list(report_full_figure_page(
+    plot_size_overlay(dfs), "Particle Sizes",
+    "Feret max (um) of every instrument on one axis (log scale); dashed: medians.")))
+  pages <- c(pages, list(report_table_page(
+    .report_ascii_df(size_median_table(dfs)), "Median Size",
+    "Median Feret max per instrument with its 95% interval (order statistics) and the interquartile range.")))
 
   # --- 5. Size statistics ---------------------------------------------------
   pages <- c(pages, list(report_table_page(
-    report_size_stats_table(dfs), "Size Statistics",
+    .report_ascii_df(report_size_stats_table(dfs, quality_cutoffs(tryCatch(
+      load_run_manifest(run_dir)$config_snapshot, error = function(e) NULL)))), "Size Statistics",
     paste0("Feret Max summary statistics per instrument; above / below each ",
            "instrument's quality cutoff (the pipeline matches only particles above it)."))))
 
@@ -4290,7 +4298,7 @@ plot_partner_status <- function(tb) {
 #' combination of instruments with its count.
 #' @param synthetic_only Keep groups with a synthetic polymer in any member
 #' @return data.frame(combo, n_inst, n) sorted by n, or an empty frame
-summary_particle_groups <- function(run_dir, synthetic_only = FALSE) {
+summary_particle_groups <- function(run_dir, synthetic_only = FALSE, by_family = FALSE) {
   if (is.null(run_dir)) return(data.frame())
   cfg <- tryCatch(load_run_manifest(run_dir)$config_snapshot, error = function(e) NULL)
   cut <- quality_cutoffs(cfg)
@@ -4346,7 +4354,21 @@ summary_particle_groups <- function(run_dir, synthetic_only = FALSE) {
   out <- as.data.frame(table(combo = unname(combo)), stringsAsFactors = FALSE)
   names(out)[2] <- "n"
   out$n_inst <- as.integer(n_inst[match(out$combo, combo)])
-  out[order(-out$n_inst, -out$n), c("combo", "n_inst", "n"), drop = FALSE]
+  out <- out[order(-out$n_inst, -out$n), c("combo", "n_inst", "n"), drop = FALSE]
+  if (!by_family) return(out)
+  # The group's polymer family: the most common known family of its members
+  fam <- classify_family_vec(nodes$material)
+  fam[is.na(fam) | tolower(fam) %in% c("unknown", "")] <- NA
+  gfam <- tapply(fam, nodes$group, function(f) {
+    f <- f[!is.na(f)]; if (!length(f)) "unknown" else names(sort(table(f), decreasing = TRUE))[1]
+  })
+  long <- as.data.frame(table(combo = unname(combo), family = unname(gfam[names(combo)])),
+                        stringsAsFactors = FALSE)
+  names(long)[3] <- "n"
+  long <- long[long$n > 0, , drop = FALSE]
+  long$n_inst <- out$n_inst[match(long$combo, out$combo)]
+  long$combo <- factor(long$combo, levels = out$combo)
+  long[order(long$combo, -long$n), c("combo", "n_inst", "family", "n"), drop = FALSE]
 }
 
 #' Bar chart of the particle groups (combinations of instruments that found
@@ -4394,8 +4416,8 @@ summary_concordance_choices <- function(run_dir) {
 # PDF tables: plain ASCII (the PDF device may lack the glyphs for mu, degree,
 # sigma and dashes, as the other report tables already assume)
 .report_ascii <- function(x) {
-  from <- c("\u2013", "\u2014", "\u00b5", "\u00b0", "\u03c3", "\u2192", "\u2193")
-  to   <- c("-", "-", "u", "deg", "sigma", "->", "")
+  from <- c("\u2013", "\u2014", "\u00b5", "(\u00b0)", "\u00b0", "\u03c3", "\u2192", "\u2193", "\u2265")
+  to   <- c("-", "-", "u", "(deg)", " deg", "sigma", "->", "", ">=")
   for (i in seq_along(from)) x <- gsub(from[i], to[i], x, fixed = TRUE)
   x
 }
@@ -4410,6 +4432,20 @@ report_agreement_pages <- function(run_dir) {
   .tbl_page <- function(df, title, caption = NULL)
     report_table_page(.report_ascii_df(df), .report_ascii(title), caption)
   if (is.null(run_dir)) return(list(main = main, appendix = appendix))
+  ov <- alignment_overview(run_dir)
+  if (nrow(ov)) {
+    ovt <- data.frame(Instrument = ov$instrument, `Aligned onto` = ov$reference,
+                      Verdict = c(ok = "fixed by the data", check = "check",
+                                  `not determined` = "NOT DETERMINED")[ov$verdict],
+                      Orientation = ov$orientation,
+                      Scale = sprintf("%.3f%s", ov$scale, ifelse(ov$scale_ok, "", " (outside 0.97-1.03)")),
+                      check.names = FALSE, stringsAsFactors = FALSE)
+    main <- c(main, list(.tbl_page(ovt, "Alignment Check - Overview",
+      "Verdict, orientation (nearest quarter turn and the deviation from it) and scale of each instrument's alignment.")))
+    th <- tryCatch(plot_alignment_thumbnails(run_dir), error = function(e) NULL)
+    if (!is.null(th)) main <- c(main, list(report_full_figure_page(th, "Alignment Check - Particles",
+      "Each instrument's particles (its colour) over the reference instrument's (grey rings) in the shared frame.")))
+  }
   al <- summary_alignment_table(run_dir)
   if (nrow(al)) main <- c(main, list(.tbl_page(al, "Alignment Check",
     paste0("How each instrument was put into the shared frame. Residual: distance left ",
@@ -4450,11 +4486,14 @@ report_agreement_pages <- function(run_dir) {
   if (!is.null(ps)) main <- c(main, list(report_full_figure_page(ps, "Why Particles Are Not Matched",
     paste0("For each instrument's particles above its quality cutoff: what the partner ",
            "instrument has at the same place, whatever the quality (05_matches/partner_status.csv)."))))
-  gp <- plot_particle_groups(summary_particle_groups(run_dir))
+  gp <- plot_particle_groups(summary_particle_groups(run_dir, by_family = TRUE))
   if (!is.null(gp)) main <- c(main, list(report_full_figure_page(gp, "Particle Groups",
     paste0("Particles above their quality cutoff linked through the pairs of any two ",
            "instruments, counted by the instruments that found them. One instrument alone: ",
            "found by it and matched by none of the others."))))
+  co <- summary_concordance_overview(run_dir)
+  if (nrow(co)) main <- c(main, list(.tbl_page(co, "Material Concordance",
+    "Per instrument pair: pairs, share where both instruments assigned the same polymer family, and the most common disagreement (first instrument's family -> second's). Full tables in the appendix.")))
   for (stem in summary_concordance_choices(run_dir)) {
     tb <- summary_concordance(run_dir, stem)
     if (is.null(tb)) next
@@ -4478,14 +4517,16 @@ report_agreement_pages <- function(run_dir) {
 # 00_manifest/supporting_files.csv (note_supporting_file()).
 SUPPORTING_FILES <- data.frame(
   kind = c("ftir_segments", "ftir_image_placement", "ftir_bruker_image_placement",
-           "raman_placement", "ldir_analyzed_image", "ldir_sam", "ldir_coord_swaps"),
-  instrument = c("ftir", "ftir", "ftir_bruker", "raman", "ldir", "ldir", "ldir"),
-  label = c("Scan segments", "Image placement", "Image placement", "Image placement (WITec)",
+           "ftir_bruker_opus", "raman_placement", "ldir_analyzed_image", "ldir_sam", "ldir_coord_swaps"),
+  instrument = c("ftir", "ftir", "ftir_bruker", "ftir_bruker", "raman", "ldir", "ldir", "ldir"),
+  label = c("Scan segments", "Image placement", "Image placement", "OPUS values (.txt)",
+            "Image placement (WITec)",
             "Analyzed image", "Project file (.sam)", "Coordinate swaps"),
   expected = c(
     "All segments of one scan: <name>_M1.csv ... _Mn.csv with <name>_M1.bmp ... _Mn.bmp, in one folder",
     "<image name>.txt next to the FTIR image (written by tools/stitch_ftir_segments.R)",
-    "<image name>.txt next to the Bruker image; or the OPUS values in config$opus_ftir_bruker_image",
+    "<image name>.txt next to the Bruker image (written by the stitching tool)",
+    "<Lumos image name>.txt with the scan's OPUS values (template inst/templates/opus_placement.txt)",
     "<image name>.txt next to the Raman image (the WITec export; a _small / _resized suffix is ignored)",
     "<LDIR image name>_analyzed.png next to the LDIR image (Clarity export with coloured particles)",
     "The Clarity project file next to the LDIR table (the only .sam there, or config$ldir_sam_path)",
@@ -4494,6 +4535,7 @@ SUPPORTING_FILES <- data.frame(
     "Stitched into one table and one image before the run",
     "Places the FTIR image exactly (width, height, centre in um); without it the image is registered on its particles",
     "Places the Bruker image exactly; without it the image is registered on its particles",
+    "Places the Lumos image exactly from the OPUS report (the export writes no placement); without it the image is registered on its particles, which often fails for the Lumos",
     "Places the Raman image exactly (width, height, top-left corner in um); without it the placement is estimated",
     "Gives the LDIR particles positions (the LDIR table has none); without it the LDIR image is analysed directly",
     "Exact LDIR join: each row's own outline (by particle ID) picks its particle; also the outlines drawn in the viewer",
@@ -4516,8 +4558,261 @@ supporting_files_table <- function(run_dir, instruments) {
   if (!is.null(run_dir) && file.exists(ij) && requireNamespace("jsonlite", quietly = TRUE)) {
     im <- tryCatch(jsonlite::fromJSON(ij, simplifyVector = FALSE), error = function(e) NULL)
     i <- which(sf$kind == "ftir_bruker_image_placement")
-    if (length(i) && is.na(sf$file[i]) && identical(im$ftir_bruker$provenance, "metadata"))
+    from_file <- any(!is.na(sf$file[sf$kind == "ftir_bruker_opus"]))
+    if (length(i) && is.na(sf$file[i]) && !from_file && identical(im$ftir_bruker$provenance, "metadata"))
       sf$file[i] <- "OPUS values in the config"
   }
   sf
+}
+
+
+# ---- Summary: alignment overview, sizes, groups, concordance -----------------
+ROLE_OV_KEY <- c(ftir_perkin = "ftir_pe", ftir_bruker = "ftir_bruker", raman = "raman", ldir = "ldir")
+.role_colour <- function(r) unname(INSTRUMENT_COLOURS[ROLE_OV_KEY[r]])
+
+#' An alignment rotation in words: the nearest quarter turn and the deviation
+#' from it ("turned 180 deg, 1.3 deg off"); positive angles are counter-clockwise
+orientation_label <- function(rot, reflected = FALSE) {
+  if (!is.finite(rot)) return("\u2013")
+  k <- round(rot / 90); dev <- rot - 90 * k
+  base <- c("same orientation", "turned 90\u00b0 counter-clockwise", "turned 180\u00b0",
+            "turned 90\u00b0 clockwise")[(k %% 4) + 1]
+  paste0(base, if (isTRUE(reflected)) ", mirrored" else "", ", ", sprintf("%.1f", abs(dev)), "\u00b0 off")
+}
+
+#' Alignment check in brief: one row per aligned instrument with a verdict
+#' (ok / check / not determined), the orientation in words and whether the
+#' scale is within 0.97-1.03
+alignment_overview <- function(run_dir) {
+  f <- file.path(run_dir %||% "", "04_alignment", "alignment_summary.csv")
+  if (is.null(run_dir) || !file.exists(f)) return(data.frame())
+  a <- utils::read.csv(f, stringsAsFactors = FALSE)
+  verdict <- ifelse(a$determined %in% FALSE, "not determined",
+                    ifelse(!is.na(a$pose_p) & a$pose_p < 1e-3, "ok", "check"))
+  data.frame(role = a$instrument, instrument = .role_label(a$instrument), reference = a$reference,
+             verdict = verdict,
+             orientation = vapply(seq_len(nrow(a)), function(i)
+               orientation_label(a$rotation_deg[i], a$reflected[i] %in% TRUE), ""),
+             scale = a$scale, scale_ok = is.finite(a$scale) & abs(a$scale - 1) <= 0.03,
+             residual_um = a$icp_rms_um, n_matched = a$n_matched, stringsAsFactors = FALSE)
+}
+
+#' Small panels, one per aligned instrument: its particles (its colour) over
+#' the reference instrument's (grey) in the shared frame, to check the
+#' alignment by eye
+plot_alignment_thumbnails <- function(run_dir, max_points = 4000) {
+  ov <- alignment_overview(run_dir)
+  if (!nrow(ov)) return(NULL)
+  ref_role <- names(ROLE_LABELS)[match(ov$reference[1], ROLE_LABELS)]
+  rd <- function(r) {
+    f <- file.path(run_dir, "04_alignment", paste0("aligned_", r, ".csv"))
+    if (!file.exists(f)) return(NULL)
+    a <- utils::read.csv(f, stringsAsFactors = FALSE)
+    a <- a[is.finite(a$x_aligned) & is.finite(a$y_aligned), c("x_aligned", "y_aligned"), drop = FALSE]
+    if (nrow(a) > max_points) a <- a[sort(sample.int(nrow(a), max_points)), , drop = FALSE]
+    a
+  }
+  ref <- rd(ref_role)
+  if (is.null(ref)) return(NULL)
+  panels <- list()
+  for (i in seq_len(nrow(ov))) {
+    d <- rd(ov$role[i])
+    if (is.null(d) || !nrow(d)) next
+    lab <- paste0(ov$instrument[i], " on ", ov$reference[i])
+    panels[[length(panels) + 1]] <- rbind(
+      data.frame(panel = lab, who = "reference", x = ref$x_aligned, y = ref$y_aligned),
+      data.frame(panel = lab, who = ov$role[i], x = d$x_aligned, y = d$y_aligned))
+  }
+  if (!length(panels)) return(NULL)
+  pd <- do.call(rbind, panels)
+  pd$panel <- factor(pd$panel, levels = unique(pd$panel))
+  cols <- c(reference = "grey70", stats::setNames(.role_colour(ov$role), ov$role))
+  ggplot(pd, aes(x = x, y = y, colour = who)) +
+    geom_point(data = pd[pd$who == "reference", ], shape = 1, size = 1.4) +
+    geom_point(data = pd[pd$who != "reference", ], size = 0.9, alpha = 0.8) +
+    scale_colour_manual(values = cols, guide = "none") +
+    facet_wrap(~panel, nrow = 1) + coord_equal() +
+    labs(x = NULL, y = NULL, subtitle = "Grey rings: the reference instrument's particles") +
+    theme_minimal(base_size = 11) +
+    theme(axis.text = element_blank(), panel.grid = element_blank(),
+          panel.border = element_rect(colour = "grey80", fill = NA),
+          strip.text = element_text(face = "bold"))
+}
+
+SIZE_DF_KEYS <- c(ftir = "ftir_pe", ftir_bruker = "ftir_bruker", raman = "raman", ldir = "ldir")
+
+#' Size distributions of all instruments on one axis (density of Feret max,
+#' log scale), each instrument's median as a dashed line
+plot_size_overlay <- function(dfs) {
+  parts <- lapply(names(SIZE_DF_KEYS), function(k) {
+    d <- dfs[[k]]
+    if (is.null(d) || !nrow(d) || !"feret_max" %in% names(d)) return(NULL)
+    v <- d$feret_max[is.finite(d$feret_max) & d$feret_max > 0]
+    if (length(v) < 2) return(NULL)
+    data.frame(inst = SIZE_DF_KEYS[[k]], size = v)
+  })
+  pd <- do.call(rbind, parts)
+  if (is.null(pd) || !nrow(pd)) return(NULL)
+  lab <- c(ftir_pe = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)", raman = "Raman", ldir = "LDIR")
+  lev <- intersect(names(lab), unique(pd$inst))
+  pd$inst <- factor(pd$inst, levels = lev)
+  med <- stats::aggregate(size ~ inst, pd, stats::median)
+  ggplot(pd, aes(x = size, colour = inst)) +
+    geom_density(linewidth = 1, adjust = 1, key_glyph = "path") +
+    geom_vline(data = med, aes(xintercept = size, colour = inst), linetype = "dashed",
+               show.legend = FALSE) +
+    scale_x_log10(breaks = c(10, 20, 50, 100, 200, 500, 1000, 2000)) +
+    scale_colour_manual(values = INSTRUMENT_COLOURS[lev], labels = lab[lev], name = NULL) +
+    labs(x = "Feret max (\u00b5m, log scale)", y = "Density",
+         subtitle = "Dashed: each instrument's median") +
+    theme_minimal(base_size = 12) + theme(legend.position = "bottom")
+}
+
+#' Median size per instrument with its 95% interval (order statistics of the
+#' binomial distribution) and the interquartile range
+size_median_table <- function(dfs) {
+  lab <- c(ftir = "FTIR (PerkinElmer)", ftir_bruker = "FTIR (Bruker)", raman = "Raman", ldir = "LDIR")
+  rows <- lapply(names(lab), function(k) {
+    d <- dfs[[k]]
+    v <- if (!is.null(d) && "feret_max" %in% names(d)) sort(d$feret_max[is.finite(d$feret_max)]) else numeric(0)
+    n <- length(v)
+    if (n < 2) return(NULL)
+    j <- max(1, floor(n / 2 - 1.96 * sqrt(n) / 2)); k2 <- min(n, ceiling(n / 2 + 1 + 1.96 * sqrt(n) / 2))
+    out <- data.frame(Instrument = lab[[k]], n = n, median = round(stats::median(v), 1),
+                      ci = paste0(sprintf("%.1f", v[j]), "\u2013", sprintf("%.1f", v[k2])),
+                      iqr = paste0(sprintf("%.1f", stats::quantile(v, 0.25)), "\u2013",
+                                   sprintf("%.1f", stats::quantile(v, 0.75))),
+                      stringsAsFactors = FALSE)
+    names(out) <- c("Instrument", "n", "Median (\u00b5m)", "95% interval", "IQR (\u00b5m)")
+    out
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (!length(rows)) return(data.frame())
+  do.call(rbind, rows)
+}
+
+#' The pair matrix in one sentence, from its largest row: "Read across: of
+#' Raman's 36 particles, LDIR identified 78% (62-88)."
+pair_matrix_guide <- function(pm) {
+  if (is.null(pm)) return(NULL)
+  n <- apply(pm$n, 1, function(r) suppressWarnings(max(r, na.rm = TRUE)))
+  i <- which.max(replace(n, !is.finite(n), -1))
+  j <- which(!is.na(pm$identified[i, ]))[1]
+  if (!length(j) || is.na(j)) return(NULL)
+  sprintf("Read across: of %s's %d particles, %s identified %s and detected %s.",
+          rownames(pm$identified)[i], as.integer(pm$n[i, j]), colnames(pm$identified)[j],
+          pm$identified[i, j], pm$detected[i, j])
+}
+
+#' Particle groups as an UpSet-style chart: one bar per combination of
+#' instruments (stacked by the group's polymer family when given), and under
+#' the instrument names a dot matrix marking which instruments the
+#' combination has
+plot_particle_groups <- function(g, max_families = 8) {
+  if (is.null(g) || !nrow(g)) return(NULL)
+  g$combo <- as.character(g$combo)
+  combos <- unique(g$combo)
+  if (!"family" %in% names(g)) g$family <- "particles"
+  ft <- sort(tapply(g$n, g$family, sum), decreasing = TRUE)
+  keepf <- names(ft)[seq_len(min(max_families, length(ft)))]
+  g$family <- ifelse(g$family %in% keepf, g$family, "other")
+  g <- stats::aggregate(n ~ combo + family, g, sum)
+  fams <- c(setdiff(names(sort(tapply(g$n, g$family, sum), decreasing = TRUE)), c("unknown", "other")),
+            intersect(c("unknown", "other"), unique(g$family)))
+  g$family <- factor(g$family, levels = rev(fams))
+  g$y <- match(g$combo, rev(combos))
+  tot <- tapply(g$n, g$combo, sum)
+  insts <- names(ROLE_LABELS)[vapply(ROLE_LABELS, function(l) any(grepl(l, combos, fixed = TRUE)), logical(1))]
+  short <- c(ftir_perkin = "PE", ftir_bruker = "Bruker", raman = "Raman", ldir = "LDIR")
+  step <- max(tot) * 0.15
+  xs <- -step * rev(seq_along(insts)) - step * 0.2
+  dots <- do.call(rbind, lapply(seq_along(combos), function(i) {
+    has <- vapply(insts, function(r) ROLE_LABELS[[r]] %in% strsplit(combos[i], " + ", fixed = TRUE)[[1]], logical(1))
+    data.frame(x = xs, y = length(combos) - i + 1, has = has, inst = insts)
+  }))
+  segs <- do.call(rbind, lapply(split(dots[dots$has, ], dots$y[dots$has]), function(d)
+    if (nrow(d) > 1) data.frame(x = min(d$x), xend = max(d$x), y = d$y[1]) else NULL))
+  fill <- stats::setNames(family_colour(levels(g$family)), levels(g$family))
+  fill[c("unknown", "other", "particles")] <- c("#BDC3C7", "#7F8C8D", "#2E86C1")
+  fill <- fill[levels(g$family)]
+  ggplot() +
+    geom_col(data = g, aes(x = n, y = y, fill = family), orientation = "y", width = 0.7) +
+    geom_text(data = data.frame(x = as.numeric(tot), y = match(names(tot), rev(combos))),
+              aes(x = x, y = y, label = x), hjust = -0.25, size = 3.4) +
+    { if (!is.null(segs) && nrow(segs)) geom_segment(data = segs, aes(x = x, xend = xend, y = y, yend = y),
+                                                     colour = "grey30", linewidth = 0.8) } +
+    geom_point(data = dots, aes(x = x, y = y), size = 3.2,
+               colour = ifelse(dots$has, "grey15", "grey85")) +
+    scale_fill_manual(values = fill, name = if (identical(levels(g$family), "particles")) NULL else "Polymer family",
+                      breaks = rev(levels(g$family))) +
+    scale_x_continuous(breaks = c(xs, pretty(c(0, max(tot)))[pretty(c(0, max(tot))) >= 0]),
+                       labels = c(short[insts], pretty(c(0, max(tot)))[pretty(c(0, max(tot))) >= 0]),
+                       expand = expansion(mult = c(0.02, 0.1))) +
+    scale_y_continuous(breaks = NULL) +
+    labs(x = "Instruments that found the particle (dots)  |  particles", y = NULL) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = if (identical(levels(g$family), "particles")) "none" else "right",
+          panel.grid.major.y = element_blank())
+}
+
+#' Material concordance of every instrument pair in one line each: pairs,
+#' share with the same family, and the most common disagreement
+summary_concordance_overview <- function(run_dir) {
+  ch <- summary_concordance_choices(run_dir)
+  if (!length(ch)) return(data.frame())
+  rows <- lapply(seq_along(ch), function(i) {
+    tb <- summary_concordance(run_dir, ch[[i]])
+    if (is.null(tb)) return(NULL)
+    rn <- rownames(tb); cn <- colnames(tb)
+    same <- outer(rn, cn, "==")
+    agree <- sum(tb[same])
+    off <- tb; off[same] <- 0
+    dis <- if (sum(off) > 0) {
+      w <- which(off == max(off), arr.ind = TRUE)[1, ]
+      paste0(rn[w[1]], " \u2192 ", cn[w[2]], " (", as.integer(off[w[1], w[2]]), ")")
+    } else "none"
+    data.frame(Pair = names(ch)[i], Pairs = sum(tb),
+               `Same family` = sprintf("%d (%.0f%%)", agree, 100 * agree / max(1, sum(tb))),
+               `Most common disagreement` = dis, check.names = FALSE, stringsAsFactors = FALSE)
+  })
+  do.call(rbind, Filter(Negate(is.null), rows))
+}
+
+#' "Why not matched" for one instrument, interactive: one bar per partner
+#' instrument, stacked by status, labelled with count and share; each segment
+#' carries "of|found_by|status" for the click-through to the overlay
+plot_partner_status_plotly <- function(tb, of, source = "partner_status") {
+  tb <- tb[tb$of == of, , drop = FALSE]
+  if (!nrow(tb)) return(NULL)
+  tb$partner <- .role_label(tb$found_by)
+  tb$status <- as.character(tb$status)
+  p <- plotly::plot_ly(source = source)
+  for (st in intersect(names(PARTNER_STATUS_ORDER), unique(tb$status))) {
+    d <- tb[tb$status == st, , drop = FALSE]
+    p <- plotly::add_trace(p, type = "bar", orientation = "h", x = d$pct, y = d$partner,
+                           name = PARTNER_STATUS_ORDER[[st]], marker = list(color = PARTNER_STATUS_FILL[[st]]),
+                           text = ifelse(d$pct >= 7, sprintf("%d (%.0f%%)", d$n, d$pct), ""),
+                           textposition = "inside", insidetextanchor = "middle",
+                           customdata = paste(d$of, d$found_by, d$status, sep = "|"),
+                           hovertext = sprintf("%s: %d of %d (%.0f%%)<br>click: show them in the overlay",
+                                               PARTNER_STATUS_ORDER[[st]], d$n, d$total, d$pct),
+                           hoverinfo = "text")
+  }
+  plotly::layout(p, barmode = "stack",
+                 xaxis = list(title = paste0("Share of ", .role_label(of), "'s particles (%)"), range = c(0, 100)),
+                 yaxis = list(title = "", categoryorder = "array",
+                              categoryarray = rev(intersect(ROLE_LABELS, unique(tb$partner)))),
+                 legend = list(orientation = "h", y = -0.3, traceorder = "normal"),
+                 margin = list(l = 130)) |>
+    plotly::event_register("plotly_click")
+}
+
+#' The particles behind one segment of the "why not matched" chart
+partner_status_ids <- function(run_dir, of, found_by, status, passing_only = TRUE) {
+  f <- file.path(run_dir %||% "", "05_matches", "partner_status.csv")
+  if (is.null(run_dir) || !file.exists(f)) return(character(0))
+  ps <- utils::read.csv(f, stringsAsFactors = FALSE)
+  keep <- ps$of == of & ps$found_by == found_by & ps$status == status
+  if (passing_only && "passes" %in% names(ps)) keep <- keep & ps$passes %in% TRUE
+  as.character(ps$particle_id[keep])
 }

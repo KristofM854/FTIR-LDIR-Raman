@@ -590,25 +590,7 @@ ui <- fluidPage(
       div(id = "summary_panel",
       fluidRow(
         column(10, offset = 1,
-          # One scope control for the WHOLE tab, so the numbers here can never
-          # silently disagree with what the instrument tabs are showing.
           div(class = "info-box", style = "margin-top: 20px;",
-            fluidRow(
-              column(5,
-                radioButtons("summary_scope", "Particles included",
-                             choices = c("All particles in the run" = "all",
-                                         "Only those passing each tab's filters" = "filtered"),
-                             selected = "filtered")),
-              column(7, p(class = "text-muted", style = "margin-top: 26px;",
-                "Applies to every panel on this tab — the comparison bar chart, ",
-                "the material table, the pie charts and the size distributions. ",
-                "Pick the second option to make this tab follow the quality / ",
-                "size / material filters you set on the FTIR, Raman, Bruker and ",
-                "LDIR tabs. The alignment and agreement sections always use the ",
-                "whole run, as the pipeline matched it."))
-            )
-          ),
-          div(class = "info-box", style = "margin-top: 12px;",
             h4("Report", style = "margin-top: 0;"),
             fluidRow(
               column(4,
@@ -620,8 +602,8 @@ ui <- fluidPage(
               column(5, p(class = "text-muted", style = "margin-top: 26px;",
                 "Downloads a ZIP containing a PDF and an interactive HTML report. ",
                 "Both reproduce the viewer exactly as it is right now \u2014 the scope ",
-                "above and the filters on each tab. The HTML includes the interactive ",
-                "material bar chart; the PDF is suitable for printing and archiving."))
+                "of part 2 and the filters on each tab. The PDF is suitable for ",
+                "printing and archiving."))
             )
           ),
           hr(),
@@ -629,15 +611,34 @@ ui <- fluidPage(
             h4("1. Alignment check (whole run)"),
             p(class = "text-muted",
               "How each instrument was put into the shared frame. Read this first: if an ",
-              "alignment is not fixed by the data, its pairs below mean nothing. Residual: ",
-              "remaining distance after the fit; positional error \u03c3: spread of true ",
-              "partners (99% lie within 3\u03c3); pose by chance: probability that a random ",
-              "arrangement gives as many anchor pairs."),
-            uiOutput("summary_alignment_table")
+              "alignment is not fixed by the data, its pairs below mean nothing."),
+            uiOutput("summary_alignment_cards"),
+            plotOutput("summary_alignment_thumbs", height = "260px"),
+            tags$details(
+              tags$summary("Details: method, scale, residual, positional error, pose by chance"),
+              p(class = "text-muted", style = "font-size: 12px;",
+                "Residual: remaining distance after the fit; positional error \u03c3: spread of ",
+                "true partners (99% lie within 3\u03c3); pose by chance: probability that a ",
+                "random arrangement gives as many anchor pairs."),
+              uiOutput("summary_alignment_table"))
           ),
           hr(),
           h3("2. What each instrument found", style = "margin-left: 4px;"),
-          div(class = "info-box", style = "margin-top: 20px;",
+          div(class = "info-box", style = "margin-top: 12px;",
+            fluidRow(
+              column(5,
+                radioButtons("summary_scope", "Particles included in this part",
+                             choices = c("All particles in the run" = "all",
+                                         "Only those passing each tab's filters" = "filtered"),
+                             selected = "filtered")),
+              column(7, p(class = "text-muted", style = "margin-top: 26px;",
+                "Applies to this part only: the material chart and table and the sizes. ",
+                "The second option follows the quality / size / material filters you set ",
+                "on the FTIR, Raman, Bruker and LDIR tabs. Parts 1 and 3 always use the ",
+                "whole run, as the pipeline matched it."))
+            )
+          ),
+          div(class = "info-box", style = "margin-top: 12px;",
             h4("Material Comparison Across Instruments", summary_scope_badge()),
             fluidRow(
               # Dropdown left; toggles stacked in order on the right
@@ -671,31 +672,23 @@ ui <- fluidPage(
             p(class = "text-muted",
               "Hover over bars for exact counts. Click legend entries to show/hide families.",
               "Select a specific family from the dropdown to compare it across instruments."),
-            plotly::plotlyOutput("summary_material_barplot", height = "500px")
+            plotly::plotlyOutput("summary_material_barplot", height = "500px"),
+            tags$details(tags$summary("Show as a table: plastics by instrument"),
+                         uiOutput("summary_plastics_wide"))
           ),
           hr(),
           div(class = "info-box",
-            h4("Plastics by Instrument", summary_scope_badge()),
+            h4("Particle Sizes", summary_scope_badge()),
             p(class = "text-muted",
-              "Material family counts per device."),
-            uiOutput("summary_plastics_wide")
-          ),
-          hr(),
-          div(class = "info-box",
-            h4("Size Distribution by Instrument", summary_scope_badge()),
-            p(class = "text-muted",
-              "Histogram of particle Feret Max (\u00b5m) per instrument."),
-            fluidRow(
-              column(4, plotOutput("size_hist_ftir",    height = "280px")),
-              column(4, plotOutput("size_hist_raman",   height = "280px")),
-              column(4, plotOutput("size_hist_ldir",    height = "280px"))
-            ),
-            hr(),
-            h5("Size Statistics"),
-            p(class = "text-muted", style = "font-size: 12px;",
-              "Above / below each instrument's quality cutoff (the run's settings): ",
-              "the pipeline matches only particles above it."),
-            uiOutput("size_stats_table")
+              "Feret max of every instrument on one axis (log scale). A shift between the ",
+              "curves means the instruments size particles differently or find a different ",
+              "size range; compare the medians and their intervals below."),
+            plotOutput("summary_size_overlay", height = "360px"),
+            h5("Median size"),
+            uiOutput("summary_size_medians"),
+            tags$details(tags$summary("Size statistics and quality cutoffs"),
+              uiOutput("summary_size_stats_note"),
+              uiOutput("size_stats_table"))
           ),
           hr(),
           h3("3. How the instruments agree (whole run)", style = "margin-left: 4px;"),
@@ -704,64 +697,74 @@ ui <- fluidPage(
             p(class = "text-muted",
               "Row instrument's particles (above its quality cutoff, \u2265 the minimum size, ",
               "inside the area the column instrument covered): the share the column ",
-              "instrument also has. Identified: paired with a particle above the column ",
-              "instrument's cutoff. Detected: any particle of it within the distance gate, ",
-              "whatever its quality. In brackets: 95% interval."),
-            fluidRow(
-              column(6, radioButtons("summary_matrix_measure", NULL,
-                                     choices = c("Identified" = "identified", "Detected" = "detected"),
-                                     selected = "identified", inline = TRUE)),
-              column(6, radioButtons("summary_matrix_group", NULL,
-                                     choices = c("All particles" = "all", "Plastics" = "plastics"),
-                                     selected = "all", inline = TRUE))),
+              "instrument also has. Top: identified, paired with a particle above the column ",
+              "instrument's cutoff. Below: detected, any particle of it within the distance ",
+              "gate whatever its quality; the difference is the particles it found below its ",
+              "cutoff. In brackets: 95% interval."),
+            radioButtons("summary_matrix_group", NULL,
+                         choices = c("All particles" = "all", "Plastics" = "plastics"),
+                         selected = "all", inline = TRUE),
             uiOutput("summary_pair_matrix"),
-            h5("Matching quality per pair"),
-            uiOutput("summary_matching_table")
+            uiOutput("summary_pair_matrix_guide"),
+            tags$details(tags$summary("Details: matching quality per pair"),
+                         uiOutput("summary_matching_table"))
           ),
           hr(),
           div(class = "info-box",
             h4("Why particles are not matched"),
             p(class = "text-muted",
-              "For each instrument and partner: what the partner has at the instrument's ",
-              "particles, whatever the quality. Below cutoff: the partner found a particle ",
-              "there but its spectrum did not pass the cutoff (or this particle's did not). ",
-              "Paired elsewhere: a partner particle is nearby but is paired with another one."),
-            checkboxInput("summary_status_passing", "Only particles above their own quality cutoff",
-                          value = TRUE),
-            plotOutput("summary_partner_status", height = "520px")
+              "For one instrument's particles: what each partner instrument has at the same ",
+              "place, whatever the quality. Below cutoff: the partner found a particle there ",
+              "but its spectrum did not pass the cutoff (or this particle's did not). Paired ",
+              "elsewhere: a partner particle is nearby but is paired with another one."),
+            fluidRow(
+              column(5, selectInput("summary_status_inst", "Particles of", choices = character(0))),
+              column(7, style = "padding-top: 25px;",
+                checkboxInput("summary_status_passing", "Only particles above their own quality cutoff",
+                              value = TRUE))),
+            plotly::plotlyOutput("summary_partner_status", height = "330px"),
+            p(class = "text-muted", style = "font-size: 12px;",
+              "Click a segment to see those particles highlighted in the Overlay tab.")
           ),
           hr(),
           div(class = "info-box",
             h4("Particle groups"),
             p(class = "text-muted",
               "Particles linked through the pairs of any two instruments, counted by the ",
-              "instruments that found them (each above its quality cutoff). One instrument ",
-              "alone: found by it and matched by none of the others. Same groups as the ",
-              "overlay's symbol view."),
-            radioButtons("summary_groups_scope", NULL,
-                         choices = c("All particles" = "all", "Groups with a synthetic polymer" = "synthetic"),
-                         selected = "all", inline = TRUE),
+              "instruments that found them (each above its quality cutoff): the dots mark ",
+              "which instruments a bar's particles were found by. One dot: found by that ",
+              "instrument and matched by none of the others. Same groups as the overlay's ",
+              "symbol view."),
+            fluidRow(
+              column(7, radioButtons("summary_groups_scope", NULL,
+                                     choices = c("All particles" = "all",
+                                                 "Groups with a synthetic polymer" = "synthetic"),
+                                     selected = "all", inline = TRUE)),
+              column(5, checkboxInput("summary_groups_family", "Split by polymer family", value = TRUE))),
             plotOutput("summary_particle_groups", height = "420px")
           ),
           hr(),
           div(class = "info-box",
             h4("Material concordance"),
             p(class = "text-muted",
-              "For one instrument pair: material family the first instrument assigned ",
-              "(rows) against the second (columns), over their pairs. Diagonal: agreement."),
-            selectInput("summary_concordance_pair", "Instrument pair", choices = character(0)),
+              "For each instrument pair: how often both instruments assigned the same ",
+              "polymer family to the same particle, and the most common disagreement."),
+            uiOutput("summary_concordance_overview"),
+            selectInput("summary_concordance_pair", "Pair in detail", choices = character(0)),
+            p(class = "text-muted", style = "font-size: 12px;",
+              "Family of the first instrument (rows) against the second (columns). Diagonal: agreement."),
             uiOutput("summary_concordance_table")
           ),
           hr(),
           div(class = "info-box",
             h4("Detection Rates by Size (whole run)"),
             p(class = "text-muted",
-              "Of the particles one instrument found (passing its quality cutoff, ",
-              "≥ 20 µm, inside the area the other covered), the share the other ",
-              "instrument also has at the same place, by particle size. Identified: paired ",
-              "with a particle passing the other's quality cutoff. Detected: any particle of ",
-              "the other within the distance gate (hover: corrected for chance). ",
-              "Bars: 95% interval. Not affected by the tab filters."),
+              "For each instrument's particles (above its quality cutoff, \u2265 the minimum ",
+              "size, inside the area the other covered): the share the other instrument also ",
+              "has at the same place, by particle size. Identified: paired with a particle ",
+              "above the other's quality cutoff. Detected: any particle of the other within ",
+              "the distance gate (hover: corrected for chance). Bars: 95% interval; under ",
+              "each size class the number of particles of each instrument."),
             fluidRow(
               column(5, selectInput("summary_detection_pair", "Instrument pair",
                                     choices = character(0))),
@@ -1267,7 +1270,8 @@ server <- function(input, output, session) {
       barmode = if (sel_fam == "__all_plastics__") "stack" else "group",
       title   = list(text = title_str, x = 0.5, xanchor = "center",
                      font = list(size = 17)),
-      xaxis   = list(title = "", tickfont = list(size = 14)),
+      xaxis   = list(title = "", tickfont = list(size = 14),
+                     categoryorder = "array", categoryarray = inst_levels),
       yaxis   = list(title = y_label,
                      titlefont = list(size = 14), tickfont = list(size = 13)),
       legend  = list(title  = list(text = "<b>Family</b>", font = list(size = 14)),
@@ -1289,7 +1293,7 @@ server <- function(input, output, session) {
     if (nrow(d)) {
       lab <- function(x) unname(ifelse(x %in% names(DETECTION_INSTRUMENT_LABEL),
                                        DETECTION_INSTRUMENT_LABEL[x], x))
-      d$direction <- paste(lab(d$found_by), "finds", lab(d$of))
+      d$direction <- paste0("Of ", lab(d$of), "'s particles: found by ", lab(d$found_by))
       d$pair <- ifelse(d$found_by < d$of, paste(lab(d$found_by), "–", lab(d$of)),
                        paste(lab(d$of), "–", lab(d$found_by)))
     }
@@ -1324,6 +1328,13 @@ server <- function(input, output, session) {
     }
     lv <- c("20-50", "50-100", "100-200", ">200")
     d <- d[order(d$direction, match(d$size_class, lv)), ]
+    # Under each size class: the particles of each instrument in it
+    dirs <- sort(unique(d$direction))
+    tick <- vapply(lv, function(cl) {
+      n <- vapply(dirs, function(dr) { v <- d$n_base[d$size_class == cl & d$direction == dr]
+                                       if (length(v)) as.character(v[1]) else "0" }, "")
+      paste0(cl, "<br><span style='font-size:11px'>n = ", paste(n, collapse = " / "), "</span>")
+    }, "")
     # Numeric x, the two directions offset so their interval bars do not overlap
     d$xpos <- match(d$size_class, lv) + ifelse(d$direction == sort(unique(d$direction))[1],
                                                -0.06, 0.06)
@@ -1336,7 +1347,7 @@ server <- function(input, output, session) {
                     error_y = ~list(type = "data", symmetric = FALSE,
                                     array = hi - y, arrayminus = y - lo)) |>
       plotly::layout(xaxis = list(title = "Feret max of the base particle (µm)",
-                                  tickvals = seq_along(lv), ticktext = lv,
+                                  tickvals = seq_along(lv), ticktext = unname(tick),
                                   range = c(0.5, length(lv) + 0.5)),
                      yaxis = list(title = if (det) "Detected by the other instrument (%)"
                                           else "Identified by the other instrument (%)",
@@ -1446,37 +1457,29 @@ server <- function(input, output, session) {
   # Helper: plot size distribution for one instrument
   # plot_size_distribution() now lives in global.R -- shared with the pipeline report
 
-  output$size_hist_ftir <- renderPlot({
-    df <- summary_dfs()$ftir
-    if (is.null(df) || nrow(df) == 0) {
-      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No FTIR data"),
-                                   size = 4, colour = "grey50") + theme_void())
-    }
-    plot_size_distribution(df, "FTIR (PerkinElmer)")
-  }) |> bindCache(summary_dfs()$ftir)
-
-  output$size_hist_raman <- renderPlot({
-    df <- summary_dfs()$raman
-    if (is.null(df) || nrow(df) == 0) {
-      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No Raman data"),
-                                   size = 4, colour = "grey50") + theme_void())
-    }
-    plot_size_distribution(df, "Raman")
-  }) |> bindCache(summary_dfs()$raman)
-
-  output$size_hist_ldir <- renderPlot({
-    df <- summary_dfs()$ldir
-    if (is.null(df) || nrow(df) == 0) {
-      return(ggplot() + geom_text(aes(x = 0.5, y = 0.5, label = "No LDIR data"),
-                                   size = 4, colour = "grey50") + theme_void())
-    }
-    plot_size_distribution(df, "LDIR")
-  }) |> bindCache(summary_dfs()$ldir)
+  # Sizes of all instruments on one axis, with medians and their intervals
+  output$summary_size_overlay <- renderPlot({
+    g <- plot_size_overlay(summary_dfs())
+    if (is.null(g)) g <- ggplot() + annotate("text", x = 0, y = 0, size = 5, colour = "grey50",
+                                            label = "No particles") + theme_void()
+    g
+  }) |> bindCache(summary_dfs())
+  output$summary_size_medians <- renderUI(.html_df_table(size_median_table(summary_dfs()),
+                                                         "No particles"))
+  output$summary_size_stats_note <- renderUI({
+    cs <- active_manifest()$config_snapshot
+    ms <- suppressWarnings(as.numeric(unlist(cs$min_particle_size_um)))
+    p(class = "text-muted", style = "font-size: 12px;",
+      "Above / below each instrument's quality cutoff (the run's settings): the pipeline ",
+      "matches only particles above it, and only particles of at least ",
+      if (length(ms) && is.finite(ms[1])) ms[1] else 20, " \u00b5m.")
+  })
 
   # Size statistics table
   # Per-instrument size statistics. Values come from report_size_stats_table()
   # in global.R, shared with the PDF report.
-  summary_size_stats_df <- reactive(report_size_stats_table(summary_dfs()))
+  summary_size_stats_df <- reactive(report_size_stats_table(
+    summary_dfs(), quality_cutoffs(active_manifest()$config_snapshot)))
 
   output$size_stats_table <- renderUI({
     tbl <- summary_size_stats_df()
@@ -1506,43 +1509,108 @@ server <- function(input, output, session) {
         else tags$td(v)
       })))))
   }
+  output$summary_alignment_cards <- renderUI({
+    ov <- alignment_overview(selected_run_dir())
+    if (!nrow(ov)) return(tags$p(class = "text-muted",
+                                 "No alignment_summary.csv in this run (re-run the pipeline)."))
+    badge <- function(v) switch(v,
+      ok = tags$span(class = "label", style = "background:#1E8449;", "\u2713 fixed by the data"),
+      check = tags$span(class = "label", style = "background:#D68910;", "check"),
+      tags$span(class = "label", style = "background:#b02a37;", "NOT DETERMINED"))
+    tags$div(lapply(seq_len(nrow(ov)), function(i) tags$div(
+      style = "margin: 4px 0; font-size: 14px;",
+      badge(ov$verdict[i]), " ",
+      tags$b(ov$instrument[i]),
+      paste0(" on ", ov$reference[i], ": ", ov$orientation[i], " \u00b7 "),
+      tags$span(style = if (!ov$scale_ok[i]) "color:#D68910; font-weight:bold;",
+                sprintf("scale %.3f", ov$scale[i]),
+                if (!ov$scale_ok[i]) " (outside 0.97\u20131.03)"),
+      sprintf(" \u00b7 residual %.0f \u00b5m \u00b7 %d pairs with %s", ov$residual_um[i],
+              as.integer(ov$n_matched[i]), ov$reference[i]))))
+  })
+  output$summary_alignment_thumbs <- renderPlot({
+    g <- tryCatch(plot_alignment_thumbnails(selected_run_dir()), error = function(e) NULL)
+    shiny::validate(shiny::need(!is.null(g), "No aligned particles in this run."))
+    g
+  })
   output$summary_alignment_table <- renderUI(.html_df_table(
     summary_alignment_table(selected_run_dir()),
     "No alignment_summary.csv in this run (re-run the pipeline)."))
   output$summary_matching_table <- renderUI(.html_df_table(
     tryCatch(report_matching_table(selected_run_dir()), error = function(e) data.frame())))
+  summary_pm <- reactive(summary_pair_matrix(selected_run_dir(), input$summary_matrix_group %||% "all"))
   output$summary_pair_matrix <- renderUI({
-    pm <- summary_pair_matrix(selected_run_dir(), input$summary_matrix_group %||% "all")
+    pm <- summary_pm()
     if (is.null(pm)) return(tags$p(class = "text-muted", "No detection_rates.csv in this run."))
-    meas <- input$summary_matrix_measure %||% "identified"
-    txt <- pm[[meas]]; val <- pm[[paste0(meas, "_pct")]]
     shade <- function(v) if (is.na(v)) "#f4f4f4" else
       grDevices::rgb(grDevices::colorRamp(c("#FDEDEC", "#D6EAF8", "#2E86C1"))(v / 100), maxColorValue = 255)
+    idt <- pm$identified; val <- pm$identified_pct
     tags$table(class = "table table-condensed table-bordered", style = "width:auto;",
       tags$thead(tags$tr(tags$th("Particles of \u2193 / found by \u2192"),
-                         lapply(colnames(txt), tags$th))),
-      tags$tbody(lapply(seq_len(nrow(txt)), function(i) tags$tr(
-        tags$td(tags$b(rownames(txt)[i]), tags$br(),
+                         lapply(colnames(idt), tags$th))),
+      tags$tbody(lapply(seq_len(nrow(idt)), function(i) tags$tr(
+        tags$td(tags$b(rownames(idt)[i]), tags$br(),
                 tags$span(style = "font-size:11px; color:#888;",
-                          paste0("n = ", max(pm$n[i, ], na.rm = TRUE)))),
-        lapply(seq_len(ncol(txt)), function(j) {
+                          paste0("n = ", suppressWarnings(max(pm$n[i, ], na.rm = TRUE))))),
+        lapply(seq_len(ncol(idt)), function(j) {
           if (i == j) return(tags$td(style = "background:#eee;", "\u2014"))
           v <- val[i, j]
-          tags$td(style = paste0("background:", shade(v), "; color:",
-                                 if (!is.na(v) && v > 70) "white" else "black", ";"),
-                  if (is.na(txt[i, j])) "\u2013" else txt[i, j])
+          ink <- if (!is.na(v) && v > 70) "white" else "black"
+          tags$td(style = paste0("background:", shade(v), "; color:", ink, ";"),
+                  if (is.na(idt[i, j])) "\u2013" else tagList(
+                    tags$b(idt[i, j]), tags$br(),
+                    tags$span(style = "font-size:11px;", paste("detected", pm$detected[i, j]))))
         })))))
   })
-  output$summary_partner_status <- renderPlot({
-    g <- plot_partner_status(summary_partner_status_counts(
-      selected_run_dir(), passing_only = isTRUE(input$summary_status_passing)))
-    if (is.null(g)) g <- ggplot() + annotate("text", x = 0, y = 0, size = 5, colour = "grey50",
-      label = "No partner_status.csv in this run (re-run the pipeline)") + theme_void()
-    g
+  output$summary_pair_matrix_guide <- renderUI({
+    g <- pair_matrix_guide(summary_pm())
+    if (is.null(g)) NULL else p(style = "font-size: 13px; color: #555;", g)
+  })
+  summary_status_tb <- reactive(summary_partner_status_counts(
+    selected_run_dir(), passing_only = isTRUE(input$summary_status_passing)))
+  observeEvent(summary_status_tb(), {
+    tb <- summary_status_tb()
+    of <- intersect(names(ROLE_LABELS), unique(tb$of))
+    ch <- stats::setNames(of, .role_label(of))
+    sel <- isolate(input$summary_status_inst)
+    updateSelectInput(session, "summary_status_inst", choices = ch,
+                      selected = if (!is.null(sel) && sel %in% of) sel else
+                        if ("raman" %in% of) "raman" else of[1])
+  })
+  output$summary_partner_status <- plotly::renderPlotly({
+    tb <- summary_status_tb()
+    shiny::validate(shiny::need(nrow(tb) > 0, "No partner_status.csv in this run (re-run the pipeline)."))
+    of <- input$summary_status_inst
+    shiny::validate(shiny::need(!is.null(of) && nzchar(of), ""))
+    plot_partner_status_plotly(tb, of)
+  })
+  # Click on a segment: those particles highlighted in the overlay, with the
+  # two instruments shown and every material visible
+  observeEvent(plotly::event_data("plotly_click", source = "partner_status"), {
+    ev <- plotly::event_data("plotly_click", source = "partner_status")
+    key <- ev$customdata
+    if (is.null(key) || !length(key)) return()
+    part <- strsplit(as.character(key[[1]]), "|", fixed = TRUE)[[1]]
+    if (length(part) != 3) return()
+    ids <- partner_status_ids(selected_run_dir(), part[1], part[2], part[3],
+                              passing_only = isTRUE(input$summary_status_passing))
+    ov <- unname(ROLE_OV_KEY[part[1:2]])
+    sel_id <- .OV_INST[[ov[1]]]$sel
+    full <- overlay_dfs_full()[[.OV_INST[[ov[1]]]$df]]
+    if (is.null(full) || !length(ids)) return()
+    updateCheckboxGroupInput(session, "overlay_instruments", selected = ov)
+    updateRadioButtons(session, "overlay_global_material", selected = "all")
+    updateSelectizeInput(session, sel_id, choices = natural_sort_ids(unique(full$particle_id)),
+                         selected = ids, server = TRUE)
+    updateNavbarPage(session, "main_tabs", selected = "Overlay")
+    showNotification(sprintf("%d %s particles (%s) highlighted; all materials shown.",
+                             length(ids), .role_label(part[1]),
+                             tolower(PARTNER_STATUS_ORDER[[part[3]]])), duration = 6)
   })
   output$summary_particle_groups <- renderPlot({
     g <- plot_particle_groups(summary_particle_groups(
-      selected_run_dir(), synthetic_only = identical(input$summary_groups_scope, "synthetic")))
+      selected_run_dir(), synthetic_only = identical(input$summary_groups_scope, "synthetic"),
+      by_family = isTRUE(input$summary_groups_family)))
     if (is.null(g)) g <- ggplot() + annotate("text", x = 0, y = 0, size = 5, colour = "grey50",
       label = "No particles") + theme_void()
     g
@@ -1552,6 +1620,8 @@ server <- function(input, output, session) {
     updateSelectInput(session, "summary_concordance_pair", choices = ch,
                       selected = if (length(ch)) ch[[1]] else character(0))
   })
+  output$summary_concordance_overview <- renderUI(.html_df_table(
+    summary_concordance_overview(selected_run_dir()), "No pairs in this run."))
   output$summary_concordance_table <- renderUI({
     stem <- input$summary_concordance_pair
     if (is.null(stem) || !nzchar(stem)) return(tags$p(class = "text-muted", "No pairs in this run."))
@@ -1688,19 +1758,13 @@ server <- function(input, output, session) {
              ". 'Unknown' families are excluded; the Total row sums the ",
              "families shown."))))
 
-    size_plots <- list()
-    if (n_of("ftir") > 0)
-      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir, "FTIR (PerkinElmer)")))
-    if (n_of("ftir_bruker") > 0)
-      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ftir_bruker, "FTIR (Bruker)")))
-    if (n_of("raman") > 0)
-      size_plots <- c(size_plots, list(plot_size_distribution(dfs$raman, "Raman")))
-    if (n_of("ldir") > 0)
-      size_plots <- c(size_plots, list(plot_size_distribution(dfs$ldir, "LDIR")))
-    pages <- c(pages, list(report_grid_page(
-      size_plots, "Size Distribution by Instrument",
-      paste0("Feret Max (um) per instrument. Scope: ", scope, "."),
-      ncol = if (length(size_plots) == 4) 2 else min(3, max(1, length(size_plots))))))
+    pages <- c(pages, list(report_full_figure_page(
+      plot_size_overlay(dfs), "Particle Sizes",
+      paste0("Feret max (um) of every instrument on one axis (log scale); dashed: medians. ",
+             "Scope: ", scope, "."))))
+    pages <- c(pages, list(report_table_page(
+      .report_ascii_df(size_median_table(dfs)), "Median Size",
+      "Median Feret max per instrument with its 95% interval (order statistics) and the interquartile range.")))
 
     pages <- c(pages, list(report_table_page(
       summary_size_stats_df(), "Size Statistics",
